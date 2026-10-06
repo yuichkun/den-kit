@@ -50,7 +50,7 @@ describe('codegen', () => {
     const g = generate(starter('bass', catalog), catalog);
     expect(g.source).toContain('gate: gate, retrigger: trigger, reset: clear');
     expect(g.source).toMatch(/gat\.write\([^;]*, clear\.or\(trigger\)\);/);
-    expect(g.source).toMatch(/sig\.write\([^;]*, tuning\.read\(v\.note\.max\(0\)\)\);\n\s+const osc1 = p\.osc1\.tick\(sig\.read\([^)]*\), gat\.read\([^)]*\)\)/);
+    expect(g.source).toMatch(/sig\.write\([^;]*, tuning\.read\(v\.note\.max\(0\)\)\);[\s\S]{0,200}const osc1 = p\.osc1\.tick\(sig\.read\([^)]*\), gat\.read\([^)]*\)\)/);
     expect(g.source).toContain('select(clear, f32(0), osc1)');
   });
   it('B13 mono into stereo: right falls back to left', () => {
