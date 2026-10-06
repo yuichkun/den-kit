@@ -20,7 +20,6 @@ const editing = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const name = ref(session.doc.value.name);
 watch(() => session.doc.value.name, n => { name.value = n; });
-const audioIn = computed(() => session.generated.value.audioIn);
 const statusText = computed(() => session.compileStatus.value === 'ok' ? `✓ ${session.compileMessage.value}` : session.compileMessage.value || session.compileStatus.value);
 
 // ⌘Z / ⇧⌘Z are the only undo controls, so they must work after touching a
@@ -33,8 +32,26 @@ function undoRedo(e: KeyboardEvent) {
   else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); session.redo(); }
   else if (e.key === 'Escape') editing.value = null;
 }
-onMounted(() => { window.addEventListener('keydown', undoRedo); window.addEventListener('pagehide', () => session.saveNow()); });
-onBeforeUnmount(() => window.removeEventListener('keydown', undoRedo));
+// Browsers only allow audio after a user gesture: start it on the first click or
+// key press anywhere (and resume it after the browser suspended it), so nobody
+// has to look for a button. After a failure, only the explicit button retries.
+function audioOnGesture(e: Event) {
+  const state = session.engineState.value;
+  // The start button itself starts audio on its own click (so it does not vanish mid-click).
+  if ((e.target as HTMLElement | null)?.closest?.('[data-audio-start]')) return;
+  if (state === 'off' || state === 'suspended') void session.ensureAudio();
+}
+onMounted(() => {
+  window.addEventListener('keydown', undoRedo);
+  window.addEventListener('pagehide', () => session.saveNow());
+  window.addEventListener('pointerdown', audioOnGesture, true);
+  window.addEventListener('keydown', audioOnGesture, true);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', undoRedo);
+  window.removeEventListener('pointerdown', audioOnGesture, true);
+  window.removeEventListener('keydown', audioOnGesture, true);
+});
 function rename() { session.commit([{ op: 'setName', name: name.value }]); }
 function exportPatch() {
   const blob = new Blob([session.exportText()], { type: 'application/json' });
@@ -68,12 +85,6 @@ function loadStarter(e: Event) { const id = (e.target as HTMLSelectElement).valu
       <button v-if="session.readOnly.value" class="primary" data-testid="take-over" title="This patch is open in another tab" @click="session.takeOver()">Read-only · Take over</button>
       <AiStatus v-if="session.bridge" :bridge="session.bridge" />
       <span class="status" :class="session.compileStatus.value" data-testid="compile-status" :title="session.compileMessage.value">{{ statusText }}</span>
-      <div class="group">
-        <select v-if="audioIn" :value="session.engine.testSignalKind" title="Test input for effect patches" @change="session.engine.setTestSignal(($event.target as HTMLSelectElement).value as never)"><option value="chords">Input: chords</option><option value="drums">Input: drums</option><option value="noise">Input: noise</option><option value="off">Input: off</option></select>
-        <button v-if="session.engineState.value !== 'running'" class="primary" data-testid="enable-audio" @click="session.enableAudio()">Enable audio</button>
-        <template v-else><span class="muted">Vol</span><input type="range" min="0" max="1" step="0.01" :value="session.engine.volume" @input="session.engine.setVolume(Number(($event.target as HTMLInputElement).value))" /></template>
-        <button v-if="session.healthMuted.value" class="primary" @click="session.engine.panic(); session.healthMuted.value = false">Reset audio</button>
-      </div>
     </div>
     <div class="main">
       <div class="sidebar"><slot name="sidebar-top" /><Inspector @edit-code="id => editing = id" /></div>

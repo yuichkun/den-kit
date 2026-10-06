@@ -132,6 +132,29 @@ describe('audio engine', () => {
     await page.close();
   });
 
+  it('audio starts on the first key press (no button needed); a note pressed meanwhile sounds; the controls sit next to the keys', async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    assert.equal(await page.$('.toolbar [data-testid=enable-audio]'), null, 'no audio button in the toolbar');
+    assert.ok(await page.$('.keyboard-bar [data-testid=enable-audio]'), 'start button next to the keys');
+    await page.keyboard.down('a');
+    await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
+    assert.ok(await outputPeak(page) > 0.005, 'the key pressed while audio was starting sounds');
+    await page.keyboard.up('a');
+    assert.ok(await page.$('.keyboard-bar [data-testid=volume]'));
+    assert.equal(await page.$('[data-testid=enable-audio]'), null);
+    assert.deepEqual(errors, []);
+    await page.close();
+    // A phrase button also starts audio by itself.
+    const second = await openKit(h);
+    await waitCompiled(second.page);
+    await second.page.click('[data-phrase=bass]');
+    await second.page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
+    assert.ok(await outputPeak(second.page, 1200) > 0.005, 'the phrase plays');
+    await second.page.click('[data-phrase=bass]');
+    await second.page.close();
+  });
+
   it('D1 a non-48 kHz device is refused with a clear message (and compiling still works)', async () => {
     const context = await h.browser.newContext();
     const page = await context.newPage();

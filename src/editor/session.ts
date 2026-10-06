@@ -205,6 +205,14 @@ export class KitSession {
     }
   }
 
+  private audioStarting: Promise<boolean> | null = null;
+  /** Start audio once (concurrent callers share the attempt); true when it runs. Call from a user gesture. */
+  ensureAudio(): Promise<boolean> {
+    if (this.engine.running) return Promise.resolve(true);
+    this.audioStarting ??= this.enableAudio().finally(() => { this.audioStarting = null; });
+    return this.audioStarting;
+  }
+
   async enableAudio() {
     const ok = await this.engine.start();
     if (!ok) return false;

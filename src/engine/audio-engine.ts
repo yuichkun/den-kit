@@ -36,7 +36,7 @@ function timeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T
 
 export class AudioEngine {
   state: EngineState = 'off';
-  message = 'Audio is off. Click "Enable audio" to start.';
+  message = 'Audio is off. It starts on the first click or key press.';
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
   rawAnalyser: AnalyserNode | null = null;
@@ -101,9 +101,9 @@ export class AudioEngine {
     this.inputBus = new GainNode(ctx, { gain: 0 });
     ctx.onstatechange = () => {
       if (this.ctx !== ctx) return;
-      if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') this.setState('suspended', 'Audio was suspended by the browser or device. Click "Enable audio" to resume.');
+      if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') this.setState('suspended', 'Audio was suspended by the browser or device. Click anywhere or press a key to resume.');
       else if (ctx.state === 'running' && this.state !== 'running') this.setState('running', 'Audio running.');
-      else if (ctx.state === 'closed' && this.ctx === ctx) this.setState('error', 'Audio device closed. Click "Enable audio" to restart.');
+      else if (ctx.state === 'closed' && this.ctx === ctx) this.setState('error', 'Audio device closed. Press "Retry audio" next to the keyboard to restart.');
     };
   }
 
