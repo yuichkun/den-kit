@@ -40,7 +40,6 @@ export class BridgeClient {
   readonly stats = { connects: 0, reconnects: 0, sent: 0 };
   private socket: SocketLike | null = null;
   private token: string | null;
-  private writer = true;
   private stopped = true;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,11 +83,6 @@ export class BridgeClient {
     this.state.value = 'offline';
   }
 
-  setWriter(writer: boolean) {
-    this.writer = writer;
-    this.post({ t: 'writer', writer });
-  }
-
   telemetry(record: Record<string, unknown>) { this.post({ t: 'telemetry', record }); }
 
   /** Ask Jev through the bridge. Always resolves; when the bridge is unavailable the result says why. */
@@ -118,7 +112,7 @@ export class BridgeClient {
     this.socket = socket;
     let welcomed = false;
     socket.onopen = () => {
-      socket.send(JSON.stringify({ t: 'hello', protocol: PROTOCOL_VERSION, token: this.token ?? '', tab: this.tab, writer: this.writer } satisfies ClientMessage));
+      socket.send(JSON.stringify({ t: 'hello', protocol: PROTOCOL_VERSION, token: this.token ?? '', tab: this.tab } satisfies ClientMessage));
     };
     socket.onmessage = event => {
       let message: ServerMessage;

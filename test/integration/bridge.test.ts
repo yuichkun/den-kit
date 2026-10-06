@@ -28,7 +28,7 @@ async function bridge(extra: Parameters<typeof createBridge>[0] = {}) {
 const wsUrl = (b: Bridge) => `ws://127.0.0.1:${b.port}${WS_PATH}`;
 async function hello(b: Bridge, origin = ORIGIN): Promise<TestSocket> {
   const s = await connect(wsUrl(b), origin);
-  s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 'tab-a', writer: true });
+  s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 'tab-a' });
   const welcome = await s.next();
   expect(welcome.t).toBe('welcome');
   return s;
@@ -53,7 +53,7 @@ describe('connection policy', () => {
   it('closes on a wrong token, a missing hello, a non-hello first message and a protocol mismatch', async () => {
     const b = await bridge({ helloTimeoutMs: 150 });
     const wrong = await connect(wsUrl(b), ORIGIN);
-    wrong.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: 'nope', tab: 'x', writer: true });
+    wrong.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: 'nope', tab: 'x' });
     expect((await wrong.closed).code).toBe(CLOSE.badToken);
     const silent = await connect(wsUrl(b), ORIGIN);
     expect((await silent.closed).code).toBe(CLOSE.helloTimeout);
@@ -61,7 +61,7 @@ describe('connection policy', () => {
     rude.send({ t: 'status.get', id: '1' });
     expect((await rude.closed).code).toBe(CLOSE.protocol);
     const old = await connect(wsUrl(b), ORIGIN);
-    old.send({ t: 'hello', protocol: 0, token: b.token, tab: 'x', writer: true });
+    old.send({ t: 'hello', protocol: 0, token: b.token, tab: 'x' });
     const error = await old.next();
     expect(error.t === 'error' && error.message).toMatch(/protocol 0/);
     expect((await old.closed).code).toBe(CLOSE.protocol);
@@ -95,7 +95,7 @@ describe('messages', () => {
   it('welcome carries the status; Jev is off without a key; codex is off until CP2b', async () => {
     const b = await bridge({ jev: new JevClient({}) });
     const s = await connect(wsUrl(b), ORIGIN);
-    s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 't', writer: true });
+    s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 't' });
     const welcome = await s.next() as Extract<ServerMessage, { t: 'welcome' }>;
     expect(welcome.status.jev.state).toBe('off');
     expect(welcome.status.codex.state).toBe('off');
@@ -191,14 +191,6 @@ describe('messages', () => {
     const jev = readFileSync(join(logs, files.find(f => f.startsWith('jev-'))!), 'utf8');
     expect(jev).toContain('"ok":true');
     expect(jev).not.toContain('Bearer');
-    s.ws.close();
-  });
-
-  it('tracks the writer flag per tab', async () => {
-    const b = await bridge();
-    const s = await hello(b);
-    s.send({ t: 'writer', writer: false });
-    await until(() => b.tabs()[0]?.writer === false);
     s.ws.close();
   });
 

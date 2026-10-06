@@ -54,7 +54,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   return h;
 }
 
-export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string } = {}): Promise<{ page: Page; errors: string[] }> {
+export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string; /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean } = {}): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
   const context = await h.browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
@@ -66,7 +66,14 @@ export async function openKit(h: Harness, options: { clearStorage?: boolean; que
   if (options.initScript) await page.addInitScript({ content: options.initScript });
   await page.goto(h.url + (options.query ?? ''));
   await page.waitForFunction(() => (window as unknown as { __kit?: unknown }).__kit !== undefined, null, { timeout: 60000 });
+  if (options.start !== false) await startAudio(page);
   return { page, errors };
+}
+
+/** Click the full-screen start overlay and wait until it is gone (audio running). */
+export async function startAudio(page: Page) {
+  await page.click('[data-testid=start-overlay]');
+  await page.waitForSelector('[data-testid=start-overlay]', { state: 'detached', timeout: 30000 });
 }
 
 /** Peak of the post-safety output over a short window, read from the engine's analyser. */

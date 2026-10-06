@@ -31,7 +31,7 @@ function onWidget(n: PatchNode, e: Event, end: boolean) {
   if (n.type === 'ui.xy') { setValue(n, 'x', detail.x, false); setValue(n, 'y', detail.y, end); }
   else setValue(n, 'value', detail, end);
 }
-function onNote(e: Event) { const d = (e as CustomEvent<{ note: number; on: boolean }>).detail; if (d.on) session.engine.noteOn(d.note, 100); else session.engine.noteOff(d.note); }
+function onNote(e: Event) { const d = (e as CustomEvent<{ note: number; on: boolean }>).detail; if (d.on) session.noteOn(d.note, 100); else session.noteOff(d.note); }
 
 function startMove(n: PatchNode, e: PointerEvent, resize: boolean) {
   if (!editing.value) return;
@@ -86,7 +86,7 @@ onMounted(() => {
           <dk-slider v-else-if="n.type === 'ui.slider'" :value="value(n)" :min="String(n.config.min)" :max="String(n.config.max)" :scale="String(n.config.scale)" :unit="String(n.config.unit ?? '')" :label="n.label ?? n.id" @input="onWidget(n, $event, false)" @change="onWidget(n, $event, true)" />
           <dk-toggle v-else-if="n.type === 'ui.toggle' || n.type === 'ui.button'" :value="value(n)" :label="n.label ?? n.id" :momentary="n.type === 'ui.button' ? '' : undefined" @input="onWidget(n, $event, false)" @change="onWidget(n, $event, true)" />
           <dk-xy v-else-if="n.type === 'ui.xy'" :x="value(n, 'x')" :y="value(n, 'y')" :label="n.label ?? n.id" @input="onWidget(n, $event, false)" @change="onWidget(n, $event, true)" />
-          <dk-keyboard v-else-if="n.type === 'ui.keyboard'" octave="3" :held="session.engine.heldNotes.join(',')" @note="onNote" />
+          <dk-keyboard v-else-if="n.type === 'ui.keyboard'" octave="3" :held="session.heldNotes.value.join(',')" @note="onNote" />
           <dk-scope v-else-if="n.type === 'ui.scope' || n.type === 'ui.meter'" :data-probe="probeChannel(n.id)" :mode="n.type === 'ui.meter' ? 'meter' : 'scope'" :label="n.label ?? n.id" />
           <div v-if="editing" class="grip" @pointerdown="startMove(n, $event, true)" />
           <div v-if="editing" class="shield" />

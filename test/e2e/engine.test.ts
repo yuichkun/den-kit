@@ -3,7 +3,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, outputPeak, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { openKit, outputPeak, startAudio, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 type K = { __kit: any };
 let h: Harness;
@@ -15,7 +15,6 @@ const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate
 async function ready(query = '') {
   const { page, errors } = await openKit(h, { query });
   await waitCompiled(page);
-  await page.click('[data-testid=enable-audio]');
   await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
   return { page, errors };
 }
@@ -111,6 +110,15 @@ describe('audio engine', () => {
     const peak = await outputPeak(page, 400);
     assert.ok(peak <= 0.99, `post-safety peak ${peak}`);
     assert.ok(await kit(page, k => k.toasts.value.some((t: { text: string }) => /runaway|NaN/.test(t.text))));
+    // It keeps running away: muted, explained in a banner (not a blocking overlay)…
+    await page.waitForSelector('[data-testid=banner]', { timeout: 20000 });
+    assert.match(await page.textContent('[data-testid=banner]') ?? '', /muted/i);
+    assert.equal(await page.$('[data-testid=start-overlay]'), null);
+    // …and the next change (here: undo) brings the sound back without any button.
+    await kit(page, k => k.undo());
+    await settle(page);
+    await page.waitForFunction(() => !document.querySelector('[data-testid=banner]'), null, { timeout: 20000 });
+    assert.equal(await kit(page, k => k.healthMuted.value), false);
     await page.close();
   });
 
@@ -132,26 +140,24 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('audio starts on the first key press (no button needed); a note pressed meanwhile sounds; the controls sit next to the keys', async () => {
-    const { page, errors } = await openKit(h);
+  it('opens behind a start overlay: the first key press starts audio and that note sounds; the bottom is just the keyboard', async () => {
+    const { page, errors } = await openKit(h, { start: false });
     await waitCompiled(page);
-    assert.equal(await page.$('.toolbar [data-testid=enable-audio]'), null, 'no audio button in the toolbar');
-    assert.ok(await page.$('.keyboard-bar [data-testid=enable-audio]'), 'start button next to the keys');
+    assert.match(await page.textContent('[data-testid=start-overlay]') ?? '', /Click anywhere to start/);
     await page.keyboard.down('a');
+    await page.waitForSelector('[data-testid=start-overlay]', { state: 'detached', timeout: 30000 });
     await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
-    assert.ok(await outputPeak(page) > 0.005, 'the key pressed while audio was starting sounds');
+    assert.ok(await outputPeak(page) > 0.005, 'the key that started audio also plays');
     await page.keyboard.up('a');
-    assert.ok(await page.$('.keyboard-bar [data-testid=volume]'));
-    assert.equal(await page.$('[data-testid=enable-audio]'), null);
+    assert.equal(await page.$('[data-testid=enable-audio], [data-testid=volume], [data-phrase]'), null, 'no audio buttons, volume or phrase buttons');
+    const printed = await page.evaluate(() => [...(document.querySelector('[data-testid=keyboard] dk-keyboard')?.shadowRoot?.querySelectorAll('.k') ?? [])].map(e => e.textContent).join(''));
+    assert.equal([...printed].sort().join(''), [...'AWSEDFTGYHUJK'].sort().join(''), 'the computer keys are printed on the keyboard');
     assert.deepEqual(errors, []);
     await page.close();
-    // A phrase button also starts audio by itself.
-    const second = await openKit(h);
-    await waitCompiled(second.page);
-    await second.page.click('[data-phrase=bass]');
-    await second.page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
-    assert.ok(await outputPeak(second.page, 1200) > 0.005, 'the phrase plays');
-    await second.page.click('[data-phrase=bass]');
+    // A click on the overlay works the same.
+    const second = await openKit(h, { start: false });
+    await startAudio(second.page);
+    assert.equal(await kit(second.page, k => k.engineState.value), 'running');
     await second.page.close();
   });
 
@@ -165,9 +171,10 @@ describe('audio engine', () => {
     await page.goto(h.url);
     await page.waitForFunction(() => (window as unknown as K).__kit, null, { timeout: 60000 });
     await waitCompiled(page);
-    await page.click('[data-testid=enable-audio]');
+    await page.click('[data-testid=start-overlay]');
     await page.waitForFunction(() => (window as unknown as K).__kit.engineState.value === 'error');
     assert.match(await kit(page, k => k.engineMessage.value), /48 kHz/);
+    assert.match(await page.textContent('[data-testid=start-error]') ?? '', /48 kHz/, 'the overlay explains it');
     assert.equal(await kit(page, k => k.compileStatus.value), 'ok');
     await page.close();
   });

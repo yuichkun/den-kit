@@ -30,21 +30,6 @@ describe('AI bridge in the browser', () => {
     await page.close();
   });
 
-  it('a read-only second tab is reported to the bridge as a non-writer', async () => {
-    const first = await openKit(h);
-    await waitBridge(first.page, 'online');
-    const context = first.page.context();
-    const second = await context.newPage();
-    await second.goto(h.url);
-    await second.waitForFunction(() => (window as unknown as K).__kit?.bridge?.state.value === 'online', null, { timeout: 60000 });
-    await second.waitForFunction(() => (window as unknown as K).__kit.readOnly.value === true);
-    const deadline = Date.now() + 5000;
-    while (h.bridge!.tabs().filter(t => !t.writer).length < 1 && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
-    assert.equal(h.bridge!.tabs().filter(t => t.writer).length, 1, JSON.stringify(h.bridge!.tabs()));
-    await second.close();
-    await first.page.close();
-  });
-
   it('a bridge restart (new token, same port) reconnects without a reload; editing never stops', async () => {
     const { page, errors } = await openKit(h);
     await waitBridge(page, 'online');

@@ -29,8 +29,7 @@ export interface BridgeStatus { jev: JevStatus; codex: CodexStatus }
 
 // ---- Messages ------------------------------------------------------------------
 export type ClientMessage =
-  | { t: 'hello'; protocol: number; token: string; tab: string; writer: boolean }
-  | { t: 'writer'; writer: boolean }
+  | { t: 'hello'; protocol: number; token: string; tab: string }
   | { t: 'status.get'; id: string }
   | { t: 'jev.ask'; id: string; request: JevRequest; budgetMs?: number }
   | { t: 'jev.cancel'; id: string }
@@ -52,8 +51,7 @@ export function parseClientMessage(raw: string): ClientMessage | { error: string
   try { data = JSON.parse(raw); } catch { return { error: 'not JSON' }; }
   if (!isObject(data) || typeof data.t !== 'string') return { error: 'missing message type' };
   switch (data.t) {
-    case 'hello': return typeof data.protocol === 'number' && typeof data.token === 'string' && typeof data.tab === 'string' ? { t: 'hello', protocol: data.protocol, token: data.token, tab: data.tab.slice(0, 64), writer: data.writer !== false } : { error: 'bad hello' };
-    case 'writer': return { t: 'writer', writer: data.writer === true };
+    case 'hello': return typeof data.protocol === 'number' && typeof data.token === 'string' && typeof data.tab === 'string' ? { t: 'hello', protocol: data.protocol, token: data.token, tab: data.tab.slice(0, 64) } : { error: 'bad hello' };
     case 'status.get': return typeof data.id === 'string' ? { t: 'status.get', id: data.id } : { error: 'status.get needs id' };
     case 'jev.ask': return typeof data.id === 'string' && isObject(data.request) && isObject(data.request.questions) ? { t: 'jev.ask', id: data.id, request: data.request as unknown as JevRequest, budgetMs: typeof data.budgetMs === 'number' ? data.budgetMs : undefined } : { error: 'bad jev.ask' };
     case 'jev.cancel': return typeof data.id === 'string' ? { t: 'jev.cancel', id: data.id } : { error: 'bad jev.cancel' };

@@ -135,7 +135,8 @@ export class AudioEngine {
     gain.connect(this.rawAnalyser!);
     if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
     node.onError(event => { if (event.code !== 'sab-unavailable') this.events.error?.('message' in event ? String(event.message) : JSON.stringify(event)); });
-    if (node.events.kitHealth) node.events.kitHealth.on(() => this.onHealth());
+    // Only the sounding node counts: a runaway node that is fading out must not mute its replacement.
+    if (node.events.kitHealth) node.events.kitHealth.on(() => { if (this.current?.node === node) this.onHealth(); });
     this.attachProbes(node, info.probes);
     const live: Live = { node, gain, artifact, info, ctx };
     // Re-send held notes so a structural edit while playing keeps sounding.
@@ -147,6 +148,7 @@ export class AudioEngine {
     const previous = this.current;
     this.current = live;
     this.stats.swaps++;
+    this.retryAfterChange(); // a new patch gets a fresh chance if the old one had to be muted
     if (previous) {
       previous.gain.gain.cancelScheduledValues(now); previous.gain.gain.setValueAtTime(previous.gain.gain.value, now); previous.gain.gain.linearRampToValueAtTime(0, now + fade);
       this.fading.push(previous);
@@ -192,6 +194,7 @@ export class AudioEngine {
   }
 
   setParam(name: string, value: number) {
+    this.retryAfterChange();
     for (const live of [this.current, ...this.fading]) {
       const param = live?.node.params[name];
       if (!param || !live) continue;
@@ -235,6 +238,15 @@ export class AudioEngine {
     if (this.healthMuted) { this.healthMuted = false; this.setVolume(this.volume); this.events.health?.('Audio reset.', false); }
   }
 
+  /** The patch changed: give a muted patch another chance (it mutes again if it still runs away). */
+  private retryAfterChange() {
+    if (!this.healthMuted) return;
+    this.healthMuted = false;
+    this.healthTimes = [];
+    this.setVolume(this.volume);
+    this.events.health?.('', false);
+  }
+
   private onHealth() {
     if (!this.ctx || !this.master) return;
     this.stats.healthEvents++;
@@ -245,7 +257,7 @@ export class AudioEngine {
     for (const live of [this.current, ...this.fading]) live?.node.events.reset?.emit({ value: 1 } as never);
     if (this.healthTimes.length >= 3) {
       this.healthMuted = true;
-      this.events.health?.('The patch keeps producing NaN/Inf or runaway levels (often a feedback loop). Output stays muted until you press Reset audio.', true);
+      this.events.health?.('Sound is muted: the patch keeps producing runaway or invalid audio (often a feedback loop). Change the patch or undo (⌘Z) and it comes back.', true);
       return;
     }
     this.events.health?.('The patch produced NaN/Inf or a runaway level; output was muted and the DSP state reset.', false);

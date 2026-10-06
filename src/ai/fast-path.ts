@@ -25,6 +25,10 @@ export type RouteKind = 'lexicon' | 'jev' | 'jev-target' | 'none';
 export interface Outcome {
   id: string;
   text: string;
+  /** How the request was given (shown in the history). */
+  via?: 'typed' | 'voice';
+  /** ⌘Z took this edit back. */
+  undone?: boolean;
   status: OutcomeStatus;
   route: RouteKind;
   ms: number;
@@ -56,10 +60,13 @@ export interface RequestTrace {
 }
 
 const MAX_TRACES = 30;
+const MAX_HISTORY = 30;
 
 export class FastPath {
   readonly settings = reactive<FastSettings>({ ...DEFAULT_ROUTER_SETTINGS, budgetMs: null, useJev: true });
   readonly outcome = shallowRef<Outcome | null>(null);
+  /** Every request in order (oldest first), as shown above the prompt. */
+  readonly history = shallowRef<Outcome[]>([]);
   readonly traces = shallowRef<RequestTrace[]>([]);
   readonly busy = ref(false);
   private controller: AbortController | null = null;
@@ -71,6 +78,8 @@ export class FastPath {
       if (tx.author.kind !== 'ai-fast') return;
       // ⌘Z on the AI edit: the result line no longer describes the patch.
       if (kind === 'undo' && this.outcome.value?.txId === tx.id) this.outcome.value = null;
+      const past = this.history.value.find(o => o.txId === tx.id);
+      if (past) this.remember({ ...past, undone: kind === 'undo' });
       this.session.bridge?.telemetry({ kind: kind === 'undo' ? 'undo' : 'redo', trace: tx.author.trace, label: tx.label });
     });
   }
@@ -79,7 +88,15 @@ export class FastPath {
   private get jevReady() { return this.settings.useJev && !!this.session.bridge?.jevReady; }
 
   /** Interpret one request. Never throws; the outcome says what happened. */
-  async run(raw: string): Promise<Outcome> {
+  /** Show an outcome as the latest result and keep it in the history (by id). */
+  private show(outcome: Outcome) { this.outcome.value = outcome; this.remember(outcome); }
+  private remember(outcome: Outcome) {
+    const list = this.history.value;
+    const i = list.findIndex(o => o.id === outcome.id);
+    this.history.value = i >= 0 ? [...list.slice(0, i), outcome, ...list.slice(i + 1)] : [...list, outcome].slice(-MAX_HISTORY);
+  }
+
+  async run(raw: string, options: { via?: 'typed' | 'voice' } = {}): Promise<Outcome> {
     const text = raw.trim().slice(0, 600);
     this.controller?.abort();
     const controller = new AbortController();
@@ -89,19 +106,22 @@ export class FastPath {
     const lex = parseRequest(text);
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
     const finish = (decision: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
-      if (controller.signal.aborted && this.controller !== controller) return { id, text, status: 'nothing', route, ms: 0, chips: [], message: 'Superseded by a newer request.' };
-      const outcome = this.realize(decision, { id, text, route, ms: Math.round(performance.now() - started), chips: [], ...extra }, trace);
+      if (controller.signal.aborted && this.controller !== controller) {
+        this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
+        return { id, text, status: 'nothing', route, ms: 0, chips: [], message: 'Superseded by a newer request.' };
+      }
+      const outcome = this.realize(decision, { id, text, via: options.via, route, ms: Math.round(performance.now() - started), chips: [], ...extra }, trace);
       trace.totalMs = outcome.ms;
       trace.route = route;
       this.record(trace);
-      this.outcome.value = outcome;
+      this.show(outcome);
       this.busy.value = false;
       if (this.controller === controller) this.controller = null;
       return outcome;
     };
     if (!text) return finish({ kind: 'nothing', message: 'Type what you want, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.' }, 'none');
     this.busy.value = true;
-    this.outcome.value = { id, text, status: 'working', route: 'none', ms: 0, chips: [] };
+    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, chips: [] });
 
     const before = this.snapshot();
     const stage = lexiconStage(lex, this.ctx);
@@ -137,13 +157,13 @@ export class FastPath {
   }
 
   /** Apply an interpretation the user picked. */
-  applyChip(chip: Chip) {
-    const o = this.outcome.value;
+  applyChip(chip: Chip, owner?: Outcome) {
+    const o = owner ?? this.outcome.value;
     const trace = { id: o?.id ?? randomId('rq'), chip: chip.label };
     const r = this.apply(chip.plan, { kind: 'ai-fast', handler: 'chip', trace: trace.id });
     this.session.bridge?.telemetry({ kind: 'chip', id: trace.id, label: chip.label, ok: r.ok, error: r.ok ? undefined : r.message });
     if (!r.ok) { this.session.toast('warn', r.message); return; }
-    this.outcome.value = { ...(o ?? { id: trace.id, text: chip.label, route: 'none', ms: 0 }), status: 'applied', label: chip.plan.label, chips: [], message: undefined, txId: r.txId };
+    this.show({ ...(o ?? { id: trace.id, text: chip.label, route: 'none', ms: 0 }), status: 'applied', label: chip.plan.label, chips: [], message: undefined, txId: r.txId });
   }
 
   /** The time budget in effect (drawer override, else the bridge default). */
@@ -196,7 +216,6 @@ export class FastPath {
   }
 
   private apply(plan: Plan, author: Author): { ok: true; txId?: string } | { ok: false; message: string } {
-    if (this.session.readOnly.value) return { ok: false, message: 'This tab is read-only; use “Take over” to edit here.' };
     if (plan.kind === 'template') {
       this.session.replace({ ...plan.doc, id: this.session.doc.value.id }, `AI: ${plan.label}`, true, author);
       return { ok: true, txId: this.session.history.peek()?.id };

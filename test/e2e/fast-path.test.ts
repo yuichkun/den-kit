@@ -47,7 +47,8 @@ describe('AI bar (fast path)', () => {
     await page.locator('[data-testid=ai-input]').blur();
     await page.keyboard.press('Control+z');
     assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), before);
-    assert.equal(await page.$('[data-testid=ai-result]'), null, 'the result line goes away when its edit is undone');
+    await page.waitForFunction(() => /undone/.test(document.querySelector('[data-testid=ai-result]')?.textContent ?? ''));
+    assert.equal(await page.inputValue('[data-testid=ai-input]'), '', 'the prompt is empty and ready for the next request');
     assert.equal(h.jev!.requests.length, 0, 'the lexicon path never calls Jev');
     assert.deepEqual(errors, []);
     await page.close();
@@ -55,7 +56,6 @@ describe('AI bar (fast path)', () => {
 
   it('a free-form request goes through Jev; audio keeps sounding across fast edits', async () => {
     const { page, errors } = await ready();
-    await page.click('[data-testid=enable-audio]');
     await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
     await kit(page, k => k.engine.noteOn(45, 100));
     assert.equal(await ask(page, 'make it sound brighter and more alive'), 'applied');

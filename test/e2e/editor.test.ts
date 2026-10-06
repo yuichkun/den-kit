@@ -185,16 +185,13 @@ describe('patch editor', () => {
     assert.match(await hl.first().innerText(), /filter1/);
     await page.close();
   });
-  it('F6 a second tab is read-only until it takes over; the first tab then stops writing', async () => {
+  it('F6 two tabs can both edit (no read-only mode); each autosaves its own changes', async () => {
     const context = await h.browser.newContext();
     const a = await context.newPage(); await a.goto(h.url); await waitCompiled(a);
-    const b = await context.newPage(); await b.goto(h.url);
-    await b.waitForFunction(() => (window as any).__kit?.readOnly.value === true, null, { timeout: 30000 });
-    assert.equal(await kit(b, k => k.commit([{ op: 'setName', name: 'from b' }]).ok), false);
-    await b.click('[data-testid=take-over]');
-    await a.waitForFunction(() => (window as any).__kit.readOnly.value === true, null, { timeout: 10000 });
+    const b = await context.newPage(); await b.goto(h.url); await waitCompiled(b);
+    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), true);
     assert.equal(await kit(b, k => k.commit([{ op: 'setName', name: 'from b' }]).ok), true);
-    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), false);
+    assert.equal(await b.$('[data-testid=take-over]'), null);
     await context.close();
   });
 });

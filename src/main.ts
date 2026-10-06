@@ -1,4 +1,4 @@
-import { createApp, h, watch } from 'vue';
+import { createApp, h } from 'vue';
 import bridgeConfig from 'virtual:kit-bridge';
 import { BridgeClient } from './ai/bridge-client.ts';
 import { FastPath } from './ai/fast-path.ts';
@@ -14,10 +14,8 @@ const query = new URLSearchParams(location.search);
 const number = (key: string) => query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : undefined;
 const session = new KitSession({ compileTimeoutMs: number('compileTimeout'), rotateAfter: number('rotateAfter') });
 session.restore('bass');
-void session.claimWriter();
 // The local AI bridge (started by `kit:dev`); without it the editor runs as in CP1 and shows "AI offline".
 session.bridge = new BridgeClient({ token: bridgeConfig.token });
-watch(session.readOnly, readOnly => session.bridge?.setWriter(!readOnly), { immediate: true });
 session.bridge.start();
 session.fast = new FastPath(session);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.

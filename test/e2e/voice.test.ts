@@ -34,8 +34,10 @@ async function open(initScript = FAKE) {
   return { page, errors };
 }
 async function holdAndSay(page: Page, text: string | null, holdMs = 400) {
+  const before = await page.evaluate(() => (window as unknown as K).__speech?.started ?? 0);
   await page.keyboard.down('Space');
-  await page.waitForFunction(() => (window as unknown as K).__speech?.started > 0 || document.querySelector('[data-testid=ai-voice-message]'), null, { timeout: 5000 });
+  // Wait for this hold's recognizer (it starts after the hold threshold), or for the "no speech support" message.
+  await page.waitForFunction(n => (window as unknown as K).__speech?.started > n || document.querySelector('[data-testid=ai-voice-message]'), before, { timeout: 5000 });
   if (text !== null) await page.evaluate(t => (window as unknown as K).__speech.say(t), text);
   await page.waitForTimeout(holdMs);
   await page.keyboard.up('Space');
@@ -59,25 +61,29 @@ describe('voice input (hold Space)', () => {
     await page.close();
   });
 
-  it('a quick tap of Space sends nothing; Space while typing types a space; ⌘K then Space talks', async () => {
+  it('every request can be spoken: a second and third hold work the same, from the canvas or from the prompt (with text in it)', async () => {
     const { page } = await open();
     const rev = await kit(page, k => k.doc.value.revision);
-    await page.keyboard.down('Space');
-    await page.keyboard.up('Space');
+    // A quick tap is nothing (outside the prompt) and a space (inside it).
+    await page.keyboard.down('Space'); await page.keyboard.up('Space');
     await page.waitForTimeout(300);
     assert.equal(await kit(page, k => k.doc.value.revision), rev);
-    assert.equal(await page.$('[data-testid=ai-voice-message]'), null);
-    // Typing in the AI bar: Space is a space.
     await page.click('[data-testid=ai-input]');
     await page.keyboard.type('more reverb');
-    assert.equal(await page.inputValue('[data-testid=ai-input]'), 'more reverb');
-    const started = await page.evaluate(() => (window as unknown as K).__speech.started);
-    await page.fill('[data-testid=ai-input]', '');
-    // Empty AI input (after ⌘K): holding Space talks.
-    await page.keyboard.press('Control+k');
+    assert.equal(await page.inputValue('[data-testid=ai-input]'), 'more reverb', 'taps type spaces in the prompt');
+    assert.equal(await page.evaluate(() => (window as unknown as K).__speech.started), 0);
+    // Holding Space in the prompt talks even though it has text; what was said is sent.
     await holdAndSay(page, 'リリース長く');
-    await page.waitForSelector('[data-testid=ai-result][data-status=applied]', { timeout: 10000 });
-    assert.equal(await page.evaluate(() => (window as unknown as K).__speech.started), started + 1);
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('リリース長く') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
+    assert.equal(await page.inputValue('[data-testid=ai-input]'), '', 'the prompt is cleared for the next request');
+    // Second and third requests, by voice again (focus is still in the prompt, then on the canvas).
+    await holdAndSay(page, '明るく');
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('明るく') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
+    await page.locator('[data-testid=ai-input]').blur();
+    await holdAndSay(page, 'もっと揺らして');
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('もっと揺らして') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') !== 'working', null, { timeout: 10000 });
+    assert.equal(await page.evaluate(() => (window as unknown as K).__speech.started), 3);
+    assert.equal(await page.locator('[data-testid=ai-history] .turn').count(), 3, 'the requests stay visible above the prompt');
     await page.close();
   });
 

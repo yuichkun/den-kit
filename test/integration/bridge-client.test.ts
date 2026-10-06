@@ -143,13 +143,14 @@ describe('BridgeClient', () => {
     expect(await c.askJev(request, { signal: pre.signal })).toMatchObject({ ok: false, error: { kind: 'cancelled' } });
   });
 
-  it('forwards the writer flag and telemetry', async () => {
+  it('forwards telemetry once online and drops it quietly while offline', async () => {
     const { bridge } = await setup();
     const c = client(bridge);
+    c.telemetry({ kind: 'before-connect' });
     c.start();
     await until(() => c.online);
-    c.setWriter(false);
-    await until(() => bridge.tabs()[0]?.writer === false);
+    const sent = c.stats.sent;
     c.telemetry({ kind: 'test' });
+    expect(c.stats.sent).toBe(sent + 1);
   });
 });

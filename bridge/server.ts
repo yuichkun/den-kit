@@ -31,7 +31,7 @@ export interface BridgeOptions {
   log?: (line: string) => void;
 }
 
-interface Tab { socket: WebSocket; id: string; tab: string; writer: boolean; alive: boolean; pending: Map<string, AbortController> }
+interface Tab { socket: WebSocket; id: string; tab: string; alive: boolean; pending: Map<string, AbortController> }
 
 export interface Bridge {
   readonly port: number;
@@ -40,7 +40,7 @@ export interface Bridge {
   status(): BridgeStatus;
   /** Replace the allowed page origins (the e2e harness learns Vite's port after listening). */
   setOrigins(origins: string[]): void;
-  tabs(): Array<{ id: string; tab: string; writer: boolean; pending: number }>;
+  tabs(): Array<{ id: string; tab: string; pending: number }>;
   close(): Promise<void>;
 }
 
@@ -110,7 +110,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         if (parsed.token !== token) { socket.close(CLOSE.badToken, 'bad token'); return; }
         if (parsed.protocol !== PROTOCOL_VERSION) { send(socket, { t: 'error', message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart kit:dev` }); socket.close(CLOSE.protocol, 'protocol mismatch'); return; }
         clearTimeout(helloTimer);
-        tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, writer: parsed.writer, alive: true, pending: new Map() };
+        tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true, pending: new Map() };
         tabs.add(tab);
         socket.on('pong', () => { if (tab) tab.alive = true; });
         send(socket, { t: 'welcome', protocol: PROTOCOL_VERSION, bridge: BRIDGE_VERSION, status: status() });
@@ -131,7 +131,6 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   function handle(tab: Tab, message: ClientMessage) {
     switch (message.t) {
       case 'hello': send(tab.socket, { t: 'error', message: 'already said hello' }); return;
-      case 'writer': tab.writer = message.writer; return;
       case 'status.get': send(tab.socket, { t: 'status', id: message.id, status: status() }); return;
       case 'telemetry': {
         const text = JSON.stringify(message.record);
@@ -183,7 +182,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   return {
     port, token, server, status,
     setOrigins(next) { origins = expandOrigins(next); },
-    tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, writer: t.writer, pending: t.pending.size })),
+    tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: t.pending.size })),
     async close() {
       clearInterval(heartbeat);
       for (const t of tabs) { for (const c of t.pending.values()) c.abort(); t.socket.terminate(); }

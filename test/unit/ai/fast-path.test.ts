@@ -219,12 +219,6 @@ describe('without Jev', () => {
     expect(o.message).toMatch(/TYPESAFE_API_KEY/);
     expect(off.requests).toHaveLength(0);
   });
-  it('a read-only tab never applies', async () => {
-    session.readOnly.value = true;
-    const o = await fast.run('brighter');
-    expect(o.status).toBe('nothing');
-    expect(o.message).toMatch(/read-only/);
-  });
 });
 
 describe('telemetry', () => {

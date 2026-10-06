@@ -42,12 +42,16 @@ export class KitSession {
   readonly engineMessage = ref('Audio is off.');
   readonly toasts = ref<Toast[]>([]);
   readonly healthMuted = ref(false);
+  /** Shown as a banner while the safety stage keeps the output muted. */
+  readonly healthMessage = ref('');
+  /** Notes held from the on-screen keyboard, the computer keyboard or MIDI (for the keyboard display). */
+  readonly heldNotes = ref<number[]>([]);
+  readonly midiState = ref<'off' | 'on' | 'denied' | 'unsupported'>('off');
   readonly generated = shallowRef<Generated>(generate(this.doc.value, catalog));
   readonly validation = computed(() => validate(this.doc.value, catalog));
   readonly issues = computed<Issue[]>(() => [...this.validation.value.issues, ...this.compileIssues.value]);
   readonly engine: AudioEngine;
   readonly compiler: CompileClient;
-  readonly readOnly = ref(false);
   /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
   bridge: BridgeClient | null = null;
   /** The fast AI path (lexicon + Jev); null when not wired (unit tests). */
@@ -66,7 +70,7 @@ export class KitSession {
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
     this.engine = markRaw(options.engine ?? new AudioEngine({
       state: (state, message) => { this.engineState.value = state; this.engineMessage.value = message; },
-      health: (message, muted) => { this.healthMuted.value = muted; this.toast(muted ? 'error' : 'warn', message); },
+      health: (message, muted) => { this.healthMuted.value = muted; if (message && !muted) this.toast('warn', message); this.healthMessage.value = muted ? message : ''; },
       error: message => this.toast('error', `Audio: ${message}`),
     }, { rotateAfter: options.rotateAfter }));
     this.compiler = markRaw(new CompileClient({ createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never, timeoutMs: options.compileTimeoutMs }));
@@ -108,7 +112,6 @@ export class KitSession {
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */
   commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string; /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
-    if (this.readOnly.value) return { ok: false, error: new OpError('This tab is read-only (the patch is open in another tab).', 0, 'read-only') };
     const before = this.doc.value;
     if (options.expectRevision !== undefined && before.revision !== options.expectRevision) return { ok: false, error: new OpError(`The patch changed (revision ${before.revision}, expected ${options.expectRevision}).`, 0, 'stale') };
     let result;
@@ -218,18 +221,47 @@ export class KitSession {
     if (!ok) return false;
     const artifact = this.compiler.cached(this.generated.value.hash);
     if (artifact) await this.loadIntoEngine(artifact);
-    else await this.compileNow();
+    // A compile already on its way loads itself once audio runs; do not start a second one.
+    else if (this.compileStatus.value !== 'compiling' && this.compileStatus.value !== 'waiting') await this.compileNow();
     return true;
+  }
+
+  // ---- Playing ------------------------------------------------------------------------
+  noteOn(note: number, velocity = 100) { this.engine.noteOn(note, velocity); this.heldNotes.value = this.engine.heldNotes; }
+  noteOff(note: number) { this.engine.noteOff(note); this.heldNotes.value = this.engine.heldNotes; }
+  /** Stop everything (⌘.): release notes and reset DSP state. */
+  panic() { this.engine.panic(); this.heldNotes.value = this.engine.heldNotes; }
+
+  private midiAccess: Promise<void> | null = null;
+  /** Listen to every MIDI input (asked once, after the first click; refusing is fine). */
+  connectMidi(): Promise<void> {
+    this.midiAccess ??= (async () => {
+      const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<MIDIAccess> };
+      if (!nav.requestMIDIAccess) { this.midiState.value = 'unsupported'; return; }
+      try {
+        const access = await nav.requestMIDIAccess();
+        const bind = () => { for (const input of access.inputs.values()) input.onmidimessage = m => this.onMidi(m.data); };
+        bind(); access.onstatechange = bind;
+        this.midiState.value = 'on';
+      } catch { this.midiState.value = 'denied'; }
+    })();
+    return this.midiAccess;
+  }
+  private onMidi(data: Uint8Array | null) {
+    const [status = 0, a = 0, b = 0] = data ?? [];
+    const type = status & 0xf0;
+    if (type === 0x90 && b > 0) this.noteOn(a, b);
+    else if (type === 0x80 || (type === 0x90 && b === 0)) this.noteOff(a);
   }
 
   // ---- Persistence --------------------------------------------------------------
   private scheduleSave() {
-    if (!this.storage || this.readOnly.value) return;
+    if (!this.storage) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this.saveNow(), 800);
   }
   saveNow() {
-    if (!this.storage || this.readOnly.value) return;
+    if (!this.storage) return;
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     try { this.storage.setItem(AUTOSAVE_KEY, JSON.stringify(makeSaveRecord(this.doc.value))); }
     catch (error) { this.toast('warn', `Autosave failed (${error instanceof Error ? error.message : String(error)}); export the patch to keep it.`); }
@@ -242,39 +274,6 @@ export class KitSession {
     for (const issue of parsed.report.slice(0, 6)) this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
     if (parsed.report.length > 6) this.toast('warn', `…and ${parsed.report.length - 6} more repairs.`);
     return true;
-  }
-
-  // ---- Single writer across tabs (F6) --------------------------------------------
-  private channel: BroadcastChannel | null = null;
-  readonly tabId = randomId('tab');
-  /** Become the writer unless another tab already is; that tab can be taken over explicitly. */
-  claimWriter(timeoutMs = 300): Promise<boolean> {
-    if (typeof BroadcastChannel === 'undefined') return Promise.resolve(true);
-    this.channel ??= new BroadcastChannel('den-kit');
-    const channel = this.channel;
-    channel.onmessage = event => {
-      const msg = event.data as { type: string; tab: string };
-      if (msg.tab === this.tabId) return;
-      if (msg.type === 'hello' && !this.readOnly.value) channel.postMessage({ type: 'writer', tab: this.tabId });
-      if (msg.type === 'takeover' && !this.readOnly.value) { this.saveNow(); this.readOnly.value = true; this.toast('warn', 'Another tab took over this patch; this tab is now read-only.'); }
-    };
-    return new Promise(resolve => {
-      let other = false;
-      const listen = (event: MessageEvent) => { if ((event.data as { type: string }).type === 'writer') other = true; };
-      channel.addEventListener('message', listen);
-      channel.postMessage({ type: 'hello', tab: this.tabId });
-      setTimeout(() => {
-        channel.removeEventListener('message', listen);
-        if (other) { this.readOnly.value = true; this.toast('warn', 'den-kit is open in another tab, so this tab is read-only (to avoid overwriting the autosave). Use "Take over" to edit here.'); }
-        resolve(!other);
-      }, timeoutMs);
-    });
-  }
-  takeOver() {
-    this.channel?.postMessage({ type: 'takeover', tab: this.tabId });
-    this.readOnly.value = false;
-    this.restore();
-    this.toast('info', 'This tab now owns the patch.');
   }
 
   // ---- Misc ------------------------------------------------------------------------

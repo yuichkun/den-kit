@@ -151,21 +151,30 @@ export class DkXy extends DkElement {
   }
 }
 
-/** Two-octave keyboard; emits `note` {note, on}. */
+/**
+ * Keyboard; emits `note` {note, on}. `start` (MIDI note, default from `octave`),
+ * `octaves` (default 2), `held` (comma list), and `pc` = the MIDI note where the
+ * computer-keyboard letters (A W S E D F T G Y H U J K) are printed on the keys.
+ */
 export class DkKeyboard extends DkElement {
-  static observedAttributes = ['octave', 'held'];
+  static observedAttributes = ['octave', 'start', 'octaves', 'held', 'pc'];
   connectedCallback() { this.render(); }
   attributeChangedCallback() { this.render(); }
   private render() {
-    const base = 12 * (this.num('octave', 4) + 1), held = new Set((this.getAttribute('held') ?? '').split(',').filter(Boolean).map(Number));
+    const start = this.hasAttribute('start') ? this.num('start', 48) : 12 * (this.num('octave', 4) + 1);
+    const octaves = Math.max(1, Math.min(8, this.num('octaves', 2)));
+    const held = new Set((this.getAttribute('held') ?? '').split(',').filter(Boolean).map(Number));
+    const pc = this.hasAttribute('pc') ? this.num('pc', start) : null;
+    const letter = (n: number) => pc !== null && n >= pc && n <= pc + 12 ? 'AWSEDFTGYHUJK'[n - pc] : '';
     const whites: number[] = [], blacks: Array<{ note: number; at: number }> = [];
-    for (let n = base, w = 0; n < base + 25; n++) { if ([1, 3, 6, 8, 10].includes(n % 12)) blacks.push({ note: n, at: w }); else { whites.push(n); w++; } }
+    for (let n = start, w = 0; n <= start + 12 * octaves; n++) { if ([1, 3, 6, 8, 10].includes(n % 12)) blacks.push({ note: n, at: w }); else { whites.push(n); w++; } }
     const ww = 100 / whites.length;
-    this.root.innerHTML = `<style>${BASE_CSS}.kb{position:relative;width:100%;height:100%}.w,.b{position:absolute;top:0;border:1px solid #222;border-radius:0 0 4px 4px;box-sizing:border-box}.w{height:100%;background:#f3f3f3}.b{height:60%;background:#222;z-index:1}.on{background:var(--dk-accent,#5ec4ff)!important}</style>
-      <div class="kb" part="keyboard">${whites.map((n, i) => `<div class="w${held.has(n) ? ' on' : ''}" data-note="${n}" style="left:${i * ww}%;width:${ww}%"></div>`).join('')}${blacks.map(b => `<div class="b${held.has(b.note) ? ' on' : ''}" data-note="${b.note}" style="left:${b.at * ww - ww * 0.3}%;width:${ww * 0.6}%"></div>`).join('')}</div>`;
+    const label = (n: number) => `${letter(n) ? `<span class="k">${letter(n)}</span>` : ''}${n % 12 === 0 ? `<span class="c">C${Math.floor(n / 12) - 1}</span>` : ''}`;
+    this.root.innerHTML = `<style>${BASE_CSS}.kb{position:relative;width:100%;height:100%;user-select:none}.w,.b{position:absolute;top:0;border:1px solid #222;border-radius:0 0 4px 4px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:4px;gap:1px;font:600 10px/1 Lato,system-ui,sans-serif}.w{height:100%;background:#f3f3f3;color:#555}.b{height:60%;background:#222;z-index:1;color:#bbb}.on{background:var(--dk-accent,#5ec4ff)!important;color:#111!important}.k{font-size:11px}.c{font-weight:400;font-size:9px;color:#999}</style>
+      <div class="kb" part="keyboard">${whites.map((n, i) => `<div class="w${held.has(n) ? ' on' : ''}" data-note="${n}" style="left:${i * ww}%;width:${ww}%">${label(n)}</div>`).join('')}${blacks.map(b => `<div class="b${held.has(b.note) ? ' on' : ''}" data-note="${b.note}" style="left:${b.at * ww - ww * 0.3}%;width:${ww * 0.6}%">${label(b.note)}</div>`).join('')}</div>`;
     const down = new Map<number, number>();
     const kb = this.root.querySelector('.kb') as HTMLElement;
-    const noteAt = (e: PointerEvent) => { const el = this.root.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null; return el?.dataset.note ? Number(el.dataset.note) : null; };
+    const noteAt = (e: PointerEvent) => { const el = (this.root.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest?.('[data-note]') as HTMLElement | null; return el?.dataset.note ? Number(el.dataset.note) : null; };
     kb.addEventListener('pointerdown', e => { kb.setPointerCapture(e.pointerId); const n = noteAt(e); if (n === null) return; down.set(e.pointerId, n); this.emit('note', { note: n, on: true }); });
     kb.addEventListener('pointermove', e => { if (!down.has(e.pointerId)) return; const n = noteAt(e); const old = down.get(e.pointerId)!; if (n !== null && n !== old) { this.emit('note', { note: old, on: false }); down.set(e.pointerId, n); this.emit('note', { note: n, on: true }); } });
     const up = (e: PointerEvent) => { const n = down.get(e.pointerId); if (n === undefined) return; down.delete(e.pointerId); this.emit('note', { note: n, on: false }); };

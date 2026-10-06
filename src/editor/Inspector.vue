@@ -13,7 +13,10 @@ const scope = computed(() => node.value ? session.validation.value.analysis.scop
 const label = ref('');
 watch(node, n => { label.value = n?.label ?? ''; }, { immediate: true });
 const edges = computed(() => Object.values(session.doc.value.edges));
-const issues = computed(() => node.value ? session.issues.value.filter(i => i.node === node.value!.id) : session.issues.value.filter(i => !i.node));
+const issues = computed(() => node.value ? session.issues.value.filter(i => i.node === node.value!.id) : []);
+const TEST_SIGNALS = [['chords', 'Chords'], ['drums', 'Drums'], ['noise', 'Noise'], ['off', 'Silence']] as const;
+const testSignal = ref(session.engine.testSignalKind);
+function setTestSignal(kind: string) { testSignal.value = kind as typeof testSignal.value; session.engine.setTestSignal(kind as never); }
 const inputs = computed(() => node.value ? session.catalog.inputs(node.value).filter(p => !p.hidden) : []);
 const incoming = (port: string) => edges.value.find(e => e.to.node === node.value?.id && e.to.port === port);
 
@@ -42,6 +45,7 @@ const configDefs = computed(() => def.value?.config ?? []);
         <div v-if="def.doc" class="muted doc">{{ def.doc }}</div>
         <div class="row"><label>Label</label><input v-model="label" type="text" @change="commit([{ op: 'setLabel', node: node.id, label: label || null }])" /></div>
         <button v-if="def.kind === 'codebox'" class="primary" @click="emit('edit-code', node.id)">Edit code</button>
+        <div v-if="node.type === 'kit.audioIn'" class="row" title="What this effect patch hears while you try it"><label>Test input</label><select :value="testSignal" data-testid="test-signal" @change="setTestSignal(($event.target as HTMLSelectElement).value)"><option v-for="[id, title] in TEST_SIGNALS" :key="id" :value="id">{{ title }}</option></select></div>
       </div>
       <div v-if="configDefs.length" class="section">
         <h3>Construction (recompiles)</h3>
@@ -69,14 +73,8 @@ const configDefs = computed(() => def.value?.config ?? []);
         </div>
       </div>
     </template>
-    <div v-else-if="session.selection.value.length > 1" class="section"><h3>{{ session.selection.value.length }} nodes selected</h3><div class="muted">Delete, copy (⌘C) or duplicate (⌘D).</div></div>
-    <div v-else class="section">
-      <h3>Patch</h3>
-      <div class="muted">Select a node to edit it. Double-click the canvas to add blocks. Unconnected inputs are knobs (AudioParams): turning them never recompiles.</div>
-      <div class="row"><label>Nodes</label><span>{{ Object.keys(session.doc.value.nodes).length }}</span></div>
-      <div class="row"><label>Compile</label><span>{{ session.compileMessage.value }}</span></div>
-      <div class="row" v-if="session.wasmBytes.value"><label>WASM</label><span>{{ (session.wasmBytes.value / 1024).toFixed(0) }} KB</span></div>
-    </div>
+    <div v-else-if="session.selection.value.length > 1" class="section"><h3>{{ session.selection.value.length }} modules selected</h3><div class="muted">Delete, copy (⌘C) or duplicate (⌘D).</div></div>
+    <div v-else class="section empty"><div class="muted">Select a module to see all of its settings.</div></div>
     <div v-if="issues.length" class="section">
       <h3>Issues</h3>
       <div v-for="(i, k) in issues" :key="k" class="issue" :class="i.severity"><span class="sev">{{ i.severity }}</span><span>{{ i.message }}<template v-if="i.line"> (line {{ i.line }})</template></span></div>
