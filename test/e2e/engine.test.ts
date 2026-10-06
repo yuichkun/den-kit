@@ -11,7 +11,7 @@ before(async () => { h = await startHarness(); });
 after(async () => { await h?.close(); });
 
 // Run fn(window.__kit) in the page (fn is serialized; it must not close over test variables).
-const kit = <T>(page: Page, fn: (k: any) => T) => page.evaluate(`(${fn.toString()})(window.__kit)`) as Promise<Awaited<T>>;
+const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
 async function ready(query = '') {
   const { page, errors } = await openKit(h, { query });
   await waitCompiled(page);

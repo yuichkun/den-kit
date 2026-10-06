@@ -9,8 +9,8 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const session = useSession();
 const node = computed(() => session.doc.value.nodes[props.id]);
 const code = ref(node.value?.code || CODEBOX_TEMPLATE);
-const inputs = ref<PortSpec[]>(structuredClone(node.value?.ports?.inputs ?? [{ id: 'in', type: 'signal' }]));
-const outputs = ref<PortSpec[]>(structuredClone(node.value?.ports?.outputs ?? [{ id: 'out', type: 'signal' }]));
+const inputs = ref<PortSpec[]>(JSON.parse(JSON.stringify(node.value?.ports?.inputs ?? [{ id: "in", type: "signal" }])));
+const outputs = ref<PortSpec[]>(JSON.parse(JSON.stringify(node.value?.ports?.outputs ?? [{ id: "out", type: "signal" }])));
 const issues = computed(() => session.issues.value.filter(i => i.node === props.id));
 const dirty = computed(() => code.value !== (node.value?.code ?? '') || JSON.stringify({ i: inputs.value, o: outputs.value }) !== JSON.stringify({ i: node.value?.ports?.inputs, o: node.value?.ports?.outputs }));
 function apply() {

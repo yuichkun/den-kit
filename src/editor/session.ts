@@ -225,6 +225,39 @@ export class KitSession {
     return true;
   }
 
+  // ---- Single writer across tabs (F6) --------------------------------------------
+  private channel: BroadcastChannel | null = null;
+  readonly tabId = randomId('tab');
+  /** Become the writer unless another tab already is; that tab can be taken over explicitly. */
+  claimWriter(timeoutMs = 300): Promise<boolean> {
+    if (typeof BroadcastChannel === 'undefined') return Promise.resolve(true);
+    this.channel ??= new BroadcastChannel('den-kit');
+    const channel = this.channel;
+    channel.onmessage = event => {
+      const msg = event.data as { type: string; tab: string };
+      if (msg.tab === this.tabId) return;
+      if (msg.type === 'hello' && !this.readOnly.value) channel.postMessage({ type: 'writer', tab: this.tabId });
+      if (msg.type === 'takeover' && !this.readOnly.value) { this.saveNow(); this.readOnly.value = true; this.toast('warn', 'Another tab took over this patch; this tab is now read-only.'); }
+    };
+    return new Promise(resolve => {
+      let other = false;
+      const listen = (event: MessageEvent) => { if ((event.data as { type: string }).type === 'writer') other = true; };
+      channel.addEventListener('message', listen);
+      channel.postMessage({ type: 'hello', tab: this.tabId });
+      setTimeout(() => {
+        channel.removeEventListener('message', listen);
+        if (other) { this.readOnly.value = true; this.toast('warn', 'den-kit is open in another tab, so this tab is read-only (to avoid overwriting the autosave). Use "Take over" to edit here.'); }
+        resolve(!other);
+      }, timeoutMs);
+    });
+  }
+  takeOver() {
+    this.channel?.postMessage({ type: 'takeover', tab: this.tabId });
+    this.readOnly.value = false;
+    this.restore();
+    this.toast('info', 'This tab now owns the patch.');
+  }
+
   // ---- Misc ------------------------------------------------------------------------
   toast(kind: Toast['kind'], text: string) {
     const id = ++this.toastSerial;

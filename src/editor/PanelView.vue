@@ -46,7 +46,7 @@ function startMove(n: PatchNode, e: PointerEvent, resize: boolean) {
   };
   const up = () => {
     el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
-    if (drag.value) { const rect = drag.value.rect; drag.value = null; session.commit([{ op: 'setPanel', node: n.id, panel: rect }], { label: resize ? 'Resize widget' : 'Move widget' }); }
+    if (drag.value) { const rect = { ...drag.value.rect }; drag.value = null; const r = session.commit([{ op: 'setPanel', node: n.id, panel: rect }], { label: resize ? 'Resize widget' : 'Move widget' }); if (!r.ok) session.toast('warn', r.error.message); }
   };
   el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
 }

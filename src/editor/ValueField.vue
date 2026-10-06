@@ -16,7 +16,7 @@ const shown = computed(() => {
   if (props.port.type === 'gate') return props.value ? 'on' : 'off';
   const v = Number(props.value ?? props.port.default ?? 0), a = Math.abs(v);
   const t = a >= 1000 ? `${(v / 1000).toFixed(a >= 10000 ? 1 : 2)}k` : a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(a >= 1 ? 2 : 3);
-  return props.port.unit && props.port.unit !== 'mix' ? `${t}${props.port.unit}` : t;
+  return props.port.unit && !['mix', 'level', 'ratio', 'q', 'gain'].includes(props.port.unit) ? `${t} ${props.port.unit}` : t;
 });
 const set = (value: number | boolean, gesture?: string) => {
   const r = session.commit([{ op: 'setValue', node: props.node, port: props.port.id, value, clamp: true }], { gesture, label: `Set ${props.node}.${props.port.id}` });

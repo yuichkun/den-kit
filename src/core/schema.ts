@@ -97,5 +97,5 @@ export function edgesOf(doc: PatchDocument, node: NodeId): PatchEdge[] {
   return Object.values(doc.edges).filter(e => e.from.node === node || e.to.node === node);
 }
 
-/** Deep clone of plain JSON data. */
-export function clone<T>(value: T): T { return structuredClone(value); }
+/** Deep clone of plain JSON data. JSON (not structuredClone) so UI proxies (Vue reactive objects) clone too. */
+export function clone<T>(value: T): T { return value === undefined ? value : JSON.parse(JSON.stringify(value)) as T; }
