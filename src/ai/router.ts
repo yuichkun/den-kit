@@ -14,7 +14,8 @@ import type { BuiltRequest, RouteId } from './jev-questions.ts';
 import { buildTemplate, TEMPLATES, TEMPLATE_INFO, type TemplateId } from './templates.ts';
 
 export interface RouterSettings { tau: number; tauJa: number }
-export const DEFAULT_ROUTER_SETTINGS: RouterSettings = { tau: 0.6, tauJa: 0.75 };
+/** From the second kit:eval:jev run (36/36 right; Japanese answers down to 70%). */
+export const DEFAULT_ROUTER_SETTINGS: RouterSettings = { tau: 0.6, tauJa: 0.7 };
 
 export interface RouteContext { doc: PatchDocument; catalog: Catalog; selection: readonly string[] }
 export interface Chip { label: string; plan: Plan }

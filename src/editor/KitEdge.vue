@@ -3,7 +3,7 @@
 // bezier; modules placed side by side get the short "●→●" arrow instead.
 import { computed } from 'vue';
 
-const props = defineProps<{ id: string; sourceX: number; sourceY: number; targetX: number; targetY: number; selected?: boolean; data?: { color?: string; ghost?: 'added' | 'removed' } }>();
+const props = defineProps<{ id: string; sourceX: number; sourceY: number; targetX: number; targetY: number; selected?: boolean; data?: { color?: string } }>();
 const color = computed(() => props.data?.color ?? '#ff3a5c');
 const adjacent = computed(() => { const dx = props.targetX - props.sourceX; return dx > -2 && dx < 40 && Math.abs(props.targetY - props.sourceY) < 6; });
 const path = computed(() => {
@@ -22,7 +22,7 @@ const arrow = computed(() => { const { targetX: tx, targetY: ty } = props; retur
 </script>
 
 <template>
-  <g class="kit-edge" :class="{ selected, adjacent, [`ghost-${data?.ghost}`]: !!data?.ghost }">
+  <g class="kit-edge" :class="{ selected, adjacent }">
     <path :d="path" class="hit" />
     <path v-if="!adjacent" :d="path" class="shade" />
     <path :d="path" class="cable" :stroke="color" />
@@ -37,6 +37,4 @@ const arrow = computed(() => { const { targetX: tx, targetY: ty } = props; retur
 .adjacent .cable { stroke-width: 2.5; }
 .selected .cable { stroke-width: 4; filter: drop-shadow(0 0 4px currentColor); }
 .selected .shade { stroke: #fff; stroke-opacity: .5; stroke-width: 7; }
-.ghost-added .cable { stroke-dasharray: 7 5; opacity: .9; }
-.ghost-removed .cable { opacity: .2; }
 </style>

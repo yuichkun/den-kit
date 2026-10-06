@@ -33,35 +33,35 @@ async function ask(page: Page, text: string) {
 }
 
 describe('AI bar (fast path)', () => {
-  it('⌘K + a Japanese phrase applies via the lexicon; Undo restores the knob; typing never plays notes', async () => {
+  it('⌘K + a Japanese phrase applies via the lexicon; ⌘Z restores the knob; the bar shows only the time', async () => {
     const { page, errors } = await ready();
     const before = await kit(page, k => k.doc.value.nodes.aenv1.values.release);
     const compiles = await kit(page, k => k.compiler.stats.started);
     assert.equal(await ask(page, 'リリース長く'), 'applied');
-    assert.match(await page.textContent('[data-testid=ai-badge]') ?? '', /lexicon/);
+    assert.equal(await kit(page, k => k.fast.outcome.value.route), 'lexicon');
+    assert.match(await page.textContent('[data-testid=ai-time]') ?? '', /^\d+ ms$/);
+    assert.equal(await page.$('[data-testid=ai-undo], [data-testid=ai-ab]'), null, 'no undo / A-B buttons in the AI bar');
     assert.ok(await kit(page, k => k.doc.value.nodes.aenv1.values.release) > before);
     await page.waitForTimeout(200);
     assert.equal(await kit(page, k => k.compiler.stats.started), compiles, 'a value edit does not recompile');
-    await page.click('[data-testid=ai-undo]');
+    await page.locator('[data-testid=ai-input]').blur();
+    await page.keyboard.press('Control+z');
     assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), before);
+    assert.equal(await page.$('[data-testid=ai-result]'), null, 'the result line goes away when its edit is undone');
     assert.equal(h.jev!.requests.length, 0, 'the lexicon path never calls Jev');
     assert.deepEqual(errors, []);
     await page.close();
   });
 
-  it('a free-form request goes through Jev; A/B flips the edit; audio keeps sounding', async () => {
+  it('a free-form request goes through Jev; audio keeps sounding across fast edits', async () => {
     const { page, errors } = await ready();
     await page.click('[data-testid=enable-audio]');
     await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, { timeout: 60000 });
     await kit(page, k => k.engine.noteOn(45, 100));
     assert.equal(await ask(page, 'make it sound brighter and more alive'), 'applied');
-    assert.match(await page.textContent('[data-testid=ai-badge]') ?? '', /Jev \d+ ms/);
-    const after = await kit(page, k => k.doc.value.nodes.cut1.values.hz);
-    assert.ok(after > 300);
-    await page.click('[data-testid=ai-ab]');
-    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 300);
-    await page.click('[data-testid=ai-ab]');
-    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), after);
+    assert.equal(await kit(page, k => k.fast.outcome.value.route), 'jev');
+    assert.match(await page.getAttribute('[data-testid=ai-time]', 'title') ?? '', /Jev \d+ ms/);
+    assert.ok(await kit(page, k => k.doc.value.nodes.cut1.values.hz) > 300);
     // A structural fast edit (add reverb) recompiles and keeps the held note sounding.
     assert.equal(await ask(page, 'put it in a big hall'), 'applied');
     await waitCompiled(page);

@@ -20,13 +20,14 @@ const editing = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const name = ref(session.doc.value.name);
 watch(() => session.doc.value.name, n => { name.value = n; });
-const canUndo = computed(() => (session.historyVersion.value, session.history.canUndo));
-const canRedo = computed(() => (session.historyVersion.value, session.history.canRedo));
 const audioIn = computed(() => session.generated.value.audioIn);
 const statusText = computed(() => session.compileStatus.value === 'ok' ? `✓ ${session.compileMessage.value}` : session.compileMessage.value || session.compileStatus.value);
 
+// ⌘Z / ⇧⌘Z are the only undo controls, so they must work after touching a
+// slider, checkbox or menu; only text fields keep their own native undo.
+const TEXT_FIELD = 'textarea, [contenteditable], input:not([type]), input[type=text], input[type=number], input[type=search]';
 function undoRedo(e: KeyboardEvent) {
-  if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+  if ((e.target as HTMLElement).closest(TEXT_FIELD)) return;
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) session.redo(); else session.undo(); }
   else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); session.redo(); }
@@ -55,12 +56,6 @@ function loadStarter(e: Event) { const id = (e.target as HTMLSelectElement).valu
       <div class="group"><span class="logo"><i v-for="k in 8" :key="k" /></span><b>den-kit</b><input v-model="name" class="name" type="text" data-testid="patch-name" @change="rename" /></div>
       <div class="group">
         <select data-testid="starter" @change="loadStarter"><option value="">Load starter…</option><option v-for="s in STARTERS" :key="s" :value="s">{{ s }}</option></select>
-        <button :disabled="!canUndo" title="Undo (⌘Z)" data-testid="undo" @click="session.undo()">↶</button>
-        <button :disabled="!canRedo" title="Redo (⇧⌘Z)" data-testid="redo" @click="session.redo()">↷</button>
-      </div>
-      <div class="group" title="Store/recall snapshots to compare by ear">
-        <button data-testid="store-a" @click="session.storeSnapshot('A')">Store A</button><button :disabled="!session.snapshots.A" :class="{ primary: session.snapshots.active === 'A' }" data-testid="recall-a" @click="session.recallSnapshot('A')">A</button>
-        <button :disabled="!session.snapshots.B" :class="{ primary: session.snapshots.active === 'B' }" data-testid="recall-b" @click="session.recallSnapshot('B')">B</button><button data-testid="store-b" @click="session.storeSnapshot('B')">Store B</button>
       </div>
       <div class="group"><button @click="fileInput?.click()">Import</button><button @click="exportPatch">Export</button><input ref="fileInput" type="file" accept=".json,.denkit.json,application/json" hidden data-testid="import-file" @change="importPatch" /></div>
       <div class="tabs">

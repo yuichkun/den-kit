@@ -206,7 +206,7 @@ export function planAdjust(doc: PatchDocument, catalog: Catalog, request: { aspe
     const current = Number(node.values[t.port] ?? t.def.default ?? 0);
     const next = stepValue(t.def, current, request.direction, amount, { relative: aspect.relative });
     if (next === null) continue;
-    changes.push({ node: t.node, port: t.port, from: current, to: next, text: `${node.label ?? t.node}.${t.port} ${formatValue(t.def, current)} → ${formatValue(t.def, next)}` });
+    changes.push({ node: t.node, port: t.port, from: current, to: next, text: `${node.label ?? t.title} · ${t.def.label ?? t.port} ${formatValue(t.def, current)} → ${formatValue(t.def, next)}` });
   }
   const word = request.direction === 'down' || request.direction === 'set_min' ? aspect.down : aspect.up;
   if (!changes.length) return { ok: false, reason: 'at-limit', message: `Already at the ${request.direction === 'up' || request.direction === 'set_max' ? 'maximum' : 'minimum'} for “${word}”.`, candidates: targets };
@@ -215,8 +215,8 @@ export function planAdjust(doc: PatchDocument, catalog: Catalog, request: { aspe
     plan: {
       kind: 'adjust', aspect: aspect.id, direction: request.direction, amount, changes,
       intents: changes.map(c => ({ op: 'setValue', node: c.node, port: c.port, value: c.to, clamp: true })),
-      label: `${word}${request.direction === 'up' || request.direction === 'down' ? ` ×${amount}` : request.direction === 'set_max' ? ' (max)' : ' (min)'} → ${changes.map(c => c.text).join(', ')}`,
-      short: `${word} · ${[...new Set(changes.map(c => doc.nodes[c.node]!.label ?? c.node))].slice(0, 2).join(', ')}${changes.length > 2 ? '…' : ''}`,
+      label: `${word}${request.direction === 'set_max' ? ' (max)' : request.direction === 'set_min' ? ' (min)' : ''}: ${changes.map(c => c.text).join(', ')}`,
+      short: `${word} · ${[...new Set(changes.map(c => doc.nodes[c.node]!.label ?? targets.find(t => t.node === c.node)?.title ?? c.node))].slice(0, 2).join(', ')}${changes.length > 2 ? '…' : ''}`,
     },
   };
 }

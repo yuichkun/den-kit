@@ -1,7 +1,7 @@
 // The editing session: the one document the browser owns, its history, the
 // compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
 // through commit() with an author, so humans and AI edit the same way.
-import { reactive, shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
+import { shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
 import { catalog } from '../blocks/index.ts';
 import { generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
@@ -42,7 +42,6 @@ export class KitSession {
   readonly engineMessage = ref('Audio is off.');
   readonly toasts = ref<Toast[]>([]);
   readonly healthMuted = ref(false);
-  readonly snapshots = reactive<{ A: PatchDocument | null; B: PatchDocument | null; active: 'A' | 'B' | null }>({ A: null, B: null, active: null });
   readonly generated = shallowRef<Generated>(generate(this.doc.value, catalog));
   readonly validation = computed(() => validate(this.doc.value, catalog));
   readonly issues = computed<Issue[]>(() => [...this.validation.value.issues, ...this.compileIssues.value]);
@@ -213,15 +212,6 @@ export class KitSession {
     if (artifact) await this.loadIntoEngine(artifact);
     else await this.compileNow();
     return true;
-  }
-
-  // ---- A/B --------------------------------------------------------------------
-  storeSnapshot(slot: 'A' | 'B') { this.snapshots[slot] = this.doc.value; this.snapshots.active = slot; this.toast('info', `Stored the current patch in ${slot}.`); }
-  recallSnapshot(slot: 'A' | 'B') {
-    const doc = this.snapshots[slot]; if (!doc) return;
-    if (this.snapshots.active && this.snapshots.active !== slot) this.snapshots[this.snapshots.active] = this.doc.value;
-    this.snapshots.active = slot;
-    this.replace(doc, `Recall ${slot}`);
   }
 
   // ---- Persistence --------------------------------------------------------------

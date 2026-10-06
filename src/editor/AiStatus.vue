@@ -18,10 +18,7 @@ const jev = computed(() => {
 <template>
   <span class="ai-status" data-testid="ai-status" :data-state="b.state.value">
     <span v-if="b.state.value !== 'online'" class="chip off" :title="bridgeTitle" @click="b.retryNow()">● AI offline</span>
-    <template v-else>
-      <span v-if="jev" class="chip" :class="jev.cls" :title="jev.title" data-testid="ai-status-jev">● {{ jev.text }}</span>
-      <span class="chip off" title="The LLM path (Codex) arrives in CP2b.">● LLM —</span>
-    </template>
+    <span v-else-if="jev" class="chip" :class="jev.cls" :title="jev.title" data-testid="ai-status-jev">● {{ jev.text }}</span>
   </span>
 </template>
 

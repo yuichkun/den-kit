@@ -72,7 +72,7 @@ describe('patch editor', () => {
     const before = await snapshot(page);
     await dragBetween(page, await handle(page, 'osc1', 'out', 'source'), await handle(page, 'gain9', 'in', 'target'));
     assert.ok(await kit(page, k => Object.values<any>(k.doc.value.edges).some((e: any) => e.from.node === 'osc1' && e.to.node === 'gain9')));
-    await page.click('[data-testid=undo]');
+    await page.keyboard.press('Control+z');
     assert.equal(await snapshot(page), before);
     await page.close();
   });
@@ -145,7 +145,7 @@ describe('patch editor', () => {
     await dragBetween(page, { x: cb.x + 10, y: cb.y + 10 }, { x: cb.x + 130, y: cb.y + 50 });
     const rect = await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').panel);
     assert.ok(rect.x >= 100, JSON.stringify(rect));
-    await page.click('[data-testid=undo]');
+    await page.keyboard.press('Control+z');
     assert.ok((await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').panel)).x < 100);
     await page.close();
   });

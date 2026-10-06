@@ -12,7 +12,7 @@ const script: Script = {
   'put it in a big hall': { route: 'add_effect', fx: 'reverb' },
   'I need a squelchy acid line': { route: 'create', template: 'bass', aspect: 'resonance_up' },
   'write a granular codebox': { route: 'complex' },
-  'もう少しだけ空間を広げて': { route: 'add_effect', fx: { choice: 'reverb', p: 0.7 } },
+  'もう少しだけ空間を広げて': { route: 'add_effect', fx: { choice: 'reverb', p: 0.65 } },
   'open it up a little': { route: { choice: 'adjust', p: 0.7 }, aspect: { choice: 'brightness_up', p: 0.7 }, amount: 'small' },
   'more of the effect': { route: 'adjust', aspect: 'mix_up', target: 'Reverb' },
 };
@@ -30,31 +30,28 @@ beforeEach(() => {
 const snapshot = () => JSON.stringify({ ...clone(session.doc.value), revision: 0 });
 
 describe('lexicon path (no Jev)', () => {
-  it('applies at once as one ai-fast transaction; undo restores the exact patch', async () => {
+  it('applies at once as one ai-fast transaction; ⌘Z (session.undo) restores the exact patch and clears the result line', async () => {
     const before = snapshot();
     const o = await fast.run('リリース長く');
     expect(o).toMatchObject({ status: 'applied', route: 'lexicon' });
     expect(stub.requests).toHaveLength(0);
     expect(session.history.peek()!.author).toMatchObject({ kind: 'ai-fast', handler: 'lexicon' });
     expect(session.doc.value.nodes.aenv1!.values.release).toBeGreaterThan(0.12);
-    fast.undo();
+    session.undo();
     expect(snapshot()).toBe(before);
-    expect(fast.outcome.value).toMatchObject({ status: 'nothing', message: 'Undone.' });
+    expect(fast.outcome.value).toBeNull();
   });
 
-  it('A/B toggles between before and after while the edit is the latest step', async () => {
-    await fast.run('brighter');
-    const after = snapshot();
-    fast.toggleAB();
-    expect(fast.outcome.value!.ab).toBe('before');
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(300);
-    fast.toggleAB();
-    expect(fast.outcome.value!.ab).toBe('after');
-    expect(snapshot()).toBe(after);
+  it('undoing an older edit leaves the latest AI result line alone', async () => {
     session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.2 }]);
-    expect(fast.canAB).toBe(false);
-    fast.toggleAB();
-    expect(fast.outcome.value!.txId).toBeUndefined();
+    await fast.run('brighter');
+    session.undo();
+    expect(fast.outcome.value).toBeNull();
+    session.redo();
+    await fast.run('リリース長く');
+    session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }]);
+    session.undo(); // undoes the manual edit, not the AI one
+    expect(fast.outcome.value?.status).toBe('applied');
   });
 
   it('a template replaces the patch in one undoable step, with slots applied', async () => {
@@ -199,7 +196,7 @@ describe('Jev path', () => {
     fast.settings.useJev = false;
     const off = await fast.run('wetter');
     expect(off.status).toBe('chips');
-    expect(off.chips.map(c => c.label).join(' ')).toMatch(/reverb1|delay1/);
+    expect(off.chips.map(c => c.label).join(' ')).toMatch(/Reverb.*Delay|Delay.*Reverb/);
     fast.settings.useJev = true;
     delete script.wetter;
     expect((await fast.run('wetter')).status).toBe('chips');

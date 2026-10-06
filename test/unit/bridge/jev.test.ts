@@ -153,7 +153,7 @@ describe('JevClient', () => {
   });
 
   it('publishes its default budget in the status (KIT_JEV_BUDGET_MS reaches the browser this way)', () => {
-    expect(client().status.budgetMs).toBe(2500);
+    expect(client().status.budgetMs).toBe(1200);
     expect(client({ defaultBudgetMs: 4000 }).status.budgetMs).toBe(4000);
   });
 

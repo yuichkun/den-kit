@@ -54,7 +54,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   return h;
 }
 
-export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string } = {}): Promise<{ page: Page; errors: string[] }> {
+export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string } = {}): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
   const context = await h.browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
@@ -63,6 +63,7 @@ export async function openKit(h: Harness, options: { clearStorage?: boolean; que
   page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
   if (options.clearStorage !== false) await page.addInitScript(() => { try { if (!sessionStorage.getItem('kit-e2e-keep')) localStorage.clear(); } catch { /* ignore */ } });
+  if (options.initScript) await page.addInitScript({ content: options.initScript });
   await page.goto(h.url + (options.query ?? ''));
   await page.waitForFunction(() => (window as unknown as { __kit?: unknown }).__kit !== undefined, null, { timeout: 60000 });
   return { page, errors };

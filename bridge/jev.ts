@@ -31,7 +31,8 @@ export class JevClient {
     this.baseUrl = (options.baseUrl ?? DEFAULT_JEV_BASE).replace(/\/+$/, '');
     this.model = options.model ?? JEV_MODEL;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.defaultBudgetMs = options.defaultBudgetMs ?? 2500;
+    // Real Jev answered in 160–360 ms for the full question set; 1.2 s leaves room for one slow reply.
+    this.defaultBudgetMs = options.defaultBudgetMs ?? 1200;
     this.maxBudgetMs = options.maxBudgetMs ?? 8000;
     this.status = this.apiKey ? { state: 'unknown', model: this.model, budgetMs: this.defaultBudgetMs } : { state: 'off', detail: 'TYPESAFE_API_KEY is not set (put it in kit/.env).' };
   }

@@ -14,7 +14,7 @@ import { hasViz as vizFor, moduleBox } from '../core/layout.ts';
 import GridKnob from './GridKnob.vue';
 import ModuleViz from './ModuleViz.vue';
 
-const props = defineProps<{ id: string; selected?: boolean; data: { node: PatchNode; issues: Issue[]; connected: string[]; ghost?: 'added' | 'removed' | 'changed' | null; scope: 'global' | 'voice' } }>();
+const props = defineProps<{ id: string; selected?: boolean; data: { node: PatchNode; issues: Issue[]; connected: string[]; scope: 'global' | 'voice' } }>();
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
 const expanded = ref(false);
@@ -60,7 +60,7 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
 </script>
 
 <template>
-  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [`ghost-${data.ghost}`]: !!data.ghost, [worst ?? '']: !!worst, comment: node.type === 'kit.comment' }" :style="{ '--c': color, width: `${width}px` }" :data-node="id">
+  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment' }" :style="{ '--c': color, width: `${width}px` }" :data-node="id">
     <header>
       <svg v-if="data.scope === 'voice'" class="poly" width="12" height="10" viewBox="0 0 12 10" aria-label="per voice"><title>Runs once per voice</title><rect x="0" y="4" width="7" height="6" rx="1" /><rect x="3" y="2" width="7" height="6" rx="1" opacity=".7" /><rect x="5" y="0" width="7" height="6" rx="1" opacity=".45" /></svg>
       <span class="title">{{ node.label ?? def?.title ?? node.type }}</span>
@@ -115,9 +115,6 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
 .mod.selected { box-shadow: 0 0 0 2px #d9d9d9; }
 .mod.error { box-shadow: 0 0 0 2px #ff3a5c; } .mod.warning { box-shadow: 0 0 0 1px #ffd43b99; }
 .mod.selected.error { box-shadow: 0 0 0 2px #d9d9d9, 0 0 0 4px #ff3a5c; }
-.mod.ghost-added { box-shadow: 0 0 0 2px #b26bff; background: #2c2c2cd0; outline: 1px dashed #b26bff; outline-offset: 3px; }
-.mod.ghost-removed { opacity: .35; outline: 1px dashed #ff3a5c; outline-offset: 3px; }
-.mod.ghost-changed { outline: 1px dashed #b26bff; outline-offset: 3px; }
 header { position: relative; text-align: center; padding: 6px 22px 2px; height: 24px; }
 .title { color: var(--c); font-size: 14px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .poly { position: absolute; left: 8px; top: 8px; fill: #ff8c1a; opacity: .55; }

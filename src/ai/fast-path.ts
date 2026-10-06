@@ -1,8 +1,8 @@
 // The fast path (layer 1, the default): lexicon → (if needed) one Jev request →
-// deterministic plan → applied at once as one `ai-fast` transaction (one undo,
-// A/B against the previous state). Low confidence or a patch that changed
-// while Jev was thinking turns into chips instead of an edit. Every request
-// leaves a RequestTrace (shown in the dev drawer and logged as JSONL).
+// deterministic plan → applied at once as one `ai-fast` transaction (⌘Z undoes
+// it like any edit). Low confidence or a patch that changed while Jev was
+// thinking turns into chips instead of an edit. Every request leaves a
+// RequestTrace (shown in the dev drawer and logged as JSONL).
 import { reactive, shallowRef, ref } from 'vue';
 import type { KitSession } from '../editor/session.ts';
 import type { Author } from '../core/history.ts';
@@ -17,7 +17,7 @@ import {
 import type { Plan } from './intents.ts';
 import type { JevResult } from './protocol.ts';
 
-/** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 2500 ms). */
+/** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 1200 ms). */
 export interface FastSettings extends RouterSettings { budgetMs: number | null; useJev: boolean }
 export type OutcomeStatus = 'working' | 'applied' | 'chips' | 'escalate' | 'nothing';
 export type RouteKind = 'lexicon' | 'jev' | 'jev-target' | 'none';
@@ -35,8 +35,6 @@ export interface Outcome {
   confidence?: number;
   chips: Chip[];
   txId?: string;
-  /** A/B: 'after' = the AI edit is in place; 'before' = temporarily undone. */
-  ab?: 'after' | 'before';
 }
 
 export interface RequestTrace {
@@ -71,8 +69,8 @@ export class FastPath {
     this.session = session;
     session.onHistory((kind, tx) => {
       if (tx.author.kind !== 'ai-fast') return;
-      const o = this.outcome.value;
-      if (o?.txId === tx.id) this.outcome.value = { ...o, ab: kind === 'undo' ? 'before' : 'after' };
+      // ⌘Z on the AI edit: the result line no longer describes the patch.
+      if (kind === 'undo' && this.outcome.value?.txId === tx.id) this.outcome.value = null;
       this.session.bridge?.telemetry({ kind: kind === 'undo' ? 'undo' : 'redo', trace: tx.author.trace, label: tx.label });
     });
   }
@@ -145,30 +143,11 @@ export class FastPath {
     const r = this.apply(chip.plan, { kind: 'ai-fast', handler: 'chip', trace: trace.id });
     this.session.bridge?.telemetry({ kind: 'chip', id: trace.id, label: chip.label, ok: r.ok, error: r.ok ? undefined : r.message });
     if (!r.ok) { this.session.toast('warn', r.message); return; }
-    this.outcome.value = { ...(o ?? { id: trace.id, text: chip.label, route: 'none', ms: 0 }), status: 'applied', label: chip.plan.label, chips: [], message: undefined, txId: r.txId, ab: 'after' };
-  }
-
-  /** Undo the AI edit (only while it is still the latest step). */
-  undo() {
-    const o = this.outcome.value;
-    if (!o?.txId) return;
-    if (this.session.history.peek()?.id === o.txId) this.session.undo();
-    this.outcome.value = { ...this.outcome.value!, status: 'nothing', message: 'Undone.', txId: undefined, ab: undefined };
-  }
-
-  /** Flip between the AI edit and the state before it. */
-  toggleAB() {
-    const o = this.outcome.value;
-    if (!o?.txId) return;
-    if (o.ab !== 'before' && this.session.history.peek()?.id === o.txId) this.session.undo();
-    else if (o.ab === 'before' && this.session.history.peekRedo()?.id === o.txId) this.session.redo();
-    else this.outcome.value = { ...o, txId: undefined, ab: undefined, note: 'A/B is no longer available (the patch was edited since).' };
+    this.outcome.value = { ...(o ?? { id: trace.id, text: chip.label, route: 'none', ms: 0 }), status: 'applied', label: chip.plan.label, chips: [], message: undefined, txId: r.txId };
   }
 
   /** The time budget in effect (drawer override, else the bridge default). */
-  get budgetMs() { return this.settings.budgetMs ?? this.session.bridge?.status.value?.jev.budgetMs ?? 2500; }
-
-  get canAB() { const o = this.outcome.value; return !!o?.txId && (o.ab === 'before' ? this.session.history.peekRedo()?.id === o.txId : this.session.history.peek()?.id === o.txId); }
+  get budgetMs() { return this.settings.budgetMs ?? this.session.bridge?.status.value?.jev.budgetMs ?? 1200; }
 
   cancel() { this.controller?.abort(); this.busy.value = false; }
 
@@ -209,7 +188,7 @@ export class FastPath {
       const r = this.apply(decision.plan, { kind: 'ai-fast', handler: base.route, trace: base.id });
       if (!r.ok) { trace.decision = 'error'; return { ...base, status: 'nothing', message: r.message }; }
       trace.applied = true;
-      return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId, ab: 'after' };
+      return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId };
     }
     if (decision.kind === 'chips') { trace.confidence = decision.confidence; return { ...base, status: 'chips', message: decision.message, chips: decision.chips, confidence: decision.confidence }; }
     if (decision.kind === 'escalate') return { ...base, status: 'escalate', message: decision.message, chips: decision.chips };
