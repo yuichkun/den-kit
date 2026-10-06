@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@denaudio/den": ["../src/index.ts"],
+      "@denaudio/den/*": ["../src/*.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "bridge/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "env.d.ts", "vite.config.ts"]
+}

@@ -1,0 +1,79 @@
+import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { build } from 'esbuild';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const kit = dirname(fileURLToPath(import.meta.url));
+const den = resolve(kit, '..');
+const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
+
+/** Every public den entry, read from the root package exports (same source of truth as the playground). */
+export function denModules(): string[] {
+  const exports = JSON.parse(readFileSync(join(den, 'package.json'), 'utf8')).exports as Record<string, unknown>;
+  return Object.keys(exports).map(key => key === '.' ? '@denaudio/den' : `@denaudio/den/${key.slice(2)}`);
+}
+
+let runtime: Promise<string> | undefined;
+function workletRuntime() {
+  runtime ??= build({
+    stdin: { contents: "import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet'; globalThis.__uwkMakeNs = makeWorkletNamespaceFromMeta;", resolveDir: den },
+    bundle: true, write: false, platform: 'browser', format: 'iife', target: 'es2022', minify: true,
+  }).then(result => result.outputFiles[0]!.text);
+  return runtime;
+}
+
+/** Type declarations for codebox checking: @unworklet/core plus the ES libs (no DOM: codebox runs in the worklet). */
+function typeFiles() {
+  const files: Record<string, string> = {};
+  const core = realpathSync(join(den, 'node_modules/@unworklet/core'));
+  const pkg = JSON.parse(readFileSync(join(core, 'package.json'), 'utf8'));
+  files['/project/node_modules/@unworklet/core/package.json'] = readFileSync(join(core, 'package.json'), 'utf8');
+  for (const entry of readdirSync(join(core, 'dist'))) if (/\.d\.mts$/.test(entry)) files[`/project/node_modules/@unworklet/core/dist/${entry}`] = readFileSync(join(core, 'dist', entry), 'utf8');
+  const lib = join(den, 'node_modules/typescript/lib');
+  for (const entry of readdirSync(lib)) if (/^lib\.(es\d{4}|es5|decorators)[\w.]*\.d\.ts$/.test(entry)) files[`/project/node_modules/typescript/lib/${entry}`] = readFileSync(join(lib, entry), 'utf8');
+  return { files, packages: { '@unworklet/core': { version: pkg.version as string } } };
+}
+
+function kitVirtual(): Plugin {
+  return {
+    name: 'den-kit-virtual', enforce: 'pre',
+    resolveId(id) { if (id.startsWith('virtual:kit-')) return `\0${id}`; },
+    async load(id) {
+      if (id === '\0virtual:kit-modules') {
+        const modules = ['@unworklet/core', ...denModules()];
+        return modules.map((name, i) => `import * as m${i} from ${JSON.stringify(name)};`).join('\n') +
+          `\nexport default {${modules.map((name, i) => `${JSON.stringify(name)}:m${i}`).join(',')}};`;
+      }
+      if (id === '\0virtual:kit-runtime') return `export default ${JSON.stringify(await workletRuntime())};`;
+      if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
+    },
+  };
+}
+
+const alias = [
+  { find: /^@denaudio\/den$/, replacement: join(den, 'src/index.ts') },
+  { find: /^@denaudio\/den\/(.*)$/, replacement: join(den, 'src/$1.ts') },
+];
+
+export default defineConfig({
+  root: kit,
+  plugins: [kitVirtual(), vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } })],
+  resolve: { alias, dedupe: ['@unworklet/core'] },
+  worker: { format: 'es', plugins: () => [kitVirtual()] },
+  server: {
+    port: Number(process.env.KIT_PORT ?? 5180), strictPort: true, host: '127.0.0.1',
+    fs: { allow: [den] },
+    proxy: { '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true } },
+  },
+  optimizeDeps: { esbuildOptions: { target: 'es2022' } },
+  build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
+  test: {
+    projects: [
+      { extends: true, test: { name: 'unit', include: ['test/unit/**/*.test.ts'], environment: 'node' } },
+      { extends: true, test: { name: 'integration', include: ['test/integration/**/*.test.ts'], environment: 'node', maxWorkers: 1, testTimeout: 180000, hookTimeout: 180000 } },
+    ],
+  },
+});

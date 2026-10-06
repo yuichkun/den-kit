@@ -1,0 +1,9 @@
+/// <reference types="vite/client" />
+declare module 'virtual:kit-modules' { const registry: Record<string, unknown>; export default registry; }
+declare module 'virtual:kit-runtime' { const runtime: string; export default runtime; }
+declare module 'virtual:kit-types' { const snapshot: import('./src/compile/type-project.ts').TypeFiles; export default snapshot; }
+declare module '*.vue' {
+  import type { DefineComponent } from 'vue';
+  const component: DefineComponent<object, object, unknown>;
+  export default component;
+}
