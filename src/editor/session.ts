@@ -15,6 +15,7 @@ import type { Artifact } from '../compile/protocol.ts';
 import { AudioEngine, type EngineState } from '../engine/audio-engine.ts';
 import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from '../core/persistence.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
+import type { BridgeClient } from '../ai/bridge-client.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast { id: number; kind: 'info' | 'warn' | 'error'; text: string }
@@ -46,6 +47,8 @@ export class KitSession {
   readonly engine: AudioEngine;
   readonly compiler: CompileClient;
   readonly readOnly = ref(false);
+  /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
+  bridge: BridgeClient | null = null;
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   private listeners = new Set<TransactionListener>();

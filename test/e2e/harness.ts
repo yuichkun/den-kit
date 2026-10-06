@@ -4,6 +4,9 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createServer, type ViteDevServer } from 'vite';
 import { chromium, type Browser, type Page } from 'playwright';
+import { createBridge, type Bridge } from '../../bridge/server.ts';
+import { JevClient } from '../../bridge/jev.ts';
+import { startFakeJev, type FakeJev } from '../fakes/jev/fake-jev.ts';
 
 export const kitRoot = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -13,15 +16,38 @@ export function chromiumPath(): string | undefined {
   return undefined;
 }
 
-export interface Harness { server: ViteDevServer; browser: Browser; url: string; close(): Promise<void> }
+export interface Harness { server: ViteDevServer; browser: Browser; url: string; bridge: Bridge | null; jev: FakeJev | null; close(): Promise<void> }
 
-export async function startHarness(options: { port?: number; env?: Record<string, string> } = {}): Promise<Harness> {
+export interface HarnessOptions {
+  port?: number;
+  env?: Record<string, string>;
+  /** Start the AI bridge (default true) wired to a fake Jev (never the real service). */
+  bridge?: boolean;
+  /** Key the bridge sends; the fake accepts only 'e2e-key'. null runs with Jev off. */
+  jevKey?: string | null;
+}
+
+export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   for (const [k, v] of Object.entries(options.env ?? {})) process.env[k] = v;
+  let bridge: Bridge | null = null;
+  let jev: FakeJev | null = null;
+  if (options.bridge !== false) {
+    jev = await startFakeJev({ key: 'e2e-key' });
+    const key = options.jevKey === undefined ? 'e2e-key' : options.jevKey;
+    bridge = await createBridge({ jev: new JevClient({ apiKey: key ?? undefined, baseUrl: jev.url }) });
+    process.env.KIT_BRIDGE_TOKEN = bridge.token;
+    process.env.KIT_BRIDGE_PORT = String(bridge.port);
+  } else {
+    delete process.env.KIT_BRIDGE_TOKEN;
+  }
   const server = await createServer({ root: kitRoot, configFile: `${kitRoot}/vite.config.ts`, server: { port: options.port ?? 0, strictPort: false, host: '127.0.0.1' }, logLevel: 'error', clearScreen: false });
   await server.listen();
   const url = server.resolvedUrls!.local[0]!;
+  bridge?.setOrigins([new URL(url).origin]);
   const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  return { server, browser, url, async close() { await browser.close(); await server.close(); } };
+  // close() uses the fields, so a test that replaces h.bridge (restart) still cleans up the live one.
+  const h: Harness = { server, browser, url, bridge, jev, async close() { await h.browser.close(); await h.server.close(); await h.bridge?.close(); await h.jev?.close(); } };
+  return h;
 }
 
 export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string } = {}): Promise<{ page: Page; errors: string[] }> {

@@ -9,6 +9,7 @@ import CodeView from './CodeView.vue';
 import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
+import AiStatus from './AiStatus.vue';
 
 const props = defineProps<{ session: KitSession }>();
 const session = props.session;
@@ -69,6 +70,7 @@ function loadStarter(e: Event) { const id = (e.target as HTMLSelectElement).valu
       <span class="spacer" />
       <slot name="toolbar" />
       <button v-if="session.readOnly.value" class="primary" data-testid="take-over" title="This patch is open in another tab" @click="session.takeOver()">Read-only · Take over</button>
+      <AiStatus v-if="session.bridge" :bridge="session.bridge" />
       <span class="status" :class="session.compileStatus.value" data-testid="compile-status" :title="session.compileMessage.value">{{ statusText }}</span>
       <div class="group">
         <select v-if="audioIn" :value="session.engine.testSignalKind" title="Test input for effect patches" @change="session.engine.setTestSignal(($event.target as HTMLSelectElement).value as never)"><option value="chords">Input: chords</option><option value="drums">Input: drums</option><option value="noise">Input: noise</option><option value="off">Input: off</option></select>

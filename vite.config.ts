@@ -49,6 +49,8 @@ function kitVirtual(): Plugin {
       }
       if (id === '\0virtual:kit-runtime') return `export default ${JSON.stringify(await workletRuntime())};`;
       if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
+      // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
+      if (id === '\0virtual:kit-bridge') return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null })};`;
     },
   };
 }
@@ -66,7 +68,10 @@ export default defineConfig({
   server: {
     port: Number(process.env.KIT_PORT ?? 5180), strictPort: true, host: '127.0.0.1',
     fs: { allow: [den] },
-    proxy: { '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true } },
+    proxy: {
+      '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
+      '/__kit/token': { target: `http://127.0.0.1:${bridgePort}` },
+    },
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
   optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', 'typescript'], esbuildOptions: { target: 'es2022' } },
