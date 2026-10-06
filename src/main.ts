@@ -1,6 +1,7 @@
 import { createApp, h, watch } from 'vue';
 import bridgeConfig from 'virtual:kit-bridge';
 import { BridgeClient } from './ai/bridge-client.ts';
+import { FastPath } from './ai/fast-path.ts';
 import App from './editor/App.vue';
 import { KitSession } from './editor/session.ts';
 import { defineWidgets } from './widgets/widgets.ts';
@@ -18,6 +19,7 @@ void session.claimWriter();
 session.bridge = new BridgeClient({ token: bridgeConfig.token });
 watch(session.readOnly, readOnly => session.bridge?.setWriter(!readOnly), { immediate: true });
 session.bridge.start();
+session.fast = new FastPath(session);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.
 (window as unknown as { __kit: KitSession }).__kit = session;
 createApp({ render: () => h(App, { session }) }).mount('#app');

@@ -36,6 +36,7 @@ export class History {
   get canRedo() { return this.redoStack.length > 0; }
   get size() { return this.undoStack.length; }
   peek(): Transaction | undefined { return this.undoStack.at(-1); }
+  peekRedo(): Transaction | undefined { return this.redoStack.at(-1); }
   entries(): readonly Transaction[] { return this.undoStack; }
 
   /** Record an applied transaction. Empty transactions are ignored. */

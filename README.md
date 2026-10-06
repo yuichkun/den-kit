@@ -2,8 +2,8 @@
 
 den のブロックを Bitwig Grid のようにパッチングし、そのグラフがそのままプラグインの音とパネル（UI）になる制作環境の試作です。
 
-- CP1（AI なしのパッチング環境）はこの README の手順で動きます。
-- CP2（AI 協調）は、このあと同じ `kit/` に追加します。
+- CP1（AI なしのパッチング環境）と CP2a（AI の速い経路：語彙表と Jev）は、この README の手順で動きます。
+- CP2b（LLM のテイクと聴くツール）は、このあと同じ `kit/` に追加します。
 
 ## はじめかた（Mac）
 
@@ -18,6 +18,26 @@ npm run kit:dev       # http://127.0.0.1:5180/ を Chrome で開く
 
 - 音は 48 kHz で動かします。出力デバイスが 44.1 kHz のときは、「Audio MIDI 設定」で 48 kHz に変えてください。48 kHz でない場合は、画面にその旨が表示されます。
 - 起動すると bass のスターターが読み込まれます。右上の **Enable audio** を押し、画面下の鍵盤、PC キー（A〜K、Z/X でオクターブ）、**Connect MIDI** または ▶ のフレーズで鳴らします。
+
+## AI の速い経路（CP2a）
+
+**準備（初回だけ）**
+1. `kit/.env` を作り、`TYPESAFE_API_KEY=…` の 1 行を書きます。このファイルは git に入りません。キーはブリッジ（Node）だけが読み、ブラウザには渡しません。
+2. `npm run kit:doctor` で「Jev key」と「Jev request」が PASS になることを確かめます。Jev への小さな要求を 3 回送り、所要時間を表示します。
+3. `npm run kit:eval:jev` で、英語と日本語の例文（`kit/scripts/eval-jev.fixtures.json`）を本物の Jev に解かせます。正答率と τ の表が出ます。τ を決める目安にします。結果は `kit/.logs/` に保存されます。
+
+**使い方**
+- `npm run kit:dev` を起動すると、AI ブリッジ（127.0.0.1:5181）も一緒に起動します。右上に `Jev 230 ms` のような状態が出ます。
+- 画面下の AI バー（`⌘K`）に依頼を書いて Enter を押します。例：「明るく」「リリース長く」「もっと揺らして」「リバーブ足して」「ベース作って」「a bit darker」「add reverb」。
+- 結果の欄に、経路と時間（例：`fast · lexicon · 3 ms`、`fast · Jev 240 ms · 82%`）と、変えた値が出ます。
+  - **Undo**：その AI の変更を 1 回で戻します。
+  - **B · after / A · before**：AI の変更の前後を切り替えて聴き比べます。
+- よく使う言い回しは語彙表がその場で処理し、Jev は呼びません。語彙表で分からない部分があるときだけ、Jev に 1 回だけ問い合わせます。
+- 自信が τ に届かないとき、待っている間にパッチが変わったとき、対象のモジュールが絞れないときは、変更せずに解釈の候補（チップ）を出します。押すと適用されます。
+- コードを書く・配線を組み替えるなどの依頼は「LLM の経路（CP2b）」と表示されます。
+- ⚙ で開発用の引き出しが開きます。τ（英語・日本語）、Jev の持ち時間、Jev の使用の有無を変えられます。直近の依頼の記録も見られます。
+- 記録は `kit/.logs/trace-*.jsonl`（依頼ごとの経路・確信度・時間・取り消し）と `kit/.logs/jev-*.jsonl` に書かれます。
+- キーがない、Jev に届かない、ブリッジがないときも、語彙表の操作と CP1 の機能はそのまま使えます。
 
 ## 画面
 
@@ -62,7 +82,9 @@ npm run kit:dev       # http://127.0.0.1:5180/ を Chrome で開く
 ## テスト
 
 ```sh
-npm run kit:test   # unit（vitest）→ integration（実コンパイル・オフライン描画）→ e2e（Playwright + Chromium）
+npm run kit:test   # unit（vitest）→ integration（実コンパイル・オフライン描画・ブリッジ）→ e2e（Playwright + Chromium）
 ```
+
+テストでは本物の Jev を使いません。`test/fakes/jev` の模擬サーバが、要求を本物と同じ規則で検査し、401・422・429・529・時間切れ・壊れた JSON・確率の異常などを再現します。
 
 e2e には Chromium が必要です。手元にない場合は `npx playwright install chromium` で入れるか、`CHROMIUM_PATH` を指定してください。

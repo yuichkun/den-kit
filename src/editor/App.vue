@@ -10,6 +10,7 @@ import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
 import AiStatus from './AiStatus.vue';
+import AiBar from './AiBar.vue';
 
 const props = defineProps<{ session: KitSession }>();
 const session = props.session;
@@ -85,6 +86,7 @@ function loadStarter(e: Event) { const id = (e.target as HTMLSelectElement).valu
         <PatchView v-if="view === 'patch'" @edit-code="id => editing = id" />
         <PanelView v-else-if="view === 'panel'" />
         <CodeView v-else />
+        <AiBar v-if="session.fast && view !== 'code'" :fast="session.fast" />
         <slot name="workspace" />
       </div>
     </div>

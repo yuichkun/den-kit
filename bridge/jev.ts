@@ -31,9 +31,9 @@ export class JevClient {
     this.baseUrl = (options.baseUrl ?? DEFAULT_JEV_BASE).replace(/\/+$/, '');
     this.model = options.model ?? JEV_MODEL;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.defaultBudgetMs = options.defaultBudgetMs ?? 1500;
+    this.defaultBudgetMs = options.defaultBudgetMs ?? 2500;
     this.maxBudgetMs = options.maxBudgetMs ?? 8000;
-    this.status = this.apiKey ? { state: 'unknown', model: this.model } : { state: 'off', detail: 'TYPESAFE_API_KEY is not set (put it in kit/.env).' };
+    this.status = this.apiKey ? { state: 'unknown', model: this.model, budgetMs: this.defaultBudgetMs } : { state: 'off', detail: 'TYPESAFE_API_KEY is not set (put it in kit/.env).' };
   }
   get enabled() { return !!this.apiKey && this.status.detail !== 'auth'; }
 
@@ -93,7 +93,7 @@ export class JevClient {
   }
 
   private setStatus(next: Partial<JevStatus> & { state: JevStatus['state'] }) {
-    Object.assign(this.status, { detail: undefined, ...next });
+    Object.assign(this.status, { detail: undefined, budgetMs: this.defaultBudgetMs, ...next });
   }
 }
 

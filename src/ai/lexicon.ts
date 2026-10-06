@@ -1,0 +1,194 @@
+// Stage 0 of the fast path: common English and Japanese phrasings mapped
+// straight to intents, with no network round trip. It also covers for Jev's
+// weaker Japanese. When the lexicon accounts for the whole request, Jev is not
+// called at all; otherwise its matches become hints and fallbacks.
+import type { Amount, Direction, FxId } from './intents.ts';
+import type { TemplateId } from './templates.ts';
+
+export type LexItem =
+  | { kind: 'adjust'; aspect: string; direction: Direction; amount?: Amount; phrase: string }
+  | { kind: 'fx'; fx: FxId; verb: 'add' | 'more' | 'less'; amount?: Amount; phrase: string }
+  | { kind: 'template'; template: TemplateId; phrase: string };
+
+export interface LexResult {
+  items: LexItem[];
+  /** True when nothing meaningful is left after the matches and filler words. */
+  full: boolean;
+  leftover: string;
+  lang: 'ja' | 'en';
+}
+
+type Rule = { re: RegExp; item: (m: RegExpExecArray) => LexItem };
+const adj = (aspect: string, direction: Direction) => (m: RegExpExecArray): LexItem => ({ kind: 'adjust', aspect, direction, phrase: m[0] });
+const fx = (f: FxId, verb: 'add' | 'more' | 'less') => (m: RegExpExecArray): LexItem => ({ kind: 'fx', fx: f, verb, phrase: m[0] });
+
+// Japanese verb stems for "increase/longer/stronger" and the opposite.
+const JA_UP = '(?:上げ|あげ|強[くめ]|強化|増[やし]|多[くめ]|大き[くめ]|深[くめ]|長[くめ]|伸ば|足し|足して|プラス)';
+const JA_DOWN = '(?:下げ|さげ|弱[くめ]|減ら|少な[くめ]|小さ[くめ]|浅[くめ]|短[くめ]|抑え|控えめ|なくし|無くし|切っ|カット)';
+const O = '(?:を|は|が|の)?\\s*(?:もっと|もう少し|少し|ちょっと|かなり|やや)?\\s*';
+
+const JA_FX: Array<[FxId, string]> = [['reverb', 'リバーブ|残響|ホール感|響き'], ['pingpong', 'ピンポン(?:ディレイ)?'], ['delay', 'ディレイ|エコー|やまびこ'], ['chorus', 'コーラス'], ['phaser', 'フェイザー'], ['flanger', 'フランジャー'], ['compressor', 'コンプ(?:レッサー)?'], ['drive', 'ディストーション|オーバードライブ|ファズ']];
+const EN_FX: Array<[FxId, string]> = [['reverb', 'reverb|room|hall|space'], ['pingpong', 'ping[- ]?pong(?: delay)?'], ['delay', 'delay|echo(?:es)?'], ['chorus', 'chorus'], ['phaser', 'phaser'], ['flanger', 'flanger'], ['compressor', 'compressor|compression'], ['drive', 'distortion|overdrive|fuzz']];
+const JA_TEMPLATES: Array<[TemplateId, string]> = [['bass', 'ベース'], ['pad', 'パッド'], ['lead', 'リード'], ['pluck', 'プラック|ピチカート'], ['keys', 'キーズ|鍵盤|エレピ|ピアノ'], ['perc', 'パーカッション|ドラム|キック|打楽器']];
+const EN_TEMPLATES: Array<[TemplateId, string]> = [['bass', 'bass(?:line)?'], ['pad', 'pad'], ['lead', 'lead'], ['pluck', 'pluck'], ['keys', 'keys|piano|e-?piano'], ['perc', 'perc(?:ussion)?|drums?|kick']];
+
+const JA_NOUNS: Array<[string, string]> = [['resonance', 'レゾナンス|レゾ'], ['attack', 'アタック'], ['decay', 'ディケイ|ディケー'], ['sustain', 'サステイン|サスティン|サステン'], ['release', 'リリース|余韻'], ['feedback', 'フィードバック|リピート'], ['mix', 'ウェット|エフェクト'], ['drive', '歪み|ドライブ'], ['glide', 'グライド|ポルタメント'], ['volume', '音量|ボリューム'], ['brightness', 'カットオフ|フィルター|フィルタ'], ['wobble', '揺れ|ビブラート|トレモロ']];
+
+// Order matters: longer / more specific rules first; matches never overlap.
+const RULES: Rule[] = [
+  // ---- template nouns (kept only when a "make/作って" verb is also present; see parseRequest)
+  ...JA_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`(?:${w})(?:の音色|の音|っぽい音|っぽく)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
+  ...EN_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`\\b(?:${w})\\b(?: sound| patch| synth)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
+  // ---- effects
+  ...JA_FX.flatMap(([f, w]): Rule[] => [
+    { re: new RegExp(`(?:${w})${O}(?:多め|強め|深め|増や|上げ|もっと)`, 'g'), item: fx(f, 'more') },
+    { re: new RegExp(`(?:${w})${O}(?:少なめ|弱め|浅め|減ら|下げ|控えめ)`, 'g'), item: fx(f, 'less') },
+    { re: new RegExp(`(?:${w})(?:を|も)?\\s*(?:足し|足す|かけ|掛け|追加|入れ|付け|つけ|加え|プラス|欲しい|ほしい|乗せ|のせ)`, 'g'), item: fx(f, 'add') },
+  ]),
+  ...EN_FX.flatMap(([f, w]): Rule[] => [
+    { re: new RegExp(`\\bmore (?:${w})\\b`, 'g'), item: fx(f, 'more') },
+    { re: new RegExp(`\\b(?:less|fewer) (?:${w})\\b`, 'g'), item: fx(f, 'less') },
+    { re: new RegExp(`\\b(?:add|put|insert|with|use|give it|throw in|slap on|some)(?: an?| some| the)? (?:${w})\\b`, 'g'), item: fx(f, 'add') },
+  ]),
+  // ---- Japanese adjustments
+  ...JA_NOUNS.flatMap(([aspect, w]): Rule[] => [
+    { re: new RegExp(`(?:${w})(?:を|は)?\\s*(?:最大|max|全開|一番(?:上|高|長|強)く?)(?:に|まで)?`, 'g'), item: adj(aspect, 'set_max') },
+    { re: new RegExp(`(?:${w})(?:を|は)?\\s*(?:最小|ゼロ|0|オフ|なし|一番(?:下|低|短|弱)く?)(?:に|まで)?`, 'g'), item: adj(aspect, 'set_min') },
+  ]),
+  { re: new RegExp(`(?:LFO|lfo|揺れ|うねり|ビブラート|トレモロ)(?:の)?(?:速さ|スピード|レート|周期)?${O}(?:速[くめ]|早[くめ]|上げ)`, 'g'), item: adj('rate', 'up') },
+  { re: new RegExp(`(?:LFO|lfo|揺れ|うねり|ビブラート|トレモロ)(?:の)?(?:速さ|スピード|レート|周期)?${O}(?:遅[くめ]|ゆっくり|ゆったり|下げ)`, 'g'), item: adj('rate', 'down') },
+  { re: /(?:揺れ|うねり|ビブラート|トレモロ|モジュレーション|変調)(?:を|は|が)?\s*(?:もっと|少し|ちょっと|かなり)?\s*(?:大き[くめ]|強[くめ]|深[くめ]|増や|多[くめ]|足し|つけ|付け|かけ)/g, item: adj('wobble', 'up') },
+  { re: /(?:揺れ|うねり|ビブラート|トレモロ|モジュレーション|変調)(?:を|は|が)?\s*(?:もっと|少し|ちょっと|かなり)?\s*(?:小さ[くめ]|弱[くめ]|浅[くめ]|減ら|少な[くめ]|抑え|止め|なくし)|揺らさない/g, item: adj('wobble', 'down') },
+  { re: /揺ら(?:して|す|せ)|揺れさせ|うねらせ|ゆらゆら/g, item: adj('wobble', 'up') },
+  { re: new RegExp(`(?:アタック|立ち上がり)${O}(?:遅[くめ]|長[くめ]|ゆっくり|柔らか[くめ]|なだらか|ふわっと)`, 'g'), item: adj('attack', 'up') },
+  { re: new RegExp(`(?:アタック|立ち上がり)${O}(?:速[くめ]|早[くめ]|短[くめ]|鋭[くめ]|硬[くめ]|強[くめ]|キツ[くめ])`, 'g'), item: adj('attack', 'down') },
+  { re: new RegExp(`(?:ディケイ|ディケー|減衰)${O}(?:長[くめ]|伸ば|ゆっくり)`, 'g'), item: adj('decay', 'up') },
+  { re: new RegExp(`(?:ディケイ|ディケー|減衰)${O}(?:短[くめ]|速[くめ]|早[くめ])`, 'g'), item: adj('decay', 'down') },
+  { re: new RegExp(`(?:サステイン|サスティン|サステン|サスティーン)${O}${JA_UP}`, 'g'), item: adj('sustain', 'up') },
+  { re: new RegExp(`(?:サステイン|サスティン|サステン|サスティーン)${O}${JA_DOWN}`, 'g'), item: adj('sustain', 'down') },
+  { re: new RegExp(`(?:リリース|余韻|音の尻尾|尻尾)${O}(?:長[くめ]|伸ば|ゆっくり|残し|多[くめ])`, 'g'), item: adj('release', 'up') },
+  { re: new RegExp(`(?:リリース|余韻|音の尻尾|尻尾)${O}(?:短[くめ]|切っ|切れ|速[くめ]|早[くめ]|少な[くめ])`, 'g'), item: adj('release', 'down') },
+  { re: new RegExp(`(?:レゾナンス|レゾ|クセ|ピーク|q)${O}${JA_UP}`, 'g'), item: adj('resonance', 'up') },
+  { re: new RegExp(`(?:レゾナンス|レゾ|クセ|ピーク|q)${O}${JA_DOWN}`, 'g'), item: adj('resonance', 'down') },
+  { re: new RegExp(`(?:繰り返し|リピート|フィードバック|反復)${O}${JA_UP}`, 'g'), item: adj('feedback', 'up') },
+  { re: new RegExp(`(?:繰り返し|リピート|フィードバック|反復)${O}${JA_DOWN}`, 'g'), item: adj('feedback', 'down') },
+  { re: new RegExp(`(?:ディレイタイム|ディレイの時間|遅延時間|ディレイ時間)${O}(?:長[くめ]|伸ば)`, 'g'), item: adj('time', 'up') },
+  { re: new RegExp(`(?:ディレイタイム|ディレイの時間|遅延時間|ディレイ時間)${O}(?:短[くめ])`, 'g'), item: adj('time', 'down') },
+  { re: new RegExp(`(?:ウェット|エフェクト|かかり)${O}(?:強[くめ]|多[くめ]|深[くめ]|上げ|増や)|ウェットに`, 'g'), item: adj('mix', 'up') },
+  { re: new RegExp(`(?:エフェクト|かかり)${O}(?:弱[くめ]|少な[くめ]|浅[くめ]|下げ|減ら)|ドライに|ドライめ`, 'g'), item: adj('mix', 'down') },
+  { re: new RegExp(`歪み${O}(?:弱[くめ]|減ら|抑え|少な[くめ]|なくし)|クリーンに|綺麗な音に`, 'g'), item: adj('drive', 'down') },
+  { re: new RegExp(`歪み${O}(?:強[くめ]|増や|多[くめ]|足し|深[くめ])|歪ませ|歪ま[せし]|歪めて|汚し|ドライブ(?:感)?${O}(?:上げ|強|増)?|サチュレーション|ザラザラ|ガリガリ`, 'g'), item: adj('drive', 'up') },
+  { re: new RegExp(`(?:グライド|ポルタメント)${O}(?:長[くめ]|強[くめ]|かけ|増や|足し|つけ|付け)`, 'g'), item: adj('glide', 'up') },
+  { re: new RegExp(`(?:グライド|ポルタメント)${O}(?:短[くめ]|弱[くめ]|なくし|減ら|切っ)`, 'g'), item: adj('glide', 'down') },
+  { re: new RegExp(`(?:音量|ボリューム|音)${O}(?:上げ|大き[くめ])|うるさく`, 'g'), item: adj('volume', 'up') },
+  { re: new RegExp(`(?:音量|ボリューム|音)${O}(?:下げ|小さ[くめ])|うるさい|静かに`, 'g'), item: adj('volume', 'down') },
+  { re: new RegExp(`(?:フィルター|フィルタ|カットオフ)${O}(?:開[いけ]|上げ)`, 'g'), item: adj('brightness', 'up') },
+  { re: new RegExp(`(?:フィルター|フィルタ|カットオフ)${O}(?:閉じ|閉め|下げ)`, 'g'), item: adj('brightness', 'down') },
+  { re: /明る[くいめさ]|ブライト|抜け(?:を|が)?(?:良|よ)く|きらびやか|シャキッと|キラキラ|高域(?:を|が)?(?:上げ|足し|強)|抜けよく/g, item: adj('brightness', 'up') },
+  { re: /暗[くいめさ]|こも[らっりる]|籠[らっりる]|ダーク|丸[くみめ]|まろやか|モコモコ|もこもこ|高域(?:を|が)?(?:下げ|削|抑え)|こもった/g, item: adj('brightness', 'down') },
+  // ---- English adjustments
+  { re: /\b(?:faster|quicker|speed up the) (?:lfo|wobble|vibrato|tremolo|modulation)\b|\b(?:lfo|wobble|vibrato|modulation) faster\b/g, item: adj('rate', 'up') },
+  { re: /\b(?:slower|slow down the) (?:lfo|wobble|vibrato|tremolo|modulation)\b|\b(?:lfo|wobble|vibrato|modulation) slower\b/g, item: adj('rate', 'down') },
+  { re: /\b(?:more|deeper|stronger|heavier) (?:wobble|vibrato|tremolo|modulation|movement|lfo)\b|\bwobblier\b|\bwobble (?:it )?more\b|\bmake it wobble\b/g, item: adj('wobble', 'up') },
+  { re: /\b(?:less|shallower|weaker|lighter|no) (?:wobble|vibrato|tremolo|modulation|movement)\b|\bsteadier\b/g, item: adj('wobble', 'down') },
+  { re: /\b(?:slower|softer|longer|gentler|smoother) attack\b|\bfade[- ]in\b|\bswell(?:ing)?\b/g, item: adj('attack', 'up') },
+  { re: /\b(?:faster|sharper|shorter|harder|quicker) attack\b|\bsnappier\b|\bpunchier\b|\bmore punch\b/g, item: adj('attack', 'down') },
+  { re: /\blonger decay\b|\bmore decay\b/g, item: adj('decay', 'up') },
+  { re: /\bshorter decay\b|\bless decay\b/g, item: adj('decay', 'down') },
+  { re: /\b(?:more|higher) sustain\b/g, item: adj('sustain', 'up') },
+  { re: /\b(?:less|lower) sustain\b/g, item: adj('sustain', 'down') },
+  { re: /\b(?:longer|more) (?:release|tail)\b|\blet it ring(?: out)?\b|\blonger notes?\b/g, item: adj('release', 'up') },
+  { re: /\b(?:shorter|less|tighter|quicker) (?:release|tail)\b|\bstaccato\b/g, item: adj('release', 'down') },
+  { re: /\bmore (?:resonance|resonant|q|peak)\b|\b(?:more )?resonant\b|\bsquelch(?:y|ier)\b/g, item: adj('resonance', 'up') },
+  { re: /\bless (?:resonance|resonant|q|peak)\b/g, item: adj('resonance', 'down') },
+  { re: /\bmore (?:repeats|feedback|echoes)\b/g, item: adj('feedback', 'up') },
+  { re: /\b(?:fewer|less) (?:repeats|feedback|echoes)\b/g, item: adj('feedback', 'down') },
+  { re: /\blonger delay(?: time)?\b/g, item: adj('time', 'up') },
+  { re: /\bshorter delay(?: time)?\b/g, item: adj('time', 'down') },
+  { re: /\bwetter\b|\bmore (?:wet|effect|effects|fx)\b/g, item: adj('mix', 'up') },
+  { re: /\bdrier\b|\bdryer\b|\bless (?:wet|effect|effects|fx)\b/g, item: adj('mix', 'down') },
+  { re: /\bmore (?:drive|grit|saturation|crunch|dirt)\b|\bdirtier\b|\bgrittier\b|\bcrunchier\b|\bdistort(?:ed)?(?: it)?\b|\bsaturate(?: it)?\b/g, item: adj('drive', 'up') },
+  { re: /\bless (?:drive|grit|distortion|saturation|crunch|dirt)\b|\bcleaner\b/g, item: adj('drive', 'down') },
+  { re: /\bmore (?:glide|portamento|slide)\b|\badd (?:glide|portamento)\b/g, item: adj('glide', 'up') },
+  { re: /\b(?:less|no) (?:glide|portamento|slide)\b/g, item: adj('glide', 'down') },
+  { re: /\blouder\b|\bturn (?:it )?up\b|\bmore volume\b/g, item: adj('volume', 'up') },
+  { re: /\bquieter\b|\bturn (?:it )?down\b|\bless volume\b/g, item: adj('volume', 'down') },
+  { re: /\bopen (?:up )?the filter\b|\bfilter (?:more )?open\b/g, item: adj('brightness', 'up') },
+  { re: /\bclose (?:down )?the filter\b/g, item: adj('brightness', 'down') },
+  { re: /\bbright(?:er|en(?: it)?(?: up)?)?\b|\bmore (?:treble|highs|top end|air|sparkle|bright)\b|\bcrisp(?:er)?\b|\bairier\b/g, item: adj('brightness', 'up') },
+  { re: /\bdark(?:er|en(?: it)?)?\b|\bduller\b|\bmuffled?\b|\bmellow(?:er)?\b|\bwarmer\b|\bless (?:treble|highs|top end|bright)\b|\bmuddier\b/g, item: adj('brightness', 'down') },
+];
+
+const AMOUNT_RULES: Array<[RegExp, Amount | 'max' | 'min']> = [
+  [/ほんの少し|ほんのちょっと|わずかに|気持ち|ちょびっと|\b(?:a tiny bit|a touch|just a little|slightly|barely)\b/g, 'tiny'],
+  [/思いっきり|思い切り|めちゃくちゃ|めっちゃ|極端に|最大限|\b(?:extremely|massively|tons|insanely|crazy)\b/g, 'extreme'],
+  [/かなり|すごく|すっごく|とても|ぐっと|うんと|たっぷり|大幅に|\b(?:much|a lot|lots|way|really|very|heavily)\b/g, 'large'],
+  [/もう少し|もうちょっと|少し|ちょっと|やや|軽く|すこし|少々|若干|心持ち|\b(?:a (?:little )?bit|a little|somewhat|a tad|a bit)\b/g, 'small'],
+  [/(?:最大|MAX|max|全開)(?:に|まで)?|\b(?:all the way(?: up)?|to the max|fully|maximum)\b/g, 'max'],
+  [/(?:最小|ゼロ|0|オフ)(?:に|まで)|\b(?:all the way down|minimum|to zero)\b/g, 'min'],
+];
+
+const CREATE_VERB = /作っ|作り|作る|作れ|つくっ|つくり|ちょうだい|ください|下さい|ほしい|欲しい|にして|に変え|用意|鳴らし|\b(?:make|build|create|start|give me|i want|i need|new|design|turn (?:it|this) into)\b/g;
+
+/** Words that carry no meaning of their own once the intent is recognised. */
+const FILLER_JA = /(?:お願い(?:します)?|ください|下さい|ちょうだい|してみて|して|してね|しよう|させて|せて|て|にする|にして|みて|もっと|さらに|さらにもう|全体(?:的に)?|音色|サウンド|感じ|気味|の|を|に|が|は|と|で|も|な|ね|よ|か|、|。|！|？|!|\?|・|\s)/g;
+const FILLER_EN = /\b(?:please|pls|can|could|would|you|make|it|this|that|the|a|an|sound|sounds|tone|bit|more|and|also|then|now|just|to|me|some|little|be|is|its|it's|too|so|patch|overall|whole|thing|lot|of|up|go|get|let's|lets|i|want|like|maybe|kinda|kind|sort)\b|[.,!?;:'"\s-]/g;
+
+export function detectLanguage(text: string): 'ja' | 'en' {
+  return /[぀-ヿ㐀-鿿]/.test(text) ? 'ja' : 'en';
+}
+
+export function parseRequest(raw: string): LexResult {
+  const text = raw.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  const lower = text.toLowerCase();
+  const lang = detectLanguage(text);
+  const taken: Array<[number, number]> = [];
+  const overlaps = (s: number, e: number) => taken.some(([a, b]) => s < b && e > a);
+  const found: Array<{ at: number; end: number; item: LexItem }> = [];
+  for (const rule of RULES) {
+    rule.re.lastIndex = 0;
+    for (let m = rule.re.exec(lower); m; m = rule.re.exec(lower)) {
+      if (!m[0]) { rule.re.lastIndex++; continue; }
+      const s = m.index, e = s + m[0].length;
+      if (overlaps(s, e)) continue;
+      taken.push([s, e]);
+      found.push({ at: s, end: e, item: rule.item(m) });
+    }
+  }
+  // A template noun counts only next to a "make" verb ("ベース作って", "make a bass"); "more bass" is not a template.
+  const templates = found.filter(f => f.item.kind === 'template');
+  if (templates.length) {
+    CREATE_VERB.lastIndex = 0;
+    const verbs = [...lower.matchAll(CREATE_VERB)].filter(m => !overlaps(m.index!, m.index! + m[0].length) || templates.some(t => m.index! >= t.at && m.index! < t.end));
+    if (verbs.length) { for (const v of verbs) taken.push([v.index!, v.index! + v[0].length]); for (const t of templates.slice(1)) drop(t); }
+    else for (const t of templates) drop(t);
+  }
+  function drop(f: typeof found[number]) { found.splice(found.indexOf(f), 1); taken.splice(taken.findIndex(([a, b]) => a === f.at && b === f.end), 1); }
+  // Amount modifiers: attach to the nearest intent (before it in Japanese and usually English too).
+  const modifiers: Array<{ at: number; end: number; amount: Amount | 'max' | 'min' }> = [];
+  for (const [re, amount] of AMOUNT_RULES) {
+    re.lastIndex = 0;
+    for (let m = re.exec(lower); m; m = re.exec(lower)) {
+      const s = m.index, e = s + m[0].length;
+      if (overlaps(s, e) && !found.some(f => s >= f.at && e <= f.end)) continue;
+      if (!found.some(f => s >= f.at && e <= f.end)) taken.push([s, e]);
+      modifiers.push({ at: s, end: e, amount });
+    }
+  }
+  found.sort((a, b) => a.at - b.at);
+  for (const mod of modifiers) {
+    const inside = found.find(f => mod.at >= f.at && mod.end <= f.end);
+    const target = inside ?? found.filter(f => f.at >= mod.end).sort((a, b) => a.at - b.at)[0] ?? found.filter(f => f.end <= mod.at).sort((a, b) => b.end - a.end)[0];
+    if (!target || target.item.kind === 'template') continue;
+    if (target.item.kind === 'adjust') {
+      if (mod.amount === 'max') target.item.direction = target.item.direction === 'down' ? 'set_min' : 'set_max';
+      else if (mod.amount === 'min') target.item.direction = 'set_min';
+      else if (!target.item.amount || inside === undefined) target.item.amount = mod.amount;
+    } else if (mod.amount !== 'max' && mod.amount !== 'min') target.item.amount = mod.amount;
+  }
+  let rest = '';
+  for (let i = 0; i < lower.length; i++) if (!taken.some(([a, b]) => i >= a && i < b)) rest += lower[i]; else rest += ' ';
+  const leftover = rest.replace(FILLER_EN, ' ').replace(FILLER_JA, '').replace(/\s+/g, ' ').trim();
+  const meaningful = leftover.replace(/[^\p{L}\p{N}]/gu, '');
+  return { items: found.map(f => f.item), full: found.length > 0 && meaningful.length <= 1, leftover, lang };
+}

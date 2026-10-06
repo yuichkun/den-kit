@@ -6,7 +6,7 @@ import { createServer, type ViteDevServer } from 'vite';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
 import { JevClient } from '../../bridge/jev.ts';
-import { startFakeJev, type FakeJev } from '../fakes/jev/fake-jev.ts';
+import { startFakeJev, type Answerer, type FakeJev } from '../fakes/jev/fake-jev.ts';
 
 export const kitRoot = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -25,6 +25,10 @@ export interface HarnessOptions {
   bridge?: boolean;
   /** Key the bridge sends; the fake accepts only 'e2e-key'. null runs with Jev off. */
   jevKey?: string | null;
+  /** How the fake Jev answers (default: position-biased, i.e. an unsure model). */
+  jevAnswerer?: Answerer;
+  /** Warm Jev up at bridge start like kit:dev does (learns a bad key early). */
+  warmUp?: boolean;
 }
 
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
@@ -32,9 +36,9 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   let bridge: Bridge | null = null;
   let jev: FakeJev | null = null;
   if (options.bridge !== false) {
-    jev = await startFakeJev({ key: 'e2e-key' });
+    jev = await startFakeJev({ key: 'e2e-key', answerer: options.jevAnswerer });
     const key = options.jevKey === undefined ? 'e2e-key' : options.jevKey;
-    bridge = await createBridge({ jev: new JevClient({ apiKey: key ?? undefined, baseUrl: jev.url }) });
+    bridge = await createBridge({ jev: new JevClient({ apiKey: key ?? undefined, baseUrl: jev.url }), warmUp: options.warmUp });
     process.env.KIT_BRIDGE_TOKEN = bridge.token;
     process.env.KIT_BRIDGE_PORT = String(bridge.port);
   } else {

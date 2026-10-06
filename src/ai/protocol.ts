@@ -23,7 +23,7 @@ export type JevResult =
   | { ok: false; error: { kind: JevErrorKind; message: string; status?: number; retryAfterMs?: number }; ms: number };
 
 // ---- Status --------------------------------------------------------------------
-export interface JevStatus { state: 'off' | 'unknown' | 'ok' | 'error'; detail?: string; model?: string; lastMs?: number }
+export interface JevStatus { state: 'off' | 'unknown' | 'ok' | 'error'; detail?: string; model?: string; lastMs?: number; /** Default time budget per request (KIT_JEV_BUDGET_MS). */ budgetMs?: number }
 export interface CodexStatus { state: 'off' | 'starting' | 'ok' | 'login' | 'error'; detail?: string; model?: string; plan?: string; rateLimit?: { usedPercent: number; resetsAt: number | null } | null }
 export interface BridgeStatus { jev: JevStatus; codex: CodexStatus }
 

@@ -98,7 +98,7 @@ export class BridgeClient {
     if (options.signal?.aborted) return Promise.resolve({ ok: false, error: { kind: 'cancelled', message: 'Cancelled.' }, ms: 0 });
     const id = `j${++this.serial}`;
     return new Promise<JevResult>(resolve => {
-      const budget = options.budgetMs ?? 1500;
+      const budget = options.budgetMs ?? this.status.value?.jev.budgetMs ?? 2500;
       const timer = setTimeout(() => this.settle(id, { ok: false, error: { kind: 'timeout', message: 'The AI bridge did not answer in time.' }, ms: Math.round(performance.now() - started) }), budget + this.replyMarginMs);
       this.pending.set(id, { resolve, timer, started });
       options.signal?.addEventListener('abort', () => {

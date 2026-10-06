@@ -152,6 +152,11 @@ describe('JevClient', () => {
     expect(r.ok && r.modelWarning).toMatch(/jev-1\.14\.0/);
   });
 
+  it('publishes its default budget in the status (KIT_JEV_BUDGET_MS reaches the browser this way)', () => {
+    expect(client().status.budgetMs).toBe(2500);
+    expect(client({ defaultBudgetMs: 4000 }).status.budgetMs).toBe(4000);
+  });
+
   it('warm-up is a single noul request', async () => {
     const r = await client().warmUp();
     expect(r.ok).toBe(true);

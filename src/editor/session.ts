@@ -16,10 +16,12 @@ import { AudioEngine, type EngineState } from '../engine/audio-engine.ts';
 import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from '../core/persistence.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 import type { BridgeClient } from '../ai/bridge-client.ts';
+import type { FastPath } from '../ai/fast-path.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast { id: number; kind: 'info' | 'warn' | 'error'; text: string }
 export interface TransactionListener { (tx: Transaction, doc: PatchDocument): void }
+export interface HistoryListener { (kind: 'undo' | 'redo', tx: Transaction): void }
 
 const AUTOSAVE_KEY = 'den-kit:autosave';
 
@@ -49,9 +51,13 @@ export class KitSession {
   readonly readOnly = ref(false);
   /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
   bridge: BridgeClient | null = null;
+  /** The fast AI path (lexicon + Jev); null when not wired (unit tests). */
+  fast: FastPath | null = null;
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   private listeners = new Set<TransactionListener>();
+  private historyListeners = new Set<HistoryListener>();
+  private compileSerial = 0;
   private compileTimer: ReturnType<typeof setTimeout> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private toastSerial = 0;
@@ -83,14 +89,14 @@ export class KitSession {
     this.replace(starter(fallback, catalog), 'Starter', false);
   }
 
-  replace(doc: PatchDocument, label: string, undoable = true) {
+  replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
     if (undoable) {
       const ops: ResolvedOp[] = [...Object.values(previous.edges).map(edge => ({ op: 'removeEdge' as const, edge })), ...Object.values(previous.nodes).map(node => ({ op: 'removeNode' as const, node })),
         ...Object.values(doc.nodes).map(node => ({ op: 'addNode' as const, node })), ...Object.values(doc.edges).map(edge => ({ op: 'addEdge' as const, edge }))];
       if (previous.name !== doc.name) ops.push({ op: 'setDoc', field: 'name', from: previous.name, to: doc.name });
       if (previous.panel.theme !== doc.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: previous.panel.theme, to: doc.panel.theme });
-      this.history.record({ id: randomId('tx'), author: { kind: 'human' }, label, ops, at: Date.now(), baseRevision: previous.revision });
+      this.history.record({ id: randomId('tx'), author, label, ops, at: Date.now(), baseRevision: previous.revision });
     } else this.history.clear();
     this.historyVersion.value++;
     this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };
@@ -102,9 +108,10 @@ export class KitSession {
   loadStarter(id: StarterId) { this.replace(starter(id, catalog), `Load ${id}`); }
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */
-  commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
+  commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string; /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
     if (this.readOnly.value) return { ok: false, error: new OpError('This tab is read-only (the patch is open in another tab).', 0, 'read-only') };
     const before = this.doc.value;
+    if (options.expectRevision !== undefined && before.revision !== options.expectRevision) return { ok: false, error: new OpError(`The patch changed (revision ${before.revision}, expected ${options.expectRevision}).`, 0, 'stale') };
     let result;
     try { result = applyIntents(before, intents, catalog); }
     catch (error) {
@@ -121,9 +128,10 @@ export class KitSession {
     return { ok: true, ops: result.ops, created: result.created };
   }
 
-  undo() { const r = this.history.undo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); } return r?.tx ?? null; }
-  redo() { const r = this.history.redo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); } return r?.tx ?? null; }
+  undo() { const r = this.history.undo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); for (const l of this.historyListeners) l('undo', r.tx); } return r?.tx ?? null; }
+  redo() { const r = this.history.redo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); for (const l of this.historyListeners) l('redo', r.tx); } return r?.tx ?? null; }
   onTransaction(listener: TransactionListener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  onHistory(listener: HistoryListener) { this.historyListeners.add(listener); return () => this.historyListeners.delete(listener); }
 
   // ---- Change propagation ------------------------------------------------------
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
@@ -157,6 +165,8 @@ export class KitSession {
       else { this.compileStatus.value = 'empty'; this.compileMessage.value = generated.issues.find(i => i.code === 'nothing-to-compile')?.message ?? 'Nothing to play.'; this.engine.unload(); }
       return null;
     }
+    const serial = ++this.compileSerial;
+    const previousStatus = { status: this.compileStatus.value, message: this.compileMessage.value };
     this.compileStatus.value = 'compiling';
     this.compileMessage.value = 'Compiling…';
     try {
@@ -170,7 +180,15 @@ export class KitSession {
       if (this.engine.running) await this.loadIntoEngine(artifact);
       return artifact;
     } catch (error) {
-      if (error instanceof CompileFailure && error.kind === 'superseded') return null;
+      if (error instanceof CompileFailure && error.kind === 'superseded') {
+        // Superseded by something other than a newer compileNow: do not leave "Compiling…" behind.
+        if (serial === this.compileSerial && !this.compileTimer) {
+          const cached = this.compiler.cached(this.generated.value.hash);
+          this.compileStatus.value = cached ? 'ok' : previousStatus.status === 'compiling' || previousStatus.status === 'waiting' ? 'idle' : previousStatus.status;
+          this.compileMessage.value = cached ? 'Compiled' : previousStatus.message;
+        }
+        return null;
+      }
       if (this.generated.value.hash !== generated.hash) return null;
       this.compileStatus.value = 'error';
       this.compileMessage.value = error instanceof Error ? error.message : String(error);
