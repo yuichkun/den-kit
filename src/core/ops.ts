@@ -4,6 +4,7 @@
 // document is untouched (documents are treated as immutable values).
 import { checkConfigValue, checkPortValue, clampPortValue, defaultValue, type Catalog } from './catalog.ts';
 import { createsCycle } from './scope.ts';
+import { CODEBOX_TEMPLATE } from './codebox.ts';
 import {
   NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
   type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PatchDocument, type PatchEdge, type PatchNode,
@@ -173,7 +174,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       const node: PatchNode = { id, type: spec.type, pos: validXY(spec.pos) ? { ...spec.pos } : { x: 0, y: 0 }, config, values: {} };
       if (spec.label) node.label = String(spec.label).slice(0, 80);
       if (def.kind === 'codebox') {
-        node.code = typeof spec.code === 'string' ? spec.code : '';
+        node.code = typeof spec.code === 'string' ? spec.code : CODEBOX_TEMPLATE;
         node.ports = spec.ports && validPorts(spec.ports) ? clone(spec.ports) : { inputs: [{ id: 'in', type: 'signal' }], outputs: [{ id: 'out', type: 'signal' }] };
         if (spec.ports && !validPorts(spec.ports)) fail('bad-ports', 'Codebox ports must be up to 16 unique ids per side, each {id, type: "signal"|"gate"}.');
         if (node.code.length > MAX_CODE) fail('too-large', `Codebox source is limited to ${MAX_CODE} characters.`);

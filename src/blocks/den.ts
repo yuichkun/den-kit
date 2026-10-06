@@ -23,7 +23,7 @@ const delayBytes = (seconds: number, sampleRate: number, heads = 2) => heads * 4
 
 export const denBlocks: NodeDef[] = [
   {
-    type: 'den.oscillator', kind: 'block', title: 'Oscillator', category: 'source',
+    type: 'den.oscillator', face: ['frequency'], kind: 'block', title: 'Oscillator', category: 'source',
     summary: 'Sine or anti-aliased saw oscillator.',
     doc: 'frequency in Hz (clamped to 0..0.45·sampleRate). Saw is BLEP-smoothed. Reset emits phase zero on that sample.',
     keywords: ['osc', 'vco', 'saw', 'sine', 'tone'],
@@ -33,7 +33,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/oscillator', export: 'oscillator', call: { args: ['frequency', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.virtualAnalogSource', kind: 'block', title: 'VA Pulse/Triangle', category: 'source',
+    type: 'den.virtualAnalogSource', face: ['frequencyHz', 'duty'], kind: 'block', title: 'VA Pulse/Triangle', category: 'source',
     summary: 'Band-limited pulse (with duty) or triangle oscillator.',
     keywords: ['pulse', 'square', 'pwm', 'triangle', 'osc'],
     config: [enumConfig('waveform', ['pulse', 'triangle'], 'pulse'), num('phaseCycles', 0, 0, 0.999999, { doc: 'Initial/reset phase in cycles.' })],
@@ -51,7 +51,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/virtual-analog', export: 'seededNoise', sampleRate: false, call: { args: ['reset'], returns: 'out' } },
   },
   {
-    type: 'den.frequencyModulation', kind: 'block', title: 'FM Pair', category: 'source',
+    type: 'den.frequencyModulation', face: ['modulatorHz', 'deviationHz', 'feedbackHz'], kind: 'block', title: 'FM Pair', category: 'source',
     summary: 'Two-operator FM: sine carrier modulated by a sine modulator (deviation in Hz) with feedback.',
     keywords: ['fm', 'bell', 'metallic', 'operator'],
     config: [],
@@ -60,7 +60,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/source', export: 'frequencyModulation', call: { args: [{ object: ['carrierHz', 'modulatorHz', 'deviationHz', 'feedbackHz', 'reset'] }], returns: 'out' } },
   },
   {
-    type: 'den.envelope', kind: 'block', title: 'ADSR', category: 'envelope',
+    type: 'den.envelope', face: ['attack', 'decay', 'sustain', 'release'], kind: 'block', title: 'ADSR', category: 'envelope',
     summary: 'Linear ADSR envelope (0..1) with a done flag.',
     doc: 'In a voice, gate/retrigger/reset follow the note automatically when unconnected. Times in seconds (0..30). Connect `done` of the amp envelope to Voice Mix so voices free after the release.',
     keywords: ['env', 'adsr', 'envelope', 'attack', 'release'],
@@ -73,7 +73,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/envelope', export: 'envelope', call: { args: [{ object: ['gate', 'retrigger', 'reset', 'attack', 'decay', 'sustain', 'release'] }], returns: { level: 'level', done: 'done' } } },
   },
   {
-    type: 'den.curvedAdsr', kind: 'block', title: 'Curved ADSR', category: 'envelope',
+    type: 'den.curvedAdsr', face: ['attack', 'decay', 'sustain', 'release'], kind: 'block', title: 'Curved ADSR', category: 'envelope',
     summary: 'ADSR with per-segment bends (-1 ease-in, 0 linear, +1 ease-out).',
     keywords: ['env', 'adsr', 'curve', 'exponential'],
     config: [],
@@ -86,7 +86,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/musical-controls', export: 'curvedAdsr', call: { args: [{ object: ['gate', 'retrigger', 'reset', 'attack', 'decay', 'sustain', 'release', 'attackBend', 'decayBend', 'releaseBend'] }], returns: { level: 'level', done: 'done' } } },
   },
   {
-    type: 'den.lfo', kind: 'block', title: 'LFO', category: 'modulation',
+    type: 'den.lfo', face: ['rate'], kind: 'block', title: 'LFO', category: 'modulation',
     summary: 'Free-running sine LFO in [-1, 1].',
     doc: 'rate 0..20 Hz. Per-voice LFOs restart on each note; a global LFO runs freely (restarts on panic).',
     keywords: ['lfo', 'vibrato', 'wobble', 'modulation'],
@@ -96,7 +96,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/lfo', export: 'lfo', call: { args: ['rate', 'reset', 'resetPhase'], returns: 'out' } },
   },
   {
-    type: 'den.musicalLfo', kind: 'block', title: 'Musical LFO', category: 'modulation',
+    type: 'den.musicalLfo', face: ['rate', 'phaseOffset'], kind: 'block', title: 'Musical LFO', category: 'modulation',
     summary: 'LFO with sine/triangle/saw/square shapes, free (Hz) or tempo (BPM) mode.',
     keywords: ['lfo', 'tempo', 'sync', 'square', 'triangle'],
     config: [enumConfig('mode', ['free', 'tempo'], 'free'), enumConfig('waveform', ['sine', 'triangle', 'saw', 'square'], 'triangle'), { id: 'beatsPerCycle', kind: 'enum', options: ['0.25', '0.5', '1', '2', '4', '8'], default: '1', doc: 'Tempo mode: beats per cycle.' }],
@@ -114,7 +114,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/modulation', export: 'sampleAndHold', sampleRate: false, call: { args: ['input', 'trigger', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.randomModulator', kind: 'block', title: 'Random', category: 'modulation',
+    type: 'den.randomModulator', face: ['correlation'], kind: 'block', title: 'Random', category: 'modulation',
     summary: 'New random value in [-1,1] on each trigger; correlation smooths steps.',
     keywords: ['random', 'chance', 'humanize'],
     config: [num('initial', 0, -1, 1), num('seed', 1, 1, 2147483646, { integer: true })],
@@ -123,7 +123,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/modulation', export: 'randomModulator', sampleRate: false, call: { args: [{ object: ['trigger', 'reset', 'correlation'] }], returns: 'out' } },
   },
   {
-    type: 'den.pitchGlide', kind: 'block', title: 'Glide', category: 'modulation',
+    type: 'den.pitchGlide', face: ['seconds'], kind: 'block', title: 'Glide', category: 'modulation',
     summary: 'Portamento on a note number (semitones), e.g. Voice In note → Glide → Note→Hz.',
     keywords: ['glide', 'portamento', 'slide'],
     config: [],
@@ -132,7 +132,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/performance', export: 'pitchGlide', call: { args: [{ object: ['target', 'seconds', 'reset', 'snap'] }], returns: 'out' } },
   },
   {
-    type: 'den.filter', kind: 'block', title: 'Lowpass', category: 'filter',
+    type: 'den.filter', face: ['cutoff', 'resonance'], kind: 'block', title: 'Lowpass', category: 'filter',
     summary: '12 dB/oct resonant lowpass (TPT state-variable).',
     doc: 'cutoff in Hz (20..0.45·sampleRate), resonance is Q (0.5..10). For envelope sweeps put a Cutoff Mod before cutoff.',
     keywords: ['lpf', 'lowpass', 'filter', 'vcf', 'cutoff'],
@@ -142,7 +142,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/filter', export: 'filter', call: { args: ['input', 'cutoff', 'resonance', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.stateVariableFilter', kind: 'block', title: 'Multimode SVF', category: 'filter',
+    type: 'den.stateVariableFilter', face: ['cutoffHz', 'q'], kind: 'block', title: 'Multimode SVF', category: 'filter',
     summary: 'State-variable filter with lowpass/bandpass/highpass/notch/allpass outputs.',
     keywords: ['svf', 'highpass', 'bandpass', 'notch', 'hpf', 'bpf'],
     config: [],
@@ -151,7 +151,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/state-variable-filter', export: 'stateVariableFilter', call: { args: ['input', 'cutoffHz', 'q', 'reset'], returns: { lowpass: 'lowpass', bandpass: 'bandpass', highpass: 'highpass', notch: 'notch', allpass: 'allpass' } } },
   },
   {
-    type: 'den.characterFilter', kind: 'block', title: 'Ladder', category: 'filter',
+    type: 'den.characterFilter', face: ['poleHz', 'resonance', 'drive'], kind: 'block', title: 'Ladder', category: 'filter',
     summary: 'Four-pole ladder-style lowpass with drive.',
     keywords: ['ladder', 'moog', '24db', 'warm', 'filter'],
     config: [],
@@ -160,7 +160,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/character-filter', export: 'characterFilter', call: { args: ['input', 'poleHz', 'resonance', 'drive', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.biquadEq', kind: 'block', title: 'EQ Band', category: 'filter',
+    type: 'den.biquadEq', face: ['cutoffHz', 'q', 'gainDb'], kind: 'block', title: 'EQ Band', category: 'filter',
     summary: 'Peaking or shelving EQ band.',
     keywords: ['eq', 'shelf', 'peak', 'boost', 'cut'],
     config: [enumConfig('mode', ['peaking', 'lowShelf', 'highShelf'], 'peaking')],
@@ -169,7 +169,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/biquad-eq', export: 'biquadEq', call: { args: ['input', 'cutoffHz', 'q', 'gainDb', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.drive', kind: 'block', title: 'Drive', category: 'fx',
+    type: 'den.drive', face: ['gain', 'mix'], kind: 'block', title: 'Drive', category: 'fx',
     summary: 'Waveshaping distortion (hard/soft/asymmetric/fold) with dry/wet mix.',
     keywords: ['distortion', 'saturation', 'overdrive', 'fold', 'dirty'],
     config: [enumConfig('curve', ['soft', 'hard', 'asymmetric', 'fold'], 'soft'), enumConfig('quality', ['direct', 'adaa'], 'direct'), num('dcBlockHz', 0, 0, 200)],
@@ -178,7 +178,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/drive', export: 'drive', call: { args: ['input', 'gain', 'mix', 'reset'], returns: 'out' } },
   },
   {
-    type: 'den.dynamics', kind: 'block', title: 'Dynamics', category: 'dynamics',
+    type: 'den.dynamics', face: ['thresholdDb', 'ratio', 'attack', 'release'], kind: 'block', title: 'Dynamics', category: 'dynamics',
     summary: 'Stereo compressor/expander/gate/ducker with optional sidechain.',
     keywords: ['compressor', 'gate', 'duck', 'sidechain', 'punch'],
     scope: 'global',
@@ -190,7 +190,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/dynamics', export: 'dynamics', call: { args: ['left', 'right', 'sidechainLeft', 'sidechainRight', { object: ['thresholdDb', 'ratio', 'kneeDb', 'rangeDb', 'detectorAttack', 'detectorRelease', 'attack', 'release', 'reset'] }], returns: { left: 'left', right: 'right', envelope: 'envelope', gain: 'gain', gainDb: 'gainDb' } } },
   },
   {
-    type: 'den.delayFx', kind: 'block', title: 'Delay / Chorus', category: 'fx',
+    type: 'den.delayFx', face: ['timeLeftSeconds', 'feedback', 'mix'], kind: 'block', title: 'Delay / Chorus', category: 'fx',
     summary: 'Stereo modulated delay: chorus, slapback or tempo-synced echoes with toned feedback.',
     doc: 'Times in seconds, or beats when sync is on (60·beats/bpm). rateHz/depthSeconds modulate the delay (chorus). feedback 0..0.95.',
     keywords: ['delay', 'echo', 'chorus', 'slapback', 'dub'],
@@ -207,7 +207,7 @@ export const denBlocks: NodeDef[] = [
     },
   },
   {
-    type: 'den.pingPongDelay', kind: 'block', title: 'Ping-Pong Delay', category: 'fx',
+    type: 'den.pingPongDelay', face: ['timeSeconds', 'feedback', 'mix'], kind: 'block', title: 'Ping-Pong Delay', category: 'fx',
     summary: 'Stereo cross-feedback delay bouncing between left and right.',
     keywords: ['pingpong', 'delay', 'echo', 'stereo'],
     config: [num('maxDelaySeconds', 2, 0.01, 8)],
@@ -216,7 +216,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/stereo-delay', export: 'pingPongDelay', memoryBytes: (c, sr) => delayBytes(Number(c.maxDelaySeconds), sr), call: { args: ['left', 'right', { object: ['timeSeconds', 'feedback', 'mix', 'bypass', 'reset'] }], returns: { left: 'left', right: 'right', timingRejected: 'timingRejected' } } },
   },
   {
-    type: 'den.algorithmicReverb', kind: 'block', title: 'Reverb', category: 'fx',
+    type: 'den.algorithmicReverb', face: ['mix'], kind: 'block', title: 'Reverb', category: 'fx',
     summary: 'Stereo feedback-delay-network reverb.',
     keywords: ['reverb', 'room', 'hall', 'space', 'ambience'],
     scope: 'global',
@@ -226,7 +226,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/reverb', export: 'algorithmicReverb', call: { args: ['left', 'right', { object: ['mix', 'bypass', 'reset'] }], returns: { left: 'left', right: 'right' } } },
   },
   {
-    type: 'den.phaser', kind: 'block', title: 'Phaser', category: 'fx',
+    type: 'den.phaser', face: ['frequencyHz', 'feedback', 'mix'], kind: 'block', title: 'Phaser', category: 'fx',
     summary: 'Allpass phaser (mono) with feedback.',
     keywords: ['phaser', 'phase', 'sweep'],
     config: [{ id: 'stages', kind: 'enum', options: ['2', '4', '6', '8'], default: '4' }],
@@ -235,7 +235,7 @@ export const denBlocks: NodeDef[] = [
     den: { module: '@denaudio/den/modulation-fx', export: 'phaser', mapConfig: c => ({ stages: Number(c.stages) }), call: { args: ['input', { object: ['frequencyHz', 'feedback', 'mix', 'bypass', 'reset'] }], returns: 'out' } },
   },
   {
-    type: 'den.flanger', kind: 'block', title: 'Flanger', category: 'fx',
+    type: 'den.flanger', face: ['rateHz', 'depthSeconds', 'feedback', 'mix'], kind: 'block', title: 'Flanger', category: 'fx',
     summary: 'Stereo flanger (short modulated delay with feedback).',
     keywords: ['flanger', 'jet', 'sweep'],
     config: [num('maxDelaySeconds', 0.02, 0.0001, 0.02), num('stereoPhaseCycles', 0.5, 0, 1)],

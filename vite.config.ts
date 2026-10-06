@@ -68,7 +68,8 @@ export default defineConfig({
     fs: { allow: [den] },
     proxy: { '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true } },
   },
-  optimizeDeps: { esbuildOptions: { target: 'es2022' } },
+  // Pre-bundle up front so the first visit does not trigger a reload.
+  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', 'typescript'], esbuildOptions: { target: 'es2022' } },
   build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
   test: {
     projects: [

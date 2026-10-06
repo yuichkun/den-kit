@@ -5,6 +5,7 @@
 import type { Catalog } from './catalog.ts';
 import { applyIntents, type Intent } from './ops.ts';
 import { emptyDocument, type PatchDocument } from './schema.ts';
+import { withLayout } from './layout.ts';
 
 const add = (id: string, type: string, x: number, y: number, extra: Record<string, unknown> = {}): Intent => ({ op: 'addNode', node: { id, type, pos: { x, y }, ...extra } });
 const wire = (from: string, to: string): Intent => {
@@ -15,7 +16,7 @@ const env = (a: number, d: number, s: number, r: number) => ({ attack: a, decay:
 
 function build(name: string, catalog: Catalog, intents: Intent[]): PatchDocument {
   const doc = applyIntents(emptyDocument(name, `starter-${name.toLowerCase().replace(/\W+/g, '-')}`), intents, catalog).doc;
-  return { ...doc, revision: 0 };
+  return withLayout({ ...doc, revision: 0 }, catalog);
 }
 
 function monoVoice(kind: 'bass' | 'percussion'): Intent[] {

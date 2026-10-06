@@ -14,7 +14,7 @@ const LFO = { module: '@denaudio/den/lfo', names: ['modulatePitch', 'modulateCut
 
 export const kitPrimitives: NodeDef[] = [
   {
-    type: 'kit.value', kind: 'prim', title: 'Value', category: 'math', summary: 'A constant you can turn (an AudioParam).',
+    type: 'kit.value', face: ['value'], kind: 'prim', title: 'Value', category: 'math', summary: 'A constant you can turn (an AudioParam).',
     keywords: ['constant', 'number', 'knob', 'offset'], config: [],
     inputs: [sig('value', 0, -BIG, BIG, { uiMin: -1, uiMax: 1 })], outputs: [out()],
     prim: i => ({ out: i.value! }),
@@ -26,13 +26,13 @@ export const kitPrimitives: NodeDef[] = [
     prim: i => ({ out: `${i.a}.add(${i.b})` }),
   },
   {
-    type: 'kit.mul', kind: 'prim', title: 'Multiply / VCA', category: 'math', summary: 'a × b. Use as a VCA: audio into a, envelope into b.',
+    type: 'kit.mul', face: ['b'], kind: 'prim', title: 'Multiply / VCA', category: 'math', summary: 'a × b. Use as a VCA: audio into a, envelope into b.',
     keywords: ['vca', 'times', 'amp', 'scale', 'ring'], config: [],
     inputs: [sig('a', 1, -BIG, BIG, { uiMin: -2, uiMax: 2 }), sig('b', 1, -BIG, BIG, { uiMin: -2, uiMax: 2, roles: ['depth', 'amount'] })], outputs: [out()],
     prim: i => ({ out: `${i.a}.mul(${i.b})` }),
   },
   {
-    type: 'kit.gain', kind: 'prim', title: 'Gain', category: 'math', summary: 'Scales audio by a linear gain (0..4).',
+    type: 'kit.gain', face: ['gain'], kind: 'prim', title: 'Gain', category: 'math', summary: 'Scales audio by a linear gain (0..4).',
     keywords: ['volume', 'level', 'amp', 'loudness'], config: [],
     inputs: [audio('in'), sig('gain', 1, 0, 4, { unit: 'gain', uiMax: 2, roles: ['gain', 'volume'] })], outputs: [out()],
     prim: i => ({ out: `${i.in}.mul(${i.gain})` }),
@@ -55,7 +55,7 @@ export const kitPrimitives: NodeDef[] = [
     },
   },
   {
-    type: 'kit.scale', kind: 'prim', title: 'Scale / Offset', category: 'math', summary: 'in × scale + offset (e.g. map an LFO to a modulation depth).',
+    type: 'kit.scale', face: ['scale', 'offset'], kind: 'prim', title: 'Scale / Offset', category: 'math', summary: 'in × scale + offset (e.g. map an LFO to a modulation depth).',
     keywords: ['depth', 'amount', 'attenuverter', 'offset', 'bias'], config: [],
     inputs: [sig('in', 0, -BIG, BIG, { role: 'audio' }), sig('scale', 1, -BIG, BIG, { uiMin: -2, uiMax: 2, roles: ['depth', 'amount'] }), sig('offset', 0, -BIG, BIG, { uiMin: -1, uiMax: 1 })], outputs: [out()],
     prim: i => ({ out: `${i.in}.mul(${i.scale}).add(${i.offset})` }),
@@ -73,19 +73,19 @@ export const kitPrimitives: NodeDef[] = [
     prim: i => ({ out: `${i.in}.max(${i.min}).min(${i.max})` }),
   },
   {
-    type: 'kit.crossfade', kind: 'prim', title: 'Crossfade', category: 'math', summary: 'Blends a (mix 0) to b (mix 1).',
+    type: 'kit.crossfade', face: ['mix'], kind: 'prim', title: 'Crossfade', category: 'math', summary: 'Blends a (mix 0) to b (mix 1).',
     keywords: ['blend', 'morph', 'xfade', 'dry wet'], config: [],
     inputs: [audio('a'), audio('b'), sig('mix', 0.5, 0, 1, { unit: 'mix', roles: ['mix'] })], outputs: [out()],
     prim: i => ({ out: `${i.a}.add(${i.b}.sub(${i.a}).mul(${i.mix}.clamp(0, 1)))` }),
   },
   {
-    type: 'kit.pan', kind: 'prim', title: 'Pan', category: 'math', summary: 'Equal-power pan of a mono signal to left/right.',
+    type: 'kit.pan', face: ['pan'], kind: 'prim', title: 'Pan', category: 'math', summary: 'Equal-power pan of a mono signal to left/right.',
     keywords: ['pan', 'stereo', 'balance', 'width'], config: [],
     inputs: [audio('in'), sig('pan', 0, -1, 1, { roles: ['pan'] })], outputs: [out('left', 'L'), out('right', 'R')],
     prim: i => ({ left: `${i.in}.mul(f32(1).sub(${i.pan}.clamp(-1, 1)).mul(0.5).sqrt())`, right: `${i.in}.mul(f32(1).add(${i.pan}.clamp(-1, 1)).mul(0.5).sqrt())` }),
   },
   {
-    type: 'kit.tanh', kind: 'prim', title: 'Soft Clip', category: 'math', summary: 'tanh(in × drive): gentle saturation and a safety limiter.',
+    type: 'kit.tanh', face: ['drive'], kind: 'prim', title: 'Soft Clip', category: 'math', summary: 'tanh(in × drive): gentle saturation and a safety limiter.',
     keywords: ['saturate', 'tanh', 'clip', 'warm'], config: [],
     inputs: [audio('in'), sig('drive', 1, 0, 32, { unit: 'gain', uiMax: 8, roles: ['drive'] })], outputs: [out()],
     prim: i => ({ out: `${i.in}.mul(${i.drive}).tanh()` }),
@@ -103,21 +103,21 @@ export const kitPrimitives: NodeDef[] = [
     prim: i => ({ out: `f32(440).mul(f32(2).pow(${i.note}.sub(69).div(12)))` }),
   },
   {
-    type: 'kit.pitchMod', kind: 'prim', title: 'Pitch Mod', category: 'modulation', summary: 'Shifts a frequency by semitones (vibrato, pitch envelope, detune).',
+    type: 'kit.pitchMod', face: ['semitones'], kind: 'prim', title: 'Pitch Mod', category: 'modulation', summary: 'Shifts a frequency by semitones (vibrato, pitch envelope, detune).',
     doc: 'hz × 2^(semitones/12), semitones clamped to ±24 (den modulatePitch). Feed an LFO or envelope through Scale for depth.',
     keywords: ['vibrato', 'detune', 'pitch envelope', 'transpose'], config: [], imports: [LFO],
     inputs: [sig('hz', 440, 0, 21600, { unit: 'Hz', role: 'audio' }), sig('semitones', 0, -24, 24, { unit: 'st', materialize: true, roles: ['pitch', 'depth'] })], outputs: [out()],
     prim: (i, _node, env) => ({ out: `modulatePitch(${i.hz}, f32(1), ${i.semitones}, 0.45 * ${env.sampleRate})` }),
   },
   {
-    type: 'kit.cutoffMod', kind: 'prim', title: 'Cutoff Mod', category: 'modulation', summary: 'Base cutoff in Hz shifted by octaves (filter envelope / LFO sweeps).',
+    type: 'kit.cutoffMod', face: ['hz', 'octaves'], kind: 'prim', title: 'Cutoff Mod', category: 'modulation', summary: 'Base cutoff in Hz shifted by octaves (filter envelope / LFO sweeps).',
     doc: 'hz × 2^octaves, octaves clamped to ±8, result 20..min(20000, 0.45·sampleRate) (den modulateCutoff).',
     keywords: ['filter envelope', 'sweep', 'wah', 'cutoff'], config: [], imports: [LFO],
     inputs: [sig('hz', 1000, 20, 20000, { unit: 'Hz', scale: 'log', roles: ['cutoff', 'brightness'] }), sig('octaves', 0, -8, 8, { unit: 'oct', materialize: true, roles: ['depth'] })], outputs: [out()],
     prim: (i, _node, env) => ({ out: `modulateCutoff(${i.hz}, f32(1), ${i.octaves}, Math.min(20000, 0.45 * ${env.sampleRate}))` }),
   },
   {
-    type: 'kit.tremolo', kind: 'prim', title: 'Tremolo', category: 'modulation', summary: 'Amplitude modulation: in × (1 − depth·(1 − lfo)/2).',
+    type: 'kit.tremolo', face: ['depth'], kind: 'prim', title: 'Tremolo', category: 'modulation', summary: 'Amplitude modulation: in × (1 − depth·(1 − lfo)/2).',
     keywords: ['tremolo', 'am', 'pulse', 'throb'], config: [],
     inputs: [audio('in'), sig('lfo', 1, -1, 1, { role: 'audio', default: 1 }), sig('depth', 0, 0, 1, { unit: 'mix', roles: ['depth'] })], outputs: [out()],
     prim: i => ({ out: `${i.in}.mul(f32(1).sub(${i.depth}.mul(f32(1).sub(${i.lfo})).mul(0.5)))` }),

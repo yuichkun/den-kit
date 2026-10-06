@@ -102,6 +102,8 @@ export interface NodeDef {
   keywords?: readonly string[];
   /** Max one per patch. */
   singleton?: boolean;
+  /** Inputs shown as big knobs on the module face (Grid style); other params stay compact. */
+  face?: readonly PortId[];
 }
 
 export class Catalog {

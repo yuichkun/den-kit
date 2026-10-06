@@ -1,0 +1,254 @@
+// The editing session: the one document the browser owns, its history, the
+// compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
+// through commit() with an author, so humans and AI edit the same way.
+import { reactive, shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
+import { catalog } from '../blocks/index.ts';
+import { generate, type Generated } from '../core/codegen.ts';
+import { History, type Author, type Transaction } from '../core/history.ts';
+import { applyIntents, isStructural, OpError, type Intent, type ResolvedOp } from '../core/ops.ts';
+import { emptyDocument, randomId, type PatchDocument } from '../core/schema.ts';
+import { validate } from '../core/validate.ts';
+import type { Issue } from '../core/issues.ts';
+import { starter, type StarterId } from '../core/starters.ts';
+import { CompileClient, CompileFailure, compileInputs } from '../compile/compile-client.ts';
+import type { Artifact } from '../compile/protocol.ts';
+import { AudioEngine, type EngineState } from '../engine/audio-engine.ts';
+import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from '../core/persistence.ts';
+import CompilerWorker from '../compile/compiler.worker.ts?worker';
+
+export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
+export interface Toast { id: number; kind: 'info' | 'warn' | 'error'; text: string }
+export interface TransactionListener { (tx: Transaction, doc: PatchDocument): void }
+
+const AUTOSAVE_KEY = 'den-kit:autosave';
+
+export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
+
+export class KitSession {
+  readonly catalog = catalog;
+  readonly doc = shallowRef<PatchDocument>(emptyDocument('Untitled'));
+  readonly history = markRaw(new History());
+  readonly historyVersion = ref(0);
+  readonly selection = ref<string[]>([]);
+  readonly compileStatus = ref<CompileStatus>('idle');
+  readonly compileMessage = ref('');
+  readonly compileIssues = shallowRef<Issue[]>([]);
+  readonly lastCompileMs = ref(0);
+  readonly wasmBytes = ref(0);
+  readonly engineState = ref<EngineState>('off');
+  readonly engineMessage = ref('Audio is off.');
+  readonly toasts = ref<Toast[]>([]);
+  readonly healthMuted = ref(false);
+  readonly snapshots = reactive<{ A: PatchDocument | null; B: PatchDocument | null; active: 'A' | 'B' | null }>({ A: null, B: null, active: null });
+  readonly generated = shallowRef<Generated>(generate(this.doc.value, catalog));
+  readonly validation = computed(() => validate(this.doc.value, catalog));
+  readonly issues = computed<Issue[]>(() => [...this.validation.value.issues, ...this.compileIssues.value]);
+  readonly engine: AudioEngine;
+  readonly compiler: CompileClient;
+  readonly readOnly = ref(false);
+  /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
+  readonly loadEpoch = ref(0);
+  private listeners = new Set<TransactionListener>();
+  private compileTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private toastSerial = 0;
+  private storage: StorageLike | null;
+
+  constructor(options: { storage?: StorageLike | null; createWorker?: () => Worker; engine?: AudioEngine; compileTimeoutMs?: number; rotateAfter?: number } = {}) {
+    this.storage = options.storage === undefined ? safeStorage() : options.storage;
+    this.engine = markRaw(options.engine ?? new AudioEngine({
+      state: (state, message) => { this.engineState.value = state; this.engineMessage.value = message; },
+      health: (message, muted) => { this.healthMuted.value = muted; this.toast(muted ? 'error' : 'warn', message); },
+      error: message => this.toast('error', `Audio: ${message}`),
+    }, { rotateAfter: options.rotateAfter }));
+    this.compiler = markRaw(new CompileClient({ createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never, timeoutMs: options.compileTimeoutMs }));
+  }
+
+  // ---- Document lifecycle ----------------------------------------------------
+  /** Load the autosave (or a starter) at startup. */
+  restore(fallback: StarterId = 'bass') {
+    const raw = this.storage?.getItem(AUTOSAVE_KEY);
+    if (raw) {
+      let record: unknown = null;
+      try { record = JSON.parse(raw); } catch { record = null; }
+      const read = readSaveRecord(record, catalog);
+      if (read.ok) { this.replace(read.doc, 'Restored autosave', false); for (const i of read.report) this.toast('warn', i.message); return; }
+      // Keep the broken record for recovery and tell the user.
+      this.storage?.setItem(`${AUTOSAVE_KEY}:broken:${Date.now()}`, raw);
+      this.toast('warn', `Autosave could not be read (${read.error}); a copy was kept and a starter patch was loaded.`);
+    }
+    this.replace(starter(fallback, catalog), 'Starter', false);
+  }
+
+  replace(doc: PatchDocument, label: string, undoable = true) {
+    const previous = this.doc.value;
+    if (undoable) {
+      const ops: ResolvedOp[] = [...Object.values(previous.edges).map(edge => ({ op: 'removeEdge' as const, edge })), ...Object.values(previous.nodes).map(node => ({ op: 'removeNode' as const, node })),
+        ...Object.values(doc.nodes).map(node => ({ op: 'addNode' as const, node })), ...Object.values(doc.edges).map(edge => ({ op: 'addEdge' as const, edge }))];
+      if (previous.name !== doc.name) ops.push({ op: 'setDoc', field: 'name', from: previous.name, to: doc.name });
+      if (previous.panel.theme !== doc.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: previous.panel.theme, to: doc.panel.theme });
+      this.history.record({ id: randomId('tx'), author: { kind: 'human' }, label, ops, at: Date.now(), baseRevision: previous.revision });
+    } else this.history.clear();
+    this.historyVersion.value++;
+    this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };
+    this.selection.value = [];
+    this.loadEpoch.value++;
+    this.afterChange(true);
+  }
+
+  loadStarter(id: StarterId) { this.replace(starter(id, catalog), `Load ${id}`); }
+
+  /** Apply intents as one transaction. Returns the resolved ops, or the error. */
+  commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
+    if (this.readOnly.value) return { ok: false, error: new OpError('This tab is read-only (the patch is open in another tab).', 0, 'read-only') };
+    const before = this.doc.value;
+    let result;
+    try { result = applyIntents(before, intents, catalog); }
+    catch (error) {
+      if (error instanceof OpError) return { ok: false, error };
+      throw error;
+    }
+    if (!result.ops.length) return { ok: true, ops: [], created: result.created };
+    const tx: Transaction = { id: randomId('tx'), author: options.author ?? { kind: 'human' }, label: options.label ?? describeIntents(intents), ops: result.ops, at: Date.now(), gesture: options.gesture, baseRevision: before.revision };
+    this.history.record(tx);
+    this.historyVersion.value++;
+    this.doc.value = result.doc;
+    this.afterChange(result.ops.some(isStructural), result.ops);
+    for (const listener of this.listeners) listener(tx, result.doc);
+    return { ok: true, ops: result.ops, created: result.created };
+  }
+
+  undo() { const r = this.history.undo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); } return r?.tx ?? null; }
+  redo() { const r = this.history.redo(this.doc.value); if (r) { this.doc.value = r.doc; this.historyVersion.value++; this.afterChange(r.tx.ops.some(isStructural), r.tx.ops); } return r?.tx ?? null; }
+  onTransaction(listener: TransactionListener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+
+  // ---- Change propagation ------------------------------------------------------
+  private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
+    this.scheduleSave();
+    // Value-only edits go straight to AudioParams; no codegen, no recompile.
+    if (!structural && ops.length && ops.every(op => op.op === 'setValue' || op.op === 'setField' || op.op === 'setDoc')) {
+      for (const op of ops) if (op.op === 'setValue' && typeof op.to !== 'undefined') this.engine.setParam(`${op.node}_${op.port}`, Number(op.to));
+      if (ops.some(op => op.op === 'setValue')) this.generated.value = { ...this.generated.value, values: { ...this.generated.value.values, ...Object.fromEntries(ops.filter(op => op.op === 'setValue').map(op => [`${(op as { node: string }).node}_${(op as { port: string }).port}`, Number((op as { to: unknown }).to)])) } };
+      return;
+    }
+    const generated = generate(this.doc.value, catalog);
+    const same = generated.hash && generated.hash === this.generated.value.hash;
+    this.generated.value = generated;
+    if (same) { for (const [name, value] of Object.entries(generated.values)) this.engine.setParam(name, value); return; }
+    this.scheduleCompile();
+  }
+
+  private scheduleCompile() {
+    if (this.compileTimer) clearTimeout(this.compileTimer);
+    this.compileStatus.value = 'waiting';
+    this.compileTimer = setTimeout(() => { this.compileTimer = null; void this.compileNow(); }, 120);
+  }
+
+  /** Compile the current document and swap it in. Old sound keeps playing on failure. */
+  async compileNow(): Promise<Artifact | null> {
+    const doc = this.doc.value, generated = this.generated.value;
+    if (!generated.source) {
+      this.compileIssues.value = [];
+      const blocking = generated.issues.filter(i => i.severity === 'error');
+      if (blocking.length) { this.compileStatus.value = 'error'; this.compileMessage.value = blocking[0]!.message; }
+      else { this.compileStatus.value = 'empty'; this.compileMessage.value = generated.issues.find(i => i.code === 'nothing-to-compile')?.message ?? 'Nothing to play.'; this.engine.unload(); }
+      return null;
+    }
+    this.compileStatus.value = 'compiling';
+    this.compileMessage.value = 'Compiling…';
+    try {
+      const artifact = await this.compiler.compile(generated, compileInputs(doc, generated), phase => { this.compileMessage.value = `${phase}…`; });
+      if (this.generated.value.hash !== artifact.hash) return artifact; // a newer edit is on its way
+      this.compileIssues.value = [];
+      this.lastCompileMs.value = artifact.compileMs;
+      this.wasmBytes.value = artifact.wasm.byteLength;
+      this.compileStatus.value = 'ok';
+      this.compileMessage.value = `Compiled in ${(artifact.compileMs / 1000).toFixed(2)} s`;
+      if (this.engine.running) await this.loadIntoEngine(artifact);
+      return artifact;
+    } catch (error) {
+      if (error instanceof CompileFailure && error.kind === 'superseded') return null;
+      if (this.generated.value.hash !== generated.hash) return null;
+      this.compileStatus.value = 'error';
+      this.compileMessage.value = error instanceof Error ? error.message : String(error);
+      this.compileIssues.value = error instanceof CompileFailure ? error.issues : [];
+      return null;
+    }
+  }
+
+  private async loadIntoEngine(artifact: Artifact) {
+    const g = this.generated.value;
+    try {
+      await this.engine.load(artifact, { values: { ...g.values }, voices: !!g.voices, audioIn: g.audioIn, probes: g.probes.length });
+    } catch (error) {
+      this.toast('error', `Audio: ${error instanceof Error ? error.message : String(error)} (the previous sound keeps playing)`);
+    }
+  }
+
+  async enableAudio() {
+    const ok = await this.engine.start();
+    if (!ok) return false;
+    const artifact = this.compiler.cached(this.generated.value.hash);
+    if (artifact) await this.loadIntoEngine(artifact);
+    else await this.compileNow();
+    return true;
+  }
+
+  // ---- A/B --------------------------------------------------------------------
+  storeSnapshot(slot: 'A' | 'B') { this.snapshots[slot] = this.doc.value; this.snapshots.active = slot; this.toast('info', `Stored the current patch in ${slot}.`); }
+  recallSnapshot(slot: 'A' | 'B') {
+    const doc = this.snapshots[slot]; if (!doc) return;
+    if (this.snapshots.active && this.snapshots.active !== slot) this.snapshots[this.snapshots.active] = this.doc.value;
+    this.snapshots.active = slot;
+    this.replace(doc, `Recall ${slot}`);
+  }
+
+  // ---- Persistence --------------------------------------------------------------
+  private scheduleSave() {
+    if (!this.storage || this.readOnly.value) return;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.saveNow(), 800);
+  }
+  saveNow() {
+    if (!this.storage || this.readOnly.value) return;
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    try { this.storage.setItem(AUTOSAVE_KEY, JSON.stringify(makeSaveRecord(this.doc.value))); }
+    catch (error) { this.toast('warn', `Autosave failed (${error instanceof Error ? error.message : String(error)}); export the patch to keep it.`); }
+  }
+  exportText() { return serializeDocument(this.doc.value); }
+  importText(text: string): boolean {
+    const parsed = parseDocument(text, catalog);
+    if (!parsed.ok) { this.toast('error', `Import refused: ${parsed.error}`); return false; }
+    this.replace(parsed.doc, 'Import');
+    for (const issue of parsed.report.slice(0, 6)) this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
+    if (parsed.report.length > 6) this.toast('warn', `…and ${parsed.report.length - 6} more repairs.`);
+    return true;
+  }
+
+  // ---- Misc ------------------------------------------------------------------------
+  toast(kind: Toast['kind'], text: string) {
+    const id = ++this.toastSerial;
+    this.toasts.value = [...this.toasts.value.slice(-4), { id, kind, text }];
+    setTimeout(() => { this.toasts.value = this.toasts.value.filter(t => t.id !== id); }, kind === 'error' ? 9000 : 5000);
+  }
+  select(ids: string[]) { this.selection.value = ids; }
+  touch() { triggerRef(this.doc); }
+}
+
+function describeIntents(intents: Intent[]): string {
+  if (intents.length === 1) {
+    const i = intents[0]!;
+    switch (i.op) {
+      case 'setValue': return `Set ${i.node}.${i.port}`;
+      case 'connect': return `Connect ${i.from.node} → ${i.to.node}`;
+      case 'addNode': return `Add ${i.node.type.split('.').pop()}`;
+      case 'removeNode': return `Delete ${i.id}`;
+      default: return i.op;
+    }
+  }
+  return `${intents.length} edits`;
+}
+
+function safeStorage(): StorageLike | null {
+  try { const s = globalThis.localStorage; s.setItem('den-kit:probe', '1'); s.removeItem('den-kit:probe'); return s; } catch { return null; }
+}
