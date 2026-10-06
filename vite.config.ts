@@ -56,6 +56,8 @@ function kitVirtual(): Plugin {
 }
 
 const alias = [
+  // See src/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
+  { find: /^wavefile$/, replacement: join(kit, 'src/compile/wavefile-default.ts') },
   { find: /^@denaudio\/den$/, replacement: join(den, 'src/index.ts') },
   { find: /^@denaudio\/den\/(.*)$/, replacement: join(den, 'src/$1.ts') },
 ];
@@ -74,7 +76,7 @@ export default defineConfig({
     },
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
-  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', 'typescript'], esbuildOptions: { target: 'es2022' } },
+  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript'], esbuildOptions: { target: 'es2022' } },
   build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
   test: {
     projects: [
