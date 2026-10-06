@@ -12,7 +12,7 @@ const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate
 let h: Harness;
 before(async () => {
   h = await startHarness({ jevAnswerer: scriptedAnswerer({
-    'make it sound brighter and more alive': { route: 'adjust', aspect: 'brightness', direction: 'up', amount: 'medium' },
+    'make it sound brighter and more alive': { route: 'adjust', aspect: 'brightness_up', amount: 'medium' },
     'put it in a big hall': { route: 'add_effect', fx: 'reverb' },
   }) });
 });

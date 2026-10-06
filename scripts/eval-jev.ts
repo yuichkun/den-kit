@@ -13,7 +13,7 @@ import { starter, type StarterId } from '../src/core/starters.ts';
 import { buildFullRequest } from '../src/ai/jev-questions.ts';
 import { readAnswers, type Choice } from '../src/ai/jev-answers.ts';
 import { parseRequest } from '../src/ai/lexicon.ts';
-import { ambiguousTargets, availableAspects } from '../src/ai/router.ts';
+import { ambiguousTargets, aspectKey, availableAspects } from '../src/ai/router.ts';
 
 type Expect = { route: string; aspect?: string; direction?: string; fx?: string; template?: string };
 interface Fixture { text: string; starter?: StarterId; expect: Expect; alsoOk?: Expect }
@@ -41,9 +41,11 @@ for (const f of fixtures.filter(f => !only || f.text.includes(only))) {
   if (!result.ok) { rows.push({ text: f.text, lang: lex.lang, lexicon: lex.full, ok: false, correct: false, got: '', want: describe(f.expect), confidence: 0, agree: false, ms: result.ms, error: `${result.error.kind}: ${result.error.message}` }); console.log(`ERR  ${f.text}  ${result.error.message}`); continue; }
   const { answers: a, errors } = readAnswers(result.response.answers, built.request.questions as Record<string, { criteria?: unknown }>);
   const route = a.route;
-  const got: Expect = { route: route?.choice ?? '?', aspect: a.aspect?.choice, direction: a.direction?.choice, fx: a.fx?.choice, template: a.template?.choice };
+  // The aspect options carry their direction ("attack_down" = faster start).
+  const ad = aspectKey(a.aspect?.choice);
+  const got: Expect = { route: route?.choice ?? '?', aspect: ad?.aspect ?? a.aspect?.choice, direction: ad?.direction, fx: a.fx?.choice, template: a.template?.choice };
   const parts: Array<Choice | undefined> = [route];
-  if (got.route === 'adjust') parts.push(a.aspect, a.direction);
+  if (got.route === 'adjust') parts.push(a.aspect);
   if (got.route === 'add_effect') parts.push(a.fx);
   if (got.route === 'create') parts.push(a.template);
   const agree = parts.every(p => p?.agree !== false);

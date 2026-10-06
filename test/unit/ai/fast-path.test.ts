@@ -8,13 +8,13 @@ import type { KitSession } from '../../../src/editor/session.ts';
 import { clone } from '../../../src/core/schema.ts';
 
 const script: Script = {
-  'make it sound brighter and more alive': { route: 'adjust', aspect: 'brightness', direction: 'up', amount: 'medium' },
+  'make it sound brighter and more alive': { route: 'adjust', aspect: 'brightness_up', amount: 'medium' },
   'put it in a big hall': { route: 'add_effect', fx: 'reverb' },
-  'I need a squelchy acid line': { route: 'create', template: 'bass', aspect: 'resonance', direction: 'up' },
+  'I need a squelchy acid line': { route: 'create', template: 'bass', aspect: 'resonance_up' },
   'write a granular codebox': { route: 'complex' },
   'もう少しだけ空間を広げて': { route: 'add_effect', fx: { choice: 'reverb', p: 0.7 } },
-  'open it up a little': { route: { choice: 'adjust', p: 0.7 }, aspect: { choice: 'brightness', p: 0.7 }, direction: { choice: 'up', p: 0.7 }, amount: 'small' },
-  'more of the effect': { route: 'adjust', aspect: 'mix', direction: 'up', target: 'Reverb' },
+  'open it up a little': { route: { choice: 'adjust', p: 0.7 }, aspect: { choice: 'brightness_up', p: 0.7 }, amount: 'small' },
+  'more of the effect': { route: 'adjust', aspect: 'mix_up', target: 'Reverb' },
 };
 
 let session: KitSession;
@@ -89,7 +89,7 @@ describe('Jev path', () => {
     const o = await fast.run('make it sound brighter and more alive');
     expect(o).toMatchObject({ status: 'applied', route: 'jev', jevMs: 42 });
     expect(stub.requests).toHaveLength(1);
-    expect(Object.keys(stub.requests[0]!.questions)).toEqual(expect.arrayContaining(['route', 'route_rev', 'aspect', 'aspect_rev', 'direction', 'amount', 'fx', 'template']));
+    expect(Object.keys(stub.requests[0]!.questions)).toEqual(expect.arrayContaining(['route', 'route_rev', 'aspect', 'aspect_rev', 'amount', 'fx', 'template']));
     expect(JSON.stringify(stub.requests[0]!.state).length).toBeLessThan(300);
     const trace = stub.telemetry.find(t => t.kind === 'route')!;
     expect(trace).toMatchObject({ decision: 'apply', route: 'jev', applied: true });

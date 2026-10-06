@@ -51,6 +51,7 @@ export function planItem(item: LexItem, doc: PatchDocument, catalog: Catalog, se
     if (item.verb === 'less') return { ok: false, reason: 'no-target', message: `There is no ${FX[item.fx].title.toLowerCase()} to reduce.` };
     return planAddFx(doc, catalog, item.fx);
   }
+  if (item.kind === 'complex') return { ok: false, reason: 'unknown', message: LLM_LATER };
   const tdoc = buildTemplate(item.template, catalog);
   const info = TEMPLATE_INFO[item.template];
   return { ok: true, plan: { kind: 'template', template: item.template, doc: tdoc, label: `new ${info.title.toLowerCase()} patch`, short: `new ${info.title}` } };
@@ -65,7 +66,7 @@ export function planSequence(items: readonly LexItem[], ctx: RouteContext): { pl
   const failures: Array<{ item: LexItem; result: Extract<PlanResult, { ok: false }> }> = [];
   if (template) { doc = buildTemplate(template.template, ctx.catalog); selection = []; }
   for (const item of items) {
-    if (item.kind === 'template') continue;
+    if (item.kind === 'template' || item.kind === 'complex') continue;
     let r = planItem(item, doc, ctx.catalog, selection);
     // On a fresh template the obvious module is fine (e.g. the amp envelope).
     if (!r.ok && r.reason === 'ambiguous' && template && r.candidates?.length) r = planItem(item, doc, ctx.catalog, selection, [r.candidates[0]!]);
@@ -85,6 +86,8 @@ export function lexiconStage(lex: LexResult, ctx: RouteContext): LexiconStage {
   if (!lex.items.length) return { kind: 'jev', fallback: [] };
   const { plans, failures } = planSequence(lex.items, ctx);
   const chips = plans.length ? [{ label: combinePlans(plans).short, plan: combinePlans(plans) }] : [];
+  // Code, wiring and explanations go to the LLM; never guess them with a knob turn.
+  if (lex.items.some(i => i.kind === 'complex')) return { kind: 'decided', decision: { kind: 'escalate', message: LLM_LATER, chips } };
   if (!lex.full) return { kind: 'jev', fallback: chips };
   const ambiguous = failures.filter(f => f.result.reason === 'ambiguous');
   if (ambiguous.length === 1 && ambiguous[0]!.item.kind === 'adjust') {
@@ -120,20 +123,24 @@ const tauFor = (settings: RouterSettings, lang: 'ja' | 'en') => lang === 'ja' ? 
 const adjustItem = (aspect: string, direction: Direction, amount: Amount): LexItem => ({ kind: 'adjust', aspect, direction, amount, phrase: '' });
 
 function amountFrom(c: Choice | undefined): Amount { return c && (AMOUNTS as readonly string[]).includes(c.choice) ? c.choice as Amount : 'medium'; }
-function directionFrom(c: Choice | undefined): Direction | null { return c && ['up', 'down', 'set_max', 'set_min'].includes(c.choice) ? c.choice as Direction : null; }
+/** `attack_down` → { aspect: 'attack', direction: 'down' }. */
+export function aspectKey(key: string | undefined): { aspect: string; direction: Direction } | null {
+  const m = key ? /^(.+)_(up|down)$/.exec(key) : null;
+  return m && aspectById(m[1]!) ? { aspect: m[1]!, direction: m[2] as Direction } : null;
+}
 
 /** Alternative interpretations from the ranked answers, as ready-to-apply chips. */
 export function chipsFromAnswers(read: ReadAnswers, ctx: RouteContext, extra: Chip[] = [], limit = 4): Chip[] {
   const a = read.answers;
   const chips: Chip[] = [...extra];
   const routes = ranked(a.route).slice(0, 2).map(r => r.key as RouteId);
-  const direction = directionFrom(a.direction);
   const amount = amountFrom(a.amount);
   for (const route of routes.length ? routes : ['adjust' as RouteId]) {
     if (route === 'adjust') {
-      const dirs: Direction[] = direction ? [direction] : ['up', 'down'];
-      for (const { key } of ranked(a.aspect).filter(r => r.key !== 'none_of_these').slice(0, 2)) for (const d of dirs) {
-        const r = planSequence([adjustItem(key, d, amount)], ctx);
+      for (const { key } of ranked(a.aspect).slice(0, 3)) {
+        const ad = aspectKey(key);
+        if (!ad) continue;
+        const r = planSequence([adjustItem(ad.aspect, ad.direction, amount)], ctx);
         if (r.plans[0]) chips.push({ label: r.plans[0].short, plan: r.plans[0] });
       }
     } else if (route === 'add_effect') {
@@ -166,9 +173,9 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
   if (route.confidence < tau) return chips(`Not sure enough (${Math.round(route.confidence * 100)}% < ${Math.round(tau * 100)}%).`, route.confidence);
 
   if (route.choice === 'adjust') {
-    const aspect = a.aspect, direction = directionFrom(a.direction);
-    if (!aspect || aspect.choice === 'none_of_these' || !aspectById(aspect.choice)) return chips('Jev could not tell which aspect to change.');
-    if (!direction) return chips('Jev could not tell which way to change it.');
+    const aspect = a.aspect, ad = aspectKey(aspect?.choice);
+    if (!aspect || !ad) return chips('Jev could not tell what to change.');
+    const direction = ad.direction;
     let targets: Target[] | undefined;
     let targetConfidence = 1;
     if (a.target && a.target.choice !== 'unclear' && built.targetKeys[a.target.choice]) {
@@ -176,12 +183,12 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
       targets = [{ node: node!, port: port! }];
       targetConfidence = a.target.agree ? a.target.confidence : 0;
     }
-    const result = planItem(adjustItem(aspect.choice, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, targets);
+    const result = planItem(adjustItem(ad.aspect, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, targets);
     if (!result.ok) {
-      if (result.reason === 'ambiguous') return { kind: 'chips', message: result.message, chips: (result.candidates ?? []).slice(0, 4).flatMap(c => { const r = planItem(adjustItem(aspect.choice, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, [c]); return r.ok ? [{ label: r.plan.short, plan: r.plan }] : []; }) };
+      if (result.reason === 'ambiguous') return { kind: 'chips', message: result.message, chips: (result.candidates ?? []).slice(0, 4).flatMap(c => { const r = planItem(adjustItem(ad.aspect, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, [c]); return r.ok ? [{ label: r.plan.short, plan: r.plan }] : []; }) };
       return { kind: 'nothing', message: result.reason === 'no-target' ? `${result.message} ${LLM_LATER}` : result.message };
     }
-    const confidence = Math.min(route.confidence, aspect.confidence, a.direction!.confidence, targetConfidence);
+    const confidence = Math.min(route.confidence, aspect.confidence, targetConfidence);
     if (!aspect.agree || confidence < tau) return { kind: 'chips', message: `Not sure enough (${Math.round(confidence * 100)}%).`, chips: chipsFromAnswers(read, ctx, [{ label: result.plan.short, plan: result.plan }, ...fallback]), confidence };
     return { kind: 'apply', plan: result.plan, confidence };
   }
@@ -198,17 +205,27 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
   const template = a.template;
   if (!template || template.choice === 'none' || !(TEMPLATES as readonly string[]).includes(template.choice)) return chips('Jev could not tell which instrument to make.');
   const items: LexItem[] = [{ kind: 'template', template: template.choice as TemplateId, phrase: '' }];
-  const direction = directionFrom(a.direction);
-  if (a.aspect && a.aspect.choice !== 'none_of_these' && direction && a.aspect.agree && a.aspect.confidence >= tau && a.direction!.confidence >= tau) items.push(adjustItem(a.aspect.choice, direction, amountFrom(a.amount)));
+  const slot = aspectKey(a.aspect?.choice);
+  if (slot && a.aspect!.agree && a.aspect!.confidence >= tau) items.push(adjustItem(slot.aspect, slot.direction, amountFrom(a.amount)));
   const plan = planSequence(items, ctx).plans[0]!;
   const confidence = Math.min(route.confidence, template.confidence);
   if (!template.agree || confidence < tau) return { kind: 'chips', message: `Not sure enough (${Math.round(confidence * 100)}%).`, chips: chipsFromAnswers(read, ctx, [{ label: plan.short, plan }, ...fallback]), confidence };
   return { kind: 'apply', plan, confidence };
 }
 
-/** The aspects worth offering to Jev for this patch (those with at least one free knob). */
+/**
+ * Directional options worth offering to Jev for this patch (`brightness_up`, …):
+ * those with a free knob, plus "more drive" (it falls back to adding a drive
+ * effect) and, for templates, the envelope and tone slots of every template.
+ */
 export function availableAspects(ctx: RouteContext): string[] {
-  return ASPECTS.filter(a => candidates(ctx.doc, ctx.catalog, a, ctx.selection).length > 0).map(a => a.id);
+  const out: string[] = [];
+  for (const a of ASPECTS) {
+    const has = candidates(ctx.doc, ctx.catalog, a, ctx.selection).length > 0 || ['brightness', 'resonance', 'attack', 'release'].includes(a.id);
+    if (has) out.push(`${a.id}_up`, `${a.id}_down`);
+    else if (a.id === 'drive') out.push('drive_up');
+  }
+  return out;
 }
 
 /** Knobs Jev may need to choose between: candidates of aspects that are ambiguous here. */

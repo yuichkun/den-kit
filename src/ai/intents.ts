@@ -22,8 +22,15 @@ export interface Aspect {
   up: string;
   down: string;
   roles: readonly string[];
-  /** Short description for Jev's option list. */
+  /** Short description (dev drawer, docs). */
   doc: string;
+  /**
+   * What "more" and "less" sound like, in words. Jev chooses between these
+   * concrete descriptions, never an abstract up/down: it reads literally, so
+   * "more punch" must already mean "shorter attack" in the option text.
+   */
+  upDoc: string;
+  downDoc: string;
   /** Categories preferred when several blocks match (first is best). */
   prefer?: readonly Category[];
   /** Change every matching knob together (e.g. all LFO depths for "more wobble"). */
@@ -41,21 +48,21 @@ const fedByModulator = (doc: PatchDocument, node: PatchNode, catalog: Catalog) =
   || ['kit.tremolo', 'den.flanger'].includes(node.type);
 
 export const ASPECTS: readonly Aspect[] = [
-  { id: 'brightness', up: 'brighter', down: 'darker', roles: ['brightness'], prefer: ['modulation', 'filter', 'fx'], doc: 'tone brightness: filter cutoff (brighter/open vs darker/muffled)' },
-  { id: 'resonance', up: 'more resonance', down: 'less resonance', roles: ['resonance'], prefer: ['filter'], doc: 'filter resonance / peak / squelch' },
-  { id: 'attack', up: 'slower attack', down: 'faster attack', roles: ['attack'], prefer: ['envelope', 'dynamics'], ampEnvelope: true, doc: 'attack time: how fast the sound starts (slower/softer vs snappier/punchier)' },
-  { id: 'decay', up: 'longer decay', down: 'shorter decay', roles: ['decay'], prefer: ['envelope'], ampEnvelope: true, doc: 'decay time after the attack' },
-  { id: 'sustain', up: 'more sustain', down: 'less sustain', roles: ['sustain'], prefer: ['envelope'], ampEnvelope: true, doc: 'sustain level while a key is held' },
-  { id: 'release', up: 'longer release', down: 'shorter release', roles: ['release'], prefer: ['envelope', 'dynamics'], ampEnvelope: true, doc: 'release time / tail after the key is let go' },
-  { id: 'wobble', up: 'more wobble', down: 'less wobble', roles: ['depth'], group: true, relative: true, where: fedByModulator, doc: 'modulation depth: how much the LFO wobbles pitch, filter or volume (vibrato, tremolo)' },
-  { id: 'rate', up: 'faster modulation', down: 'slower modulation', roles: ['rate'], prefer: ['modulation', 'fx'], group: true, doc: 'modulation speed: LFO rate' },
-  { id: 'mix', up: 'wetter', down: 'drier', roles: ['mix'], prefer: ['fx'], where: (_d, n, c) => c.find(n.type)?.category === 'fx', doc: 'effect amount: wet/dry mix of reverb, delay, chorus' },
-  { id: 'feedback', up: 'more repeats', down: 'fewer repeats', roles: ['feedback'], prefer: ['fx'], doc: 'echo repeats / effect feedback' },
-  { id: 'time', up: 'longer delay time', down: 'shorter delay time', roles: ['time'], prefer: ['fx'], doc: 'delay time between echoes' },
-  { id: 'drive', up: 'more drive', down: 'less drive', roles: ['drive'], prefer: ['fx', 'filter'], doc: 'distortion / saturation / grit' },
-  { id: 'volume', up: 'louder', down: 'quieter', roles: ['volume'], doc: 'overall output volume' },
-  { id: 'glide', up: 'more glide', down: 'less glide', roles: ['glide'], doc: 'portamento / glide time between notes' },
-  { id: 'width', up: 'wider pulse', down: 'narrower pulse', roles: ['width'], doc: 'pulse width of the oscillator' },
+  { id: 'brightness', up: 'brighter', down: 'darker', roles: ['brightness'], prefer: ['modulation', 'filter', 'fx'], doc: 'tone brightness: filter cutoff (brighter/open vs darker/muffled)', upDoc: 'Brighter: more open, more treble/highs, crisper, less muffled (raise the filter cutoff).', downDoc: 'Darker: warmer, mellower, softer tone, less harsh, more muffled (lower the filter cutoff).' },
+  { id: 'resonance', up: 'more resonance', down: 'less resonance', roles: ['resonance'], prefer: ['filter'], doc: 'filter resonance / peak / squelch', upDoc: 'More resonance: more squelchy, peaky, whistling filter.', downDoc: 'Less resonance: smoother, less peaky filter.' },
+  { id: 'attack', up: 'slower attack', down: 'faster attack', roles: ['attack'], prefer: ['envelope', 'dynamics'], ampEnvelope: true, doc: 'attack time: how fast the sound starts (slower/softer vs snappier/punchier)', upDoc: 'Slower start: softer, gentler, fade each note in, swell (longer attack time).', downDoc: 'Faster start: punchier, snappier, sharper, more percussive start of each note (shorter attack time).' },
+  { id: 'decay', up: 'longer decay', down: 'shorter decay', roles: ['decay'], prefer: ['envelope'], ampEnvelope: true, doc: 'decay time after the attack', upDoc: 'Longer decay: the initial hit fades more slowly.', downDoc: 'Shorter decay: the initial hit fades faster, tighter.' },
+  { id: 'sustain', up: 'more sustain', down: 'less sustain', roles: ['sustain'], prefer: ['envelope'], ampEnvelope: true, doc: 'sustain level while a key is held', upDoc: 'More sustain: louder while the key is held.', downDoc: 'Less sustain: quieter while the key is held, more plucky.' },
+  { id: 'release', up: 'longer release', down: 'shorter release', roles: ['release'], prefer: ['envelope', 'dynamics'], ampEnvelope: true, doc: 'release time / tail after the key is let go', upDoc: 'Longer release: notes ring out longer after the key is let go, longer tail.', downDoc: 'Shorter release: notes stop sooner after the key is let go, tighter, less hanging.' },
+  { id: 'wobble', up: 'more wobble', down: 'less wobble', roles: ['depth'], group: true, relative: true, where: fedByModulator, doc: 'modulation depth: how much the LFO wobbles pitch, filter or volume (vibrato, tremolo)', upDoc: 'More wobble: deeper vibrato, tremolo or LFO movement.', downDoc: 'Less wobble: steadier, less vibrato or LFO movement.' },
+  { id: 'rate', up: 'faster modulation', down: 'slower modulation', roles: ['rate'], prefer: ['modulation', 'fx'], group: true, doc: 'modulation speed: LFO rate', upDoc: 'Faster modulation: the LFO / vibrato / wobble moves faster.', downDoc: 'Slower modulation: the LFO / vibrato / wobble moves slower.' },
+  { id: 'mix', up: 'wetter', down: 'drier', roles: ['mix'], prefer: ['fx'], where: (_d, n, c) => c.find(n.type)?.category === 'fx', doc: 'effect amount: wet/dry mix of reverb, delay, chorus', upDoc: 'Wetter: more of the effect (reverb/delay/chorus) is heard.', downDoc: 'Drier: less of the effect is heard.' },
+  { id: 'feedback', up: 'more repeats', down: 'fewer repeats', roles: ['feedback'], prefer: ['fx'], doc: 'echo repeats / effect feedback', upDoc: 'More echo repeats, longer echo trail.', downDoc: 'Fewer echo repeats.' },
+  { id: 'time', up: 'longer delay time', down: 'shorter delay time', roles: ['time'], prefer: ['fx'], doc: 'delay time between echoes', upDoc: 'Longer delay time: more space between echoes.', downDoc: 'Shorter delay time: echoes closer together.' },
+  { id: 'drive', up: 'more drive', down: 'less drive', roles: ['drive'], prefer: ['fx', 'filter'], doc: 'distortion / saturation / grit', upDoc: 'More drive: more grit, distortion, dirt, saturation, crunch.', downDoc: 'Less drive: cleaner, less distortion.' },
+  { id: 'volume', up: 'louder', down: 'quieter', roles: ['volume'], doc: 'overall output volume', upDoc: 'Louder: turn the volume up.', downDoc: 'Quieter: turn the volume down.' },
+  { id: 'glide', up: 'more glide', down: 'less glide', roles: ['glide'], doc: 'portamento / glide time between notes', upDoc: 'More glide: notes slide into each other (portamento).', downDoc: 'Less glide: notes jump without sliding.' },
+  { id: 'width', up: 'wider pulse', down: 'narrower pulse', roles: ['width'], doc: 'pulse width of the oscillator', upDoc: 'Wider pulse width (more hollow).', downDoc: 'Narrower pulse width (thinner, nasal).' },
 ];
 export const aspectById = (id: string) => ASPECTS.find(a => a.id === id);
 

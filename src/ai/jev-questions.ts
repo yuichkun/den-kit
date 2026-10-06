@@ -8,20 +8,13 @@ import { ASPECTS, AMOUNTS, FX, type Candidate, type FxId } from './intents.ts';
 import { TEMPLATES, TEMPLATE_INFO } from './templates.ts';
 
 export const ROUTES = {
-  adjust: 'Change how the current sound sounds by turning existing knobs (for example brighter, darker, longer release, snappier attack, more wobble, wetter, louder).',
-  add_effect: 'Add an audio effect to the current sound (reverb, delay, ping-pong delay, chorus, phaser, flanger, distortion, compressor).',
-  create: 'Replace the patch with a new instrument sound made from scratch (for example "make a bass", "give me a pad").',
-  complex: 'Anything else: new routing or structure, custom DSP code, an explanation, several unrelated steps, or something not covered by the other options.',
+  adjust: 'Tweak how the current sound sounds by turning existing knobs (for example brighter, warmer, longer release, punchier, more wobble, wetter, louder, more grit).',
+  add_effect: 'Add a ready-made audio effect to the current sound (reverb/hall/space, delay/echo, ping-pong delay, chorus, phaser, flanger, distortion, compressor).',
+  create: 'The user wants a different instrument or sound type, e.g. "make a bass", "I want a fat bass", "a pad please", "something like a piano".',
+  complex: 'Needs real work or words: writing code or a codebox (custom DSP such as a bitcrusher), new routing or wiring, explaining the patch, or several unrelated steps.',
 } as const;
 export type RouteId = keyof typeof ROUTES;
 
-export const DIRECTIONS = {
-  up: 'More of that aspect (higher, longer, stronger, brighter, faster, wetter, louder).',
-  down: 'Less of that aspect (lower, shorter, weaker, darker, slower, drier, quieter).',
-  set_max: 'Set it all the way to the maximum.',
-  set_min: 'Set it all the way to the minimum or turn it off.',
-  none: 'The request does not say which way.',
-} as const;
 
 export const AMOUNT_TEXT: Record<string, string> = {
   tiny: 'A tiny, barely noticeable change ("a touch", "slightly").',
@@ -37,7 +30,7 @@ export interface QuestionContext {
   lang: 'ja' | 'en';
   /** Human description of the selection, e.g. "Filter 'Tone'". */
   selection: string;
-  /** Aspects that have at least one knob in this patch. */
+  /** Directional aspect options that can act on this patch, e.g. `attack_down` (see availableAspects). */
   aspects: readonly string[];
   /** Nodes Jev may have to choose between (only when the patch is ambiguous). */
   targets?: readonly Candidate[];
@@ -59,14 +52,17 @@ export function buildFullRequest(ctx: QuestionContext): BuiltRequest {
   questions.route = choice(routeQ, { ...ROUTES });
   questions.route_rev = choice(routeQ, reversed({ ...ROUTES }));
 
+  // Each option already carries its direction in plain words ("punchier = shorter attack"):
+  // a separate up/down question made Jev read "more punch" as "more attack".
   const aspectCriteria: Record<string, string> = {};
-  for (const a of ASPECTS) if (ctx.aspects.includes(a.id)) aspectCriteria[a.id] = a.doc;
-  aspectCriteria.none_of_these = 'None of these aspects (or the request is not about one aspect of the sound).';
-  const aspectQ = 'Which single aspect of the sound does the request want to change?';
+  for (const a of ASPECTS) for (const dir of ['up', 'down'] as const) {
+    const key = `${a.id}_${dir}`;
+    if (ctx.aspects.includes(key)) aspectCriteria[key] = dir === 'up' ? a.upDoc : a.downDoc;
+  }
+  aspectCriteria.none_of_these = 'None of these changes (or the request is not about tweaking one aspect of the sound).';
+  const aspectQ = 'Which change to the sound does the request ask for? Read what the words mean musically, not literally ("more punch" is a faster start).';
   questions.aspect = choice(aspectQ, aspectCriteria);
   questions.aspect_rev = choice(aspectQ, reversed(aspectCriteria));
-
-  questions.direction = choice('For that aspect, does the user want more of it or less of it? ("darker" means less brightness; "snappier attack" means a shorter attack time, so less; "longer tail" means more release.)', { ...DIRECTIONS });
   const amountQ = 'How big a change does the request ask for?';
   questions.amount = choice(amountQ, { ...AMOUNT_TEXT });
   questions.amount_rev = choice(amountQ, reversed({ ...AMOUNT_TEXT }));

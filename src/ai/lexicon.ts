@@ -8,7 +8,9 @@ import type { TemplateId } from './templates.ts';
 export type LexItem =
   | { kind: 'adjust'; aspect: string; direction: Direction; amount?: Amount; phrase: string }
   | { kind: 'fx'; fx: FxId; verb: 'add' | 'more' | 'less'; amount?: Amount; phrase: string }
-  | { kind: 'template'; template: TemplateId; phrase: string };
+  | { kind: 'template'; template: TemplateId; phrase: string }
+  /** Needs the LLM (code, wiring, explanations): never guessed by the fast path. */
+  | { kind: 'complex'; phrase: string };
 
 export interface LexResult {
   items: LexItem[];
@@ -36,6 +38,8 @@ const JA_NOUNS: Array<[string, string]> = [['resonance', 'レゾナンス|レゾ
 
 // Order matters: longer / more specific rules first; matches never overlap.
 const RULES: Rule[] = [
+  // ---- requests that need the LLM path. ("コード" alone also means "chord", so only code-ish phrasings.)
+  { re: /コードボックス|コードで|コードを(?:書|作)|スクリプト|プログラム|説明|仕組み|教えて|なぜ|どうして|ルーティング|配線|(?:つな|繋)(?:い|げ)|接続|\b(?:codebox|code|script|program|write|explain|why|how does|what does|route|wire|connect|modulate the)\b/g, item: m => ({ kind: 'complex', phrase: m[0] }) },
   // ---- template nouns (kept only when a "make/作って" verb is also present; see parseRequest)
   ...JA_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`(?:${w})(?:の音色|の音|っぽい音|っぽく)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
   ...EN_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`\\b(?:${w})\\b(?: sound| patch| synth)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
@@ -61,7 +65,7 @@ const RULES: Rule[] = [
   { re: /(?:揺れ|うねり|ビブラート|トレモロ|モジュレーション|変調)(?:を|は|が)?\s*(?:もっと|少し|ちょっと|かなり)?\s*(?:小さ[くめ]|弱[くめ]|浅[くめ]|減ら|少な[くめ]|抑え|止め|なくし)|揺らさない/g, item: adj('wobble', 'down') },
   { re: /揺ら(?:して|す|せ)|揺れさせ|うねらせ|ゆらゆら/g, item: adj('wobble', 'up') },
   { re: new RegExp(`(?:アタック|立ち上がり)${O}(?:遅[くめ]|長[くめ]|ゆっくり|柔らか[くめ]|なだらか|ふわっと)`, 'g'), item: adj('attack', 'up') },
-  { re: new RegExp(`(?:アタック|立ち上がり)${O}(?:速[くめ]|早[くめ]|短[くめ]|鋭[くめ]|硬[くめ]|強[くめ]|キツ[くめ])`, 'g'), item: adj('attack', 'down') },
+  { re: new RegExp(`(?:アタック|立ち上がり|出だし)${O}(?:速[くめ]|早[くめ]|短[くめ]|鋭[くめ]|硬[くめ]|強[くめ]|キツ[くめ]|シャープ|キレ(?:を|が)?(?:良|よ)く|パキッと|歯切れ(?:を|が)?(?:良|よ)く)`, 'g'), item: adj('attack', 'down') },
   { re: new RegExp(`(?:ディケイ|ディケー|減衰)${O}(?:長[くめ]|伸ば|ゆっくり)`, 'g'), item: adj('decay', 'up') },
   { re: new RegExp(`(?:ディケイ|ディケー|減衰)${O}(?:短[くめ]|速[くめ]|早[くめ])`, 'g'), item: adj('decay', 'down') },
   { re: new RegExp(`(?:サステイン|サスティン|サステン|サスティーン)${O}${JA_UP}`, 'g'), item: adj('sustain', 'up') },
@@ -92,7 +96,7 @@ const RULES: Rule[] = [
   { re: /\b(?:more|deeper|stronger|heavier) (?:wobble|vibrato|tremolo|modulation|movement|lfo)\b|\bwobblier\b|\bwobble (?:it )?more\b|\bmake it wobble\b/g, item: adj('wobble', 'up') },
   { re: /\b(?:less|shallower|weaker|lighter|no) (?:wobble|vibrato|tremolo|modulation|movement)\b|\bsteadier\b/g, item: adj('wobble', 'down') },
   { re: /\b(?:slower|softer|longer|gentler|smoother) attack\b|\bfade[- ]in\b|\bswell(?:ing)?\b/g, item: adj('attack', 'up') },
-  { re: /\b(?:faster|sharper|shorter|harder|quicker) attack\b|\bsnappier\b|\bpunchier\b|\bmore punch\b/g, item: adj('attack', 'down') },
+  { re: /\b(?:faster|sharper|shorter|harder|quicker) attack\b|\bsnappier\b|\bpunchier\b|\bmore punch(?: (?:at|in) the (?:start|beginning|front)(?: of (?:each|the|every) notes?)?)?\b/g, item: adj('attack', 'down') },
   { re: /\blonger decay\b|\bmore decay\b/g, item: adj('decay', 'up') },
   { re: /\bshorter decay\b|\bless decay\b/g, item: adj('decay', 'down') },
   { re: /\b(?:more|higher) sustain\b/g, item: adj('sustain', 'up') },
@@ -107,6 +111,9 @@ const RULES: Rule[] = [
   { re: /\bshorter delay(?: time)?\b/g, item: adj('time', 'down') },
   { re: /\bwetter\b|\bmore (?:wet|effect|effects|fx)\b/g, item: adj('mix', 'up') },
   { re: /\bdrier\b|\bdryer\b|\bless (?:wet|effect|effects|fx)\b/g, item: adj('mix', 'down') },
+  { re: /\b(?:add |give it )?(?:some |a bit of )?(?:grit|crunch|dirt|fuzziness)\b|\bgritty\b|\bcrunchy\b/g, item: adj('drive', 'up') },
+  { re: /\bfade (?:[a-z]+ ){0,3}in(?: slowly| gently| softly)?\b|\bstart (?:more )?(?:gently|softly|slowly)\b/g, item: adj('attack', 'up') },
+  { re: /\b(?:less|not so|too) harsh\b|\bsofter tone\b|\btame the highs\b/g, item: adj('brightness', 'down') },
   { re: /\bmore (?:drive|grit|saturation|crunch|dirt)\b|\bdirtier\b|\bgrittier\b|\bcrunchier\b|\bdistort(?:ed)?(?: it)?\b|\bsaturate(?: it)?\b/g, item: adj('drive', 'up') },
   { re: /\bless (?:drive|grit|distortion|saturation|crunch|dirt)\b|\bcleaner\b/g, item: adj('drive', 'down') },
   { re: /\bmore (?:glide|portamento|slide)\b|\badd (?:glide|portamento)\b/g, item: adj('glide', 'up') },
@@ -129,6 +136,9 @@ const AMOUNT_RULES: Array<[RegExp, Amount | 'max' | 'min']> = [
 ];
 
 const CREATE_VERB = /作っ|作り|作る|作れ|つくっ|つくり|ちょうだい|ください|下さい|ほしい|欲しい|にして|に変え|用意|鳴らし|\b(?:make|build|create|start|give me|i want|i need|new|design|turn (?:it|this) into)\b/g;
+
+/** Describing words that are fine to drop next to a template ("太いベース", "a fat bass"). */
+const TEMPLATE_ADJ = /太い|太め|分厚い|重い|重め|深い|ふわっとした|ふわふわ(?:の|した)?|柔らかい|やわらかい|暖かい|温かい|きれいな|綺麗な|シンプルな|かっこいい|いい感じの|\b(?:fat|thick|deep|heavy|big|huge|lush|warm|soft|simple|evolving|nice|cool|classic|analog(?:ue)?|smooth|good|new|basic)\b/g;
 
 /** Words that carry no meaning of their own once the intent is recognised. */
 const FILLER_JA = /(?:お願い(?:します)?|ください|下さい|ちょうだい|してみて|して|してね|しよう|させて|せて|て|にする|にして|みて|もっと|さらに|さらにもう|全体(?:的に)?|音色|サウンド|感じ|気味|の|を|に|が|は|と|で|も|な|ね|よ|か|、|。|！|？|!|\?|・|\s)/g;
@@ -179,16 +189,23 @@ export function parseRequest(raw: string): LexResult {
   for (const mod of modifiers) {
     const inside = found.find(f => mod.at >= f.at && mod.end <= f.end);
     const target = inside ?? found.filter(f => f.at >= mod.end).sort((a, b) => a.at - b.at)[0] ?? found.filter(f => f.end <= mod.at).sort((a, b) => b.end - a.end)[0];
-    if (!target || target.item.kind === 'template') continue;
+    if (!target || target.item.kind === 'template' || target.item.kind === 'complex') continue;
     if (target.item.kind === 'adjust') {
       if (mod.amount === 'max') target.item.direction = target.item.direction === 'down' ? 'set_min' : 'set_max';
       else if (mod.amount === 'min') target.item.direction = 'set_min';
       else if (!target.item.amount || inside === undefined) target.item.amount = mod.amount;
-    } else if (mod.amount !== 'max' && mod.amount !== 'min') target.item.amount = mod.amount;
+    } else if (target.item.kind === 'fx' && mod.amount !== 'max' && mod.amount !== 'min') target.item.amount = mod.amount;
   }
   let rest = '';
   for (let i = 0; i < lower.length; i++) if (!taken.some(([a, b]) => i >= a && i < b)) rest += lower[i]; else rest += ' ';
+  if (found.some(f => f.item.kind === 'template')) rest = rest.replace(TEMPLATE_ADJ, ' ');
   const leftover = rest.replace(FILLER_EN, ' ').replace(FILLER_JA, '').replace(/\s+/g, ' ').trim();
   const meaningful = leftover.replace(/[^\p{L}\p{N}]/gu, '');
-  return { items: found.map(f => f.item), full: found.length > 0 && meaningful.length <= 1, leftover, lang };
+  // "warmer and less harsh" says the same thing twice: one step, not two.
+  const items: LexItem[] = [];
+  for (const { item } of found) {
+    const same = items.find(i => i.kind === item.kind && JSON.stringify({ ...i, phrase: '', amount: undefined }) === JSON.stringify({ ...item, phrase: '', amount: undefined }));
+    if (!same) items.push(item);
+  }
+  return { items, full: items.length > 0 && meaningful.length <= 1, leftover, lang };
 }
