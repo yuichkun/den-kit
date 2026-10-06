@@ -27,7 +27,7 @@ export const KIT_TOOLS: ToolSpec[] = [
     description: [
       'Apply a list of edits to the draft, all or nothing, then validate and compile it. Returns problems (with module ids and codebox line numbers) or OK.',
       'Edits (objects with "op"):',
-      '  {"op":"addNode","node":{"id":"lfo2","type":"den.lfo","label":"Wobble","config":{...},"values":{"rate":3},"pos":{"x":0,"y":0}}}  (id optional; lowercase letters and digits)',
+      '  {"op":"addNode","node":{"id":"lfo2","type":"den.lfo","label":"Wobble","config":{...},"values":{"rate":3}}}  (id optional: lowercase letters and digits; leave out "pos": den-kit places new modules next to what they connect to)',
       '  {"op":"removeNode","id":"lfo2"}',
       '  {"op":"connect","from":{"node":"lfo2","port":"out"},"to":{"node":"cut1","port":"octaves"},"replace":true}  (an input takes one cable; replace swaps it)',
       '  {"op":"disconnectInput","to":{"node":"cut1","port":"octaves"}}',

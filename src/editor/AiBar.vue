@@ -146,7 +146,7 @@ defineExpose({ focus: focusPrompt });
             <span v-if="o.note" class="note">{{ o.note }}</span>
             <span v-if="o.conflicts?.length" class="conflicts" data-testid="ai-conflicts" :title="o.conflicts.join('\n')">kept your edits: {{ o.conflicts.length === 1 ? o.conflicts[0] : `${o.conflicts.length} changes (hover)` }}</span>
             <span v-if="o.steps?.length && (o.live || i === turns.length - 1)" class="steps" data-testid="ai-steps">{{ (o.live ? o.steps.slice(-3) : o.steps.slice(-4)).join('  ·  ') }}</span>
-            <span v-if="o.reply" class="reply" data-testid="ai-reply">{{ o.reply }}</span>
+            <span v-if="o.reply && o.reply.trim() !== (o.message ?? '').trim()" class="reply" data-testid="ai-reply">{{ o.reply }}</span>
             <span v-if="o.chips.length || o.actions?.length" class="chips">
               <button v-for="(c, k) in o.chips" :key="k" class="chip" data-testid="ai-chip" @click="fast.applyChip(c, o)">{{ c.label }}</button>
               <button v-for="(a, k) in o.actions ?? []" :key="`a${k}`" class="chip" :class="`act-${a.kind}`" data-testid="ai-action" :data-kind="a.kind" @click="act(a, o)">{{ a.label }}</button>

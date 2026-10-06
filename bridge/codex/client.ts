@@ -89,7 +89,22 @@ export const THREAD_CONFIG = {
   features: Object.fromEntries(['apps', 'browser_use', 'computer_use', 'goals', 'hooks', 'image_generation', 'in_app_browser', 'memories', 'multi_agent', 'plugins', 'remote_plugin', 'shell_tool', 'skill_search', 'sleep_tool', 'tool_suggest', 'unified_exec', 'view_image'].map(k => [k, false])),
 };
 
-const text = (value: string): UserInput => ({ type: 'text', text: value, text_elements: [] });
+/** The thread den-kit asks for: ephemeral, no environment (no shell, no files), read-only, never asks for approval, only kit_* tools. */
+export function threadStartParams(options: { model?: string | null; cwd: string; instructions: string; tools: ToolSpec[] }): ThreadStartParams {
+  return {
+    ...(options.model ? { model: options.model } : {}),
+    cwd: options.cwd,
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    ephemeral: true,
+    environments: [],
+    config: THREAD_CONFIG,
+    developerInstructions: options.instructions,
+    dynamicTools: options.tools.map(t => ({ type: 'function', name: t.name, description: t.description, inputSchema: t.inputSchema })),
+  };
+}
+
+export const text = (value: string): UserInput => ({ type: 'text', text: value, text_elements: [] });
 const failure = (message: string): DynamicToolCallResponse => ({ contentItems: [{ type: 'inputText', text: message }], success: false });
 
 export function describeRpcError(error: unknown): string {
@@ -466,17 +481,7 @@ export class CodexClient {
   }
 
   private threadParams(instructions: string): ThreadStartParams {
-    return {
-      ...(this.modelId ? { model: this.modelId } : {}),
-      cwd: this.workdir,
-      approvalPolicy: 'never',
-      sandbox: 'read-only',
-      ephemeral: true,
-      environments: [],
-      config: THREAD_CONFIG,
-      developerInstructions: instructions,
-      dynamicTools: this.tools.map(t => ({ type: 'function', name: t.name, description: t.description, inputSchema: t.inputSchema })),
-    };
+    return threadStartParams({ model: this.modelId, cwd: this.workdir, instructions, tools: this.tools });
   }
 
   // ---- from Codex ------------------------------------------------------------------------------

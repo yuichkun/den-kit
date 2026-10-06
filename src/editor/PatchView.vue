@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Patch canvas (Vue Flow). The document is the source of truth: Vue Flow only
 // renders it; every user gesture becomes a session.commit() intent.
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { VueFlow, useVueFlow, type Connection, type NodeDragEvent, type NodeChange, type EdgeChange } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
@@ -162,6 +162,11 @@ function pick(type: string) {
   if (r.ok) session.select(r.created);
 }
 watch(() => session.loadEpoch.value, async () => { await nextTick(); setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1 }), 80); }, { immediate: true });
+// An LLM edit that adds modules: show the whole patch so the new ones are in view.
+const offLlmFit = session.onTransaction(tx => {
+  if (tx.author.kind === 'ai-llm' && tx.ops.some(op => op.op === 'addNode')) setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
+});
+onBeforeUnmount(() => { offLlmFit(); });
 defineExpose({ openPalette, fit: () => flow.fitView({ padding: 0.08, maxZoom: 1 }) });
 </script>
 

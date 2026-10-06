@@ -54,6 +54,8 @@ export class AudioEngine {
   private inputSources: AudioScheduledSourceNode[] = [];
   private phraseTimers: Array<ReturnType<typeof setTimeout>> = [];
   private healthTimes: number[] = [];
+  /** The node being swapped in (not yet `current`): it may run away in its very first render quanta. */
+  private incoming: Node | null = null;
   private healthMuted = false;
   private loadSerial = 0;
   private readonly options: Required<EngineOptions>;
@@ -131,22 +133,25 @@ export class AudioEngine {
     if (serial !== this.loadSerial || this.ctx !== ctx) return; // a newer load won; the late node was disposed above
     const gain = new GainNode(ctx, { gain: 0 });
     if (!Object.hasOwn(node.outputs, 'main')) { node.dispose(); this.stats.disposed++; throw new Error('The patch has no main output.'); }
+    this.incoming = node;
     node.outputs.main!.connect(gain);
     gain.connect(this.rawAnalyser!);
     if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
     node.onError(event => { if (event.code !== 'sab-unavailable') this.events.error?.('message' in event ? String(event.message) : JSON.stringify(event)); });
-    // Only the sounding node counts: a runaway node that is fading out must not mute its replacement.
-    if (node.events.kitHealth) node.events.kitHealth.on(() => { if (this.current?.node === node) this.onHealth(); });
+    // The sounding node and the one being swapped in count (a patch can run away within its first
+    // render quanta, before it becomes current); a runaway node that is fading out must not mute its replacement.
+    if (node.events.kitHealth) node.events.kitHealth.on(() => { if (this.current?.node === node || this.incoming === node) this.onHealth(); });
     this.attachProbes(node, info.probes);
     const live: Live = { node, gain, artifact, info, ctx };
     // Re-send held notes so a structural edit while playing keeps sounding.
     if (info.voices) for (const [note, velocity] of this.held) node.midi.midi?.send({ type: 'noteOn', channel: 0, note, velocity } as never);
     await wait(6); // ~2 render quanta for the new node to start
-    if (serial !== this.loadSerial || this.ctx !== ctx) { node.dispose(); this.stats.disposed++; return; }
+    if (serial !== this.loadSerial || this.ctx !== ctx) { if (this.incoming === node) this.incoming = null; node.dispose(); this.stats.disposed++; return; }
     const now = ctx.currentTime, fade = this.options.crossfadeMs / 1000;
     gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + fade);
     const previous = this.current;
     this.current = live;
+    this.incoming = null;
     this.stats.swaps++;
     this.retryAfterChange(); // a new patch gets a fresh chance if the old one had to be muted
     if (previous) {
@@ -255,6 +260,7 @@ export class AudioEngine {
     this.master.gain.cancelScheduledValues(this.ctx.currentTime);
     this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.002);
     for (const live of [this.current, ...this.fading]) live?.node.events.reset?.emit({ value: 1 } as never);
+    this.incoming?.events.reset?.emit({ value: 1 } as never);
     if (this.healthTimes.length >= 3) {
       this.healthMuted = true;
       this.events.health?.('Sound is muted: the patch keeps producing runaway or invalid audio (often a feedback loop). Change the patch or undo (⌘Z) and it comes back.', true);
@@ -354,6 +360,7 @@ export class AudioEngine {
     this.stopTestSignal();
     for (const live of [...this.fading]) this.retire(live);
     if (this.current) { this.fading.push(this.current); this.retire(this.current); this.current = null; }
+    this.incoming = null;
     for (const { moduleUrl, wasmUrl } of this.urls.values()) { URL.revokeObjectURL(moduleUrl); URL.revokeObjectURL(wasmUrl); }
     this.urls.clear();
     await this.ctx?.close().catch(() => {});

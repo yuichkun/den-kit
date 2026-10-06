@@ -16,6 +16,7 @@
     "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.ts",
     "build": "npm run check && vite build",
     "doctor": "node scripts/doctor.ts",
+    "codex:login": "node scripts/codex-login.ts",
     "fake:jev": "node test/fakes/jev/fake-jev.ts",
     "eval:jev": "node scripts/eval-jev.ts"
   },

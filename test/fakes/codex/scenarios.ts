@@ -9,6 +9,16 @@ const BOX_FIXED = "import { defineSubgraph, type Node } from '@unworklet/core';\
 
 const scenarios: Scenario[] = [
   {
+    // npm run kit:doctor -- --deep
+    name: 'doctor-ping',
+    match: /connectivity check/i,
+    async run(t) {
+      await t.think();
+      const r = await t.call('kit_ping', {});
+      await t.say(r.text.includes('pong') ? 'pong' : 'no pong');
+    },
+  },
+  {
     name: 'wobble',
     match: /wobble|揺らして/i,
     async run(t) {

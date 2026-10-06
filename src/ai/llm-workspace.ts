@@ -10,6 +10,7 @@ import { applyIntents, diffDocuments, OpError, type Intent } from '../core/ops.t
 import { PHRASES, phraseEvents, type Phrase } from '../core/phrases.ts';
 import { clone, type PatchDocument, type PortSpec } from '../core/schema.ts';
 import { validate } from '../core/validate.ts';
+import { placeNewNodes } from '../core/layout.ts';
 import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
 import type { Rendered } from '../compile/render-client.ts';
@@ -129,7 +130,11 @@ export class DraftWorkspace {
       if (error instanceof OpError) return { success: false, text: `Edit #${error.index + 1} (${JSON.stringify(ops[error.index]).slice(0, 200)}) was rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}\nNothing was applied; fix it and send the whole list again.` };
       throw error;
     }
-    this.draft = result.doc;
+    // Modules added without a position go next to what they connect to (never on top of others).
+    const unplaced = (ops as Intent[]).flatMap((o, i) => o.op === 'addNode' && !o.node.pos ? [i] : []);
+    const addIndexes = (ops as Intent[]).flatMap((o, i) => o.op === 'addNode' ? [i] : []);
+    const toPlace = unplaced.map(i => result.created[addIndexes.indexOf(i)]).filter((id): id is string => !!id);
+    this.draft = toPlace.length ? applyIntents(result.doc, placeNewNodes(result.doc, this.deps.catalog, toPlace), this.deps.catalog).doc : result.doc;
     this.steps.push(describeOps(ops as Intent[], result.created));
     const check = await this.check();
     return { success: true, text: `Applied ${ops.length} edit${ops.length === 1 ? '' : 's'}${result.created.length ? ` (new ids: ${result.created.join(', ')})` : ''}. ${check}` };
