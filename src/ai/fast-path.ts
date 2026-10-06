@@ -19,8 +19,21 @@ import type { JevResult } from './protocol.ts';
 
 /** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 1200 ms). */
 export interface FastSettings extends RouterSettings { budgetMs: number | null; useJev: boolean }
-export type OutcomeStatus = 'working' | 'applied' | 'chips' | 'escalate' | 'nothing';
-export type RouteKind = 'lexicon' | 'jev' | 'jev-target' | 'none';
+/** working = fast path busy; thinking = the LLM works on it; merged = added to a running LLM request. */
+export type OutcomeStatus = 'working' | 'applied' | 'chips' | 'escalate' | 'nothing' | 'thinking' | 'reply' | 'stopped' | 'failed' | 'merged';
+export type RouteKind = 'lexicon' | 'jev' | 'jev-target' | 'none' | 'llm';
+/** A button on a history line that is not a fast-path plan (LLM questions, follow-ups, stop, …). */
+export interface PromptAction { label: string; kind: 'send' | 'answer' | 'ask-llm' | 'apply-anyway' | 'stop'; value?: string; question?: string; item?: string }
+
+/** What the fast path needs from the LLM path (src/ai/llm.ts). */
+export interface LlmHandoff {
+  readonly ready: boolean;
+  /** Off on purpose (KIT_CODEX=off) or no bridge at all: not worth mentioning on every fast-path miss. */
+  readonly off: boolean;
+  /** Take over a line; null when the LLM is not available. */
+  take(line: Outcome): Outcome | null;
+  reason(): string;
+}
 
 export interface Outcome {
   id: string;
@@ -39,6 +52,19 @@ export interface Outcome {
   confidence?: number;
   chips: Chip[];
   txId?: string;
+  // ---- LLM lines ----
+  /** Still running (Esc stops it). */
+  live?: boolean;
+  /** What it is doing right now ("reading the patch…"). */
+  activity?: string;
+  /** Progress, oldest first ("+ lfo2, lfo2 → cut1.octaves · compiled ✓"). */
+  steps?: string[];
+  /** What the model said. */
+  reply?: string;
+  /** LLM changes not applied because the user changed the same thing. */
+  conflicts?: string[];
+  fix?: string;
+  actions?: PromptAction[];
 }
 
 export interface RequestTrace {
@@ -75,21 +101,28 @@ export class FastPath {
   constructor(session: KitSession) {
     this.session = session;
     session.onHistory((kind, tx) => {
-      if (tx.author.kind !== 'ai-fast') return;
+      if (tx.author.kind !== 'ai-fast' && tx.author.kind !== 'ai-llm') return;
       // ⌘Z on the AI edit: the result line no longer describes the patch.
       if (kind === 'undo' && this.outcome.value?.txId === tx.id) this.outcome.value = null;
       const past = this.history.value.find(o => o.txId === tx.id);
       if (past) this.remember({ ...past, undone: kind === 'undo' });
-      this.session.bridge?.telemetry({ kind: kind === 'undo' ? 'undo' : 'redo', trace: tx.author.trace, label: tx.label });
+      this.session.bridge?.telemetry({ kind: kind === 'undo' ? 'undo' : 'redo', author: tx.author.kind, trace: tx.author.trace, label: tx.label });
     });
   }
 
   private get ctx(): RouteContext { return { doc: this.session.doc.value, catalog: this.session.catalog, selection: [...this.session.selection.value] }; }
   private get jevReady() { return this.settings.useJev && !!this.session.bridge?.jevReady; }
 
-  /** Interpret one request. Never throws; the outcome says what happened. */
+  private get llm(): LlmHandoff | null { return this.session.llm ?? null; }
+
   /** Show an outcome as the latest result and keep it in the history (by id). */
   private show(outcome: Outcome) { this.outcome.value = outcome; this.remember(outcome); }
+  /** Add or update a history line (the LLM path updates its lines as it works). */
+  upsert(outcome: Outcome) {
+    const isNew = !this.history.value.some(o => o.id === outcome.id);
+    this.remember(outcome);
+    if (isNew || this.outcome.value?.id === outcome.id) this.outcome.value = outcome;
+  }
   private remember(outcome: Outcome) {
     const list = this.history.value;
     const i = list.findIndex(o => o.id === outcome.id);
@@ -105,12 +138,24 @@ export class FastPath {
     const id = randomId('rq');
     const lex = parseRequest(text);
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
-    const finish = (decision: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
+    const finish = (given: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
+      let decision = given;
       if (controller.signal.aborted && this.controller !== controller) {
         this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
         return { id, text, status: 'nothing', route, ms: 0, chips: [], message: 'Superseded by a newer request.' };
       }
-      const outcome = this.realize(decision, { id, text, via: options.via, route, ms: Math.round(performance.now() - started), chips: [], ...extra }, trace);
+      const ms = Math.round(performance.now() - started);
+      // What the fast path cannot do goes to the LLM when it is available; otherwise say why not.
+      if (text && (decision.kind === 'escalate' || (decision.kind === 'nothing' && decision.llm))) {
+        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs, chips: decision.kind === 'escalate' ? decision.chips : [] });
+        trace.decision = 'escalate';
+        trace.totalMs = ms; trace.route = route;
+        if (handed) { this.record(trace); this.busy.value = false; if (this.controller === controller) this.controller = null; return handed; }
+        // Keep the fast path's own explanation; add why the LLM could not take it when that helps.
+        const why = this.llm && (decision.kind === 'escalate' || !this.llm.off) ? this.llm.reason() : '';
+        if (why) decision = { ...decision, message: `${decision.message} ${why}` };
+      }
+      const outcome = this.realize(decision, { id, text, via: options.via, route, ms, chips: [], ...extra }, trace);
       trace.totalMs = outcome.ms;
       trace.route = route;
       this.record(trace);
@@ -141,7 +186,7 @@ export class FastPath {
     // Not fully understood by the lexicon: ask Jev everything at once.
     if (!this.jevReady) {
       const why = this.jevOffReason();
-      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: `${why} Try phrases like “brighter”, “リリース長く”, “add reverb”, “ベース作って”.` }, 'none');
+      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: `${why} Try phrases like “brighter”, “リリース長く”, “add reverb”, “ベース作って”.`, llm: true }, 'none');
     }
     const ctx = this.ctx;
     const built = buildFullRequest({ text, lang: lex.lang, selection: describeSelection(ctx), aspects: availableAspects(ctx), targets: ambiguousTargets(ctx) });
@@ -149,7 +194,7 @@ export class FastPath {
     if (controller.signal.aborted) return finish({ kind: 'nothing', message: 'Cancelled.' }, 'jev');
     if (!result.ok || !read) {
       const why = result.ok ? 'Jev gave no usable answer.' : `Jev: ${result.error.message}`;
-      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: why }, 'jev', { jevMs: result.ms });
+      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: why, llm: true }, 'jev', { jevMs: result.ms });
     }
     const decision = decideFromJev(read, built, this.ctx, lex.lang, this.settings, stage.fallback);
     if (!this.unchanged(before)) { trace.stale = true; return finish(asChips(decision, 'The patch changed while Jev was thinking; apply anyway?'), 'jev', { jevMs: result.ms }); }
@@ -210,7 +255,11 @@ export class FastPath {
       trace.applied = true;
       return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId };
     }
-    if (decision.kind === 'chips') { trace.confidence = decision.confidence; return { ...base, status: 'chips', message: decision.message, chips: decision.chips, confidence: decision.confidence }; }
+    if (decision.kind === 'chips') {
+      trace.confidence = decision.confidence;
+      // None of these? The LLM can take it.
+      return { ...base, status: 'chips', message: decision.message, chips: decision.chips, confidence: decision.confidence, actions: this.llm?.ready ? [{ label: '✦ Ask the LLM', kind: 'ask-llm' }] : undefined };
+    }
     if (decision.kind === 'escalate') return { ...base, status: 'escalate', message: decision.message, chips: decision.chips };
     return { ...base, status: 'nothing', message: decision.message };
   }

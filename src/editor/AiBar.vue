@@ -3,11 +3,13 @@
 // press Enter, and the change is applied at once; ⌘Z takes it back. The last
 // few requests stay visible above the input so the next one can build on them.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { FastPath, Outcome } from '../ai/fast-path.ts';
+import type { FastPath, Outcome, PromptAction } from '../ai/fast-path.ts';
+import type { LlmController } from '../ai/llm.ts';
 import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
 
-const props = defineProps<{ fast: FastPath; createRecognition?: (() => RecognitionLike) | null }>();
+const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null }>();
 const fast = props.fast;
+const llm = props.llm ?? null;
 const text = ref('');
 const input = ref<HTMLInputElement | null>(null);
 const drawer = ref(false);
@@ -15,21 +17,46 @@ const voice = new VoiceInput({ create: props.createRecognition === undefined ? b
 const voiceLang = ref(voice.lang);
 watch(voiceLang, lang => { voice.lang = lang; saveVoiceLang(lang); });
 const listening = computed(() => voice.state.value !== 'idle');
-const turns = computed(() => fast.history.value.slice(-4));
+// The last few requests, plus any LLM request still working further up.
+const turns = computed(() => {
+  const all = fast.history.value;
+  const recent = all.slice(-4);
+  const older = all.slice(0, -4).filter(o => o.live);
+  return [...older, ...recent];
+});
 const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : 'Ask anything — or hold Space and talk');
+const llmReady = computed(() => !!llm && !!fast.session.bridge?.status.value && fast.session.bridge.codexReady);
 
-async function send(value: string, via: 'typed' | 'voice') {
+async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
   const request = value.trim();
   text.value = ''; // the request moves to the history; the prompt is ready for the next one
   voice.error.value = '';
-  if (request) await fast.run(request, { via });
+  if (!request) return;
+  if (toLlm && llm) llm.run(request, { via });
+  else await fast.run(request, { via });
 }
 
-const time = (o: Outcome) => o.status === 'working' ? '' : o.ms >= 1000 ? `${(o.ms / 1000).toFixed(1)} s` : `${o.ms} ms`;
+// A live clock for requests the LLM is still working on.
+const now = ref(performance.now());
+let clock: ReturnType<typeof setInterval> | null = null;
+watch(() => turns.value.some(o => o.live), live => {
+  if (live && !clock) clock = setInterval(() => { now.value = performance.now(); }, 250);
+  if (!live && clock) { clearInterval(clock); clock = null; }
+}, { immediate: true });
+const started = new Map<string, number>();
+const elapsed = (o: Outcome) => {
+  if (!o.live) { started.delete(o.id); return o.ms; }
+  if (!started.has(o.id)) started.set(o.id, now.value - o.ms);
+  return Math.max(o.ms, Math.round(now.value - started.get(o.id)!));
+};
+const time = (o: Outcome) => o.status === 'working' ? '' : fmt(elapsed(o));
+const fmt = (ms: number) => ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 const routeTitle = (o: Outcome) => {
+  if (o.route === 'llm') return `LLM (Codex)${o.steps?.length ? `\n${o.steps.join('\n')}` : ''}`;
   const via = o.route === 'lexicon' ? 'lexicon (no Jev)' : o.route === 'jev' || o.route === 'jev-target' ? `Jev ${o.jevMs ?? '?'} ms` : '—';
   return `${via}${o.confidence !== undefined && o.route !== 'lexicon' ? ` · ${Math.round(o.confidence * 100)}%` : ''}`;
 };
+function act(action: PromptAction, o: Outcome) { if (llm) llm.act(action, o); }
 
 // ---- keys --------------------------------------------------------------------
 // Hold Space to talk, anywhere but other text fields. In the prompt a short tap
@@ -52,6 +79,8 @@ function keydown(e: KeyboardEvent) {
     return;
   }
   if (e.key === 'Escape' && listening.value) { voice.cancel(); return; }
+  // Esc stops a running LLM request (outside other text fields).
+  if (e.key === 'Escape' && !inOtherField(e) && llm?.busy.value) { e.preventDefault(); llm.stop(); return; }
   // Enter anywhere outside a text field jumps to the prompt.
   if (e.key === 'Enter' && !mod && !inPrompt(e) && !inOtherField(e) && !(e.target as HTMLElement | null)?.closest?.('button')) { e.preventDefault(); focusPrompt(); }
 }
@@ -69,14 +98,15 @@ function insertSpace() {
   text.value = el.value;
 }
 function promptKey(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed'); }
-  else if (e.key === 'Escape') { if (fast.busy.value) fast.cancel(); else input.value?.blur(); }
+  // Enter: the fast path first (it hands over to the LLM when needed); Shift+Enter: straight to the LLM.
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed', e.shiftKey); }
+  else if (e.key === 'Escape') { if (fast.busy.value) fast.cancel(); else if (!llm?.busy.value) input.value?.blur(); }
 }
 function focusPrompt() { void nextTick(() => { input.value?.focus(); input.value?.select(); }); }
 function toggleMic() { if (voice.state.value === 'listening') voice.stop(); else if (!listening.value) voice.start(); }
 function lostFocus() { spaceHeld = false; if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } voice.cancel(); }
 onMounted(() => { window.addEventListener('keydown', keydown, true); window.addEventListener('keyup', keyup, true); window.addEventListener('blur', lostFocus); });
-onBeforeUnmount(() => { window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup, true); window.removeEventListener('blur', lostFocus); lostFocus(); });
+onBeforeUnmount(() => { window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup, true); window.removeEventListener('blur', lostFocus); lostFocus(); if (clock) clearInterval(clock); });
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 defineExpose({ focus: focusPrompt });
 </script>
@@ -103,17 +133,23 @@ defineExpose({ focus: focusPrompt });
       </table>
     </div>
     <ol v-if="turns.length" class="history" data-testid="ai-history">
-      <li v-for="(o, i) in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: i === turns.length - 1, undone: o.undone }]" :data-status="o.status" :data-testid="i === turns.length - 1 ? 'ai-result' : undefined">
-        <span class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}</span>
+      <li v-for="(o, i) in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: i === turns.length - 1, undone: o.undone, llm: o.route === 'llm', live: o.live }]" :data-status="o.status" :data-route="o.route" :data-testid="i === turns.length - 1 ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined">
+        <span class="ask"><span v-if="o.route === 'llm'" class="via llm-mark" title="answered by the LLM (Codex)">✦</span><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}</span>
         <span class="answer">
           <template v-if="o.status === 'working'"><span class="spin" /> thinking…</template>
           <template v-else>
-            <span v-if="o.status === 'applied'" class="label" :data-testid="i === turns.length - 1 ? 'ai-label' : undefined">{{ o.label }}</span>
+            <span v-if="o.live" class="activity" data-testid="ai-activity"><span class="spin" /> {{ o.activity ?? 'thinking…' }}</span>
+            <span v-if="o.label && (o.status === 'applied' || o.route === 'llm')" class="label" :data-testid="i === turns.length - 1 ? 'ai-label' : undefined">{{ o.label }}</span>
             <span v-if="o.undone" class="muted"> · undone</span>
             <span v-if="o.message" class="message" :data-testid="i === turns.length - 1 ? 'ai-message' : undefined">{{ o.message }}</span>
+            <span v-if="o.fix" class="fix" data-testid="ai-fix">{{ o.fix }}</span>
             <span v-if="o.note" class="note">{{ o.note }}</span>
-            <span v-if="o.chips.length" class="chips">
+            <span v-if="o.conflicts?.length" class="conflicts" data-testid="ai-conflicts" :title="o.conflicts.join('\n')">kept your edits: {{ o.conflicts.length === 1 ? o.conflicts[0] : `${o.conflicts.length} changes (hover)` }}</span>
+            <span v-if="o.steps?.length && (o.live || i === turns.length - 1)" class="steps" data-testid="ai-steps">{{ (o.live ? o.steps.slice(-3) : o.steps.slice(-4)).join('  ·  ') }}</span>
+            <span v-if="o.reply" class="reply" data-testid="ai-reply">{{ o.reply }}</span>
+            <span v-if="o.chips.length || o.actions?.length" class="chips">
               <button v-for="(c, k) in o.chips" :key="k" class="chip" data-testid="ai-chip" @click="fast.applyChip(c, o)">{{ c.label }}</button>
+              <button v-for="(a, k) in o.actions ?? []" :key="`a${k}`" class="chip" :class="`act-${a.kind}`" data-testid="ai-action" :data-kind="a.kind" @click="act(a, o)">{{ a.label }}</button>
             </span>
           </template>
         </span>
@@ -125,6 +161,7 @@ defineExpose({ focus: focusPrompt });
       <span class="spark">✦</span>
       <input ref="input" :value="listening ? voice.heard.value : text" type="text" data-testid="ai-input" :placeholder="placeholder" :readonly="listening" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLInputElement).value" @keydown="promptKey" />
       <span v-if="fast.busy.value" class="spin" />
+      <span v-if="llmReady && !listening" class="hint" title="Shift+Enter sends straight to the LLM; Esc stops it">⇧↵ LLM</span>
       <button type="button" class="mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : 'Voice input needs Chrome'" @click="toggleMic">
         <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="currentColor" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" /></svg>
       </button>
@@ -150,7 +187,20 @@ defineExpose({ focus: focusPrompt });
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .turn { display: grid; grid-template-columns: minmax(80px, 30%) 1fr auto; gap: 12px; align-items: baseline; background: #222222e6; border: 1px solid #333; border-left: 3px solid #555; border-radius: 6px; padding: 6px 10px; font-size: 12.5px; opacity: .55; }
 .turn.latest { opacity: 1; font-size: 13.5px; padding: 8px 12px; }
-.turn.s-applied { border-left-color: var(--ok); } .turn.s-chips { border-left-color: var(--warn); } .turn.s-working { border-left-color: var(--accent); }
+.turn.s-applied { border-left-color: var(--ok); } .turn.s-chips { border-left-color: var(--warn); } .turn.s-working, .turn.s-thinking { border-left-color: var(--accent); }
+.turn.s-failed { border-left-color: var(--error); } .turn.s-stopped, .turn.s-merged, .turn.s-reply { border-left-color: #6a6a6a; }
+.turn.live { opacity: 1; }
+.llm-mark { color: var(--accent); }
+.activity { color: var(--accent); display: inline-flex; gap: 6px; align-items: center; }
+.steps { flex-basis: 100%; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply { flex-basis: 100%; color: #d8d8d8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn:not(.latest) .reply { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.turn.latest .reply { max-height: 7.5em; overflow: auto; }
+.fix { color: #cfcfcf; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.conflicts { color: var(--warn); font-size: 12px; }
+.turn.s-failed .message { color: var(--error); }
+.chip.act-stop { border-color: #666 !important; color: #aaa; } .chip.act-stop:hover { background: #666; color: #fff; }
+.hint { color: #6f6f6f; font-size: 11px; white-space: nowrap; }
 .turn.undone .label { text-decoration: line-through; color: var(--muted); }
 .ask { color: #9a9a9a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .via { margin-right: 4px; font-size: 11px; }

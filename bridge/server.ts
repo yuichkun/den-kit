@@ -81,7 +81,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const codex = options.codex;
   const llmGraceMs = options.llmGraceMs ?? 30000;
-  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'The LLM path is off (KIT_CODEX=off).' } });
+  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'kit:dev was started with KIT_CODEX=off.' } });
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
   const broadcastStatus = () => { const s = status(); for (const t of tabs) send(t.socket, { t: 'status', status: s }); };
   const unsubscribeCodex = codex?.onStatus(() => broadcastStatus());
@@ -181,7 +181,8 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true, pending: new Map() };
         tabs.add(tab);
         socket.on('pong', () => { if (tab) tab.alive = true; });
-        send(socket, { t: 'welcome', protocol: PROTOCOL_VERSION, bridge: BRIDGE_VERSION, status: status() });
+        const mine = [...running.get(parsed.tab) ?? []].map(key => key.slice(parsed.tab.length + SEP.length));
+        send(socket, { t: 'welcome', protocol: PROTOCOL_VERSION, bridge: BRIDGE_VERSION, status: status(), running: mine });
         rejoin(tab);
         return;
       }

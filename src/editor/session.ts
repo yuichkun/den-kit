@@ -17,6 +17,7 @@ import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
+import type { LlmController } from '../ai/llm.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast { id: number; kind: 'info' | 'warn' | 'error'; text: string }
@@ -56,6 +57,8 @@ export class KitSession {
   bridge: BridgeClient | null = null;
   /** The fast AI path (lexicon + Jev); null when not wired (unit tests). */
   fast: FastPath | null = null;
+  /** The LLM path (Codex through the bridge); null when not wired. */
+  llm: LlmController | null = null;
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   private listeners = new Set<TransactionListener>();

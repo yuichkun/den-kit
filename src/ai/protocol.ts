@@ -83,7 +83,8 @@ export type ClientMessage =
   | { t: 'codex.retry' };
 
 export type ServerMessage =
-  | { t: 'welcome'; protocol: number; bridge: string; status: BridgeStatus }
+  /** `running`: this tab's LLM requests the bridge still knows (after a reconnect, others were lost). */
+  | { t: 'welcome'; protocol: number; bridge: string; status: BridgeStatus; running?: string[] }
   | { t: 'status'; id?: string; status: BridgeStatus }
   | { t: 'jev.result'; id: string; result: JevResult }
   | { t: 'llm.event'; id: string; event: LlmEvent }

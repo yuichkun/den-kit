@@ -109,7 +109,7 @@ async function importPatch(e: Event) {
         <PanelView v-else-if="view === 'panel'" />
         <CodeView v-else />
         <div v-if="banner.length" class="banner" :class="{ below: view === 'patch' }" data-testid="banner"><div v-for="(line, i) in banner" :key="i">{{ line }}</div></div>
-        <AiBar v-if="session.fast && view !== 'code'" :fast="session.fast" />
+        <AiBar v-if="session.fast && view !== 'code'" :fast="session.fast" :llm="session.llm" />
         <slot name="workspace" />
       </div>
     </div>

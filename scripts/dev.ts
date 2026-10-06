@@ -9,12 +9,20 @@ import { loadEnvFile, maskSecret } from '../bridge/env.ts';
 import { createBridge } from '../bridge/server.ts';
 import { JevClient } from '../bridge/jev.ts';
 import { Telemetry } from '../bridge/telemetry.ts';
+import { CodexClient } from '../bridge/codex/client.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 loadEnvFile(join(root, '.env'));
 const port = Number(process.env.KIT_PORT ?? 5180);
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
 const budget = Number(process.env.KIT_JEV_BUDGET_MS);
+
+const telemetry = new Telemetry(join(root, '.logs'));
+// The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
+const codex = process.env.KIT_CODEX === 'off' ? undefined : new CodexClient({
+  kitRoot: root, model: process.env.KIT_CODEX_MODEL, effort: process.env.KIT_CODEX_EFFORT, telemetry,
+  log: line => console.log(`  [bridge] ${line}`),
+});
 
 let bridge;
 try {
@@ -23,8 +31,9 @@ try {
     token: randomBytes(24).toString('base64url'),
     origins: [`http://127.0.0.1:${port}`],
     jev: new JevClient({ apiKey: process.env.TYPESAFE_API_KEY, baseUrl: process.env.KIT_JEV_BASE, defaultBudgetMs: Number.isFinite(budget) && budget > 0 ? budget : undefined }),
-    telemetry: new Telemetry(join(root, '.logs')),
+    telemetry,
     warmUp: true,
+    codex,
     log: line => console.log(`  [bridge] ${line}`),
   });
 } catch (error) {
@@ -40,7 +49,17 @@ try {
   await server.listen();
   const jev = bridge.status().jev;
   console.log(`\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`);
-  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in kit/.env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs kit/.logs\n`);
+  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in kit/.env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs kit/.logs`);
+  if (codex) {
+    // Start Codex after the editor is up; its state shows in the editor (and here).
+    let last = '';
+    codex.onStatus(s => {
+      const line = s.state === 'ok' ? `LLM ready: ${s.model ?? 'Codex'}${s.plan ? ` (ChatGPT ${s.plan})` : ''}` : s.state === 'login' ? `LLM: Codex is not signed in → ${s.fix ?? ''}` : s.state === 'error' ? `LLM error: ${s.detail ?? ''}${s.fix ? ` → ${s.fix}` : ''}` : '';
+      if (line && line !== last) { last = line; console.log(`  [bridge] ${line}`); }
+    });
+    void codex.start();
+  } else console.log('  LLM off (KIT_CODEX=off)');
+  console.log('');
   let stopping = false;
   const stop = async () => { if (stopping) return; stopping = true; await Promise.allSettled([server.close(), bridge.close()]); process.exit(0); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);

@@ -100,11 +100,11 @@ describe('Jev path', () => {
     expect(session.doc.value.nodes.filter1!.values.resonance).toBeGreaterThan(0.707);
   });
 
-  it('route "complex" escalates (LLM arrives in CP2b) and changes nothing', async () => {
+  it('route "complex" needs the LLM; without one wired it says so and changes nothing (hand-off: llm.test.ts)', async () => {
     const before = snapshot();
     const o = await fast.run('write a granular codebox');
     expect(o.status).toBe('escalate');
-    expect(o.message).toMatch(/CP2b/);
+    expect(o.message).toBe('This needs the LLM.');
     expect(snapshot()).toBe(before);
   });
 

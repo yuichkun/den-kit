@@ -45,6 +45,9 @@ export class CompileClient {
     this.options = { cacheSize: 8, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: h => clearTimeout(h as ReturnType<typeof setTimeout>), ...options, timeoutMs: options.timeoutMs ?? 20000 };
   }
 
+  /** Keep an artifact compiled elsewhere (an LLM draft), so applying that draft swaps in at once. */
+  prime(artifact: Artifact) { if (!this.disposed && !this.cache.has(artifact.hash)) this.remember(artifact); }
+
   /** Cached artifact for a hash (A/B and takes never recompile). */
   cached(hash: string): Artifact | undefined {
     const hit = this.cache.get(hash);

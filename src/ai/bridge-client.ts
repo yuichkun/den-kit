@@ -2,7 +2,10 @@
 // pairs requests with replies, and degrades to "AI offline" without ever
 // blocking the editor: every request resolves (never rejects) with a result.
 import { shallowRef, ref } from 'vue';
-import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type JevRequest, type JevResult, type ServerMessage } from './protocol.ts';
+import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type JevRequest, type JevResult, type ServerMessage, type ToolOutput } from './protocol.ts';
+
+/** What the LLM controller hears from the bridge. */
+export type LlmInbound = Extract<ServerMessage, { t: 'llm.event' | 'tool.call' }> | { t: 'error'; message: string; ref: string } | { t: 'welcome'; running: string[] };
 
 export type BridgeState = 'disabled' | 'connecting' | 'online' | 'offline' | 'refused';
 
@@ -52,6 +55,7 @@ export class BridgeClient {
   private readonly backoff: { baseMs: number; maxMs: number };
   private readonly replyMarginMs: number;
   private statusListeners = new Set<(s: BridgeStatus) => void>();
+  private llmListeners = new Set<(m: LlmInbound) => void>();
 
   constructor(options: BridgeClientOptions) {
     this.token = options.token;
@@ -66,6 +70,17 @@ export class BridgeClient {
   get online() { return this.state.value === 'online'; }
   get jevReady() { return this.online && !!this.status.value && this.status.value.jev.state !== 'off' && !(this.status.value.jev.state === 'error' && this.status.value.jev.detail === 'auth'); }
   onStatus(listener: (s: BridgeStatus) => void) { this.statusListeners.add(listener); return () => this.statusListeners.delete(listener); }
+  /** Codex is signed in and running. */
+  get codexReady() { return this.online && this.status.value?.codex.state === 'ok'; }
+  onLlm(listener: (m: LlmInbound) => void) { this.llmListeners.add(listener); return () => { this.llmListeners.delete(listener); }; }
+  // LLM requests: false when the message could not be sent (offline).
+  llmStart(id: string, text: string, instructions: string, thread?: string) { return this.post({ t: 'llm.start', id, text, instructions, ...(thread ? { thread } : {}) }); }
+  llmSteer(id: string, target: string, text: string) { return this.post({ t: 'llm.steer', id, target, text }); }
+  llmStop(id: string) { return this.post({ t: 'llm.stop', id }); }
+  llmAnswer(id: string, question: string, answers: Record<string, string[]>) { return this.post({ t: 'llm.answer', id, question, answers }); }
+  llmForget(thread: string) { return this.post({ t: 'llm.forget', thread }); }
+  toolResult(id: string, callId: string, output: ToolOutput) { return this.post({ t: 'tool.result', id, callId, output }); }
+  codexRetry() { return this.post({ t: 'codex.retry' }); }
 
   start() {
     if (!this.token) { this.state.value = 'disabled'; this.detail.value = 'AI offline: start the editor with `npm run kit:dev` to enable the AI bridge.'; return; }
@@ -126,11 +141,14 @@ export class BridgeClient {
           this.state.value = 'online';
           this.detail.value = '';
           this.setStatus(message.status);
+          for (const l of this.llmListeners) l({ t: 'welcome', running: message.running ?? [] });
           return;
         case 'status': this.setStatus(message.status); return;
         case 'jev.result': this.settle(message.id, message.result); return;
+        case 'llm.event': case 'tool.call': for (const l of this.llmListeners) l(message); return;
         case 'error':
           if (message.ref && this.pending.has(message.ref)) this.settle(message.ref, { ok: false, error: { kind: 'invalid', message: message.message }, ms: 0 });
+          else if (message.ref) for (const l of this.llmListeners) l({ t: 'error', message: message.message, ref: message.ref });
           else if (!welcomed) this.detail.value = message.message;
           else console.warn(`[den-kit] bridge: ${message.message}`);
           return;

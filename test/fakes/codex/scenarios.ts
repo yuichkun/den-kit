@@ -49,11 +49,13 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'brighter-or-darker',
-    match: /^(Brighter|Darker)$/,
+    // den-kit puts a context line before the user's words; the answer is the last line.
+    match: /(?:^|\n)(Brighter|Darker)$/,
     async run(t) {
-      const hz = t.text === 'Brighter' ? 900 : 120;
+      const word = /(Brighter|Darker)$/.exec(t.text)![1]!;
+      const hz = word === 'Brighter' ? 900 : 120;
       await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: hz }] });
-      await t.call('kit_finish', { summary: `${t.text}: filter base ${hz} Hz.` });
+      await t.call('kit_finish', { summary: `${word}: filter base ${hz} Hz.` });
     },
   },
   {

@@ -24,9 +24,11 @@ export type Decision =
   | { kind: 'apply'; plan: Plan; confidence: number; note?: string }
   | { kind: 'chips'; message: string; chips: Chip[]; confidence?: number }
   | { kind: 'escalate'; message: string; chips: Chip[] }
-  | { kind: 'nothing'; message: string };
+  /** `llm`: the fast path could not do it, but the LLM might (it goes there when Codex is available). */
+  | { kind: 'nothing'; message: string; llm?: boolean };
 
-export const LLM_LATER = 'This needs the LLM path, which arrives in CP2b.';
+/** Shown when a request needs the LLM; the fast path hands such requests to it when Codex is available. */
+export const NEEDS_LLM = 'This needs the LLM.';
 
 // ---- Stage 0: lexicon ---------------------------------------------------------------
 export type LexiconStage =
@@ -52,7 +54,7 @@ export function planItem(item: LexItem, doc: PatchDocument, catalog: Catalog, se
     if (item.verb === 'less') return { ok: false, reason: 'no-target', message: `There is no ${FX[item.fx].title.toLowerCase()} to reduce.` };
     return planAddFx(doc, catalog, item.fx);
   }
-  if (item.kind === 'complex') return { ok: false, reason: 'unknown', message: LLM_LATER };
+  if (item.kind === 'complex') return { ok: false, reason: 'unknown', message: NEEDS_LLM };
   const tdoc = buildTemplate(item.template, catalog);
   const info = TEMPLATE_INFO[item.template];
   return { ok: true, plan: { kind: 'template', template: item.template, doc: tdoc, label: `new ${info.title.toLowerCase()} patch`, short: `new ${info.title}` } };
@@ -88,7 +90,7 @@ export function lexiconStage(lex: LexResult, ctx: RouteContext): LexiconStage {
   const { plans, failures } = planSequence(lex.items, ctx);
   const chips = plans.length ? [{ label: combinePlans(plans).short, plan: combinePlans(plans) }] : [];
   // Code, wiring and explanations go to the LLM; never guess them with a knob turn.
-  if (lex.items.some(i => i.kind === 'complex')) return { kind: 'decided', decision: { kind: 'escalate', message: LLM_LATER, chips } };
+  if (lex.items.some(i => i.kind === 'complex')) return { kind: 'decided', decision: { kind: 'escalate', message: NEEDS_LLM, chips } };
   if (!lex.full) return { kind: 'jev', fallback: chips };
   const ambiguous = failures.filter(f => f.result.reason === 'ambiguous');
   if (ambiguous.length === 1 && ambiguous[0]!.item.kind === 'adjust') {
@@ -116,7 +118,7 @@ export function lexiconStage(lex: LexResult, ctx: RouteContext): LexiconStage {
   }
   const message = failures.map(f => f.result.message).join(' ');
   const needsLlm = failures.some(f => f.result.reason === 'no-target');
-  return { kind: 'decided', decision: { kind: 'nothing', message: needsLlm ? `${message} ${LLM_LATER}` : message } };
+  return { kind: 'decided', decision: { kind: 'nothing', message, llm: needsLlm } };
 }
 
 // ---- Stage 1: Jev ---------------------------------------------------------------------
@@ -166,11 +168,11 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
   const route = a.route;
   const chips = (message: string, confidence?: number): Decision => {
     const list = chipsFromAnswers(read, ctx, fallback);
-    return list.length ? { kind: 'chips', message, chips: list, confidence } : { kind: 'nothing', message: `${message} Try rephrasing, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.` };
+    return list.length ? { kind: 'chips', message, chips: list, confidence } : { kind: 'nothing', message: `${message} Try rephrasing, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.`, llm: true };
   };
   if (!route) return chips('Jev gave no usable answer.');
   if (!route.agree) return chips('Jev was unsure what kind of edit this is.', route.confidence);
-  if (route.choice === 'complex') return { kind: 'escalate', message: LLM_LATER, chips: chipsFromAnswers(read, ctx, fallback).filter(c => c.plan.kind !== 'template') };
+  if (route.choice === 'complex') return { kind: 'escalate', message: NEEDS_LLM, chips: chipsFromAnswers(read, ctx, fallback).filter(c => c.plan.kind !== 'template') };
   if (route.confidence < tau) return chips(`Not sure enough (${Math.round(route.confidence * 100)}% < ${Math.round(tau * 100)}%).`, route.confidence);
 
   if (route.choice === 'adjust') {
@@ -187,7 +189,7 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
     const result = planItem(adjustItem(ad.aspect, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, targets);
     if (!result.ok) {
       if (result.reason === 'ambiguous') return { kind: 'chips', message: result.message, chips: (result.candidates ?? []).slice(0, 4).flatMap(c => { const r = planItem(adjustItem(ad.aspect, direction, amountFrom(a.amount)), ctx.doc, ctx.catalog, ctx.selection, [c]); return r.ok ? [{ label: r.plan.short, plan: r.plan }] : []; }) };
-      return { kind: 'nothing', message: result.reason === 'no-target' ? `${result.message} ${LLM_LATER}` : result.message };
+      return { kind: 'nothing', message: result.message, llm: result.reason === 'no-target' };
     }
     const confidence = Math.min(route.confidence, aspect.confidence, targetConfidence);
     if (!aspect.agree || confidence < tau) return { kind: 'chips', message: `Not sure enough (${Math.round(confidence * 100)}%).`, chips: chipsFromAnswers(read, ctx, [{ label: result.plan.short, plan: result.plan }, ...fallback]), confidence };

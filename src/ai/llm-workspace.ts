@@ -36,6 +36,10 @@ export class DraftWorkspace {
   summary: string | null = null;
   /** A question for the user (kit_ask), shown as buttons when the turn ends. */
   question: { text: string; options: string[] } | null = null;
+  /** The draft after the last edit: `ok` = validates and compiles (or nothing changed yet). */
+  health: 'ok' | 'invalid' | 'compile-error' | 'silent' = 'ok';
+  /** The last problem report (for the user when the draft cannot be applied). */
+  problem = '';
   /** Short human-readable steps for the request's line in the history. */
   readonly steps: string[] = [];
   private readonly deps: WorkspaceDeps;
@@ -148,17 +152,18 @@ export class DraftWorkspace {
   /** Validate and compile the draft; a short report for the LLM. */
   private async check(): Promise<string> {
     const { catalog } = this.deps;
+    const fail = (health: DraftWorkspace['health'], text: string) => { this.health = health; this.problem = text; return text; };
     const problems = validate(this.draft, catalog).issues.filter(i => i.severity === 'error');
-    if (problems.length) return `It does not validate yet:\n${problems.slice(0, 12).map(formatIssue).join('\n')}`;
+    if (problems.length) return fail('invalid', `It does not validate yet:\n${problems.slice(0, 12).map(formatIssue).join('\n')}`);
     const generated = generate(this.draft, catalog);
     if (!generated.source) {
       const blocking = generated.issues.filter(i => i.severity !== 'info');
-      return blocking.length ? `It does not compile yet:\n${blocking.map(formatIssue).join('\n')}` : 'Nothing reaches Out yet, so there is nothing to compile.';
+      return blocking.length ? fail('invalid', `It does not compile yet:\n${blocking.map(formatIssue).join('\n')}`) : fail('silent', 'Nothing reaches Out yet, so there is nothing to compile.');
     }
     const compiled = await this.deps.compile(generated, this.draft);
-    if (compiled.ok) { this.steps.push(`compiled ✓`); return `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`; }
+    if (compiled.ok) { this.health = 'ok'; this.problem = ''; this.steps.push(`compiled ✓`); return `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`; }
     this.steps.push('compile error');
-    return `It does not compile: ${compiled.message}\n${compiled.issues.slice(0, 12).map(formatIssue).join('\n')}`;
+    return fail('compile-error', `It does not compile: ${compiled.message}\n${compiled.issues.slice(0, 12).map(formatIssue).join('\n')}`);
   }
 
   // ---- listening ---------------------------------------------------------------------
