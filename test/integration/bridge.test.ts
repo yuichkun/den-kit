@@ -26,9 +26,11 @@ async function bridge(extra: Parameters<typeof createBridge>[0] = {}) {
   return b;
 }
 const wsUrl = (b: Bridge) => `ws://127.0.0.1:${b.port}${WS_PATH}`;
-async function hello(b: Bridge, origin = ORIGIN): Promise<TestSocket> {
+let tabSerial = 0;
+/** Each call is a separate browser tab (its own tab id; the same id again would replace the first socket). */
+async function hello(b: Bridge, origin = ORIGIN, tab = tabSerial++ ? `tab-${tabSerial}` : 'tab-a'): Promise<TestSocket> {
   const s = await connect(wsUrl(b), origin);
-  s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 'tab-a' });
+  s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab });
   const welcome = await s.next();
   expect(welcome.t).toBe('welcome');
   return s;
@@ -187,7 +189,7 @@ describe('messages', () => {
     expect((await s.nextOf('error')).message).toMatch(/too large/);
     const files = readdirSync(logs);
     const trace = readFileSync(join(logs, files.find(f => f.startsWith('trace-'))!), 'utf8').trim().split('\n').map(l => JSON.parse(l));
-    expect(trace.at(-1)).toMatchObject({ tab: 'tab-a', kind: 'route', request: 'brighter' });
+    expect(trace.at(-1)).toMatchObject({ tab: expect.stringMatching(/^tab-/), kind: 'route', request: 'brighter' });
     const jev = readFileSync(join(logs, files.find(f => f.startsWith('jev-'))!), 'utf8');
     expect(jev).toContain('"ok":true');
     expect(jev).not.toContain('Bearer');
@@ -222,5 +224,17 @@ describe('token endpoint', () => {
     expect((await fetch(url, { headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(403);
     expect((await fetch(url, { headers: { origin: 'https://evil.example' } })).status).toBe(403);
     expect((await fetch(`http://127.0.0.1:${b.port}/other`)).status).toBe(404);
+  });
+});
+
+describe('the same tab on a new socket', () => {
+  it('replaces the old socket (a reconnect that beat the old close)', async () => {
+    const b = await bridge();
+    const first = await hello(b, ORIGIN, 'same');
+    const second = await hello(b, ORIGIN, 'same');
+    expect((await first.closed).code).toBe(CLOSE.replaced);
+    expect(b.tabs().map(t => t.tab)).toEqual(['same']);
+    second.send({ t: 'status.get', id: 's' });
+    expect((await second.nextOf('status')).id).toBe('s');
   });
 });

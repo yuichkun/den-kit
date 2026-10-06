@@ -1,6 +1,12 @@
 // Local AI bridge: one WebSocket per browser tab, bound to 127.0.0.1 only.
-// It holds the secrets (Jev key; Codex login from CP2b), talks to the outside
-// services and writes JSONL telemetry. The patch itself lives in the browser.
+// It holds the secrets (Jev key, the Codex login), talks to the outside
+// services and writes JSONL telemetry. The patch itself lives in the browser:
+// the LLM's tool calls are sent to the tab that started the request.
+//
+// LLM requests survive a short disconnect: while a tab is away its messages are
+// kept and pending tool calls are sent again when it says hello under the same
+// tab id (the browser ignores repeats). A tab that stays away for `llmGraceMs`
+// has its requests stopped and its conversations closed.
 //
 // Trust model: a connection must come from the Vite page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
@@ -11,6 +17,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { CLOSE, MAX_FRAME_BYTES, PROTOCOL_VERSION, WS_PATH, parseClientMessage, type BridgeStatus, type ClientMessage, type ServerMessage } from '../src/ai/protocol.ts';
 import { JevClient } from './jev.ts';
 import { Telemetry } from './telemetry.ts';
+import type { CodexClient, TurnSink } from './codex/client.ts';
 
 export const BRIDGE_VERSION = 'den-kit-bridge/1';
 export const TOKEN_PATH = '/__kit/token';
@@ -28,6 +35,10 @@ export interface BridgeOptions {
   heartbeatMs?: number;
   /** Send one tiny Jev request at startup to warm the connection and learn whether the key works. */
   warmUp?: boolean;
+  /** The LLM path (Codex app-server); the bridge stops it on close. */
+  codex?: CodexClient;
+  /** How long a disconnected tab keeps its LLM requests and conversations. */
+  llmGraceMs?: number;
   log?: (line: string) => void;
 }
 
@@ -68,9 +79,63 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   const tabs = new Set<Tab>();
   let nextTab = 1;
 
-  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: { state: 'off', detail: 'The LLM path arrives in CP2b.' } });
+  const codex = options.codex;
+  const llmGraceMs = options.llmGraceMs ?? 30000;
+  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'The LLM path is off (KIT_CODEX=off).' } });
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
   const broadcastStatus = () => { const s = status(); for (const t of tabs) send(t.socket, { t: 'status', status: s }); };
+  const unsubscribeCodex = codex?.onStatus(() => broadcastStatus());
+
+  // ---- LLM routing (by tab id, which survives reconnects) ----
+  const SEP = '\u0000';
+  const keyOf = (tabName: string, id: string) => `${tabName}${SEP}${id}`;
+  const running = new Map<string, Set<string>>(); // tab id → request keys
+  const threads = new Map<string, Set<string>>(); // tab id → conversations
+  const away = new Map<string, { messages: ServerMessage[]; timer: ReturnType<typeof setTimeout> }>();
+  const add = (map: Map<string, Set<string>>, tabName: string, value: string) => { let set = map.get(tabName); if (!set) map.set(tabName, set = new Set()); set.add(value); };
+  const connected = (tabName: string) => { for (const t of tabs) if (t.tab === tabName) return t; return undefined; };
+  function deliver(tabName: string, message: ServerMessage) {
+    const t = connected(tabName);
+    if (t) { send(t.socket, message); return; }
+    const a = away.get(tabName);
+    if (a && a.messages.length < 5000) a.messages.push(message);
+  }
+  function sinkFor(tabName: string, id: string): TurnSink {
+    return {
+      event: event => {
+        if (event.kind === 'thread') add(threads, tabName, event.thread);
+        if (event.kind === 'done') running.get(tabName)?.delete(keyOf(tabName, id));
+        if (event.kind === 'steered') event = { ...event, target: event.target.slice(tabName.length + SEP.length) };
+        deliver(tabName, { t: 'llm.event', id, event });
+      },
+      toolCall: call => deliver(tabName, { t: 'tool.call', id, callId: call.callId, tool: call.tool, args: call.args }),
+    };
+  }
+  /** A tab went away: keep its LLM work for a while, then stop it. */
+  function leave(tabName: string) {
+    if (!codex || connected(tabName) || away.has(tabName)) return;
+    if (!running.get(tabName)?.size && !threads.get(tabName)?.size) return;
+    const timer = setTimeout(() => {
+      away.delete(tabName);
+      for (const key of running.get(tabName) ?? []) codex.stopTurn(key, 'The editor tab closed.');
+      for (const thread of threads.get(tabName) ?? []) codex.forget(thread);
+      running.delete(tabName); threads.delete(tabName);
+      log(`tab ${tabName} did not come back; its LLM requests were stopped`);
+    }, llmGraceMs);
+    timer.unref?.();
+    away.set(tabName, { messages: [], timer });
+  }
+  /** The same tab is back: deliver what it missed and ask again for tool results it never sent. */
+  function rejoin(tab: Tab) {
+    const a = away.get(tab.tab);
+    if (a) { clearTimeout(a.timer); away.delete(tab.tab); for (const m of a.messages) send(tab.socket, m); }
+    if (!codex) return;
+    for (const key of running.get(tab.tab) ?? []) {
+      const id = key.slice(tab.tab.length + 1);
+      for (const call of codex.pendingToolCalls(key)) send(tab.socket, { t: 'tool.call', id, callId: call.callId, tool: call.tool, args: call.args });
+    }
+  }
+  const llmOff = (socket: WebSocket, id: string) => send(socket, { t: 'llm.event', id, event: { kind: 'done', status: 'failed', error: { message: 'The LLM path is off in this bridge (KIT_CODEX=off).', code: 'off' }, ms: 0 } });
   const originAllowed = (origin: string | undefined) => !!origin && origins.has(origin);
 
   // HTTP: only the token endpoint (same-origin pages may re-read the token after a bridge restart).
@@ -110,10 +175,14 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         if (parsed.token !== token) { socket.close(CLOSE.badToken, 'bad token'); return; }
         if (parsed.protocol !== PROTOCOL_VERSION) { send(socket, { t: 'error', message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart kit:dev` }); socket.close(CLOSE.protocol, 'protocol mismatch'); return; }
         clearTimeout(helloTimer);
+        // The same tab on a new socket (a reconnect that beat the old socket's close): the new one wins.
+        const previous = connected(parsed.tab);
+        if (previous) { tabs.delete(previous); previous.socket.close(CLOSE.replaced, 'replaced by a newer connection'); }
         tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true, pending: new Map() };
         tabs.add(tab);
         socket.on('pong', () => { if (tab) tab.alive = true; });
         send(socket, { t: 'welcome', protocol: PROTOCOL_VERSION, bridge: BRIDGE_VERSION, status: status() });
+        rejoin(tab);
         return;
       }
       handle(tab, parsed);
@@ -123,7 +192,8 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       if (!tab) return;
       for (const controller of tab.pending.values()) controller.abort();
       tab.pending.clear();
-      tabs.delete(tab);
+      if (!tabs.delete(tab)) return; // already replaced by a newer socket of the same tab
+      leave(tab.tab);
     });
     socket.on('error', error => log(`socket error: ${error.message}`));
   }
@@ -139,6 +209,34 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         return;
       }
       case 'jev.cancel': tab.pending.get(message.id)?.abort(); return;
+      case 'llm.start': {
+        if (!codex) { llmOff(tab.socket, message.id); return; }
+        const key = keyOf(tab.tab, message.id);
+        add(running, tab.tab, key);
+        // Only the tab's own conversations can be continued.
+        const thread = message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
+        codex.startTurn({ key, text: message.text, thread, instructions: message.instructions }, sinkFor(tab.tab, message.id));
+        return;
+      }
+      case 'llm.steer':
+        if (!codex) { llmOff(tab.socket, message.id); return; }
+        codex.steer({ key: keyOf(tab.tab, message.id), target: keyOf(tab.tab, message.target), text: message.text }, sinkFor(tab.tab, message.id));
+        return;
+      case 'llm.stop': codex?.stopTurn(keyOf(tab.tab, message.id)); return;
+      case 'llm.answer': {
+        const prefix = keyOf(tab.tab, '');
+        if (!codex?.answer(message.question, message.answers, key => key.startsWith(prefix))) send(tab.socket, { t: 'error', message: 'That question is no longer open.', ref: message.id });
+        return;
+      }
+      case 'llm.forget':
+        if (codex && threads.get(tab.tab)?.delete(message.thread)) codex.forget(message.thread);
+        return;
+      case 'tool.result': {
+        const owner = keyOf(tab.tab, message.id);
+        codex?.toolResult(message.callId, message.output, key => key === owner);
+        return;
+      }
+      case 'codex.retry': void codex?.retry(); return;
       case 'jev.ask': {
         if (tab.pending.has(message.id)) { send(tab.socket, { t: 'error', message: `duplicate request id ${message.id}`, ref: message.id }); return; }
         if (tab.pending.size >= MAX_PENDING_PER_TAB) { send(tab.socket, { t: 'jev.result', id: message.id, result: { ok: false, error: { kind: 'busy', message: 'Too many Jev requests in flight from this tab.' }, ms: 0 } }); return; }
@@ -185,6 +283,10 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
     tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: t.pending.size })),
     async close() {
       clearInterval(heartbeat);
+      for (const a of away.values()) clearTimeout(a.timer);
+      away.clear();
+      unsubscribeCodex?.();
+      await codex?.stop();
       for (const t of tabs) { for (const c of t.pending.values()) c.abort(); t.socket.terminate(); }
       tabs.clear();
       wss.close();

@@ -65,6 +65,11 @@ export const KIT_TOOLS: ToolSpec[] = [
     inputSchema: { type: 'object', properties: { phrase: { type: 'string', enum: ['bass', 'chord', 'hits', 'chords', 'drums', 'noise'] }, seconds: { type: 'number', minimum: 0.5, maximum: 8 } }, additionalProperties: false },
   },
   {
+    name: 'kit_ask',
+    description: 'Ask the user one short question when the request is ambiguous in a way that matters (which sound, which of two very different directions). Give 2–5 short options in the user’s language; they appear as buttons. Then end your turn; the answer arrives as the next message. Do not ask about things you can decide yourself.',
+    inputSchema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 5 } }, required: ['question', 'options'], additionalProperties: false },
+  },
+  {
     name: 'kit_finish',
     description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your draft is applied to the live patch when your turn ends (the user can undo it with ⌘Z).',
     inputSchema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'], additionalProperties: false },
@@ -83,6 +88,8 @@ How to work
 - Prefer existing modules and knob values over new structure; keep the user's sound unless asked to replace it.
 - When the sound matters (most requests), check it with kit_listen before you finish, and adjust if it is silent, clipping or obviously off.
 - End with kit_finish and a one-sentence summary in the user's language. Keep any chat text short; the user mostly looks at the patch.
+- Only if the request is ambiguous in a way that matters, call kit_ask with 2–5 short options and end your turn; otherwise decide yourself.
+- Questions about how something works: answer in a few sentences in the user's language (read the patch first); change nothing unless asked.
 - Your edits go to a draft. When your turn ends the draft is applied to the live patch as one step (the user can undo it); if the user changed the same thing meanwhile, their change wins.
 
 The patch model

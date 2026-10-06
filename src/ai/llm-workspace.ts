@@ -14,7 +14,9 @@ import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
 import type { Rendered } from '../compile/render-client.ts';
 
-export interface ToolOutput { success: boolean; text: string; imageDataUrl?: string }
+import type { ToolOutput } from './protocol.ts';
+
+export type { ToolOutput };
 
 export interface WorkspaceDeps {
   catalog: Catalog;
@@ -32,6 +34,8 @@ export class DraftWorkspace {
   readonly base: PatchDocument;
   draft: PatchDocument;
   summary: string | null = null;
+  /** A question for the user (kit_ask), shown as buttons when the turn ends. */
+  question: { text: string; options: string[] } | null = null;
   /** Short human-readable steps for the request's line in the history. */
   readonly steps: string[] = [];
   private readonly deps: WorkspaceDeps;
@@ -54,8 +58,9 @@ export class DraftWorkspace {
         case 'kit_apply_ops': return await this.applyOps(a.ops);
         case 'kit_write_codebox': return await this.writeCodebox(a);
         case 'kit_listen': return await this.listen(typeof a.phrase === 'string' ? a.phrase : undefined, typeof a.seconds === 'number' ? a.seconds : undefined);
+        case 'kit_ask': return this.ask(a);
         case 'kit_finish': this.summary = String(a.summary ?? '').slice(0, 400) || null; return { success: true, text: 'OK. Your draft will be applied to the live patch when your turn ends.' };
-        default: return { success: false, text: `Unknown tool "${tool}". Available: kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_finish.` };
+        default: return { success: false, text: `Unknown tool "${tool}". Available: kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_ask, kit_finish.` };
       }
     } catch (error) {
       return { success: false, text: `Tool failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -100,6 +105,15 @@ export class DraftWorkspace {
       config: def.config.map(c => ({ id: c.id, kind: c.kind, options: c.options, default: c.default, min: c.min, max: c.max, doc: c.doc })),
     }, null, 1);
     return { success: true, text };
+  }
+
+  private ask(a: Record<string, unknown>): ToolOutput {
+    const text = String(a.question ?? '').trim().slice(0, 300);
+    const options = Array.isArray(a.options) ? [...new Set(a.options.map(o => String(o).trim().slice(0, 80)).filter(Boolean))].slice(0, 5) : [];
+    if (!text || options.length < 2) return { success: false, text: 'kit_ask needs a question and 2–5 short options.' };
+    this.question = { text, options };
+    this.steps.push('asked a question');
+    return { success: true, text: 'The question is shown to the user with your options as buttons. End your turn now (one short sentence at most); the answer arrives as the next message.' };
   }
 
   // ---- editing ---------------------------------------------------------------------
