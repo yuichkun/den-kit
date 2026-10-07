@@ -9,6 +9,7 @@ import type { FastPath, Outcome } from '../ai/fast-path.ts';
 import type { LlmController } from '../ai/llm.ts';
 import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
 import AiStatus from './AiStatus.vue';
+import { offerEnter } from './keys.ts';
 
 const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null }>();
 const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void }>();
@@ -90,8 +91,8 @@ function keydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && listening.value) { e.preventDefault(); voice.cancel(); return; }
   // Esc stops a running LLM request (outside other text fields).
   if (e.key === 'Escape' && !inOtherField(e) && llm?.busy.value) { e.preventDefault(); llm.stop(); return; }
-  // Enter anywhere outside a text field jumps to the prompt.
-  if (e.key === 'Enter' && !mod && !inPrompt(e) && !inOtherField(e) && !(e.target as HTMLElement | null)?.closest?.('button')) { e.preventDefault(); focus(); }
+  // Enter anywhere outside a text field jumps to the prompt, unless a view claims it (Enter on a selected text or part opens it).
+  if (e.key === 'Enter' && !mod && !e.defaultPrevented && !inPrompt(e) && !inOtherField(e) && !(e.target as HTMLElement | null)?.closest?.('button')) { if (offerEnter(e)) return; e.preventDefault(); focus(); }
 }
 function keyup(e: KeyboardEvent) {
   if (!isSpace(e) || !spaceHeld || e.isComposing) return;

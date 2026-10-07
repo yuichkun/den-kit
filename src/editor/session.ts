@@ -5,16 +5,19 @@ import { shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
 import { catalog } from '../blocks/index.ts';
 import { generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
-import { applyIntents, isStructural, OpError, type Intent, type ResolvedOp } from '../core/ops.ts';
+import { applyIntents, isStructural, OpError, replaceOps, type Intent, type ResolvedOp } from '../core/ops.ts';
 import { emptyDocument, randomId, type PatchDocument } from '../core/schema.ts';
 import { validate } from '../core/validate.ts';
 import type { Issue } from '../core/issues.ts';
 import { starter, type StarterId } from '../core/starters.ts';
+import { lookIntents, type Work } from '../showcase/index.ts';
 import { CompileClient, CompileFailure, compileInputs } from '../compile/compile-client.ts';
 import type { Artifact } from '../compile/protocol.ts';
-import { AudioEngine, type EngineState } from '../engine/audio-engine.ts';
+import { AudioEngine, type EngineState, type TestSignal } from '../engine/audio-engine.ts';
 import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from '../core/persistence.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
+import { AssetStore } from '../plugin/asset-store.ts';
+import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
 import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
 import type { LlmController } from '../ai/llm.ts';
@@ -48,6 +51,8 @@ export class KitSession {
   /** Notes held from the on-screen keyboard, the computer keyboard or MIDI (for the keyboard display). */
   readonly heldNotes = ref<number[]>([]);
   readonly midiState = ref<'off' | 'on' | 'denied' | 'unsupported'>('off');
+  /** What an effect patch hears (test material or the computer's audio input). */
+  readonly input = ref<TestSignal>('chords');
   readonly generated = shallowRef<Generated>(generate(this.doc.value, catalog));
   readonly validation = computed(() => validate(this.doc.value, catalog));
   readonly issues = computed<Issue[]>(() => [...this.validation.value.issues, ...this.compileIssues.value]);
@@ -61,6 +66,10 @@ export class KitSession {
   llm: LlmController | null = null;
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
+  /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
+  readonly assets: AssetStore;
+  readonly assetUrls = shallowRef<Record<string, string>>({});
+  private fontFaces = new Set<string>();
   private listeners = new Set<TransactionListener>();
   private historyListeners = new Set<HistoryListener>();
   private compileSerial = 0;
@@ -69,8 +78,9 @@ export class KitSession {
   private toastSerial = 0;
   private storage: StorageLike | null;
 
-  constructor(options: { storage?: StorageLike | null; createWorker?: () => Worker; engine?: AudioEngine; compileTimeoutMs?: number; rotateAfter?: number } = {}) {
+  constructor(options: { storage?: StorageLike | null; createWorker?: () => Worker; engine?: AudioEngine; compileTimeoutMs?: number; rotateAfter?: number; assets?: AssetStore } = {}) {
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
+    this.assets = markRaw(options.assets ?? new AssetStore());
     this.engine = markRaw(options.engine ?? new AudioEngine({
       state: (state, message) => { this.engineState.value = state; this.engineMessage.value = message; },
       health: (message, muted) => { this.healthMuted.value = muted; if (message && !muted) this.toast('warn', message); this.healthMessage.value = muted ? message : ''; },
@@ -98,13 +108,8 @@ export class KitSession {
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
-    if (undoable) {
-      const ops: ResolvedOp[] = [...Object.values(previous.edges).map(edge => ({ op: 'removeEdge' as const, edge })), ...Object.values(previous.nodes).map(node => ({ op: 'removeNode' as const, node })),
-        ...Object.values(doc.nodes).map(node => ({ op: 'addNode' as const, node })), ...Object.values(doc.edges).map(edge => ({ op: 'addEdge' as const, edge }))];
-      if (previous.name !== doc.name) ops.push({ op: 'setDoc', field: 'name', from: previous.name, to: doc.name });
-      if (previous.panel.theme !== doc.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: previous.panel.theme, to: doc.panel.theme });
-      this.history.record({ id: randomId('tx'), author, label, ops, at: Date.now(), baseRevision: previous.revision });
-    } else this.history.clear();
+    if (undoable) this.history.record({ id: randomId('tx'), author, label, ops: replaceOps(previous, doc), at: Date.now(), baseRevision: previous.revision });
+    else this.history.clear();
     this.historyVersion.value++;
     this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };
     this.selection.value = [];
@@ -113,6 +118,12 @@ export class KitSession {
   }
 
   loadStarter(id: StarterId) { this.replace(starter(id, catalog), `Load ${id}`); }
+  /** Start from a showcase work, optionally wearing another work's look (one undo step). */
+  loadWork(work: Work, look?: Work) {
+    let doc = work.build(catalog);
+    if (look && look.id !== work.id) doc = applyIntents(doc, lookIntents(doc, look.build(catalog)), catalog).doc;
+    this.replace({ ...doc, name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name }, `Start from ${work.title}`);
+  }
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */
   commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string; /** Steps of one request that undo together (see History). */ group?: string; /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
@@ -142,8 +153,9 @@ export class KitSession {
   // ---- Change propagation ------------------------------------------------------
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
     this.scheduleSave();
-    // Value-only edits go straight to AudioParams; no codegen, no recompile.
-    if (!structural && ops.length && ops.every(op => op.op === 'setValue' || op.op === 'setField' || op.op === 'setDoc')) {
+    if (!ops.length || ops.some(op => op.op === 'addAsset')) void this.syncAssets();
+    // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
+    if (!structural && ops.length) {
       for (const op of ops) if (op.op === 'setValue' && typeof op.to !== 'undefined') this.engine.setParam(`${op.node}_${op.port}`, Number(op.to));
       if (ops.some(op => op.op === 'setValue')) this.generated.value = { ...this.generated.value, values: { ...this.generated.value.values, ...Object.fromEntries(ops.filter(op => op.op === 'setValue').map(op => [`${(op as { node: string }).node}_${(op as { port: string }).port}`, Number((op as { to: unknown }).to)])) } };
       return;
@@ -231,6 +243,7 @@ export class KitSession {
   }
 
   // ---- Playing ------------------------------------------------------------------------
+  setInput(kind: TestSignal) { this.input.value = kind; this.engine.setTestSignal(kind); }
   noteOn(note: number, velocity = 100) { this.engine.noteOn(note, velocity); this.heldNotes.value = this.engine.heldNotes; }
   noteOff(note: number) { this.engine.noteOff(note); this.heldNotes.value = this.engine.heldNotes; }
   /** Stop everything (⌘.): release notes and reset DSP state. */
@@ -258,6 +271,35 @@ export class KitSession {
     else if (type === 0x80 || (type === 0x90 && b === 0)) this.noteOff(a);
   }
 
+  // ---- Assets ---------------------------------------------------------------------
+  /** Find a URL for every asset of the patch that has none yet; fonts get registered with the page. */
+  async syncAssets() {
+    const doc = this.doc.value;
+    const missing = Object.values(doc.assets).filter(a => !this.assetUrls.value[a.id]);
+    if (!missing.length) return;
+    const found: Record<string, string> = {};
+    for (const asset of missing) { const url = await this.assets.url(asset); if (url) found[asset.id] = url; }
+    if (Object.keys(found).length) this.assetUrls.value = { ...this.assetUrls.value, ...found };
+    for (const asset of missing) if (isFontAsset(asset) && found[asset.id] && !this.fontFaces.has(asset.id) && typeof FontFace !== 'undefined') {
+      this.fontFaces.add(asset.id);
+      try { const face = new FontFace(assetFontFamily(asset.id), `url("${found[asset.id]}")`); document.fonts.add(await face.load()); }
+      catch { this.toast('warn', `The font "${asset.name}" could not be read.`); }
+    }
+  }
+
+  /** Add a dropped file as an asset of the patch (one undo step); null when it is refused. */
+  async addAssetFile(file: Blob & { name?: string }): Promise<AssetMeta | null> {
+    let meta: AssetMeta;
+    try { meta = await this.assets.add(file); }
+    catch (error) { this.toast('warn', error instanceof Error ? error.message : String(error)); return null; }
+    if (!this.doc.value.assets[meta.id]) {
+      const r = this.commit([{ op: 'addAsset', asset: meta }], { label: `Add ${meta.name}` });
+      if (!r.ok) { this.toast('warn', r.error.message); return null; }
+    }
+    await this.syncAssets();
+    return this.doc.value.assets[meta.id] ?? meta;
+  }
+
   // ---- Persistence --------------------------------------------------------------
   private scheduleSave() {
     if (!this.storage) return;
@@ -271,10 +313,21 @@ export class KitSession {
     catch (error) { this.toast('warn', `Autosave failed (${error instanceof Error ? error.message : String(error)}); export the patch to keep it.`); }
   }
   exportText() { return serializeDocument(this.doc.value); }
+  /** The patch with its pictures and fonts inside (a file that opens anywhere). */
+  async exportWithAssets(): Promise<string> {
+    const assetData: Record<string, string> = {};
+    for (const asset of Object.values(this.doc.value.assets)) {
+      const data = await this.assets.dataUrl(asset);
+      if (data) assetData[asset.id] = data; else this.toast('warn', `"${asset.name}" is missing; the export only names it.`);
+    }
+    return serializeDocument(this.doc.value, { assetData });
+  }
   importText(text: string): boolean {
     const parsed = parseDocument(text, catalog);
     if (!parsed.ok) { this.toast('error', `Import refused: ${parsed.error}`); return false; }
+    const carried = Object.entries(parsed.assetData);
     this.replace(parsed.doc, 'Import');
+    if (carried.length) void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(() => this.syncAssets());
     for (const issue of parsed.report.slice(0, 6)) this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
     if (parsed.report.length > 6) this.toast('warn', `…and ${parsed.report.length - 6} more repairs.`);
     return true;

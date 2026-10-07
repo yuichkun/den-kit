@@ -78,12 +78,13 @@ export class History {
   clear() { this.undoStack = []; this.redoStack = []; }
 }
 
-/** Collapse repeated setValue/move on the same target to first.from → last.to. */
+/** Collapse repeated edits of the same target (a value, a field, an element field, the look…) to first.from → last.to. */
 function mergeValueOps(ops: ResolvedOp[]): ResolvedOp[] {
   const out: ResolvedOp[] = [];
   const index = new Map<string, number>();
   for (const op of ops) {
-    const key = op.op === 'setValue' ? `v:${op.node}:${op.port}` : op.op === 'setField' ? `f:${op.node}:${op.field}` : null;
+    const key = op.op === 'setValue' ? `v:${op.node}:${op.port}` : op.op === 'setField' ? `f:${op.node}:${op.field}` : op.op === 'setElement' ? `e:${op.id}:${op.field}`
+      : op.op === 'setUi' ? `u:${op.field}` : op.op === 'setSize' ? 's' : null;
     if (key && index.has(key)) {
       const at = index.get(key)!;
       out[at] = { ...(out[at] as typeof op), to: (op as { to: unknown }).to } as ResolvedOp;

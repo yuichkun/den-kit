@@ -10,8 +10,17 @@ import {
   type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PatchDocument, type PatchEdge, type PatchNode,
   type PortId, type PortRef, type PortSpec, type ThemeId, type Value, type XY,
 } from './schema.ts';
+import { CONTROL_OF, type ControlKind } from './skins.ts';
+import {
+  ELEMENT_FIELDS, LIMITS, UiCheckError, assetUses, checkAsset, checkElement, checkLook, checkRect, checkWidgetStyle, stackOrder,
+  type AssetMeta, type CheckContext, type ElementKind, type Look, type PluginUi, type UiElement, type Underlay, type WidgetStyle,
+} from './ui.ts';
 
 export type NewNode = Partial<Omit<PatchNode, 'type'>> & { type: string };
+export type NewElement = Partial<Omit<UiElement, 'kind'>> & { kind: ElementKind } & Record<string, unknown>;
+/** setLook: tokens and skins merge key by key (null removes one); background and css replace (null removes). */
+export interface LookPatch { tokens?: Record<string, string | null>; background?: unknown[] | null; skins?: Record<string, unknown>; css?: string | null }
+export type Arrange = 'front' | 'back' | 'forward' | 'backward';
 
 export type Intent =
   | { op: 'addNode'; node: NewNode }
@@ -27,9 +36,28 @@ export type Intent =
   | { op: 'setText'; node: NodeId; text: string }
   | { op: 'setPanel'; node: NodeId; panel: PanelRect | null }
   | { op: 'setName'; name: string }
-  | { op: 'setTheme'; theme: ThemeId };
+  | { op: 'setTheme'; theme: ThemeId }
+  // ---- the plugin's screen ----
+  | { op: 'addElement'; element: NewElement }
+  | { op: 'removeElement'; id: string }
+  /** Change fields of a decoration (null removes an optional field). */
+  | { op: 'updateElement'; id: string; set: Record<string, unknown> }
+  /** Place or resize anything on the plugin: a decoration or a widget node. */
+  | { op: 'setRect'; id: string; rect: PanelRect }
+  | { op: 'setStyle'; node: NodeId; style: WidgetStyle | null }
+  | { op: 'arrange'; ids: string[]; to: Arrange }
+  | { op: 'group'; ids: string[]; id?: string }
+  | { op: 'ungroup'; id: string }
+  | { op: 'setLook'; look: LookPatch | Look; /** Replace the whole look instead of merging. */ replace?: boolean }
+  | { op: 'setPanelSize'; width: number; height: number }
+  | { op: 'addAsset'; asset: AssetMeta }
+  | { op: 'updateAsset'; id: string; set: { name?: string; source?: AssetMeta['source'] | null } }
+  | { op: 'removeAsset'; id: string }
+  | { op: 'setUnderlay'; underlay: Underlay | null };
 
-type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports';
+type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style';
+type UiField = 'look' | 'order' | 'groups' | 'underlay';
+export interface Size { width: number; height: number }
 export type ResolvedOp =
   | { op: 'addNode'; node: PatchNode }
   | { op: 'removeNode'; node: PatchNode }
@@ -38,7 +66,14 @@ export type ResolvedOp =
   | { op: 'setValue'; node: NodeId; port: PortId; from: Value | undefined; to: Value | undefined }
   | { op: 'setConfig'; node: NodeId; key: string; from: ConfigValue | undefined; to: ConfigValue | undefined }
   | { op: 'setField'; node: NodeId; field: Field; from: unknown; to: unknown }
-  | { op: 'setDoc'; field: 'name' | 'theme'; from: string; to: string };
+  | { op: 'setDoc'; field: 'name' | 'theme'; from: string; to: string }
+  | { op: 'setSize'; from: Size; to: Size }
+  | { op: 'addElement'; element: UiElement }
+  | { op: 'removeElement'; element: UiElement }
+  | { op: 'setElement'; id: string; field: string; from: unknown; to: unknown }
+  | { op: 'setUi'; field: UiField; from: unknown; to: unknown }
+  | { op: 'addAsset'; asset: AssetMeta }
+  | { op: 'removeAsset'; asset: AssetMeta };
 
 export class OpError extends Error {
   readonly index: number;
@@ -73,10 +108,15 @@ class Draft {
   readonly catalog: Catalog;
   constructor(base: PatchDocument, catalog: Catalog) {
     this.catalog = catalog;
-    // Shallow copies: nodes/edges records are replaced, node objects are copied on write.
-    this.doc = { ...base, nodes: { ...base.nodes }, edges: { ...base.edges }, panel: { ...base.panel } };
+    // Shallow copies: records are replaced, node and element objects are copied on write.
+    this.doc = shallowCopy(base);
   }
   apply(op: ResolvedOp) { applyResolved(this.doc, op); this.ops.push(op); }
+}
+
+/** A document whose records can be written without touching `base` (look, order, groups, underlay and assets are replaced whole, never mutated). */
+function shallowCopy(base: PatchDocument): PatchDocument {
+  return { ...base, nodes: { ...base.nodes }, edges: { ...base.edges }, panel: { ...base.panel }, ui: { ...base.ui, elements: { ...base.ui.elements } }, assets: { ...base.assets } };
 }
 
 /** Apply one resolved op in place on a draft document (records already shallow-copied). */
@@ -95,6 +135,23 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
     case 'setConfig': write(op.node, n => { if (op.to === undefined) delete n.config[op.key]; else n.config[op.key] = op.to; }); break;
     case 'setField': write(op.node, n => { if (op.to === undefined || op.to === null) delete (n as unknown as Record<string, unknown>)[op.field]; else (n as unknown as Record<string, unknown>)[op.field] = clone(op.to); }); break;
     case 'setDoc': if (op.field === 'name') doc.name = op.to; else doc.panel.theme = op.to as ThemeId; break;
+    case 'setSize': doc.panel.width = op.to.width; doc.panel.height = op.to.height; break;
+    case 'addElement': doc.ui.elements[op.element.id] = clone(op.element); break;
+    case 'removeElement': delete doc.ui.elements[op.element.id]; break;
+    case 'setElement': {
+      const el = doc.ui.elements[op.id]; if (!el) throw new Error(`missing element ${op.id}`);
+      const copy = { ...el } as Record<string, unknown>;
+      if (op.to === undefined || op.to === null) delete copy[op.field]; else copy[op.field] = clone(op.to);
+      doc.ui.elements[op.id] = copy as unknown as UiElement;
+      break;
+    }
+    case 'setUi': {
+      const ui = doc.ui as unknown as Record<string, unknown>;
+      if (op.to === undefined || op.to === null) delete ui[op.field]; else ui[op.field] = clone(op.to);
+      break;
+    }
+    case 'addAsset': doc.assets[op.asset.id] = clone(op.asset); break;
+    case 'removeAsset': delete doc.assets[op.asset.id]; break;
   }
 }
 
@@ -108,6 +165,13 @@ export function invert(op: ResolvedOp): ResolvedOp {
     case 'setConfig': return { ...op, from: op.to, to: op.from };
     case 'setField': return { ...op, from: op.to, to: op.from };
     case 'setDoc': return { ...op, from: op.to, to: op.from };
+    case 'setSize': return { ...op, from: op.to, to: op.from };
+    case 'addElement': return { op: 'removeElement', element: op.element };
+    case 'removeElement': return { op: 'addElement', element: op.element };
+    case 'setElement': return { ...op, from: op.to, to: op.from };
+    case 'setUi': return { ...op, from: op.to, to: op.from };
+    case 'addAsset': return { op: 'removeAsset', asset: op.asset };
+    case 'removeAsset': return { op: 'addAsset', asset: op.asset };
   }
 }
 
@@ -115,7 +179,7 @@ export function invertAll(ops: readonly ResolvedOp[]): ResolvedOp[] { return [..
 
 /** Re-apply already-resolved ops (undo/redo). Bumps the revision. */
 export function applyResolvedOps(base: PatchDocument, ops: readonly ResolvedOp[]): PatchDocument {
-  const doc = { ...base, nodes: { ...base.nodes }, edges: { ...base.edges }, panel: { ...base.panel } };
+  const doc = shallowCopy(base);
   for (const op of ops) applyResolved(doc, op);
   doc.revision = base.revision + 1;
   return doc;
@@ -133,7 +197,7 @@ export function applyIntents(base: PatchDocument, intents: readonly Intent[], ca
   intents.forEach((intent, index) => {
     try { resolveIntent(draft, intent, created); }
     catch (error) {
-      if (error instanceof OpError) throw new OpError(error.message, index, error.code, error.hint);
+      if (error instanceof OpError || error instanceof UiCheckError) throw new OpError(error.message, index, error.code, error.hint);
       throw new OpError(error instanceof Error ? error.message : String(error), index, 'internal');
     }
   });
@@ -163,7 +227,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       if (def.singleton && Object.values(draft.doc.nodes).some(n => n.type === def.type)) fail('singleton', `Only one ${def.title} is allowed per patch.`);
       const id = spec.id ?? nextNodeId(draft.doc, defaultStem(spec.type));
       if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Node id "${id}" must match ${NODE_ID_PATTERN} (letters/digits, starting lowercase).`);
-      if (draft.doc.nodes[id]) fail('duplicate-id', `Node id "${id}" already exists.`);
+      if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
       const config: Record<string, ConfigValue> = {};
       for (const c of def.config) {
         const value = spec.config && Object.hasOwn(spec.config, c.id) ? spec.config[c.id] : c.default;
@@ -181,6 +245,11 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       }
       if (def.kind === 'comment') node.text = typeof spec.text === 'string' ? spec.text.slice(0, 2000) : '';
       if (spec.panel !== undefined && spec.panel !== null) { if (!validRect(spec.panel)) fail('bad-panel', 'panel must be {x,y,w,h} with positive size.'); node.panel = { ...spec.panel }; }
+      if (spec.style !== undefined && spec.style !== null) {
+        const control = CONTROL_OF[spec.type];
+        if (!control) fail('not-widget', `${def.title} is not a UI widget; only widgets have a plugin style.`);
+        node.style = checkWidgetStyle(control!, spec.style, checkContext(draft));
+      }
       // Values: fill defaults for every param-able input so the knob shows the effective value.
       for (const port of catalog.inputs(node)) {
         const given = spec.values && Object.hasOwn(spec.values, port.id) ? spec.values[port.id] : undefined;
@@ -196,6 +265,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'removeNode': {
       const node = requireNode(draft, intent.id);
       for (const edge of edgesOf(draft.doc, node.id).sort((a, b) => a.id.localeCompare(b.id))) draft.apply({ op: 'removeEdge', edge });
+      leaveStack(draft, [node.id]);
       draft.apply({ op: 'removeNode', node: draft.doc.nodes[node.id]! });
       return;
     }
@@ -296,6 +366,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       const node = requireNode(draft, intent.node);
       if (intent.panel !== null && !validRect(intent.panel)) fail('bad-panel', 'panel must be {x,y,w,h} with positive size, or null.');
       if (intent.panel !== null && catalog.get(node.type).kind !== 'widget') fail('not-widget', `${node.id} is not a UI widget; only widgets appear on the panel.`);
+      if (intent.panel === null) leaveStack(draft, [node.id]);
+      if (JSON.stringify(node.panel) === JSON.stringify(intent.panel ?? undefined)) return;
       draft.apply({ op: 'setField', node: node.id, field: 'panel', from: node.panel, to: intent.panel ?? undefined });
       return;
     }
@@ -309,9 +381,229 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       if (intent.theme !== draft.doc.panel.theme) draft.apply({ op: 'setDoc', field: 'theme', from: draft.doc.panel.theme, to: intent.theme });
       return;
     }
+    case 'addElement': return addElement(draft, intent.element, created);
+    case 'removeElement': {
+      const el = requireElement(draft, intent.id);
+      leaveStack(draft, [el.id]);
+      draft.apply({ op: 'removeElement', element: draft.doc.ui.elements[el.id]! });
+      return;
+    }
+    case 'updateElement': return updateElement(draft, intent.id, intent.set);
+    case 'setRect': {
+      const rect = checkRect(intent.rect);
+      if (draft.doc.ui.elements[intent.id]) return updateElement(draft, intent.id, { rect });
+      const node = draft.doc.nodes[intent.id];
+      if (!node) fail('unknown-id', `Nothing called "${intent.id}" on the plugin.`);
+      if (catalog.get(node!.type).kind !== 'widget') fail('not-widget', `${node!.id} is not a UI widget; only widgets appear on the plugin.`);
+      if (JSON.stringify(node!.panel) === JSON.stringify(rect)) return;
+      draft.apply({ op: 'setField', node: node!.id, field: 'panel', from: node!.panel, to: rect });
+      return;
+    }
+    case 'setStyle': {
+      const node = requireNode(draft, intent.node);
+      const control = CONTROL_OF[node.type];
+      if (!control || catalog.get(node.type).kind !== 'widget') fail('not-widget', `${node.id} is not a UI widget; only widgets have a plugin style.`);
+      const style = intent.style === null ? undefined : checkWidgetStyle(control as ControlKind, intent.style, checkContext(draft));
+      const to = style && Object.keys(style).length ? style : undefined;
+      if (JSON.stringify(node.style) === JSON.stringify(to)) return;
+      draft.apply({ op: 'setField', node: node.id, field: 'style', from: node.style, to });
+      return;
+    }
+    case 'arrange': return arrange(draft, intent.ids, intent.to);
+    case 'group': {
+      const ids = [...new Set(intent.ids ?? [])];
+      const stack = new Set(stackIds(draft));
+      for (const id of ids) if (!stack.has(id)) fail('unknown-id', `"${id}" is not on the plugin.`);
+      if (ids.length < 2) fail('bad-intent', 'A group needs two or more things.');
+      const id = intent.id ?? nextNodeId(draft.doc, 'group');
+      if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Group id "${id}" must match ${NODE_ID_PATTERN}.`);
+      if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
+      const groups = withoutMembers(draft.doc.ui.groups, ids);
+      groups[id] = ids;
+      draft.apply({ op: 'setUi', field: 'groups', from: draft.doc.ui.groups, to: groups });
+      created.push(id);
+      return;
+    }
+    case 'ungroup': {
+      if (!draft.doc.ui.groups[intent.id]) fail('unknown-id', `No group "${intent.id}".`, Object.keys(draft.doc.ui.groups).length ? `Groups: ${Object.keys(draft.doc.ui.groups).join(', ')}` : 'There are no groups.');
+      const groups = { ...draft.doc.ui.groups }; delete groups[intent.id];
+      draft.apply({ op: 'setUi', field: 'groups', from: draft.doc.ui.groups, to: groups });
+      return;
+    }
+    case 'setLook': {
+      const ctx = checkContext(draft);
+      const current = draft.doc.ui.look;
+      let next: Look;
+      if (intent.replace) next = checkLook(intent.look, ctx);
+      else {
+        const patch = (intent.look ?? {}) as LookPatch;
+        if (!patch || typeof patch !== 'object') fail('bad-look', 'look must be an object.');
+        for (const key of Object.keys(patch)) if (!['tokens', 'background', 'skins', 'css'].includes(key)) fail('bad-look', `Unknown look key "${key}".`, 'Keys: tokens, background, skins, css.');
+        const merged: Record<string, unknown> = { tokens: { ...current.tokens }, skins: { ...current.skins } };
+        if (current.background) merged.background = current.background;
+        if (current.css !== undefined) merged.css = current.css;
+        for (const [k, v] of Object.entries(patch.tokens ?? {})) { if (v === null) delete (merged.tokens as Record<string, unknown>)[k]; else (merged.tokens as Record<string, unknown>)[k] = v; }
+        for (const [k, v] of Object.entries(patch.skins ?? {})) { if (v === null) delete (merged.skins as Record<string, unknown>)[k]; else (merged.skins as Record<string, unknown>)[k] = v; }
+        if (patch.background !== undefined) { if (patch.background === null) delete merged.background; else merged.background = patch.background; }
+        if (patch.css !== undefined) { if (patch.css === null) delete merged.css; else merged.css = patch.css; }
+        next = checkLook(merged, ctx);
+      }
+      if (JSON.stringify(next) === JSON.stringify(current)) return;
+      draft.apply({ op: 'setUi', field: 'look', from: current, to: next });
+      return;
+    }
+    case 'setPanelSize': {
+      if (!finite(intent.width) || !finite(intent.height)) fail('bad-value', 'width and height must be numbers.');
+      const to = { width: Math.round(Math.min(4000, Math.max(120, intent.width))), height: Math.round(Math.min(4000, Math.max(80, intent.height))) };
+      const from = { width: draft.doc.panel.width, height: draft.doc.panel.height };
+      if (from.width === to.width && from.height === to.height) return;
+      draft.apply({ op: 'setSize', from, to });
+      return;
+    }
+    case 'addAsset': {
+      const asset = checkAsset(intent.asset);
+      const old = draft.doc.assets[asset.id];
+      if (old) { if (JSON.stringify(old) === JSON.stringify(asset)) return; fail('duplicate-id', `Asset "${asset.id}" already exists.`, 'Use updateAsset to change its name or source.'); }
+      draft.apply({ op: 'addAsset', asset });
+      return;
+    }
+    case 'updateAsset': {
+      const old = draft.doc.assets[intent.id];
+      if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
+      const next: Record<string, unknown> = { ...old! };
+      if (intent.set?.name !== undefined) next.name = intent.set.name;
+      if (intent.set?.source !== undefined) { if (intent.set.source === null) delete next.source; else next.source = intent.set.source; }
+      const asset = checkAsset(next);
+      if (JSON.stringify(asset) === JSON.stringify(old)) return;
+      draft.apply({ op: 'removeAsset', asset: old! });
+      draft.apply({ op: 'addAsset', asset });
+      return;
+    }
+    case 'removeAsset': {
+      const old = draft.doc.assets[intent.id];
+      if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
+      const uses = assetUses(draft.doc.ui, Object.values(draft.doc.nodes).map(n => [n.id, n.style] as [string, WidgetStyle | undefined])).get(intent.id);
+      if (uses?.length) fail('asset-in-use', `Asset "${intent.id}" is used by ${[...new Set(uses)].join(', ')}.`, 'Remove or change those first.');
+      draft.apply({ op: 'removeAsset', asset: old! });
+      return;
+    }
+    case 'setUnderlay': {
+      let to: Underlay | undefined;
+      if (intent.underlay !== null) {
+        const u = intent.underlay;
+        if (!u || typeof u !== 'object') fail('bad-intent', 'underlay is {asset, opacity, visible} or null.');
+        const asset = draft.doc.assets[u.asset];
+        if (!asset) fail('unknown-asset', `No asset "${u.asset}".`);
+        if (!asset!.mime.startsWith('image/')) fail('bad-asset', `Asset "${u.asset}" is not a picture.`);
+        to = { asset: u.asset, opacity: finite(u.opacity) ? Math.min(1, Math.max(0.05, u.opacity)) : 0.4, visible: u.visible !== false };
+      }
+      if (JSON.stringify(to) === JSON.stringify(draft.doc.ui.underlay)) return;
+      draft.apply({ op: 'setUi', field: 'underlay', from: draft.doc.ui.underlay, to });
+      return;
+    }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay.');
   }
+}
+
+// ---- the plugin's screen ------------------------------------------------------------------
+function checkContext(draft: Draft): CheckContext {
+  const widgets: Record<string, true> = {};
+  for (const n of Object.values(draft.doc.nodes)) if (draft.catalog.find(n.type)?.kind === 'widget') widgets[n.id] = true;
+  return { assets: draft.doc.assets, nodes: widgets };
+}
+/** Widget nodes on the plugin, in patch order. */
+function placedWidgets(draft: Draft): string[] { return Object.values(draft.doc.nodes).filter(n => n.panel && draft.catalog.find(n.type)?.kind === 'widget').map(n => n.id); }
+function stackIds(draft: Draft): string[] { return stackOrder(draft.doc.ui, placedWidgets(draft)); }
+function requireElement(draft: Draft, id: unknown): UiElement {
+  if (typeof id !== 'string' || !draft.doc.ui.elements[id]) {
+    const known = Object.keys(draft.doc.ui.elements).sort();
+    fail('unknown-element', `No element "${String(id)}".`, known.length ? `Elements: ${known.join(', ')}` : 'The plugin has no decorations yet.');
+  }
+  return draft.doc.ui.elements[id as string]!;
+}
+/** Groups without these ids; groups left with fewer than two members dissolve. */
+function withoutMembers(groups: PluginUi['groups'], ids: readonly string[]): PluginUi['groups'] {
+  const out: PluginUi['groups'] = {};
+  for (const [g, members] of Object.entries(groups)) {
+    const kept = members.filter(m => !ids.includes(m));
+    if (kept.length >= 2) out[g] = kept;
+  }
+  return out;
+}
+/** Something leaves the plugin: out of the stacking order and its group. */
+function leaveStack(draft: Draft, ids: readonly string[]) {
+  const ui = draft.doc.ui;
+  if (ui.order.some(id => ids.includes(id))) draft.apply({ op: 'setUi', field: 'order', from: ui.order, to: ui.order.filter(id => !ids.includes(id)) });
+  if (Object.values(ui.groups).some(m => m.some(id => ids.includes(id)))) draft.apply({ op: 'setUi', field: 'groups', from: ui.groups, to: withoutMembers(ui.groups, ids) });
+}
+const ELEMENT_STEM: Record<ElementKind, string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', part: 'part' };
+function addElement(draft: Draft, spec: NewElement, created: string[]) {
+  if (!spec || typeof spec !== 'object') fail('bad-intent', 'addElement needs element {kind, rect, ...}.');
+  if (Object.keys(draft.doc.ui.elements).length >= LIMITS.elements) fail('too-large', `A plugin holds at most ${LIMITS.elements} elements.`);
+  const id = typeof spec.id === 'string' && spec.id ? spec.id : nextNodeId(draft.doc, ELEMENT_STEM[spec.kind as ElementKind] ?? 'element');
+  if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Element id "${id}" must match ${NODE_ID_PATTERN} (letters/digits, starting lowercase).`);
+  if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
+  const element = checkElement({ ...spec, id }, checkContext(draft));
+  const order = [...stackIds(draft), id];
+  draft.apply({ op: 'addElement', element });
+  draft.apply({ op: 'setUi', field: 'order', from: draft.doc.ui.order, to: order });
+  created.push(id);
+}
+function updateElement(draft: Draft, id: string, set: Record<string, unknown>) {
+  const old = requireElement(draft, id);
+  if (!set || typeof set !== 'object') fail('bad-intent', 'updateElement needs set {field: value}.');
+  const allowed = ELEMENT_FIELDS(old.kind);
+  for (const key of Object.keys(set)) if (!allowed.includes(key)) fail('bad-element', `A ${old.kind} element has no "${key}" to change.`, `Fields: ${allowed.join(', ')}.`);
+  const candidate: Record<string, unknown> = { ...old };
+  for (const [key, value] of Object.entries(set)) { if (value === null) delete candidate[key]; else candidate[key] = value; }
+  const next = checkElement(candidate, checkContext(draft)) as unknown as Record<string, unknown>;
+  for (const key of Object.keys(set)) {
+    const from = (old as unknown as Record<string, unknown>)[key], to = next[key];
+    if (JSON.stringify(from) !== JSON.stringify(to)) draft.apply({ op: 'setElement', id, field: key, from, to });
+  }
+}
+function arrange(draft: Draft, ids: readonly string[], to: Arrange) {
+  if (!Array.isArray(ids) || !ids.length) fail('bad-intent', 'arrange needs the ids to move.');
+  if (!['front', 'back', 'forward', 'backward'].includes(to)) fail('bad-intent', 'arrange to: front, back, forward or backward.');
+  const stack = stackIds(draft);
+  for (const id of ids) if (!stack.includes(id)) fail('unknown-id', `"${id}" is not on the plugin.`);
+  const moving = new Set(ids);
+  let order: string[];
+  if (to === 'front') order = [...stack.filter(id => !moving.has(id)), ...stack.filter(id => moving.has(id))];
+  else if (to === 'back') order = [...stack.filter(id => moving.has(id)), ...stack.filter(id => !moving.has(id))];
+  else {
+    order = [...stack];
+    // One step past the nearest thing not being moved, keeping the moved ones in their order.
+    const up = to === 'forward';
+    const indices = order.map((_, i) => i);
+    for (const i of up ? indices.reverse() : indices) {
+      const j = up ? i + 1 : i - 1;
+      if (j < 0 || j >= order.length) continue;
+      if (moving.has(order[i]!) && !moving.has(order[j]!)) [order[i], order[j]] = [order[j]!, order[i]!];
+    }
+  }
+  if (JSON.stringify(order) === JSON.stringify(draft.doc.ui.order)) return;
+  draft.apply({ op: 'setUi', field: 'order', from: draft.doc.ui.order, to: order });
+}
+
+/** Ops that turn `prev` into `next` wholesale (loading a patch as one undoable step). */
+export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp[] {
+  const ops: ResolvedOp[] = [
+    ...Object.values(prev.edges).map(edge => ({ op: 'removeEdge' as const, edge })),
+    ...Object.values(prev.nodes).map(node => ({ op: 'removeNode' as const, node })),
+    ...Object.values(prev.ui.elements).map(element => ({ op: 'removeElement' as const, element })),
+    ...Object.values(prev.assets).map(asset => ({ op: 'removeAsset' as const, asset })),
+    ...Object.values(next.assets).map(asset => ({ op: 'addAsset' as const, asset })),
+    ...Object.values(next.nodes).map(node => ({ op: 'addNode' as const, node })),
+    ...Object.values(next.edges).map(edge => ({ op: 'addEdge' as const, edge })),
+    ...Object.values(next.ui.elements).map(element => ({ op: 'addElement' as const, element })),
+  ];
+  if (prev.name !== next.name) ops.push({ op: 'setDoc', field: 'name', from: prev.name, to: next.name });
+  if (prev.panel.theme !== next.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: prev.panel.theme, to: next.panel.theme });
+  if (prev.panel.width !== next.panel.width || prev.panel.height !== next.panel.height) ops.push({ op: 'setSize', from: { width: prev.panel.width, height: prev.panel.height }, to: { width: next.panel.width, height: next.panel.height } });
+  for (const field of ['look', 'order', 'groups', 'underlay'] as const) if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field])) ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
+  return ops;
 }
 
 /** After ports may have changed (config/codebox), drop cables to vanished ports and fill new value defaults. */
@@ -328,22 +620,4 @@ function defaultStem(type: string): string {
   const name = type.split('.').pop() ?? 'node';
   const short: Record<string, string> = { oscillator: 'osc', envelope: 'env', voiceIn: 'voice', voiceMix: 'mix', stateVariableFilter: 'svf', virtualAnalogSource: 'va', frequencyModulation: 'fm', algorithmicReverb: 'reverb', pingPongDelay: 'pingpong', characterFilter: 'ladder', randomModulator: 'random', sampleAndHold: 'sh', curvedAdsr: 'adsr', musicalLfo: 'mlfo' };
   return short[name] ?? name;
-}
-
-/** Diff two documents as resolved ops (used for takes/ghosts). Positions included. */
-export function diffDocuments(a: PatchDocument, b: PatchDocument): ResolvedOp[] {
-  const ops: ResolvedOp[] = [];
-  for (const edge of Object.values(a.edges)) if (!b.edges[edge.id] || JSON.stringify(b.edges[edge.id]) !== JSON.stringify(edge)) ops.push({ op: 'removeEdge', edge });
-  for (const node of Object.values(a.nodes)) if (!b.nodes[node.id] || b.nodes[node.id]!.type !== node.type) ops.push({ op: 'removeNode', node });
-  for (const node of Object.values(b.nodes)) {
-    const old = a.nodes[node.id];
-    if (!old || old.type !== node.type) { ops.push({ op: 'addNode', node }); continue; }
-    for (const key of new Set([...Object.keys(old.config), ...Object.keys(node.config)])) if (old.config[key] !== node.config[key]) ops.push({ op: 'setConfig', node: node.id, key, from: old.config[key], to: node.config[key] });
-    for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) if (old.values[key] !== node.values[key]) ops.push({ op: 'setValue', node: node.id, port: key, from: old.values[key], to: node.values[key] });
-    for (const field of ['pos', 'label', 'panel', 'text', 'code', 'ports'] as const) if (JSON.stringify(old[field]) !== JSON.stringify(node[field])) ops.push({ op: 'setField', node: node.id, field, from: old[field], to: node[field] });
-  }
-  for (const edge of Object.values(b.edges)) if (!a.edges[edge.id] || JSON.stringify(a.edges[edge.id]) !== JSON.stringify(edge)) ops.push({ op: 'addEdge', edge });
-  if (a.name !== b.name) ops.push({ op: 'setDoc', field: 'name', from: a.name, to: b.name });
-  if (a.panel.theme !== b.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: a.panel.theme, to: b.panel.theme });
-  return ops;
 }

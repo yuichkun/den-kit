@@ -237,7 +237,10 @@ export function pngDataUrl(png: Uint8Array): string {
 }
 
 // ---- test inputs for effect patches -------------------------------------------------------
-export type TestSignal = 'chords' | 'drums' | 'noise';
+export type TestSignal = 'chords' | 'drums' | 'noise' | 'guitar';
+
+/** A plucked-string riff (Karplus–Strong): a dry guitar to try distortion and delays on. */
+const RIFF: Array<[number[], number]> = [[[40, 47, 52], 0.5], [[40], 0.25], [[40], 0.25], [[43, 50, 55], 0.5], [[45, 52, 57], 0.5], [[40, 47, 52], 0.5], [[40], 0.25], [[38], 0.25], [[47], 0.25], [[45], 0.25], [[43], 0.5]];
 
 /** Deterministic stereo test material for effect patches (no randomness between runs). */
 export function testSignal(kind: TestSignal, seconds: number, sampleRate: number): Float32Array[] {
@@ -246,6 +249,28 @@ export function testSignal(kind: TestSignal, seconds: number, sampleRate: number
   let seed = 12345;
   const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 1073741824 - 1; };
   if (kind === 'noise') { for (let i = 0; i < n; i++) { l[i] = rand() * 0.25; r[i] = rand() * 0.25; } return [l, r]; }
+  if (kind === 'guitar') {
+    let at = 0, k = 0;
+    while (at < n) {
+      const [notes, beats] = RIFF[k++ % RIFF.length]!;
+      const len = Math.round(beats * sampleRate * 0.6);
+      for (const note of notes) {
+        const period = Math.max(2, Math.round(sampleRate / (440 * 2 ** ((note - 69) / 12))));
+        const line = new Float32Array(period);
+        for (let i = 0; i < period; i++) line[i] = rand() * 0.5;
+        let prev = 0;
+        for (let i = 0; i < Math.min(len * 1.6, n - at); i++) {
+          const j = i % period, v = line[j]!;
+          const next = 0.996 * 0.5 * (v + prev);
+          prev = v; line[j] = next;
+          const s = v * 0.32 / Math.sqrt(notes.length);
+          l[at + i]! += s; r[at + i]! += s;
+        }
+      }
+      at += len;
+    }
+    return [l, r];
+  }
   if (kind === 'drums') {
     const beat = Math.round(sampleRate * 0.5);
     for (let start = 0; start < n; start += beat) {

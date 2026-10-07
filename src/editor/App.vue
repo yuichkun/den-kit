@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import { SESSION } from './context.ts';
 import { KitSession } from './session.ts';
+import { MAX_FILE_BYTES } from '../core/persistence.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
@@ -11,6 +12,8 @@ import CodeboxEditor from './CodeboxEditor.vue';
 import AiPanel from './AiPanel.vue';
 import StartOverlay from './StartOverlay.vue';
 import StartScreen from './StartScreen.vue';
+import PluginInspector from './plugin/PluginInspector.vue';
+import PartEditor from './plugin/PartEditor.vue';
 
 const props = defineProps<{ session: KitSession; /** Nothing was saved yet: open on the start screen. */ firstRun?: boolean }>();
 const session = props.session;
@@ -18,6 +21,8 @@ provide(SESSION, session);
 const view = ref<'patch' | 'plugin' | 'code'>('patch');
 const pluginEdit = ref(false);
 const editing = ref<string | null>(null);
+const editingPart = ref<string | null>(null);
+const pluginView = ref<InstanceType<typeof PluginView> | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const menu = ref(false);
 const name = ref(session.doc.value.name);
@@ -88,16 +93,22 @@ function keys(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey;
   // In the AI prompt the view keys still work (no reaching for the mouse); in other text fields (code, names) they do not.
   const field = (e.target as HTMLElement).closest(TEXT_FIELD);
-  if (field && !field.matches('[data-testid=ai-input]')) return;
+  // An inspector field that shows what the patch has (nothing typed since Enter) leaves the ⌘ keys (⌘Z, ⌥⌘E…) to the app, as in a design tool.
+  const settled = field instanceof HTMLInputElement && field.dataset.committed !== undefined && field.value === field.dataset.committed;
+  // Esc in an inspector field hands the keys back to the view (no reaching for the mouse).
+  if (field instanceof HTMLInputElement && e.key === 'Escape' && field.closest('[data-testid=plugin-inspector], [data-testid=inspector]')) {
+    e.preventDefault(); field.blur(); document.querySelector<HTMLElement>('[data-testid=plugin-view], .patch-view')?.focus(); return;
+  }
+  if (field && !field.matches('[data-testid=ai-input]') && !(settled && mod)) return;
   if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyJ') { e.preventDefault(); aiOpen.value = !aiOpen.value; return; }
   if (mod && e.altKey && e.code === 'KeyE') { e.preventDefault(); view.value = view.value === 'plugin' ? 'patch' : 'plugin'; return; }
   if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyE') { e.preventDefault(); if (view.value !== 'plugin') { view.value = 'plugin'; pluginEdit.value = true; } else pluginEdit.value = !pluginEdit.value; return; }
   if (mod && e.shiftKey && !e.altKey && e.code === 'KeyF') { e.preventDefault(); void setFocus(!focusMode.value); return; }
   if (mod && e.altKey && e.code === 'KeyN') { e.preventDefault(); openNew(); return; }
-  if (field) return; // the prompt keeps its own undo
+  if (field && !settled) return; // the prompt keeps its own undo
   if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) session.redo(); else session.undo(); }
   else if (mod && e.code === 'KeyY') { e.preventDefault(); session.redo(); }
-  else if (e.key === 'Escape' && !e.defaultPrevented) { editing.value = null; menu.value = false; if (focusMode.value) void setFocus(false); }
+  else if (e.key === 'Escape' && !e.defaultPrevented) { editing.value = null; editingPart.value = null; menu.value = false; if (focusMode.value) void setFocus(false); }
 }
 function closeMenu(e: PointerEvent) { if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false; }
 onMounted(() => {
@@ -111,16 +122,16 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', keys); window.remo
 function rename() { session.commit([{ op: 'setName', name: name.value }]); }
 function openNew() { menu.value = false; starting.value = true; }
 function started(asked: boolean) { starting.value = false; view.value = 'patch'; if (asked) aiOpen.value = true; }
-function exportPatch() {
+async function exportPatch() {
   menu.value = false;
-  const blob = new Blob([session.exportText()], { type: 'application/json' });
+  const blob = new Blob([await session.exportWithAssets()], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${session.doc.value.name.replace(/[^\w-]+/g, '_') || 'patch'}.denkit.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 async function importPatch(e: Event) {
   menu.value = false;
   const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { session.toast('error', 'Import refused: file is larger than 5 MB.'); return; }
+  if (file.size > MAX_FILE_BYTES) { session.toast('error', `Import refused: file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.`); return; }
   if (session.importText(await file.text())) name.value = session.doc.value.name;
   (e.target as HTMLInputElement).value = '';
 }
@@ -153,10 +164,13 @@ async function importPatch(e: Event) {
     <div class="body">
       <div class="left">
         <div class="main">
-          <div v-show="!focusMode" class="sidebar"><Inspector @edit-code="id => editing = id" /></div>
+          <div v-show="!focusMode" class="sidebar">
+            <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-part="id => editingPart = id" @action="name => pluginView?.action(name)" />
+            <Inspector v-else @edit-code="id => editing = id" />
+          </div>
           <div class="workspace" data-testid="workspace">
             <PatchView v-if="view === 'patch'" @edit-code="id => editing = id" />
-            <PluginView v-else-if="view === 'plugin'" v-model:edit="pluginEdit" :focus="focusMode" @fullscreen="setFocus(!focusMode)" />
+            <PluginView v-else-if="view === 'plugin'" ref="pluginView" v-model:edit="pluginEdit" :focus="focusMode" @fullscreen="setFocus(!focusMode)" @edit-part="id => editingPart = id" />
             <CodeView v-else />
             <div v-if="banner.length" class="banner" :class="{ below: view === 'patch' }" data-testid="banner"><div v-for="(line, i) in banner" :key="i">{{ line }}</div></div>
             <button v-if="focusMode" class="leave-focus" data-testid="leave-focus" @click="setFocus(false)">Leave full screen <span class="kbd-hint">Esc</span></button>
@@ -171,6 +185,7 @@ async function importPatch(e: Event) {
       </div>
     </div>
     <CodeboxEditor v-if="editing && session.doc.value.nodes[editing]" :id="editing" @close="editing = null" />
+    <PartEditor v-if="editingPart && session.doc.value.ui.elements[editingPart]" :id="editingPart" @close="editingPart = null" />
     <div class="toasts"><div v-for="t in session.toasts.value" :key="t.id" class="toast" :class="t.kind" data-testid="toast">{{ t.text }}</div></div>
     <StartOverlay v-if="!starting" />
     <StartScreen v-if="starting" @close="started" />

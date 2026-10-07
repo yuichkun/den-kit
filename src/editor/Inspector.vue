@@ -4,6 +4,7 @@ import { isParamInput, type ConfigDef } from '../core/catalog.ts';
 import type { ConfigValue } from '../core/schema.ts';
 import { exposeIntents, useSession } from './context.ts';
 import ValueField from './ValueField.vue';
+import InputSelect from './InputSelect.vue';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -14,9 +15,6 @@ const label = ref('');
 watch(node, n => { label.value = n?.label ?? ''; }, { immediate: true });
 const edges = computed(() => Object.values(session.doc.value.edges));
 const issues = computed(() => node.value ? session.issues.value.filter(i => i.node === node.value!.id) : []);
-const TEST_SIGNALS = [['chords', 'Chords'], ['drums', 'Drums'], ['noise', 'Noise'], ['off', 'Silence']] as const;
-const testSignal = ref(session.engine.testSignalKind);
-function setTestSignal(kind: string) { testSignal.value = kind as typeof testSignal.value; session.engine.setTestSignal(kind as never); }
 const inputs = computed(() => node.value ? session.catalog.inputs(node.value).filter(p => !p.hidden) : []);
 const incoming = (port: string) => edges.value.find(e => e.to.node === node.value?.id && e.to.port === port);
 
@@ -45,7 +43,7 @@ const configDefs = computed(() => def.value?.config ?? []);
         <div v-if="def.doc" class="muted doc">{{ def.doc }}</div>
         <div class="row"><label>Label</label><input v-model="label" type="text" @change="commit([{ op: 'setLabel', node: node.id, label: label || null }])" /></div>
         <button v-if="def.kind === 'codebox'" class="primary" @click="emit('edit-code', node.id)">Edit code</button>
-        <div v-if="node.type === 'kit.audioIn'" class="row" title="What this effect patch hears while you try it"><label>Test input</label><select :value="testSignal" data-testid="test-signal" @change="setTestSignal(($event.target as HTMLSelectElement).value)"><option v-for="[id, title] in TEST_SIGNALS" :key="id" :value="id">{{ title }}</option></select></div>
+        <div v-if="node.type === 'kit.audioIn'" class="row" title="What this effect patch hears while you try it"><label>Input</label><InputSelect /></div>
       </div>
       <div v-if="configDefs.length" class="section">
         <h3>Construction (recompiles)</h3>

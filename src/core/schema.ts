@@ -1,9 +1,11 @@
 // den-kit patch document. The browser owns one of these; every change goes
 // through typed, author-attributed ops (ops.ts) so humans, the fast AI path and
 // the LLM path all edit the same way. Pure data: no DOM, no Vue, no unworklet.
+import { emptyUi, type AssetMeta, type PluginUi, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
-export const PATCH_VERSION = 1;
+/** 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 still loads. */
+export const PATCH_VERSION = 2;
 
 export type NodeId = string;
 export type EdgeId = string;
@@ -38,6 +40,8 @@ export interface PatchNode {
   ports?: { inputs: PortSpec[]; outputs: PortSpec[] };
   /** Comment text. */
   text?: string;
+  /** How a widget looks on the plugin (skin, box, colours, text). */
+  style?: WidgetStyle;
 }
 
 export interface PortRef { node: NodeId; port: PortId }
@@ -55,14 +59,19 @@ export interface PatchDocument {
   revision: number;
   nodes: Record<NodeId, PatchNode>;
   edges: Record<EdgeId, PatchEdge>;
+  /** The plugin's design size and base theme (the look's tokens override the theme). */
   panel: { width: number; height: number; theme: ThemeId };
+  /** The plugin's screen beyond the widget nodes. */
+  ui: PluginUi;
+  /** Pictures and fonts the plugin uses (bytes live in the browser's asset store or ship with den-kit). */
+  assets: Record<string, AssetMeta>;
 }
 
 export const NODE_ID_PATTERN = /^[a-z][a-zA-Z0-9]{0,31}$/;
 export const PORT_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]{0,31}$/;
 
 export function emptyDocument(name = 'Untitled', id = randomId('patch')): PatchDocument {
-  return { schema: PATCH_SCHEMA, version: PATCH_VERSION, id, name, revision: 0, nodes: {}, edges: {}, panel: { width: 640, height: 360, theme: 'graphite' } };
+  return { schema: PATCH_SCHEMA, version: PATCH_VERSION, id, name, revision: 0, nodes: {}, edges: {}, panel: { width: 640, height: 360, theme: 'graphite' }, ui: emptyUi(), assets: {} };
 }
 
 let fallbackCounter = 0;
@@ -71,12 +80,12 @@ export function randomId(prefix: string): string {
   return `${prefix}-${random}`;
 }
 
-/** Readable node ids (`osc1`, `filter2`) keep generated code and AI context legible. */
-export function nextNodeId(doc: Pick<PatchDocument, 'nodes'>, stem: string, taken: ReadonlySet<string> = new Set()): NodeId {
+/** Readable node ids (`osc1`, `filter2`) keep generated code and AI context legible. Plugin elements share the namespace. */
+export function nextNodeId(doc: Pick<PatchDocument, 'nodes'> & { ui?: Pick<PluginUi, 'elements' | 'groups'> }, stem: string, taken: ReadonlySet<string> = new Set()): NodeId {
   const base = stem.replace(/[^a-zA-Z0-9]/g, '').replace(/^[^a-z]+/, '').slice(0, 24) || 'node';
   for (let n = 1; ; n++) {
     const id = `${base}${n}`;
-    if (!Object.hasOwn(doc.nodes, id) && !taken.has(id)) return id;
+    if (!Object.hasOwn(doc.nodes, id) && !(doc.ui && (Object.hasOwn(doc.ui.elements, id) || Object.hasOwn(doc.ui.groups, id))) && !taken.has(id)) return id;
   }
 }
 

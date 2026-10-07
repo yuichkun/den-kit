@@ -5,17 +5,25 @@ import type { Catalog } from './catalog.ts';
 import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
 import { NODE_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, THEMES, nextNodeId, type PatchDocument, type PatchEdge, type PatchNode, type ThemeId } from './schema.ts';
+import { CONTROL_OF } from './skins.ts';
+import { MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
-export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** Exports carry their pictures and fonts inside, so they can be large. */
+export const MAX_FILE_BYTES = 40 * 1024 * 1024;
 
-export type ParseResult = { ok: true; doc: PatchDocument; report: Issue[] } | { ok: false; error: string };
+/** `assetData`: the bytes of assets an exported file carried (data: URLs by asset id), for the browser's asset store. */
+export type ParseResult = { ok: true; doc: PatchDocument; report: Issue[]; assetData: Record<string, string> } | { ok: false; error: string };
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-export function serializeDocument(doc: PatchDocument): string {
-  return JSON.stringify({ ...doc, schema: PATCH_SCHEMA, version: PATCH_VERSION }, null, 2) + '\n';
+/** The patch as JSON. With `assetData` (data: URLs by asset id) the assets travel inside the file (export). */
+export function serializeDocument(doc: PatchDocument, options: { assetData?: Record<string, string> } = {}): string {
+  const assets = options.assetData ? Object.fromEntries(Object.entries(doc.assets).map(([id, a]) => [id, options.assetData![id] ? { ...a, data: options.assetData![id] } : a])) : doc.assets;
+  return JSON.stringify({ ...doc, assets, schema: PATCH_SCHEMA, version: PATCH_VERSION }, null, 2) + '\n';
 }
+
+const DATA_URL = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/;
 
 export function parseDocument(input: string | unknown, catalog: Catalog): ParseResult {
   let data: unknown = input;
@@ -36,7 +44,21 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     revision: Number.isInteger(data.revision) && (data.revision as number) >= 0 ? data.revision as number : 0,
     nodes: {}, edges: {},
     panel: { width: 640, height: 360, theme: 'graphite' },
+    ui: emptyUi(), assets: {},
   };
+  const assetData: Record<string, string> = {};
+  // Assets first: node styles and plugin elements refer to them.
+  if (isObject(data.assets)) for (const [key, raw] of Object.entries(data.assets)) {
+    try {
+      const asset = checkAsset(isObject(raw) ? Object.fromEntries(Object.entries(raw).filter(([k]) => k !== 'data')) : raw);
+      if (asset.id !== key) throw new Error(`its id is "${asset.id}"`);
+      doc.assets[asset.id] = asset;
+      const data = isObject(raw) ? raw.data : undefined;
+      const bytes = typeof data === 'string' ? DATA_URL.exec(data) : null;
+      if (bytes && bytes[1] === asset.mime && bytes[2]!.length * 0.75 <= MAX_ASSET_BYTES * 1.01) assetData[asset.id] = data as string;
+      else if (data !== undefined) report.push({ severity: 'warning', code: 'dropped-asset-data', message: `Asset "${key}": the file's picture data was unreadable; it shows as missing until added again.` });
+    } catch (error) { report.push({ severity: 'warning', code: 'dropped-asset', message: `Dropped asset "${key}": ${error instanceof Error ? error.message : String(error)}` }); }
+  }
   if (isObject(data.panel)) {
     if (finite(data.panel.width) && data.panel.width >= 200) doc.panel.width = Math.min(4000, data.panel.width);
     if (finite(data.panel.height) && data.panel.height >= 120) doc.panel.height = Math.min(4000, data.panel.height);
@@ -72,6 +94,13 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (isObject(raw.ports) && Array.isArray(raw.ports.inputs) && Array.isArray(raw.ports.outputs)) node.ports = { inputs: raw.ports.inputs.filter(isObject).map(p => ({ id: String(p.id), type: p.type === 'gate' ? 'gate' : 'signal' })), outputs: raw.ports.outputs.filter(isObject).map(p => ({ id: String(p.id), type: p.type === 'gate' ? 'gate' : 'signal' })) };
     else if (def?.kind === 'codebox') node.ports = { inputs: [], outputs: [] };
     if (typeof raw.text === 'string') node.text = raw.text.slice(0, 2000);
+    if (raw.style !== undefined) {
+      const control = CONTROL_OF[raw.type];
+      try {
+        if (!control) throw new Error('only widgets have a plugin style');
+        node.style = checkWidgetStyle(control, raw.style, lenient(doc, report, id));
+      } catch (error) { report.push({ severity: 'warning', code: 'dropped-style', node: id, message: `Dropped the look of ${id}: ${error instanceof Error ? error.message : String(error)}` }); }
+    }
     if (def) {
       // Drop config keys and values the block does not know (report them).
       for (const k of Object.keys(node.config)) if (!def.config.some(c => c.id === k)) { delete node.config[k]; report.push({ severity: 'warning', code: 'dropped-config', node: id, message: `Dropped unknown config "${k}".` }); }
@@ -98,7 +127,49 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     const edge: PatchEdge = { id, from: { node: from, port: fromPort }, to: { node: to, port: toPort } };
     doc.edges[id] = edge;
   }
-  return { ok: true, doc, report };
+  if (isObject(data.panel) && (data.version as number) >= 2) {
+    if (finite(data.panel.width) && data.panel.width >= 120) doc.panel.width = Math.min(4000, data.panel.width);
+    if (finite(data.panel.height) && data.panel.height >= 80) doc.panel.height = Math.min(4000, data.panel.height);
+  }
+  if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
+  return { ok: true, doc, report, assetData };
+}
+
+function lenient(doc: PatchDocument, report: Issue[], node?: string): CheckContext {
+  const widgets: Record<string, true> = {};
+  for (const n of Object.values(doc.nodes)) if (CONTROL_OF[n.type]) widgets[n.id] = true;
+  return { assets: doc.assets, nodes: widgets, lenient: true, warn: message => report.push({ severity: 'warning', code: 'missing-reference', node, message }) };
+}
+
+/** The plugin's screen: everything that can be read is kept, the rest reported. */
+function readUi(raw: Record<string, unknown>, doc: PatchDocument, report: Issue[], rename: Map<string, string>) {
+  const ui = doc.ui;
+  const ref = (id: unknown) => typeof id === 'string' ? rename.get(id) ?? id : '';
+  if (raw.look !== undefined) {
+    try { ui.look = checkLook(raw.look, lenient(doc, report)); }
+    catch (error) { report.push({ severity: 'warning', code: 'dropped-look', message: `Dropped the plugin's look: ${error instanceof Error ? error.message : String(error)}` }); }
+  }
+  if (isObject(raw.elements)) for (const [key, value] of Object.entries(raw.elements)) {
+    try {
+      if (!NODE_ID_PATTERN.test(key) || doc.nodes[key]) throw new Error('its id is invalid or taken by a module');
+      const el = checkElement({ ...(isObject(value) ? value : {}), id: key, ...(isObject(value) && typeof value.bind === 'string' && value.bind !== '@level' ? { bind: value.bind.replace(/^[^.]+/, m => ref(m)) } : {}) }, lenient(doc, report, key));
+      ui.elements[key] = el;
+    } catch (error) { report.push({ severity: 'warning', code: 'dropped-element', message: `Dropped plugin element "${key}": ${error instanceof Error ? error.message : String(error)}` }); }
+  }
+  const exists = (id: string) => !!ui.elements[id] || !!doc.nodes[id];
+  if (Array.isArray(raw.order)) ui.order = [...new Set(raw.order.map(ref).filter(exists))];
+  if (isObject(raw.groups)) {
+    const taken = new Set<string>();
+    for (const [g, members] of Object.entries(raw.groups)) {
+      if (!NODE_ID_PATTERN.test(g) || exists(g) || !Array.isArray(members)) { report.push({ severity: 'warning', code: 'dropped-group', message: `Dropped group "${g}".` }); continue; }
+      const kept = [...new Set(members.map(ref).filter(id => exists(id) && !taken.has(id)))];
+      if (kept.length >= 2) { ui.groups[g] = kept; for (const id of kept) taken.add(id); }
+      else report.push({ severity: 'warning', code: 'dropped-group', message: `Dropped group "${g}": fewer than two of its members are on the plugin.` });
+    }
+  }
+  if (isObject(raw.underlay) && typeof raw.underlay.asset === 'string' && doc.assets[raw.underlay.asset]) {
+    ui.underlay = { asset: raw.underlay.asset, opacity: finite(raw.underlay.opacity) ? Math.min(1, Math.max(0.05, raw.underlay.opacity)) : 0.4, visible: raw.underlay.visible !== false };
+  }
 }
 
 /** Autosave record with a checksum, so a torn or corrupted write is detected on load. */
@@ -117,5 +188,5 @@ export function readSaveRecord(record: unknown, catalog: Catalog): ParseResult {
 
 /** Structural identity used to check export → import round trips. */
 export function documentHash(doc: PatchDocument): string {
-  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name }));
+  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name, ui: doc.ui, assets: doc.assets }));
 }

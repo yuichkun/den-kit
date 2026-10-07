@@ -8,6 +8,7 @@ import { KitSession } from './editor/session.ts';
 import { defineWidgets } from './widgets/widgets.ts';
 import '@fontsource/lato/400.css';
 import '@fontsource/lato/700.css';
+import './plugin/fonts.ts';
 import './editor/style.css';
 
 defineWidgets();

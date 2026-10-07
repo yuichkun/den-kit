@@ -148,7 +148,7 @@ describe('the plugin view', () => {
     const x0 = await kit(page, k => k.doc.value.nodes.kres.panel.x);
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Shift+ArrowRight');
-    assert.equal(await kit(page, k => k.doc.value.nodes.kres.panel.x), x0 + 4 + 16);
+    assert.equal(await kit(page, k => k.doc.value.nodes.kres.panel.x), x0 + 1 + 10, 'design-tool steps: 1 px, Shift 10 px');
     await page.keyboard.press('Control+a');
     assert.equal(await kit(page, k => k.selection.value.length), 4);
     await page.keyboard.press('Delete');
@@ -210,16 +210,16 @@ describe('widgets under the mouse', () => {
 });
 
 describe('the start screen', () => {
-  it('opens on the first launch only; arrows and Enter start a patch (and the sound); ⌥⌘N brings it back; Esc keeps the patch', async () => {
+  it('opens on the first launch only; arrows and Enter start a work (and the sound); ⌥⌘N brings it back; Esc keeps the patch', async () => {
     const { page, errors } = await openKit(h, { startScreen: true, start: false });
     await page.waitForSelector('[data-testid=start-screen]');
     assert.equal(await page.$('[data-testid=start-overlay]'), null, 'one screen at a time');
     assert.equal(await active(page), 'input[start-describe]');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight'); // from the text to the works
+    await page.keyboard.press('ArrowRight'); // the second work
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-    assert.equal(await kit(page, k => k.doc.value.name), 'Pad');
+    assert.equal(await kit(page, k => k.doc.value.name), 'Afterglow');
     await page.waitForFunction(() => (window as any).__kit.engineState.value === 'running', null, { timeout: 30000 });
     await waitCompiled(page);
     // Asked for again: Esc leaves the patch as it is.

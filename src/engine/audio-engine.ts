@@ -4,9 +4,11 @@
 import { createNode, type CompiledProcessor, type UnworkletNode } from '@unworklet/core';
 import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet';
 import type { Artifact } from '../compile/protocol.ts';
+import { testSignal as testSignalData } from '../core/analysis.ts';
 
 export type EngineState = 'off' | 'starting' | 'running' | 'suspended' | 'error';
-export type TestSignal = 'off' | 'chords' | 'drums' | 'noise';
+/** What an effect patch hears: test material, the computer's audio input (`input`: a microphone or a line in), or nothing. */
+export type TestSignal = 'off' | 'chords' | 'drums' | 'noise' | 'guitar' | 'input';
 
 export interface LoadInfo { values: Record<string, number>; voices: boolean; audioIn: boolean; probes: number }
 type Node = UnworkletNode<unknown>;
@@ -52,6 +54,8 @@ export class AudioEngine {
   private inputBus: GainNode | null = null;
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private inputSources: AudioScheduledSourceNode[] = [];
+  private liveInput: { stream: MediaStream; source: MediaStreamAudioSourceNode } | null = null;
+  private guitar: AudioBuffer | null = null;
   private phraseTimers: Array<ReturnType<typeof setTimeout>> = [];
   private healthTimes: number[] = [];
   /** The node being swapped in (not yet `current`): it may run away in its very first render quanta. */
@@ -289,6 +293,20 @@ export class AudioEngine {
     this.inputTimer = null;
     for (const s of this.inputSources) { try { s.stop(); } catch { /* ok */ } s.disconnect(); }
     this.inputSources = [];
+    if (this.liveInput) { this.liveInput.source.disconnect(); for (const t of this.liveInput.stream.getTracks()) t.stop(); this.liveInput = null; }
+  }
+
+  /** The computer's audio input, unprocessed (no echo cancelling, noise suppression or automatic gain). */
+  private async startLiveInput(bus: GainNode, ctx: AudioContext) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      if (this.testSignal !== 'input' || this.ctx !== ctx) { for (const t of stream.getTracks()) t.stop(); return; }
+      const source = new MediaStreamAudioSourceNode(ctx, { mediaStream: stream });
+      source.connect(bus);
+      this.liveInput = { stream, source };
+    } catch (error) {
+      this.events.error?.(`The audio input could not be opened (${error instanceof Error ? error.message : String(error)}). Allow the microphone for this page, or pick a test input.`);
+    }
   }
 
   private applyTestSignal() {
@@ -296,6 +314,17 @@ export class AudioEngine {
     const ctx = this.ctx, bus = this.inputBus;
     if (!ctx || !bus || !this.current?.info.audioIn || this.testSignal === 'off') { if (bus) bus.gain.value = 0; return; }
     bus.gain.value = 1;
+    if (this.testSignal === 'input') { void this.startLiveInput(bus, ctx); return; }
+    if (this.testSignal === 'guitar') {
+      if (!this.guitar || this.guitar.sampleRate !== ctx.sampleRate) {
+        const [l, r] = testSignalData('guitar', 6, ctx.sampleRate);
+        this.guitar = new AudioBuffer({ numberOfChannels: 2, length: l!.length, sampleRate: ctx.sampleRate });
+        this.guitar.copyToChannel(l as Float32Array<ArrayBuffer>, 0); this.guitar.copyToChannel(r as Float32Array<ArrayBuffer>, 1);
+      }
+      const src = new AudioBufferSourceNode(ctx, { buffer: this.guitar, loop: true });
+      src.connect(bus); src.start(); this.track(src);
+      return;
+    }
     let next = ctx.currentTime + 0.05;
     const noise = ctx.createBuffer(1, 48000, 48000);
     const data = noise.getChannelData(0); let seed = 1234567;

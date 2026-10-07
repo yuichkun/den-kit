@@ -1,0 +1,10 @@
+// The four base themes as token values. A look's own tokens override them.
+import type { ThemeId } from './schema.ts';
+import type { TokenName } from './ui.ts';
+
+export const THEME_TOKENS: Readonly<Record<ThemeId, Readonly<Record<TokenName, string>>>> = {
+  graphite: { bg: '#2c2c2c', fg: '#d6d6d6', accent: '#ff9c1a', track: '#454545', knob: '#ececec', pointer: '#111111', muted: '#8a8a8a', glow: '#ff9c1a', font: 'lato', labelFont: 'lato', valueFont: 'lato' },
+  paper: { bg: '#f4f1ea', fg: '#2b2a27', accent: '#d2552e', track: '#d8d2c4', knob: '#fbfaf6', pointer: '#2b2a27', muted: '#8a8478', glow: '#d2552e', font: 'serif', labelFont: 'serif', valueFont: 'serif' },
+  neon: { bg: '#0b0717', fg: '#f5e9ff', accent: '#ff3cac', track: '#2b1e47', knob: '#1c1233', pointer: '#ff3cac', muted: '#9a86b8', glow: '#ff3cac', font: 'mono', labelFont: 'mono', valueFont: 'mono' },
+  studio: { bg: '#26282b', fg: '#f0e6d2', accent: '#f2a541', track: '#44474c', knob: '#e9e4d8', pointer: '#26282b', muted: '#a09a8c', glow: '#f2a541', font: 'system', labelFont: 'system', valueFont: 'system' },
+};
