@@ -44,7 +44,7 @@ input[type=range] { accent-color: var(--accent); }
 .status.ok { color: var(--ok); } .status.error { color: var(--error); background: #161616; } .status.busy { color: var(--warn); } .status.muted { color: var(--muted); }
 .status.load { color: var(--muted); } .status.load.heavy { color: var(--warn); }
 .main { display: grid; grid-template-columns: 270px 1fr; min-height: 0; }
-.kit-shell.focus .main { grid-template-columns: 1fr; }
+.kit-shell.focus .main, .main.wide { grid-template-columns: 1fr; }
 .sidebar { background: var(--panel); overflow: auto; min-height: 0; }
 .workspace { position: relative; min-height: 0; overflow: hidden; border-left: 1px solid #000; }
 .patch-menu { position: relative; }

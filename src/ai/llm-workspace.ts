@@ -322,7 +322,7 @@ export class LlmWorkspace {
       if (landed.ok) {
         this.landed++;
         this.screenTouched = true; this.projectTouched = true;
-        this.steps.push(`${what} ✓`);
+        this.steps.push(`kept ${paths.length === 1 ? paths[0] : `${paths.length} files`} in the work ✓`);
         if (paths.some(p => p.startsWith('src/'))) this.unseen = true;
         lines.push(`Kept in the work: ${list.slice(0, 30).join(', ')}${list.length > 30 ? `, and ${list.length - 30} more` : ''}.`);
       } else lines.push(`The project changed (${list.slice(0, 10).join(', ')}) but could not be kept in the work: ${landed.message}`);

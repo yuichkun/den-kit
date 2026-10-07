@@ -44,6 +44,8 @@ describe('the pod: a free environment for the AI', () => {
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.equal(line.label, 'コード部品「meter」を作ってプラグインに置きました', JSON.stringify(line));
     assert.ok(line.steps.some((s: string) => /^ran `npm run check && npm run lint`$/.test(s)), line.steps.join(' | '));
+    // What the command changed is said once: the files kept in the work.
+    assert.ok(line.steps.some((s: string) => /^ran `mkdir -p src\/parts && cat > src\/parts\/meter\.ts …` · kept \d+ files in the work ✓$/.test(s)), line.steps.join(' | '));
     // The work keeps the project (the template, the part); node_modules and dist stay in the pod.
     const doc = await kit(page, k => k.doc.value);
     assert.match(doc.project.files['src/parts/meter.ts'], /kit\.norm\('knob1'\)/);
@@ -143,6 +145,9 @@ describe('the Project view', () => {
     await waitCompiled(page);
     await page.click('[data-testid=view-project]');
     await page.waitForSelector('[data-testid=project-view]');
+    // It takes the whole workspace (the module sidebar steps aside).
+    const box = (await page.locator('[data-testid=project-view]').boundingBox())!;
+    assert.ok(box.width > 900, `width ${box.width}`);
     // A new page: its pod starts when asked (or when the work needs it).
     await page.click('[data-testid=pod-start]');
     await page.waitForFunction(() => (window as any).__kit.pod.state.value === 'ready', null, { timeout: 180000 });

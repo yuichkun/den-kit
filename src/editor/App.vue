@@ -200,7 +200,7 @@ async function importPatch(e: Event) {
     </div>
     <div class="body">
       <div class="left">
-        <div class="main">
+        <div class="main" :class="{ wide: view === 'project' }">
           <div v-show="!focusMode && view !== 'project'" class="sidebar">
             <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-canvas="id => editingCanvas = id" @action="name => pluginView?.action(name)" @open-project="openProject" />
             <Inspector v-else @edit-code="id => editing = id" />
