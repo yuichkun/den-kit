@@ -161,7 +161,7 @@ describe('expanding copies', () => {
     // The amounts are AudioParams: a new amount plays without recompiling.
     const g = generate(doc, catalog);
     const wider = apply(doc, { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: { kind: 'range', amount: 2 } });
-    expect(isStructural(wider.ops)).toBe(false);
+    expect(wider.ops.some(isStructural)).toBe(false);
     const next = currentValues(wider.doc, catalog, g);
     expect(next[`${into(3, 'cutoffHz')}_scale`]).toBe(4);
     expect(generate(wider.doc, catalog).hash).toBe(g.hash);
