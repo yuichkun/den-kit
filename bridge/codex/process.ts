@@ -66,7 +66,7 @@ export const LOGIN_COMMAND = 'npm run kit:codex:login';
 /** The environment Codex runs with: the user's (network, proxies, HOME) minus den-kit's own secrets. */
 export function codexEnv(home: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env, CODEX_HOME: home };
-  for (const key of Object.keys(out)) if (/^(TYPESAFE_API_KEY|KIT_BRIDGE_TOKEN)$/.test(key)) delete out[key];
+  for (const key of Object.keys(out)) if (/^(TYPESAFE_API_KEY|BROWSERPOD_API_KEY|KIT_BRIDGE_TOKEN)$/.test(key)) delete out[key];
   return out;
 }
 

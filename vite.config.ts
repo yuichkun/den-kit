@@ -38,8 +38,10 @@ function typeFiles() {
 }
 
 function kitVirtual(): Plugin {
+  let serving = false;
   return {
     name: 'den-kit-virtual', enforce: 'pre',
+    configResolved(config) { serving = config.command === 'serve'; },
     resolveId(id) { if (id.startsWith('virtual:kit-')) return `\0${id}`; },
     async load(id) {
       if (id === '\0virtual:kit-modules') {
@@ -51,9 +53,9 @@ function kitVirtual(): Plugin {
       if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
       // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
       if (id === '\0virtual:kit-bridge') return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null })};`;
-      // The pod (BrowserPod) boots in the page, so its key goes to the page (kit/.env, read by scripts/dev.ts).
-      // KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in for BrowserPod).
-      if (id === '\0virtual:kit-pod') return `export default ${JSON.stringify({ apiKey: process.env.BROWSERPOD_API_KEY || null, fakeUrl: process.env.KIT_FAKE_POD_URL || null })};`;
+      // The pod (BrowserPod) boots in the page, so its key goes to the page (kit/.env, read by scripts/dev.ts) — only
+      // from the dev server: a build never carries it. KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in).
+      if (id === '\0virtual:kit-pod') return `export default ${JSON.stringify(serving ? { apiKey: process.env.BROWSERPOD_API_KEY || null, fakeUrl: process.env.KIT_FAKE_POD_URL || null } : { apiKey: null, fakeUrl: null })};`;
     },
   };
 }

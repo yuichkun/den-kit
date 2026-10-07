@@ -26,6 +26,7 @@ import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
 import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
 import type { LlmController } from '../ai/llm.ts';
+import type { PodSession } from '../pod/pod-session.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast { id: number; kind: 'info' | 'warn' | 'error'; text: string }
@@ -91,6 +92,8 @@ export class KitSession {
   fast: FastPath | null = null;
   /** The LLM path (Codex through the bridge); null when not wired. */
   llm: LlmController | null = null;
+  /** The pod (BrowserPod): the screen project's workbench for the AI and the person; null when not wired (unit tests). */
+  pod: PodSession | null = null;
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */

@@ -50,6 +50,8 @@ try {
   const jev = bridge.status().jev;
   console.log(`\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`);
   console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in kit/.env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs kit/.logs`);
+  // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.
+  console.log(`  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in kit/.env to give the AI a pod: bash, git, Node, npm)'}`);
   if (codex) {
     // Start Codex after the editor is up; its state shows in the editor (and here).
     let last = '';

@@ -1,0 +1,353 @@
+// The work's pod: boots it when the work first needs it (the AI's first command,
+// a code part to show, the Project drawer), keeps its copy of the screen project
+// in step with the document (an undo, an edit in den-kit or another work loaded
+// is written into the pod), installs packages when package.json changes, keeps
+// the dev server running and knows its address (the portal), runs commands for
+// the AI and the person (logged, with their output), and reads the project back
+// after a command so what changed lands in the document (and undoes with it).
+//
+// The document is the record; the pod is the workbench. node_modules, .git and
+// dist live only in the pod.
+import { ref, shallowRef, watch } from 'vue';
+import type { KitSession } from '../editor/session.ts';
+import { pluginSpec } from '../plugin/build.ts';
+import { GENERATED_FILES, PROJECT_LIMITS, byteLength, checkProjectPath } from '../core/project.ts';
+import { controlsSource, templateFiles } from './template.ts';
+import { PodUnavailable, keepEnd, type PodHost, type PodProcess, type PodRunResult } from './host.ts';
+
+export type PodState = 'off' | 'unavailable' | 'booting' | 'syncing' | 'installing' | 'starting' | 'ready' | 'failed';
+export type PodWho = 'ai' | 'you' | 'den-kit';
+export interface PodLogEntry { id: number; who: PodWho; command: string; output: string; exitCode: number | null; running: boolean; timedOut: boolean; ms: number; at: number }
+export interface PodFactory {
+  /** Which pod this is (null: none can be made; `reason` and `fix` say why). */
+  kind: 'browserpod' | 'fake' | null;
+  create(): Promise<PodHost>;
+  reason?: string;
+  fix?: string;
+}
+/** What a code part on the plugin reported about itself (PluginCode.vue). */
+export interface PartReport {
+  part: string;
+  state: 'loading' | 'ready' | 'missing' | 'error';
+  /** Its settings as the part declares them (the inspector shows them). */
+  props?: Record<string, unknown>;
+  interactive?: boolean;
+  error?: string;
+  /** Its last console lines and errors (newest last). */
+  logs: string[];
+  /** When it last (re)loaded (ms since epoch). */
+  at?: number;
+}
+/** How long the steps took (the Project drawer and the pod check show them). */
+export interface PodTimings { bootMs?: number; syncMs?: number; installMs?: number; devMs?: number }
+
+export const DEV_PORT = 5173;
+const COMMAND_TIMEOUT = 120_000;
+const MAX_COMMAND_TIMEOUT = 600_000;
+const LOG_LIMIT = 200;
+const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** git with an identity and no signing (the pod has no config of its own). */
+export const GIT = 'git -c user.name=den-kit -c user.email=den-kit@localhost -c init.defaultBranch=main -c commit.gpgsign=false';
+const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`;
+const binary = (text: string) => text.includes('\u0000') || text.includes('�');
+
+export class PodSession {
+  readonly state = ref<PodState>('off');
+  readonly message = ref('');
+  readonly fix = ref<string | undefined>(undefined);
+  /** The dev server's address (code parts load from it). */
+  readonly portal = ref<string | null>(null);
+  readonly log = shallowRef<PodLogEntry[]>([]);
+  /** The end of what the dev server printed. */
+  readonly devOutput = ref('');
+  readonly parts = shallowRef<Record<string, PartReport>>({});
+  /** Bumped when the project's files changed (parts reload unless the dev server already reloaded them). */
+  readonly reloads = ref(0);
+  readonly timings = ref<PodTimings>({});
+  projectDir = '';
+  readonly factory: PodFactory;
+  private host: PodHost | null = null;
+  private booting: Promise<PodHost> | null = null;
+  /** The pod's files as den-kit last wrote or read them (path → text). */
+  private known = new Map<string, string>();
+  private installedFor: string | null = null;
+  private dev: PodProcess | null = null;
+  private devStart: Promise<void> | null = null;
+  /** The dev server stopped soon after starting this many times in a row (den-kit stops restarting it at 3). */
+  private crashes = 0;
+  private disposed = false;
+  private queue: Promise<unknown> = Promise.resolve();
+  private syncQueued = false;
+  private controlsText = '';
+  private entries = 0;
+  private stopWatch: (() => void) | null = null;
+  private portalWatch: (() => void) | null = null;
+  private readonly session: KitSession;
+
+  constructor(session: KitSession, factory: PodFactory) {
+    this.session = session; this.factory = factory;
+    if (!factory.kind) this.set('unavailable', factory.reason ?? 'No pod.', factory.fix);
+  }
+
+  get available(): boolean { return !!this.factory.kind; }
+  get kind() { return this.host?.kind ?? this.factory.kind; }
+  get booted(): boolean { return !!this.host; }
+
+  /** The pod, booted and in step with the work (the template stands in when the work has no project yet). */
+  ensure(): Promise<PodHost> {
+    if (!this.factory.kind) return Promise.reject(new PodUnavailable(this.factory.reason ?? 'No pod.', this.factory.fix));
+    this.booting ??= this.boot().catch(error => {
+      this.booting = null;
+      this.set(this.host ? 'failed' : 'unavailable', error instanceof Error ? error.message : String(error), error instanceof PodUnavailable ? error.fix : this.fix.value);
+      throw error;
+    });
+    return this.booting;
+  }
+
+  private async boot(): Promise<PodHost> {
+    const started = performance.now();
+    if (!this.host) {
+      this.set('booting', this.factory.kind === 'browserpod' ? 'Starting the pod (BrowserPod)…' : 'Starting the pod…');
+      this.host = await this.factory.create();
+      this.projectDir = `${this.host.home}/work`;
+      this.portalWatch = this.host.onPortal(p => { if (p.port === DEV_PORT) { this.portal.value = p.url; if (this.state.value === 'starting') this.set('ready', 'Ready.'); } });
+      this.timings.value = { ...this.timings.value, bootMs: Math.round(performance.now() - started) };
+    }
+    const host = this.host;
+    this.set('syncing', 'Writing the project into the pod…');
+    const synced = performance.now();
+    await this.writeAll(true);
+    await this.system(`[ -d .git ] || (${GIT} init -q && ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null)`, 'git init');
+    this.timings.value = { ...this.timings.value, syncMs: Math.round(performance.now() - synced) };
+    await this.install(true);
+    await this.restartDev();
+    this.stopWatch ??= watch(() => this.session.doc.value, () => this.scheduleSync());
+    return host;
+  }
+
+  private set(state: PodState, message: string, fix?: string) { this.state.value = state; this.message.value = message; this.fix.value = fix; }
+
+  /** Work in order (file writes, installs and commands touch the same files). */
+  private enqueue<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(job, job);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+  /** One pending write of the document into the pod at a time (a knob drag changes the document many times). */
+  private scheduleSync() {
+    if (this.syncQueued || !this.host) return;
+    this.syncQueued = true;
+    void this.enqueue(async () => { this.syncQueued = false; await this.writeAll(false); }).catch(error => this.note(`Writing into the pod failed: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  // ---- files ------------------------------------------------------------------------------------
+  /** The document's files (or the template, while the work has no project) plus den-kit's generated ones. */
+  wanted(): Map<string, string> {
+    const doc = this.session.doc.value;
+    const files = new Map(Object.entries(doc.project?.files ?? templateFiles()));
+    files.set('src/kit/controls.ts', controlsSource(pluginSpec(doc, this.session.catalog, { probes: [] }).controls));
+    return files;
+  }
+
+  /** Write what changed in the document into the pod (everything on the first sync, removing what the work does not have). */
+  private async writeAll(first: boolean) {
+    const host = this.host; if (!host) return;
+    const wanted = this.wanted();
+    if (first) {
+      const listed = await host.run(`mkdir -p ${q(this.projectDir)} && cd ${q(this.projectDir)} && find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`, { cwd: host.home, timeoutMs: 60_000 });
+      const stale = listed.output.split('\n').map(l => l.trim().replace(/^\.\//, '')).filter(p => p && !wanted.has(p) && !checkProjectPath(p));
+      if (stale.length) await host.run(`rm -f -- ${stale.map(q).join(' ')}`, { cwd: this.projectDir, timeoutMs: 60_000 });
+      this.known.clear();
+    }
+    let changed = false, packageChanged = false;
+    for (const [path, text] of wanted) {
+      if (this.known.get(path) === text) continue;
+      await host.writeFile(`${this.projectDir}/${path}`, text);
+      this.known.set(path, text);
+      changed = true;
+      if (path === 'package.json') packageChanged = true;
+    }
+    const gone = [...this.known.keys()].filter(p => !wanted.has(p));
+    if (gone.length) { await host.run(`rm -f -- ${gone.map(q).join(' ')}`, { cwd: this.projectDir, timeoutMs: 60_000 }); for (const p of gone) this.known.delete(p); changed = true; }
+    this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
+    if (!first && packageChanged) await this.install(false).catch(() => undefined);
+    if (!first && changed) this.reloads.value++;
+  }
+
+  /**
+   * Read the project back (after a command, or the AI's write): the files that
+   * differ from the document (null for deleted ones), and what was left out and why.
+   */
+  async collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }> {
+    const host = this.host; if (!host) return { files: {}, skipped: [] };
+    return this.enqueue(async () => {
+      const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
+      const current = this.session.doc.value.project?.files ?? {};
+      // While the work has no project, the pod holds the template: it all becomes the work's.
+      const base = this.session.doc.value.project ? current : {};
+      const files: Record<string, string | null> = {};
+      const skipped: string[] = [];
+      const seen = new Set<string>();
+      for (const line of listed.output.split('\n')) {
+        const path = line.trim().replace(/^\.\//, '');
+        if (!path || seen.has(path)) continue;
+        if (GENERATED_FILES.has(path)) {
+          const text = await host.readFile(`${this.projectDir}/${path}`);
+          if (text !== null && text !== this.controlsText) { await host.writeFile(`${this.projectDir}/${path}`, this.controlsText); skipped.push(`${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`); }
+          continue;
+        }
+        const bad = checkProjectPath(path);
+        if (bad) { skipped.push(`${path} (${bad})`); continue; }
+        const text = await host.readFile(`${this.projectDir}/${path}`);
+        if (text === null) continue;
+        if (binary(text)) { skipped.push(`${path} (not text: pictures and fonts go in den-kit's assets, kit.asset(id) reads them)`); continue; }
+        if (byteLength(text) > PROJECT_LIMITS.fileBytes) { skipped.push(`${path} (over ${PROJECT_LIMITS.fileBytes / 1024} KB)`); continue; }
+        seen.add(path);
+        this.known.set(path, text);
+        if (base[path] !== text) files[path] = text;
+      }
+      for (const path of Object.keys(base)) if (!seen.has(path)) { files[path] = null; this.known.delete(path); }
+      if (Object.keys(files).length) this.reloads.value++;
+      return { files, skipped };
+    });
+  }
+
+  async readFile(path: string): Promise<string | null> {
+    const host = await this.ensure();
+    return this.enqueue(() => host.readFile(`${this.projectDir}/${path}`));
+  }
+  async writeFile(path: string, text: string): Promise<void> {
+    const host = await this.ensure();
+    await this.enqueue(async () => { await host.writeFile(`${this.projectDir}/${path}`, text); });
+  }
+
+  // ---- commands ---------------------------------------------------------------------------------
+  /** Run a command in the project (the AI's and the person's), logged with its output. */
+  async bash(command: string, options: { who: PodWho; timeoutMs?: number } = { who: 'you' }): Promise<PodRunResult> {
+    const host = await this.ensure();
+    const timeoutMs = Math.min(MAX_COMMAND_TIMEOUT, Math.max(1000, options.timeoutMs ?? COMMAND_TIMEOUT));
+    const entry = this.begin(options.who, command);
+    const result = await this.enqueue(() => host.run(command, { cwd: this.projectDir, timeoutMs, onOutput: text => this.progress(entry, text) }));
+    this.end(entry, result);
+    // A command may have stopped the dev server, or fixed what kept it from starting: start it again.
+    if (!this.dev?.running) { this.crashes = 0; await this.restartDev(); }
+    return result;
+  }
+
+  /** The person's command (Project ▸ Terminal): what it changed lands as one undo step of theirs. */
+  async runForYou(command: string): Promise<{ result: PodRunResult; changed: string[]; skipped: string[] }> {
+    const result = await this.bash(command, { who: 'you' });
+    const { files, skipped } = await this.collect();
+    const changed = Object.keys(files);
+    if (changed.length) {
+      const r = this.session.commit([{ op: 'setProjectFiles', files }], { author: { kind: 'human' }, label: `Terminal: ${command.slice(0, 60)}` });
+      if (!r.ok) this.note(`The project's changes could not be kept: ${r.error.message}`);
+    }
+    return { result, changed, skipped };
+  }
+
+  /** den-kit's own steps (logged too, so the person can see what happened). */
+  private async system(command: string, label: string, timeoutMs = 300_000): Promise<PodRunResult> {
+    const host = this.host!;
+    const entry = this.begin('den-kit', label);
+    const result = await host.run(command, { cwd: this.projectDir, timeoutMs, onOutput: text => this.progress(entry, text) });
+    this.end(entry, result);
+    return result;
+  }
+  /** A line in the log from den-kit itself (no command). */
+  note(text: string) {
+    const entry = this.begin('den-kit', text);
+    this.end(entry, { exitCode: null, output: '', timedOut: false, ms: 0 });
+  }
+
+  private begin(who: PodWho, command: string): PodLogEntry {
+    const entry: PodLogEntry = { id: ++this.entries, who, command, output: '', exitCode: null, running: true, timedOut: false, ms: 0, at: Date.now() };
+    this.log.value = [...this.log.value, entry].slice(-LOG_LIMIT);
+    return entry;
+  }
+  private progress(entry: PodLogEntry, text: string) {
+    entry.output = keepEnd(entry.output + text, 40_000);
+    this.log.value = this.log.value.map(e => e.id === entry.id ? { ...entry } : e);
+  }
+  private end(entry: PodLogEntry, result: PodRunResult) {
+    Object.assign(entry, { output: keepEnd(result.output, 40_000), exitCode: result.exitCode, timedOut: result.timedOut, running: false, ms: result.ms });
+    this.log.value = this.log.value.map(e => e.id === entry.id ? { ...entry } : e);
+  }
+
+  /** npm install when package.json is not what node_modules was installed for. */
+  private async install(first: boolean) {
+    const pkg = this.known.get('package.json') ?? '';
+    if (!first && pkg === this.installedFor) return;
+    const started = performance.now();
+    const ready = this.state.value === 'ready';
+    this.set('installing', 'Installing packages (npm install)…');
+    const r = await this.system(`if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else npm install --no-audit --no-fund && cp package.json node_modules/.den-kit-package.json; fi`, 'npm install', 600_000);
+    this.timings.value = { ...this.timings.value, installMs: Math.round(performance.now() - started) };
+    if (r.exitCode !== 0) {
+      this.set('failed', `npm install failed${r.timedOut ? ' (it took too long)' : ''}.`, 'See Project ▸ Terminal for why; the AI (or you) can fix package.json.');
+      throw new Error(`npm install failed:\n${r.output.slice(-2000)}`);
+    }
+    this.installedFor = pkg;
+    if (ready || this.portal.value) this.set('ready', 'Ready.');
+  }
+
+  /** Start the dev server unless it is starting already. */
+  private restartDev(): Promise<void> {
+    this.devStart ??= this.startDev().catch(() => undefined).finally(() => { this.devStart = null; });
+    return this.devStart;
+  }
+
+  private async startDev() {
+    const host = this.host!;
+    const started = performance.now();
+    this.set('starting', 'Starting the dev server (Vite)…');
+    this.portal.value = null;
+    const env: Record<string, string> = { PORT: String(DEV_PORT) };
+    // BrowserPod forwards the server through an https portal: the page's live-reload socket goes to port 443 there.
+    if (host.kind === 'browserpod') env.KIT_HMR_CLIENT_PORT = '443';
+    this.devOutput.value = '';
+    const entry = this.begin('den-kit', 'npm run dev');
+    const dev = host.start('dev', 'npm run dev', { cwd: this.projectDir, env, onOutput: text => { this.devOutput.value = keepEnd(this.devOutput.value + text, 20_000); } });
+    this.dev = dev;
+    void dev.done.then(() => {
+      this.end(entry, { exitCode: null, output: dev.output(), timedOut: false, ms: Math.round(performance.now() - started) });
+      if (this.dev !== dev || this.disposed) return;
+      // It stopped by itself (a crash, a broken config, a command that killed it): start it again, but not forever.
+      this.crashes = performance.now() - started < 15_000 ? this.crashes + 1 : 0;
+      if (this.crashes >= 3) { this.set('failed', 'The dev server keeps stopping.', 'See Project ▸ Terminal for its output; fix the project (or ask the AI) and run a command: den-kit starts it again then.'); return; }
+      this.set('starting', 'The dev server stopped; starting it again…');
+      void this.restartDev();
+    });
+    // Wait for its address (a portal); a pod takes a while on the first start.
+    const deadline = Date.now() + 180_000;
+    while (!this.portal.value && dev.running && Date.now() < deadline) await new Promise(r => setTimeout(r, 200));
+    this.timings.value = { ...this.timings.value, devMs: Math.round(performance.now() - started) };
+    if (this.portal.value) { this.set('ready', 'Ready.'); this.progress(entry, `\n(dev server at ${this.portal.value})\n`); }
+    else if (!dev.running) this.set('failed', 'The dev server stopped before it was ready.', 'See Project ▸ Terminal for its output.');
+    else this.set('failed', 'The dev server did not report an address in time.', 'See Project ▸ Terminal for its output.');
+  }
+
+  /** Commit the project in the pod (one commit per AI request; nothing to commit is fine). */
+  async commit(message: string) {
+    const host = this.host; if (!host) return;
+    await this.enqueue(() => host.run(`${GIT} add -A && (${GIT} diff --cached --quiet || ${GIT} commit -qm ${q(message.replace(/\s+/g, ' ').slice(0, 200) || 'den-kit')})`, { cwd: this.projectDir, timeoutMs: 60_000 }));
+  }
+
+  /** The controls file den-kit generates (what parts can read and move). */
+  get controls(): string { return this.controlsText || (this.wanted().get('src/kit/controls.ts') ?? ''); }
+
+  /** A code part's news (PluginCode.vue): its state, settings, errors and console lines. */
+  report(element: string, patch: Partial<PartReport> & { log?: string }) {
+    const prev = this.parts.value[element] ?? { part: patch.part ?? '', state: 'loading' as const, logs: [] };
+    const logs = patch.log ? [...prev.logs, patch.log].slice(-30) : prev.logs;
+    const { log: _log, ...rest } = patch;
+    this.parts.value = { ...this.parts.value, [element]: { ...prev, ...rest, logs } };
+  }
+  forget(element: string) {
+    if (!(element in this.parts.value)) return;
+    const { [element]: _gone, ...rest } = this.parts.value;
+    this.parts.value = rest;
+  }
+
+  dispose() { this.disposed = true; this.stopWatch?.(); this.portalWatch?.(); this.host?.dispose?.(); }
+}

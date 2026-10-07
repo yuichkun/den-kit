@@ -3,7 +3,7 @@
 // den-kit writes from the patch on every change: src/kit/controls.ts, the
 // controls a part can read and move, with their ranges, as code (so a wrong id
 // is a type error).
-import { GENERATED_FILES } from '../core/project.ts';
+import { GENERATED_FILES, type ScreenProject } from '../core/project.ts';
 import type { WidgetSpec } from '../plugin/spec.ts';
 
 const raw = import.meta.glob('/pod-template/**/*', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
@@ -19,6 +19,14 @@ export function templateFiles(): Record<string, string> {
     files[path] = text;
   }
   return files;
+}
+
+/**
+ * Files to put in a work: while the work has no project yet, the template comes
+ * with them (a part never arrives without the project that shows it).
+ */
+export function withTemplate(project: ScreenProject | undefined, files: Record<string, string | null>): Record<string, string | null> {
+  return project ? files : { ...templateFiles(), ...files };
 }
 
 /** A new code part's file (Insert ▸ Code part): something that moves, to start from. */
