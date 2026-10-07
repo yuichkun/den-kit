@@ -1,12 +1,13 @@
 // den-kit patch document. The browser owns one of these; every change goes
 // through typed, author-attributed ops (ops.ts) so humans, the fast AI path and
 // the LLM path all edit the same way. Pure data: no DOM, no Vue, no unworklet.
+import type { ScreenProject } from './project.ts';
 import type { PortDef } from './catalog.ts';
 import { emptyUi, type AssetMeta, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
 /** 3: parts (definitions used in several places). 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 and 2 still load. */
-export const PATCH_VERSION = 3;
+export const PATCH_VERSION = 4;
 
 export type NodeId = string;
 export type EdgeId = string;
@@ -130,6 +131,8 @@ export interface PatchDocument {
   assets: Record<string, AssetMeta>;
   /** Part definitions used in this patch, by id. */
   parts: Record<string, PartDef>;
+  /** The screen's web project (sources only), when the work has one (format v4). */
+  project?: ScreenProject;
 }
 
 export const NODE_ID_PATTERN = /^[a-z][a-zA-Z0-9]{0,31}$/;

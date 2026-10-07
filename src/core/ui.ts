@@ -6,6 +6,7 @@
 // loads it, the plugin renderer draws it. Every value that reaches CSS passes a
 // check here first (colours, numbers, asset references), so a patch file or an
 // AI edit cannot smuggle anything into the page.
+import { PART_NAME } from './project.ts';
 import { CONTROL_KINDS, SKINS, skinDef, type ControlKind, type Skin, type SkinParamValue } from './skins.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -128,7 +129,7 @@ export interface TextStyle {
 }
 
 // ---- elements -----------------------------------------------------------------------------
-export const ELEMENT_KINDS = ['text', 'shape', 'image', 'svg', 'led', 'canvas'] as const;
+export const ELEMENT_KINDS = ['text', 'shape', 'image', 'svg', 'led', 'canvas', 'code'] as const;
 export type ElementKind = typeof ELEMENT_KINDS[number];
 interface ElementBase { id: string; rect: Rect; name?: string; style?: ElementStyle; locked?: boolean; hidden?: boolean }
 /** Text. With `bind` it shows that control's value: `{value}` in the text is replaced by it (e.g. "CUTOFF {value}"). */
@@ -140,7 +141,9 @@ export interface SvgElement extends ElementBase { kind: 'svg'; svg: string }
 export interface LedElement extends ElementBase { kind: 'led'; bind: string; color: string; threshold: number }
 /** A canvas: code that draws every frame (runs in a worker) and may take the mouse. (Files before U5 called it a custom part, kind "part".) */
 export interface CanvasElement extends ElementBase { kind: 'canvas'; code: string; props: Record<string, string | number | boolean> }
-export type UiElement = TextElement | ShapeElement | ImageElement | SvgElement | LedElement | CanvasElement;
+/** A code part: a part of the screen's web project (src/parts/<part>.ts), shown in its box, with its own settings. */
+export interface CodeElement extends ElementBase { kind: 'code'; part: string; props: Record<string, string | number | boolean> }
+export type UiElement = TextElement | ShapeElement | ImageElement | SvgElement | LedElement | CanvasElement | CodeElement;
 
 /** How one widget node looks (its own overrides on top of the plugin's look). */
 export interface WidgetStyle {
@@ -439,9 +442,13 @@ export function checkElement(v: unknown, ctx: CheckContext): UiElement {
       if (!/export\s+default/.test(code)) bad('bad-code', 'A canvas must `export default` its draw function (or {setup, draw, pointer}).');
       return { ...base, kind, code, props: e.props === undefined ? {} : checkProps(e.props) };
     }
+    case 'code': {
+      if (typeof e.part !== 'string' || !PART_NAME.test(e.part)) bad('bad-part', `A code part names its part: the file src/parts/<name>.ts, where the name is lowercase letters, digits and dashes (got ${JSON.stringify(e.part ?? null)}).`);
+      return { ...base, kind, part: e.part as string, props: e.props === undefined ? {} : checkProps(e.props) };
+    }
   }
 }
-const KIND_FIELDS: Record<ElementKind, string[]> = { text: ['text', 'textStyle', 'bind'], shape: ['shape'], image: ['asset', 'fit'], svg: ['svg'], led: ['bind', 'color', 'threshold'], canvas: ['code', 'props'] };
+const KIND_FIELDS: Record<ElementKind, string[]> = { text: ['text', 'textStyle', 'bind'], shape: ['shape'], image: ['asset', 'fit'], svg: ['svg'], led: ['bind', 'color', 'threshold'], canvas: ['code', 'props'], code: ['part', 'props'] };
 export const ELEMENT_FIELDS = (kind: ElementKind) => ['rect', 'name', 'style', 'locked', 'hidden', ...KIND_FIELDS[kind]];
 
 export function checkAsset(v: unknown): AssetMeta {

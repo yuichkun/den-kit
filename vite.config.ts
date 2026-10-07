@@ -51,6 +51,9 @@ function kitVirtual(): Plugin {
       if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
       // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
       if (id === '\0virtual:kit-bridge') return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null })};`;
+      // The pod (BrowserPod) boots in the page, so its key goes to the page (kit/.env, read by scripts/dev.ts).
+      // KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in for BrowserPod).
+      if (id === '\0virtual:kit-pod') return `export default ${JSON.stringify({ apiKey: process.env.BROWSERPOD_API_KEY || null, fakeUrl: process.env.KIT_FAKE_POD_URL || null })};`;
     },
   };
 }
@@ -62,6 +65,8 @@ const alias = [
   { find: /^@denaudio\/den\/(.*)$/, replacement: join(den, 'src/$1.ts') },
 ];
 
+const ISOLATION = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
+
 export default defineConfig({
   root: kit,
   plugins: [kitVirtual(), vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } })],
@@ -69,6 +74,8 @@ export default defineConfig({
   worker: { format: 'es', plugins: () => [kitVirtual()] },
   server: {
     port: Number(process.env.KIT_PORT ?? 5180), strictPort: true, host: '127.0.0.1',
+    // Cross-origin isolation: the pod (BrowserPod) needs SharedArrayBuffer.
+    headers: ISOLATION,
     fs: { allow: [den] },
     proxy: {
       '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
@@ -77,6 +84,7 @@ export default defineConfig({
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
   optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript'], esbuildOptions: { target: 'es2022' } },
+  preview: { headers: ISOLATION },
   build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
   test: {
     projects: [

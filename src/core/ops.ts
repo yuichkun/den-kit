@@ -15,6 +15,7 @@ import {
   type PortId, type PortRef, type PortSpec, type Spread, type ThemeId, type Value, type XY,
 } from './schema.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
+import { PROJECT_LIMITS, byteLength, checkProjectPath, projectBytes } from './project.ts';
 import { CONTROL_OF, type ControlKind } from './skins.ts';
 import {
   ELEMENT_FIELDS, LIMITS, UiCheckError, assetUses, checkAsset, checkElement, checkLook, checkRect, checkWidgetStyle, stackOrder,
@@ -62,6 +63,8 @@ export type Intent =
   | { op: 'setUnderlay'; underlay: Underlay | null }
   /** The design brief (null or empty removes it). */
   | { op: 'setBrief'; brief: string | null }
+  /** Write files of the screen's web project (text; null deletes one). Paths are relative to the project. */
+  | { op: 'setProjectFiles'; files: Record<string, string | null> }
   // ---- parts ----
   /** Make a part from modules: they move inside it, cables across the edge become its inputs and outputs, their main knobs its parameters; one use of it takes their place. */
   | { op: 'makePart'; ids: NodeId[]; name?: string; /** The part's id (default: from the name). */ id?: string; /** The use's node id. */ node?: NodeId }
@@ -105,7 +108,8 @@ export type ResolvedOp =
   | { op: 'removeAsset'; asset: AssetMeta }
   | { op: 'addPart'; part: PartDef }
   | { op: 'removePart'; part: PartDef }
-  | { op: 'setPart'; id: string; from: PartDef; to: PartDef };
+  | { op: 'setPart'; id: string; from: PartDef; to: PartDef }
+  | { op: 'setFile'; path: string; from: string | undefined; to: string | undefined };
 
 export { OpError } from './op-error.ts';
 
@@ -190,6 +194,13 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
     case 'addPart': doc.parts[op.part.id] = clone(op.part); break;
     case 'removePart': delete doc.parts[op.part.id]; break;
     case 'setPart': doc.parts[op.id] = clone(op.to); break;
+    case 'setFile': {
+      // A new files record every time: the base document is never written.
+      const files = { ...(doc.project?.files ?? {}) };
+      if (op.to === undefined) delete files[op.path]; else files[op.path] = op.to;
+      if (Object.keys(files).length) doc.project = { files }; else delete doc.project;
+      break;
+    }
   }
 }
 
@@ -213,6 +224,7 @@ export function invert(op: ResolvedOp): ResolvedOp {
     case 'addPart': return { op: 'removePart', part: op.part };
     case 'removePart': return { op: 'addPart', part: op.part };
     case 'setPart': return { ...op, from: op.to, to: op.from };
+    case 'setFile': return { ...op, from: op.to, to: op.from };
   }
 }
 
@@ -594,6 +606,27 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       draft.apply({ op: 'setField', node: node.id, field: 'spread', from: node.spread, to });
       return;
     }
+    case 'setProjectFiles': {
+      if (!intent.files || typeof intent.files !== 'object' || Array.isArray(intent.files)) fail('bad-intent', 'files maps paths to text (null deletes a file).');
+      const current = draft.doc.project?.files ?? {};
+      const next: Record<string, string> = { ...current };
+      for (const [path, text] of Object.entries(intent.files)) {
+        const bad = checkProjectPath(path);
+        if (bad) fail('bad-file', bad);
+        if (text !== null && typeof text !== 'string') fail('bad-file', `${path}: a file is text (or null to delete it).`);
+        if (text === null) delete next[path]; else {
+          if (byteLength(text) > PROJECT_LIMITS.fileBytes) fail('too-large', `${path} is larger than ${PROJECT_LIMITS.fileBytes / 1024} KB.`);
+          next[path] = text;
+        }
+      }
+      if (Object.keys(next).length > PROJECT_LIMITS.files) fail('too-large', `The screen project is limited to ${PROJECT_LIMITS.files} files.`);
+      if (projectBytes(next) > PROJECT_LIMITS.totalBytes) fail('too-large', `The screen project is limited to ${PROJECT_LIMITS.totalBytes / 1024 / 1024} MB of sources.`);
+      for (const path of Object.keys(intent.files).sort()) {
+        const from = current[path], to = next[path];
+        if (from !== to) draft.apply({ op: 'setFile', path, from, to });
+      }
+      return;
+    }
     case 'setBrief': {
       if (intent.brief !== null && typeof intent.brief !== 'string') fail('bad-intent', 'brief is text (or null to remove it).');
       const text = typeof intent.brief === 'string' ? intent.brief.trim() : '';
@@ -604,7 +637,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.');
   }
 }
 
@@ -657,7 +690,7 @@ function leaveStack(draft: Draft, ids: readonly string[]) {
   if (ui.order.some(id => ids.includes(id))) draft.apply({ op: 'setUi', field: 'order', from: ui.order, to: ui.order.filter(id => !ids.includes(id)) });
   if (Object.values(ui.groups).some(m => m.some(id => ids.includes(id)))) draft.apply({ op: 'setUi', field: 'groups', from: ui.groups, to: withoutMembers(ui.groups, ids) });
 }
-const ELEMENT_STEM: Record<ElementKind, string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas' };
+const ELEMENT_STEM: Record<ElementKind, string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas', code: 'code' };
 function addElement(draft: Draft, spec: NewElement, created: string[]) {
   if (!spec || typeof spec !== 'object') fail('bad-intent', 'addElement needs element {kind, rect, ...}.');
   if (Object.keys(draft.doc.ui.elements).length >= LIMITS.elements) fail('too-large', `A plugin holds at most ${LIMITS.elements} elements.`);

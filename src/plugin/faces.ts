@@ -20,7 +20,7 @@ import type { Rect } from './spec.ts';
 
 export class FaceError extends Error { constructor(message: string) { super(message); this.name = 'FaceError'; } }
 
-const STEM: Record<UiElement['kind'], string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas' };
+const STEM: Record<UiElement['kind'], string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas', code: 'code' };
 
 function requireUse(doc: PatchDocument, id: string): PatchNode & { part: string } {
   const use = doc.nodes[id];

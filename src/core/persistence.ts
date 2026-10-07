@@ -11,6 +11,7 @@ import { CONTROL_OF } from './skins.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
 import { checkFace } from './face.ts';
 import { partInterface, readParamRange } from './parts.ts';
+import { readProject } from './project.ts';
 import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
 /** Exports carry their pictures and fonts inside, so they can be large. */
@@ -179,6 +180,8 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (finite(data.panel.height) && data.panel.height >= 80) doc.panel.height = Math.min(4000, data.panel.height);
   }
   if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
+  const project = readProject(data.project, report);
+  if (project) doc.project = project;
   if (!Object.keys(doc.parts).length) return { ok: true, doc, report, assetData };
   // Parts: inputs, outputs and parameters follow what is inside; parts nothing uses are dropped (as after any edit).
   try {
@@ -285,5 +288,5 @@ export function readSaveRecord(record: unknown, catalog: Catalog): ParseResult {
 
 /** Structural identity used to check export → import round trips. */
 export function documentHash(doc: PatchDocument): string {
-  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name, ui: doc.ui, assets: doc.assets, parts: doc.parts }));
+  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name, ui: doc.ui, assets: doc.assets, parts: doc.parts, project: doc.project ?? null }));
 }

@@ -1,0 +1,23 @@
+{
+  "name": "den-kit-screen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "7.3.6"
+  },
+  "overrides": {
+    "esbuild": "npm:esbuild-wasm@0.28.2",
+    "rollup": "npm:@rollup/wasm-node@4.64.2"
+  }
+}
