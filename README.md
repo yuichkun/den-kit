@@ -4,6 +4,7 @@ den のブロックを Bitwig Grid のようにパッチングし、そのグラ
 
 - CP1（AI なしのパッチング環境）、CP2a（AI の速い経路：語彙表と Jev）、CP2b（LLM の経路：Codex と聴くツール）、U1（作業画面の立て直し：右の AI パネル、選ばせない AI、キーボード操作、Plugin ビューとフルスクリーン、スタート画面）が、この README の手順で動きます。
 - U3（プラグインの画面づくり）：見た目（色・フォント・背景・部品のスキン・CSS）、飾り（文字・図形・画像・SVG・ランプ）、自分で描く部品（キャンバス）、画像などの素材、Figma に近い編集操作、作品集 10 本。下の「プラグインの画面をつくる（U3）」を見てください。
+- U6（AI の自由な環境）：ブラウザの中の Linux 環境（BrowserPod）に作品ごとの画面用 Web プロジェクトを置き、AI が bash・npm・TypeScript・ESLint・git をそのまま使って「コード部品」を作ります。プラグイン画面の上で動き、つまみを読んで動かせます。下の「AI の自由な環境（pod・U6）」を見てください。
 - U5（大きなもの・繰り返しの多いもの）：パッチ画面の操作（ドラッグで範囲選択、2 本指でパン、ピンチでズーム）、AI との会話の続きと選択の添付、パーツ（一度定義して何か所でも使う部品）、重ね（×N：1 つのモジュールやパーツを N 本並べる）、マイパーツ（パーツを保存して、ほかのパッチでも使う）、顔（パーツの画面をプラグインに出す、画面だけのパーツ）。作品集に、これらで作った Rainfall（雨粒のパーツ ×16）と Supersaw（ノコギリ波のパーツ ×7）を足しました。下の「パーツ（U5）」「重ね（×N）」「マイパーツ」「顔（パーツの画面）」を見てください。
 
 ## はじめかた（Mac）
@@ -393,6 +394,62 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 
 **AI と顔**：LLM は `updatePart` の `face` で顔をデザインし、`putFace` で使用ごとにプラグインへ出せます（同じ呼び出しの中で、作った顔をすぐ出せます）。`makeScreenPart` で飾りを画面だけのパーツにもできます。「パーツをプラグインで弾かせたいときは、つまみを 1 つずつ足さずに顔を出す」よう指示しています。kit_get_patch には、パーツごとに顔の中身（自前か既定か、つまみと飾りの数、大きさ）が出ます。
 
+## AI の自由な環境（pod・U6）
+
+den-kit の AI に、Claude Code と同じように自由に動ける環境を渡す試作です。ブラウザのタブの中で動く Linux 環境（BrowserPod）に、作品ごとの画面用 Web プロジェクト（Vite + TypeScript、ESLint、git）を置きます。AI はそこで bash、ファイルの読み書き、npm、tsc、eslint、git をそのまま使い、作った「コード部品」がプラグイン画面の上で動きます。サーバーも、あなたの Mac のファイルも使いません。
+
+**準備（初回だけ）**
+1. console.browserpod.io でキーを作り、`kit/.env` に `BROWSERPOD_API_KEY=…` の 1 行を足します（git には入りません）。
+   - BrowserPod はブラウザの中で起動するので、このキーは開発サーバー（`npm run kit:dev`）がページに渡します。ビルドしたファイルには入りません。Codex には渡しません。
+2. `npm run kit:dev` を起動し直します。ターミナルに `Pod → BrowserPod, key …` と出ます。
+3. Chrome で開いて音を始めると、初回だけ「pod チェック」が自動で走ります。結果は Project タブで見られます（下の「pod チェック」）。
+
+**Project タブ**（Patch・Plugin・Code の右）
+- 上の段：pod の状態（off → booting → syncing → installing → starting → ready）と、各段の所要時間（boot、書き込み、npm install、dev サーバー）。「Start the pod」で起動し、「Check the pod」でチェックします。
+- 左：画面プロジェクトのファイル。作品にまだプロジェクトがなければテンプレートを表示します（最初の変更で作品のものになります）。選んで編集し、`⌘S` で作品に入れます（`⌘Z` 1 回で戻ります）。`src/kit/controls.ts` は den-kit がパッチから作るファイルで、読み取り専用です。
+- 右：pod チェックの結果。
+- 下：pod のターミナル。あなた、AI、den-kit 自身のコマンドが、出力・終了コード・所要時間つきで並びます。入力欄から好きなコマンドを打てます（`npm run check`、`git log`、`npm install three` など）。コマンドで変わったファイルは、そのまま作品に入ります（あなたの 1 手として `⌘Z` で戻ります）。
+
+**コード部品**（プラグイン画面の新しい部品）
+- 画面プロジェクトの `src/parts/<名前>.ts` が 1 つの部品です。`part({ props, interactive, mount(root, kit) })` を書きます。
+  - `kit` から、パッチのつまみの値（`kit.value('knob1')`、`kit.norm`）、音（`kit.audio.level`・`wave`・`spectrum`）、見た目の色（CSS 変数 `--dk-*`）を読みます。
+  - `kit.set`・`kit.setNorm` でつまみを動かせます。1 回のドラッグが `⌘Z` 1 回分です。
+  - 詳しくは、テンプレートの `AGENTS.md` と `src/kit/index.ts`。
+- プラグイン画面では、pod の Vite 開発サーバーから、その部品のページを枠（iframe）で表示します。ファイルを変えると数秒で更新されます（Vite のライブリロード。届かなければ den-kit が読み直します）。
+- 編集モードで `⇧Space` →「Code part (web)」を選ぶと、波形を描く部品が置かれます。インスペクタには、部品が宣言した設定（色など）が出ます。「Open its file」で、Project タブでそのファイルを開きます。
+- 部品をクリックしたあとでも、`⌘Z` や鍵盤の PC キーは den-kit に届きます（部品が使わなかったキーを den-kit に渡します）。
+- 部品のエラーは、その枠の下に出ます。AI も `kit_look` と `kit_get_plugin` で読みます。
+
+**AI（LLM）と pod**
+- AI の道具に `kit_bash`（プロジェクトのフォルダで bash を実行し、出力と終了コードが返る）、`kit_read_file`、`kit_write_file` を足しました。
+- 指示文には次のことを書いてあります。
+  - シェルとファイルは pod にある。
+  - den-kit の部品で足りないときは、コード部品を書く。
+  - 最初に `AGENTS.md` を読む。
+  - `npm run check` と `npm run lint` を通し、`kit_look` で見る。
+- AI が変えたファイルは、その依頼の一部として作品に入ります（依頼全体が `⌘Z` 1 回）。依頼ごとに、pod の git にコミットします（`den-kit AI: …`）。
+- 試し方：Plugin 画面を見ながら、AI に「回るテープリールの部品を作って、カットオフのつまみで速さが変わるように」「three.js で、音に反応する 3D の球を背景に」などと頼みます。
+
+**pod チェック**（体感を数字にする）
+- 次の段を、それぞれ時間を測りながら行います。作品は変えません。
+  1. pod の起動（boot、プロジェクトの書き込み、npm install、dev サーバー）
+  2. bash・git・Node・npm
+  3. TypeScript（`npm run check`）
+  4. ESLint（`npm run lint`）
+  5. パッケージ 1 つの npm install（保存しない）
+  6. ビルド（`npm run build`）
+  7. git
+  8. コード部品の読み込み
+  9. 編集が部品に届くまで
+- 結果は「Copy」でテキストにできます。ブリッジのログ（`kit/.logs`）にも残ります。
+
+**知っておくこと**
+- 作品（パッチのファイル）が持つのは、プロジェクトのソースだけです。node_modules・dist・.git は pod の中にだけあります。pod のディスクは、このブラウザ（IndexedDB）に残ります。
+- BrowserPod の料金：起動中の pod 1 つにつき、1 時間 10 トークン（1 時間単位）。無料枠は月 10,000 トークンです。
+- 完成した作品を配るときは、`npm run build` で作った静的ファイルを使えば BrowserPod は要りません（Portal に出す想定）。この PoC には、その書き出しはまだありません。
+- ネイティブバイナリを持つ npm パッケージは、pod では動きません。esbuild と rollup は、テンプレートで WebAssembly 版に置き換えてあります。pod のネットワークは、npm や GitHub など許可された先だけです。
+- このクラウド環境にはキーがないため、本物の BrowserPod では試せていません。テストでは、BrowserPod と同じ口を持つ代役（`test/fakes/pod`）で、den-kit 側（ファイルの同期、コマンド、dev サーバー、コード部品の枠と通信、AI の道具）を確かめています。
+
 ## 仕組み（要点）
 
 - **パッチの形式**：パッチは JSON の文書です。変更はすべて「作者つきの型付き操作」（`src/core/ops.ts`）を通り、正確に元に戻せます。人も AI も同じ操作を使います。
@@ -400,6 +457,9 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 - **unworklet 0.4.1 での注意**：0.4.1 は式の DAG を展開してしまいます。そのため、2回以上読む信号と den ブロックへの入力は、サンプルごとに1回だけ一時スロットに書いてから読みます。
 - **den との一致**：スターター 5 本（bass、percussion、pad、chorus、rhythmic delay）はモジュールの組み合わせだけで作っています。オフライン描画では、den の `createInstrument` や `delayFx` とサンプル単位で一致します（`test/integration/equivalence.test.ts`）。音は CANDIDATE です。
 - **安全段**：リミッター → クリップの順に通します。NaN や暴走はプロセッサ内で検出して知らせます。その場合はミュートして状態をリセットします。
+- **pod**（`src/pod`）：den-kit は、pod と決まった口（`host.ts`：コマンドの実行、ファイル、ポータル）だけで話します。
+  - コマンドはスクリプトファイルとして実行し、最後に終了コードの目印の行を出させて読み取ります（BrowserPod の API は終了コードを返さないため）。
+  - 作品の文書が正本で、pod は作業台です。undo や読み込みは pod に書き戻し、コマンドのあとは pod から読み戻します。
 
 ## テスト
 
@@ -412,6 +472,9 @@ npm run kit:test   # unit（vitest）→ integration（実コンパイル・オ�
 - `test/fakes/codex` の模擬 Codex は、固定した CLI と同じ応答を返します。den-kit が送るメッセージをすべて検査し、筋書きどおりにツールを呼びます。
   - 本物の app-server をネットワークなしで動かして確かめた挙動に合わせてあります（`test/fakes/codex/README.md`）。
   - 落ちる、壊れた行、利用枠切れ、未サインイン、承認要求、質問、割り込みと中断などを再現します。
+- pod には、本物の BrowserPod を使いません（キーがないため）。
+  - `test/fakes/pod/fake-pod.ts`（テスト専用）は、このマシンの bash・git・Node・npm を、BrowserPod と同じ口で使える代役です。e2e では、AI がこの pod でコード部品を書き、本物の npm install・Vite・tsc・ESLint・git が動きます。
+  - `test/fakes/pod/mock-browserpod.ts` は、BrowserPod の API（3.4.0 の型定義）を、このマシンのプロセスとファイルで再現したものです。ドキュメントに書かれていない点は厳しい方に倒して（env は環境を置き換える、出力は文字の途中でも切れる、など）、den-kit の BrowserPod アダプタをそのまま通します。
 - `test/integration/codex-real-offline.test.ts` は、固定した本物の Codex バイナリを、ネットワークを遮断し未サインインの状態で起動します。den-kit が送るパラメータがそのまま受け付けられることを確かめます。モデルは呼びません。
 
 e2e には Chromium が必要です。手元にない場合は `npx playwright install chromium` で入れるか、`CHROMIUM_PATH` を指定してください。

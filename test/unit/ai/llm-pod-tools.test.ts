@@ -6,7 +6,7 @@ import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';
 import { LlmWorkspace, type PodAccess, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
-import { KIT_TOOL_NAMES, developerInstructions } from '../../../src/ai/llm-spec.ts';
+import { KIT_TOOL_NAMES, developerInstructions, toolDeadlineMs } from '../../../src/ai/llm-spec.ts';
 import { describePlugin, uiReference } from '../../../src/ai/plugin-tools.ts';
 import { checkPlugin } from '../../../src/plugin/checks.ts';
 import type { PartReport } from '../../../src/pod/pod-session.ts';
@@ -57,6 +57,15 @@ describe('pod tools: specs and instructions', () => {
     expect(text).toMatch(/kit_bash runs commands there/);
     expect(text).toMatch(/AGENTS\.md/);
     expect(uiReference('code')).toMatch(/src\/parts\/<name>\.ts/);
+  });
+  it('the bridge waits longer for the pod\'s tools: the pod may start first, and a command runs as long as it was given', () => {
+    expect(toolDeadlineMs('kit_get_patch', {}, 90_000)).toBe(90_000);
+    expect(toolDeadlineMs('kit_look', {}, 90_000)).toBe(90_000);
+    expect(toolDeadlineMs('kit_bash', { command: 'ls' }, 90_000)).toBe(120_000 + 600_000);
+    expect(toolDeadlineMs('kit_bash', { command: 'npm run build', timeout_s: 600 }, 90_000)).toBe(1_200_000);
+    expect(toolDeadlineMs('kit_bash', { command: 'x', timeout_s: 'soon' }, 90_000)).toBe(720_000);
+    expect(toolDeadlineMs('kit_write_file', {}, 90_000)).toBe(600_000);
+    expect(toolDeadlineMs('kit_read_file', null, 300)).toBe(600_000);
   });
 });
 

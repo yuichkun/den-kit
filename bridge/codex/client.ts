@@ -12,7 +12,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CodexStatus, LlmError, LlmEvent, LlmQuestion, ToolOutput } from '../../src/ai/protocol.ts';
-import { KIT_TOOLS, type ToolSpec } from '../../src/ai/llm-spec.ts';
+import { KIT_TOOLS, toolDeadlineMs, type ToolSpec } from '../../src/ai/llm-spec.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { RpcClosed, RpcError, RpcPeer, RpcTimeout } from './rpc.ts';
 import { codexHome, codexWorkdir, isProblem, LOGIN_COMMAND, resolveCodex, spawnAppServer, type AppServerProcess, type CodexCommand } from './process.ts';
@@ -522,7 +522,7 @@ export class CodexClient {
       turn.calls.delete(callId); this.calls.delete(callId);
       peer.respond(rpcId, failure('den-kit did not answer in time (is the editor tab still open?).'));
       this.stopTurn(turn.key, 'The editor did not answer a tool call in time.');
-    }, this.timeouts.toolMs);
+    }, toolDeadlineMs(params.tool, params.arguments, this.timeouts.toolMs));
     timer.unref?.();
     turn.calls.set(callId, { rpcId, timer, tool: params.tool, args: params.arguments });
     this.calls.set(callId, turn);

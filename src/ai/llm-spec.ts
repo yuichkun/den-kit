@@ -143,6 +143,22 @@ export const KIT_TOOLS: ToolSpec[] = [
 
 export const KIT_TOOL_NAMES = new Set(KIT_TOOLS.map(t => t.name));
 
+/** The pod may have to start first (on BrowserPod: boot, npm install, the dev server — minutes the first time). */
+const POD_START_MS = 10 * 60_000;
+/**
+ * How long the bridge waits for the editor to answer a tool call: `base` for den-kit's own tools; the pod's
+ * tools may start the pod first, and a command runs as long as it was given (timeout_s, up to 600 s).
+ */
+export function toolDeadlineMs(tool: string, args: unknown, base: number): number {
+  if (tool === 'kit_bash') {
+    const t = (args as { timeout_s?: unknown } | null)?.timeout_s;
+    const seconds = typeof t === 'number' && Number.isFinite(t) ? Math.min(600, Math.max(1, t)) : 120;
+    return Math.max(base, seconds * 1000 + POD_START_MS);
+  }
+  if (tool === 'kit_read_file' || tool === 'kit_write_file') return Math.max(base, POD_START_MS);
+  return base;
+}
+
 /** The rules the LLM works under; `blocks` is the catalogue summary from the browser. */
 export function developerInstructions(blocks: string): string {
   return `You edit a modular synthesizer patch in den-kit, a Bitwig-Grid-like environment whose patch compiles to an AudioWorklet. The user plays it live while you work.

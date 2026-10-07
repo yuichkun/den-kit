@@ -51,7 +51,9 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** git with an identity and no signing (the pod has no config of its own). */
 export const GIT = 'git -c user.name=den-kit -c user.email=den-kit@localhost -c init.defaultBranch=main -c commit.gpgsign=false';
 const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`;
-const binary = (text: string) => text.includes('\u0000') || text.includes('�');
+const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
+/** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
+const shown = (path: string) => path.startsWith('src/') || path.startsWith('public/') || path === 'index.html';
 
 export class PodSession {
   readonly state = ref<PodState>('off');
@@ -166,11 +168,11 @@ export class PodSession {
       if (this.known.get(path) === text) continue;
       await host.writeFile(`${this.projectDir}/${path}`, text);
       this.known.set(path, text);
-      changed = true;
+      if (shown(path)) changed = true;
       if (path === 'package.json') packageChanged = true;
     }
     const gone = [...this.known.keys()].filter(p => !wanted.has(p));
-    if (gone.length) { await host.run(`rm -f -- ${gone.map(q).join(' ')}`, { cwd: this.projectDir, timeoutMs: 60_000 }); for (const p of gone) this.known.delete(p); changed = true; }
+    if (gone.length) { await host.run(`rm -f -- ${gone.map(q).join(' ')}`, { cwd: this.projectDir, timeoutMs: 60_000 }); for (const p of gone) this.known.delete(p); if (gone.some(shown)) changed = true; }
     this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
     if (!first && packageChanged) await this.install(false).catch(() => undefined);
     if (!first && changed) this.reloads.value++;
@@ -209,7 +211,7 @@ export class PodSession {
         if (base[path] !== text) files[path] = text;
       }
       for (const path of Object.keys(base)) if (!seen.has(path)) { files[path] = null; this.known.delete(path); }
-      if (Object.keys(files).length) this.reloads.value++;
+      if (Object.keys(files).some(shown)) this.reloads.value++;
       return { files, skipped };
     });
   }
