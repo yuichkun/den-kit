@@ -37,8 +37,8 @@ const tileColor = (d: Tile) => d.type.startsWith('mine:') ? '#ffd27a' : d.type.s
 const tileName = (d: Tile) => d.type.startsWith('mine:') ? `★ ${d.title}` : d.type.startsWith('part:') ? `◇ ${d.title}` : d.title;
 // ---- My parts: files and removing ----
 const file = ref<HTMLInputElement | null>(null);
-function exportMine() {
-  const blob = new Blob([session.exportMyParts()], { type: 'application/json' });
+async function exportMine() {
+  const blob = new Blob([await session.exportMyParts()], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'my-parts.denkit-parts.json';

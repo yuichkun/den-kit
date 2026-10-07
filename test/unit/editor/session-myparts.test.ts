@@ -85,10 +85,10 @@ describe('My parts in the session', () => {
     expect({ ...other.doc.value, revision: 0 }).toEqual({ ...before, revision: 0 });
     expect(other.updateFromMyParts('nope').ok).toBe(false);
   });
-  it('files carry My parts; a broken file is refused; removing takes one out', () => {
+  it('files carry My parts; a broken file is refused; removing takes one out', async () => {
     const { session } = withTone();
     session.saveToMyParts('tone');
-    const text = session.exportMyParts();
+    const text = await session.exportMyParts();
     const fresh = makeSession(memoryStorage());
     expect(fresh.importMyParts(text)).toMatchObject({ ok: true, message: 'My parts: added 1.' });
     expect(fresh.importMyParts(text)).toMatchObject({ ok: true, message: 'Nothing new in that file.' });

@@ -7,10 +7,11 @@ import { createsCycle } from './scope.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox.ts';
 import { addParam, checkPlacement, detachPart, importPart, makePart, removeParam, replacePart, syncParts, syncPorts, unpackPart, updatePart } from './part-ops.ts';
+import { faceAssetUses } from './face.ts';
 import { partInterface } from './parts.ts';
 import {
   MAX_COUNT, NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
-  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PartDef, type PatchDocument, type PatchEdge, type PatchNode,
+  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PartDef, type PartFace, type PatchDocument, type PatchEdge, type PatchNode,
   type PortId, type PortRef, type PortSpec, type Spread, type ThemeId, type Value, type XY,
 } from './schema.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
@@ -69,7 +70,7 @@ export type Intent =
   /** Give this use its own copy of the part (edits inside then change only it). */
   | { op: 'detachPart'; node: NodeId; name?: string }
   /** Rename or describe a part; relabel its inputs, outputs and parameters (null clears a label); record where it stands with My parts. */
-  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null }
+  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null; /** Its own screen (null: back to the default face). */ face?: PartFace | null }
   /** Place a part from My parts: its definition (and the parts inside it) come in with one use. `ids` pins the ids it gets (default: its own where free). */
   | { op: 'importPart'; bundle: unknown; from?: PartDef['from']; node?: NodeId; pos?: XY; inside?: string; ids?: { parts?: Record<string, string>; nodes?: Record<string, string> } }
   /** Put another version of a part in place of what is inside it now (from My parts); its uses keep their values where the knob is still there. */
@@ -476,7 +477,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       const ids = [...new Set(intent.ids ?? [])];
       const stack = new Set(stackIds(draft));
       for (const id of ids) if (!stack.has(id)) fail('unknown-id', `"${id}" is not on the plugin.`);
-      if (ids.length < 2) fail('bad-intent', 'A group needs two or more things.');
+      // A part's face (`<use>Face`) is a group even when it is one control.
+      if (ids.length < (typeof intent.id === 'string' && /Face$/.test(intent.id) ? 1 : 2)) fail('bad-intent', 'A group needs two or more things.');
       const id = intent.id ?? nextNodeId(draft.doc, 'group');
       if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Group id "${id}" must match ${NODE_ID_PATTERN}.`);
       if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
@@ -544,8 +546,9 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'removeAsset': {
       const old = draft.doc.assets[intent.id];
       if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
-      const uses = assetUses(draft.doc.ui, Object.values(draft.doc.nodes).map(n => [n.id, n.style] as [string, WidgetStyle | undefined])).get(intent.id);
-      if (uses?.length) fail('asset-in-use', `Asset "${intent.id}" is used by ${[...new Set(uses)].join(', ')}.`, 'Remove or change those first.');
+      const uses = [...assetUses(draft.doc.ui, Object.values(draft.doc.nodes).map(n => [n.id, n.style] as [string, WidgetStyle | undefined])).get(intent.id) ?? []];
+      for (const def of Object.values(draft.doc.parts)) if (def.face && faceAssetUses(def.face).has(intent.id)) uses.push(`${def.name}'s face`);
+      if (uses.length) fail('asset-in-use', `Asset "${intent.id}" is used by ${[...new Set(uses)].join(', ')}.`, 'Remove or change those first.');
       draft.apply({ op: 'removeAsset', asset: old! });
       return;
     }
@@ -643,7 +646,8 @@ function withoutMembers(groups: PluginUi['groups'], ids: readonly string[]): Plu
   const out: PluginUi['groups'] = {};
   for (const [g, members] of Object.entries(groups)) {
     const kept = members.filter(m => !ids.includes(m));
-    if (kept.length >= 2) out[g] = kept;
+    // A group that lost members dissolves below two; a part's face (`<use>Face`) stays while anything of it is left.
+    if (kept.length >= 2 || (kept.length > 0 && (kept.length === members.length || /Face$/.test(g)))) out[g] = kept;
   }
   return out;
 }

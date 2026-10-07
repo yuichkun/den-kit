@@ -7,7 +7,10 @@ import { currentValues, generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
 import { applyIntents, isStructural, OpError, replaceOps, type Intent, type ResolvedOp } from '../core/ops.ts';
 import { emptyDocument, randomId, type PatchDocument, type XY } from '../core/schema.ts';
-import { bundleHash, diffBundles, emptyLibrary, extractBundle, latest, mergeLibrary, parseLibrary, removeFromLibrary, saveToLibrary, serializeLibrary, versionOf, type BundleDiff, type Library, type MyPart, type MyPartVersion } from '../core/library.ts';
+import { faceGroup } from '../core/face.ts';
+import { usesOf } from '../core/parts.ts';
+import { FaceError, faceFromPlugin, faceIntents, faceOnPlugin, screenPartIntents } from '../plugin/faces.ts';
+import { bundleHash, diffBundles, emptyLibrary, extractBundle, latest, libraryAssets, mergeLibrary, parseLibrary, removeFromLibrary, saveToLibrary, serializeLibrary, versionOf, type BundleDiff, type Library, type MyPart, type MyPartVersion } from '../core/library.ts';
 import { validate } from '../core/validate.ts';
 import type { Issue } from '../core/issues.ts';
 import { starter, type StarterId } from '../core/starters.ts';
@@ -199,6 +202,13 @@ export class KitSession {
     const intents: Intent[] = here
       ? [{ op: 'addNode', node: { type: 'kit.part', part: here.id, pos: options.pos, inside: options.inside } }]
       : [{ op: 'importPart', bundle: last.bundle, from: { id, version: last.version, hash: bundleHash(last.bundle) }, pos: options.pos, inside: options.inside }];
+    // A screen part (nothing inside but its face) is for the plugin: its face goes there at once.
+    if (!Object.keys(last.bundle.nodes).length && options.inside === undefined) {
+      try {
+        const placed = applyIntents(this.doc.value, intents, catalog);
+        intents.push(...faceIntents(placed.doc, catalog, placed.created[0]!).intents);
+      } catch { /* placing it says what is wrong */ }
+    }
     const r = this.commit(intents, { label: `Place ${entry.name}` });
     return r.ok ? { ok: true, created: r.created } : { ok: false, message: r.error.message };
   }
@@ -213,14 +223,84 @@ export class KitSession {
     if (!this.myParts.value.parts[id]) return false;
     return this.storeMyParts(removeFromLibrary(this.myParts.value, id));
   }
-  exportMyParts(ids?: readonly string[]): string { return serializeLibrary(this.myParts.value, ids); }
+  /** My parts as a file, with the pictures and fonts their faces use inside (so it opens on another machine). */
+  async exportMyParts(ids?: readonly string[]): Promise<string> {
+    const assetData: Record<string, string> = {};
+    for (const asset of libraryAssets(this.myParts.value, ids)) {
+      let data: string | null = null;
+      try { data = await this.assets.dataUrl(asset); } catch { /* said below */ }
+      if (data) assetData[asset.id] = data; else this.toast('warn', `"${asset.name}" is missing; the file only names it.`);
+    }
+    return serializeLibrary(this.myParts.value, ids, { assetData });
+  }
   importMyParts(text: string): { ok: boolean; message: string; report: Issue[] } {
     const read = parseLibrary(text, catalog);
     if (!read.ok) return { ok: false, message: read.error, report: [] };
     const merged = mergeLibrary(this.myParts.value, read.library);
     if (!this.storeMyParts(merged.library)) return { ok: false, message: 'My parts could not be saved: the browser storage is full.', report: read.report };
+    const carried = Object.entries(read.assetData);
+    if (carried.length) void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(() => this.syncAssets(), () => this.toast('warn', 'Some pictures in that file could not be kept.'));
     const bits = [merged.added.length ? `added ${merged.added.length}` : '', merged.updated.length ? `new versions of ${merged.updated.length}` : ''].filter(Boolean);
     return { ok: true, message: bits.length ? `My parts: ${bits.join(', ')}.` : 'Nothing new in that file.', report: read.report };
+  }
+
+  // ---- Faces: a part's own screen on the plugin -------------------------------------------
+  /** Put the face of a use on the plugin (in place of the one there, if any). */
+  putFace(useId: string, at?: { x: number; y: number }): { ok: boolean; message: string } {
+    let made;
+    try { made = faceIntents(this.doc.value, catalog, useId, { at }); }
+    catch (error) { if (error instanceof FaceError) return { ok: false, message: error.message }; throw error; }
+    const r = this.commit(made.intents, { label: `Face of ${useId} on the plugin` });
+    if (!r.ok) return { ok: false, message: r.error.message };
+    return { ok: true, message: made.notes.length ? made.notes.join(' ') : `The face of ${useId} is on the plugin.` };
+  }
+  /**
+   * Make a part's face from controls and decorations on the plugin (`ids`, the
+   * controls wired to `useId`'s parameters); they become that use's face, and
+   * the other uses whose face is on the plugin take the new one where they are.
+   */
+  saveFace(useId: string, ids: readonly string[]): { ok: boolean; message: string } {
+    const doc = this.doc.value;
+    let taken;
+    try { taken = faceFromPlugin(doc, catalog, useId, ids); }
+    catch (error) { if (error instanceof FaceError) return { ok: false, message: error.message }; throw error; }
+    const def = doc.parts[doc.nodes[useId]!.part!]!;
+    const group = faceGroup(useId);
+    const intents: Intent[] = [{ op: 'updatePart', part: def.id, face: taken.face }];
+    const same = JSON.stringify([...(doc.ui.groups[group] ?? [])].sort()) === JSON.stringify([...taken.members].sort());
+    if (!same) {
+      if (doc.ui.groups[group]) intents.push({ op: 'ungroup', id: group });
+      if (taken.members.length) intents.push({ op: 'group', ids: taken.members, id: group });
+    }
+    let after: PatchDocument;
+    try { after = applyIntents(doc, intents, catalog).doc; }
+    catch (error) { if (error instanceof OpError) return { ok: false, message: error.message }; throw error; }
+    const others: string[] = [];
+    for (const other of usesOf(after, def.id)) {
+      if (other.id === useId || !faceOnPlugin(after, other.id).length) continue;
+      const made = faceIntents(after, catalog, other.id);
+      intents.push(...made.intents);
+      after = applyIntents(after, made.intents, catalog).doc;
+      others.push(other.id);
+    }
+    const r = this.commit(intents, { label: `Face of ${def.name}` });
+    if (!r.ok) return { ok: false, message: r.error.message };
+    const notes = taken.notes.length ? ` ${taken.notes.join(' ')}` : '';
+    return { ok: true, message: `${def.name}'s face: ${taken.face.controls.length} control${taken.face.controls.length === 1 ? '' : 's'}, ${taken.face.elements.length} decoration${taken.face.elements.length === 1 ? '' : 's'}${others.length ? `; updated on ${others.join(', ')}` : ''}.${notes}` };
+  }
+
+  /**
+   * A part that is only a screen: these decorations on the plugin become its
+   * face (to keep in My parts and put on other plugins). Its use sits in the
+   * main patch; the decorations become that use's face on the plugin.
+   */
+  makeScreenPart(ids: readonly string[], name?: string): { ok: boolean; message: string; use?: string } {
+    let made;
+    try { made = screenPartIntents(this.doc.value, ids, name); }
+    catch (error) { if (error instanceof FaceError) return { ok: false, message: error.message }; throw error; }
+    const r = this.commit(made.intents, { label: `Screen part ${made.name}` });
+    if (!r.ok) return { ok: false, message: r.error.message };
+    return { ok: true, message: `Made the screen part “${made.name}” (${made.use}); save it to My parts to put it on other plugins.${made.notes.length ? ` ${made.notes.join(' ')}` : ''}`, use: made.use };
   }
 
   // ---- Parts: going inside, hearing one alone -----------------------------------------

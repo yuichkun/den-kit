@@ -8,7 +8,9 @@ import { NODE_ID_PATTERN, PART_ID_PATTERN, PORT_ID_PATTERN, clone, type EdgeId, 
 import { canonicalJson, hashString } from './hash.ts';
 import type { Catalog } from './catalog.ts';
 import type { Issue } from './issues.ts';
-import { membersOf, partIdFor } from './parts.ts';
+import { checkFace, faceAssetUses } from './face.ts';
+import { MAX_ASSET_BYTES, checkAsset, type AssetMeta } from './ui.ts';
+import { membersOf, partIdFor, partInterface } from './parts.ts';
 
 export const LIBRARY_SCHEMA = 'den-kit/my-parts';
 export const LIBRARY_VERSION = 1;
@@ -22,6 +24,8 @@ export interface PartBundle {
   parts: Record<string, PartDef>;
   nodes: Record<NodeId, PatchNode>;
   edges: Record<EdgeId, PatchEdge>;
+  /** The pictures and fonts its faces use (what they are; the bytes stay in this browser's store, and go inside exported files). */
+  assets?: Record<string, AssetMeta>;
 }
 export interface MyPartVersion { version: number; savedAt: number; bundle: PartBundle }
 export interface MyPart { id: string; name: string; doc?: string; versions: MyPartVersion[] }
@@ -57,7 +61,9 @@ export function extractBundle(doc: PatchDocument, defId: string): PartBundle {
   for (const e of Object.values(doc.edges).sort(byId)) if (nodes[e.from.node] && nodes[e.to.node]) edges[e.id] = clone(e);
   const part = clone(root);
   delete part.from;
-  return { part, parts, nodes, edges };
+  const assets: Record<string, AssetMeta> = {};
+  for (const def of [part, ...Object.values(parts)]) if (def.face) for (const id of faceAssetUses(def.face).keys()) if (doc.assets[id]) assets[id] = clone(doc.assets[id]!);
+  return { part, parts, nodes, edges, ...(Object.keys(assets).length ? { assets } : {}) };
 }
 
 /**
@@ -78,7 +84,7 @@ export function bundleHash(bundle: PartBundle): string {
   const nn = (id: string) => nodeName.get(id) ?? `?${id}`;
   const portRefs = (list: Array<PartPort | PartParam>) => list.map(p => ({ ...p, node: nn(p.node) }));
   const shape = {
-    defs: defs.map(d => ({ id: pn(d.id), name: d.name, doc: d.doc ?? null, inputs: portRefs(d.inputs), outputs: portRefs(d.outputs), params: portRefs(d.params) })),
+    defs: defs.map(d => ({ id: pn(d.id), name: d.name, doc: d.doc ?? null, inputs: portRefs(d.inputs), outputs: portRefs(d.outputs), params: portRefs(d.params), face: d.face ?? null })),
     nodes: Object.values(bundle.nodes).map(n => { const { pos: _p, id, inside, part, ...rest } = n; return { ...rest, id: nn(id), inside: pn(inside), part: pn(part) }; }).sort((a, b) => a.id.localeCompare(b.id)),
     edges: Object.values(bundle.edges).map(e => `${nn(e.from.node)}.${e.from.port}>${nn(e.to.node)}.${e.to.port}`).sort(),
   };
@@ -178,14 +184,17 @@ export function checkBundle(raw: unknown, catalog: Catalog): PartBundle | string
     if (typeof v.doc === 'string' && v.doc.trim()) def.doc = v.doc.trim().slice(0, 600);
     return def;
   };
+  const faces = new Map<string, unknown>();
   const root = readDef(raw.part);
   if (typeof root === 'string') return root;
+  if ((raw.part as Record<string, unknown>).face !== undefined) faces.set(root.id, (raw.part as Record<string, unknown>).face);
   const parts: Record<string, PartDef> = {};
   if (raw.parts !== undefined && !isObject(raw.parts)) return 'parts must be an object';
   for (const [key, v] of Object.entries(raw.parts ?? {})) {
     const def = readDef(v, key);
     if (typeof def === 'string') return def;
     if (def.id === root.id) return `part ${def.id} is used inside itself`;
+    if (isObject(v) && v.face !== undefined) faces.set(key, v.face);
     parts[key] = def;
   }
   const defs = new Map<string, PartDef>([[root.id, root], ...Object.entries(parts)]);
@@ -223,24 +232,48 @@ export function checkBundle(raw: unknown, catalog: Catalog): PartBundle | string
     if (a.inside !== b.inside) return `cable ${key} crosses the edge of a part`;
     edges[key] = { id: key, from: { node: v.from.node, port: v.from.port }, to: { node: v.to.node, port: v.to.port } };
   }
-  return { part: root, parts, nodes, edges };
+  // Faces are checked against each part's parameters (pictures they use may be missing here: kept, said when the face is put on the plugin).
+  const here = { nodes, edges, parts: { ...parts, [root.id]: root } } as unknown as PatchDocument;
+  for (const [id, face] of faces) {
+    const def = id === root.id ? root : parts[id]!;
+    try { def.face = checkFace(face, def, partInterface(here, catalog, def).inputs, { assets: {}, lenient: true }); }
+    catch (error) { return `part ${id}: its face cannot be read (${error instanceof Error ? error.message : String(error)})`; }
+  }
+  // What the faces' pictures and fonts are (one that cannot be read stays behind; putting the face says so).
+  const assets: Record<string, AssetMeta> = {};
+  if (isObject(raw.assets)) for (const [key, v] of Object.entries(raw.assets)) {
+    try { const a = checkAsset(isObject(v) ? Object.fromEntries(Object.entries(v).filter(([k]) => k !== 'data')) : v); if (a.id === key) assets[key] = a; }
+    catch { /* left behind */ }
+  }
+  return { part: root, parts, nodes, edges, ...(Object.keys(assets).length ? { assets } : {}) };
 }
 
 // ---- files and storage -------------------------------------------------------------------
 
-export function serializeLibrary(library: Library, ids?: readonly string[]): string {
-  const parts = ids ? Object.fromEntries(ids.filter(id => library.parts[id]).map(id => [id, library.parts[id]!])) : library.parts;
+/** My parts as JSON. With `assetData` (data: URLs by asset id) the faces' pictures and fonts travel inside (a file for another machine). */
+export function serializeLibrary(library: Library, ids?: readonly string[], options: { assetData?: Readonly<Record<string, string>> } = {}): string {
+  let parts = ids ? Object.fromEntries(ids.filter(id => library.parts[id]).map(id => [id, library.parts[id]!])) : library.parts;
+  const data = options.assetData;
+  if (data) parts = Object.fromEntries(Object.entries(parts).map(([id, entry]) => [id, { ...entry, versions: entry.versions.map(v => v.bundle.assets ? { ...v, bundle: { ...v.bundle, assets: Object.fromEntries(Object.entries(v.bundle.assets).map(([a, meta]) => [a, data[a] ? { ...meta, data: data[a] } : meta])) } } : v) }]));
   return JSON.stringify({ schema: LIBRARY_SCHEMA, version: LIBRARY_VERSION, parts }, null, 2) + '\n';
 }
+/** The pictures and fonts the faces in `library` use (to put inside an exported file). */
+export function libraryAssets(library: Library, ids?: readonly string[]): AssetMeta[] {
+  const out = new Map<string, AssetMeta>();
+  for (const entry of Object.values(library.parts)) if (!ids || ids.includes(entry.id)) for (const v of entry.versions) for (const a of Object.values(v.bundle.assets ?? {})) out.set(a.id, a);
+  return [...out.values()];
+}
+const DATA_URL = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/;
 
 /** Read My parts (from storage or a file): what can be read is kept, the rest reported. */
-export function parseLibrary(input: string | unknown, catalog: Catalog): { ok: true; library: Library; report: Issue[] } | { ok: false; error: string } {
+export function parseLibrary(input: string | unknown, catalog: Catalog): { ok: true; library: Library; report: Issue[]; assetData: Record<string, string> } | { ok: false; error: string } {
   let data: unknown = input;
   if (typeof input === 'string') { try { data = JSON.parse(input); } catch (error) { return { ok: false, error: `Not valid JSON: ${error instanceof Error ? error.message : String(error)}` }; } }
   if (!isObject(data) || data.schema !== LIBRARY_SCHEMA) return { ok: false, error: 'Not a den-kit My parts file.' };
   if (!Number.isInteger(data.version) || (data.version as number) > LIBRARY_VERSION || (data.version as number) < 1) return { ok: false, error: `This My parts file is version ${String(data.version)}; this den-kit reads version ${LIBRARY_VERSION}.` };
   const report: Issue[] = [];
   const library = emptyLibrary();
+  const assetData: Record<string, string> = {}, unreadable = new Set<string>();
   for (const [key, raw] of Object.entries(isObject(data.parts) ? data.parts : {})) {
     if (!isObject(raw) || !PART_ID_PATTERN.test(key) || !Array.isArray(raw.versions)) { report.push({ severity: 'warning', code: 'dropped-my-part', message: `Dropped My part "${key}": it cannot be read.` }); continue; }
     const versions: MyPartVersion[] = [];
@@ -248,6 +281,14 @@ export function parseLibrary(input: string | unknown, catalog: Catalog): { ok: t
       if (!isObject(v) || !Number.isInteger(v.version) || (v.version as number) < 1 || versions.some(x => x.version === v.version)) { report.push({ severity: 'warning', code: 'dropped-version', message: `My part "${key}": dropped a version that cannot be read.` }); continue; }
       const bundle = checkBundle(v.bundle, catalog);
       if (typeof bundle === 'string') { report.push({ severity: 'warning', code: 'dropped-version', message: `My part "${key}" v${v.version}: ${bundle}.` }); continue; }
+      // Bytes a file carried for the faces' pictures (checked like a patch file's).
+      for (const asset of Object.values(bundle.assets ?? {})) {
+        const carried = isObject(v.bundle) && isObject(v.bundle.assets) && isObject(v.bundle.assets[asset.id]) ? (v.bundle.assets[asset.id] as Record<string, unknown>).data : undefined;
+        if (carried === undefined || assetData[asset.id] || unreadable.has(asset.id)) continue;
+        const bytes = typeof carried === 'string' ? DATA_URL.exec(carried) : null;
+        if (bytes && bytes[1] === asset.mime && bytes[2]!.length * 0.75 <= MAX_ASSET_BYTES * 1.01) assetData[asset.id] = carried as string;
+        else { unreadable.add(asset.id); report.push({ severity: 'warning', code: 'dropped-asset-data', message: `My part "${key}": the picture data of "${asset.name}" was unreadable; it shows as missing until added again.` }); }
+      }
       versions.push({ version: v.version as number, savedAt: typeof v.savedAt === 'number' && Number.isFinite(v.savedAt) ? v.savedAt : 0, bundle });
     }
     if (!versions.length) { report.push({ severity: 'warning', code: 'dropped-my-part', message: `Dropped My part "${key}": none of its versions can be used.` }); continue; }
@@ -255,7 +296,7 @@ export function parseLibrary(input: string | unknown, catalog: Catalog): { ok: t
     const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 60) : versions.at(-1)!.bundle.part.name;
     library.parts[key] = { id: key, name, ...(typeof raw.doc === 'string' && raw.doc.trim() ? { doc: raw.doc.trim().slice(0, 600) } : {}), versions: versions.slice(-KEEP_VERSIONS) };
   }
-  return { ok: true, library, report };
+  return { ok: true, library, report, assetData };
 }
 
 /** Add what a file brought: new parts as they are; versions of a part already here after its own (the same content is not added twice). */

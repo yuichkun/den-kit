@@ -308,7 +308,7 @@ export function describeOps(ops: Intent[], created: string[]): string {
       case 'addParam': return `◆ ${o.node}.${o.port}`;
       case 'removeParam': return `− ◆ ${o.id}`;
       case 'updatePart': return `part ${o.name ?? o.part}`;
-      case 'importPart': return `+ ${(o.bundle as { part?: { name?: string } })?.part?.name ?? 'part'} from My parts`;
+      case 'importPart': return `+ ${(o.bundle as { part?: { name?: string } })?.part?.name ?? 'part'}${o.from ? ' from My parts' : ''}`;
       case 'replacePart': return `update ${o.part}`;
       case 'setCount': return `${o.node} ×${o.count}`;
       case 'setSpread': return `${o.node}.${o.port} ${o.spread ? `spread ${o.spread.kind}` : 'same in every copy'}`;

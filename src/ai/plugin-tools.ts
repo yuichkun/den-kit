@@ -5,7 +5,8 @@
 // workspace (llm-workspace.ts) calls them.
 import type { Catalog } from '../core/catalog.ts';
 import type { Transaction } from '../core/history.ts';
-import { OpError, type Intent } from '../core/ops.ts';
+import { OpError, applyIntents, type Intent } from '../core/ops.ts';
+import { FaceError, faceIntents, screenPartIntents } from '../plugin/faces.ts';
 import type { PatchDocument, XY } from '../core/schema.ts';
 import { bundleHash, latest, type Library } from '../core/library.ts';
 import { bundleIds } from '../core/part-ops.ts';
@@ -224,6 +225,39 @@ export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[], 
         for (const i of made.intents) { intents.push(i); origin.push(at); }
       } catch (error) {
         if (error instanceof ControlError) throw new OpError(error.message, at, 'bad-control', 'addControl is {"op":"addControl","for":{"node":"filter1","port":"cutoff"},"type"?:"ui.knob"|"ui.slider"|"ui.toggle"|"ui.button","label"?,"panel"?,"style"?,"id"?}.');
+        throw error;
+      }
+      return;
+    }
+    if (op.op === 'putFace') {
+      // On the patch as the edits before it leave it (a face just changed, a use just placed).
+      let here = doc;
+      if (intents.length) { try { here = applyIntents(doc, intents, catalog).doc; } catch { /* the edit itself will say what is wrong */ } }
+      try {
+        const place = op.at && typeof op.at === 'object' ? op.at as { x: number; y: number } : undefined;
+        const made = faceIntents(here, catalog, String(op.node ?? ''), { at: place, taken: ids });
+        for (const i of made.intents) {
+          intents.push(i); origin.push(at);
+          if (i.op === 'addNode' && i.node.id) ids.add(i.node.id);
+          if (i.op === 'addElement' && typeof i.element.id === 'string') ids.add(i.element.id);
+        }
+        notes.push(...made.notes);
+      } catch (error) {
+        if (error instanceof FaceError) throw new OpError(error.message, at, 'bad-face', 'putFace is {"op":"putFace","node":"<a use of a part, in the main patch>","at"?:{"x":24,"y":96}}.');
+        throw error;
+      }
+      return;
+    }
+    if (op.op === 'makeScreenPart') {
+      let here = doc;
+      if (intents.length) { try { here = applyIntents(doc, intents, catalog).doc; } catch { /* the edit itself will say what is wrong */ } }
+      try {
+        const made = screenPartIntents(here, Array.isArray(op.ids) ? op.ids.map(String) : [], typeof op.name === 'string' ? op.name : undefined);
+        for (const i of made.intents) { intents.push(i); origin.push(at); }
+        ids.add(made.use);
+        notes.push(`${made.use} is the screen part “${made.name}” (part ${made.part}); its decorations are its face.`, ...made.notes);
+      } catch (error) {
+        if (error instanceof FaceError) throw new OpError(error.message, at, 'bad-face', 'makeScreenPart is {"op":"makeScreenPart","ids":["<decorations on the plugin>"],"name"?:"Logo"}.');
         throw error;
       }
       return;

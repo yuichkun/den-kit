@@ -4,8 +4,9 @@ import type { Catalog } from './catalog.ts';
 import { formatCpu } from './cost.ts';
 import { formatIssue, type Issue } from './issues.ts';
 import { copiesOf, describeSpread } from './stacks.ts';
+import { describeFace } from './face.ts';
 import type { Analysis } from './scope.ts';
-import { edgesFrom, edgesInto, type PatchDocument } from './schema.ts';
+import { edgesFrom, edgesInto, type PartDef, type PatchDocument } from './schema.ts';
 import { validate } from './validate.ts';
 
 const fmt = (v: unknown) => typeof v === 'number' ? String(Math.round(v * 10000) / 10000) : String(v);
@@ -58,10 +59,12 @@ export function describePatch(doc: PatchDocument, catalog: Catalog, options: Des
     return bits.join(' ');
   };
   for (const node of order(doc, analysis)) if (node.inside === undefined) lines.push(line(node));
+  // A part's face is described from its first use's ports (every use shows the same).
+  const faceText = (part: PartDef) => { const use = all.find(n => n.type === 'kit.part' && n.part === part.id); return describeFace(part, use ? catalog.inputs(use) : []); };
   for (const part of parts) {
     const uses = all.filter(n => n.type === 'kit.part' && n.part === part.id).map(n => n.inside ? `${n.id} (inside ${n.inside})` : n.id);
     const params = part.params.map(p => `${p.id}=${p.node}.${p.port}${p.label ? ` "${p.label}"` : ''}`);
-    lines.push(`Part ${part.id} "${part.name}"${part.from ? ` (from My parts: ${part.from.id} v${part.from.version})` : ''}${part.doc ? ` — ${part.doc}` : ''}. Used by: ${uses.join(', ') || 'nothing'}. Inputs: ${part.inputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Parameters: ${params.join(', ') || 'none'}. Outputs: ${part.outputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Inside (nodes with inside: "${part.id}"):`);
+    lines.push(`Part ${part.id} "${part.name}"${part.from ? ` (from My parts: ${part.from.id} v${part.from.version})` : ''}${part.doc ? ` — ${part.doc}` : ''}. Used by: ${uses.join(', ') || 'nothing'}. Inputs: ${part.inputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Parameters: ${params.join(', ') || 'none'}. Outputs: ${part.outputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Face: ${faceText(part)}. Inside (nodes with inside: "${part.id}"):`);
     for (const node of all.filter(n => n.inside === part.id)) lines.push(line(node, '  '));
   }
   if (options.includeIssues !== false) {

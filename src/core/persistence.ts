@@ -9,6 +9,8 @@ import { applyIntents } from './ops.ts';
 import { refreshInterfaces } from './part-ops.ts';
 import { CONTROL_OF } from './skins.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
+import { checkFace } from './face.ts';
+import { partInterface } from './parts.ts';
 import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
 /** Exports carry their pictures and fonts inside, so they can be large. */
@@ -126,12 +128,19 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     }
     doc.nodes[id] = node;
   }
-  readParts(data.parts, doc, report, rename);
+  const faces = readParts(data.parts, doc, report, rename);
   const orphans = Object.values(doc.nodes).filter(n => n.inside !== undefined && !doc.parts[n.inside]);
   for (const n of orphans) delete doc.nodes[n.id];
   if (orphans.length) report.push({ severity: 'warning', code: 'dropped-node', message: `Dropped ${orphans.length} node(s) inside a part the file does not define (${orphans.slice(0, 4).map(n => n.id).join(', ')}).` });
   refreshInterfaces(doc, catalog);
   for (const n of Object.values(doc.nodes)) if (n.type === 'kit.part') dropUnknownValues(n, catalog, report);
+  // Faces are checked once the parts' parameters are known.
+  for (const [id, raw] of faces) {
+    const def = doc.parts[id];
+    if (!def) continue;
+    try { def.face = checkFace(raw, def, partInterface(doc, catalog, def).inputs, { assets: doc.assets, lenient: true, warn: message => report.push({ severity: 'warning', code: 'face-reference', message }) }); }
+    catch (error) { report.push({ severity: 'warning', code: 'dropped-face', message: `Dropped the face of part "${id}": ${error instanceof Error ? error.message : String(error)}` }); }
+  }
   for (const [id, raw] of spreads) {
     const node = doc.nodes[id];
     if (!node) continue;
@@ -189,9 +198,10 @@ function dropUnknownValues(node: PatchNode, catalog: Catalog, report: Issue[]) {
 }
 
 /** Part definitions: what can be read is kept (node references follow renamed nodes), the rest reported. */
-function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Map<string, string>) {
-  if (raw === undefined) return;
-  if (!isObject(raw)) { report.push({ severity: 'warning', code: 'dropped-part', message: 'parts was not an object; no parts loaded.' }); return; }
+function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Map<string, string>): Map<string, unknown> {
+  const faces = new Map<string, unknown>();
+  if (raw === undefined) return faces;
+  if (!isObject(raw)) { report.push({ severity: 'warning', code: 'dropped-part', message: 'parts was not an object; no parts loaded.' }); return faces; }
   const ref = (id: unknown) => typeof id === 'string' ? rename.get(id) ?? id : '';
   for (const [key, value] of Object.entries(raw)) {
     if (!isObject(value) || !PART_ID_PATTERN.test(key)) { report.push({ severity: 'warning', code: 'dropped-part', message: `Dropped part "${key}": ${isObject(value) ? 'its id is invalid' : 'not an object'}.` }); continue; }
@@ -212,8 +222,10 @@ function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Ma
     const def: PartDef = { id: key, name: typeof value.name === 'string' && value.name.trim() ? value.name.trim().slice(0, 60) : key, inputs, outputs: ports(value.outputs), params };
     if (typeof value.doc === 'string' && value.doc.trim()) def.doc = value.doc.trim().slice(0, 600);
     if (isObject(value.from) && typeof value.from.id === 'string' && Number.isInteger(value.from.version)) def.from = { id: value.from.id.slice(0, 80), version: value.from.version as number, ...(typeof value.from.hash === 'string' ? { hash: value.from.hash.slice(0, 64) } : {}) };
+    if (value.face !== undefined) faces.set(key, value.face);
     doc.parts[key] = def;
   }
+  return faces;
 }
 
 function lenient(doc: PatchDocument, report: Issue[], node?: string): CheckContext {
@@ -244,7 +256,8 @@ function readUi(raw: Record<string, unknown>, doc: PatchDocument, report: Issue[
     for (const [g, members] of Object.entries(raw.groups)) {
       if (!NODE_ID_PATTERN.test(g) || exists(g) || !Array.isArray(members)) { report.push({ severity: 'warning', code: 'dropped-group', message: `Dropped group "${g}".` }); continue; }
       const kept = [...new Set(members.map(ref).filter(id => exists(id) && !taken.has(id)))];
-      if (kept.length >= 2) { ui.groups[g] = kept; for (const id of kept) taken.add(id); }
+      // A part's face (`<use>Face`) may be one control.
+      if (kept.length >= 2 || (kept.length === 1 && /Face$/.test(g))) { ui.groups[g] = kept; for (const id of kept) taken.add(id); }
       else report.push({ severity: 'warning', code: 'dropped-group', message: `Dropped group "${g}": fewer than two of its members are on the plugin.` });
     }
   }

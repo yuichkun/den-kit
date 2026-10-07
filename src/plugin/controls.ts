@@ -5,13 +5,14 @@
 import type { Catalog } from '../core/catalog.ts';
 import type { Intent, NewNode } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
+import { CONTROL_SIZE } from '../core/face.ts';
 import { CONTROL_OF } from '../core/skins.ts';
 import type { WidgetStyle } from '../core/ui.ts';
 import { intersects } from './edit.ts';
 import type { Rect } from './spec.ts';
 
 export type ControlType = 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button';
-export const CONTROL_SIZE: Readonly<Record<ControlType, [number, number]>> = { 'ui.knob': [84, 96], 'ui.slider': [44, 160], 'ui.toggle': [90, 44], 'ui.button': [90, 44] };
+export { CONTROL_SIZE };
 const UNITS = ['Hz', 's', 'dB', 'oct', 'st', 'mix', 'gain', 'ratio', 'note'];
 
 export interface ControlRequest {

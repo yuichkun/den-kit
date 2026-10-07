@@ -2,7 +2,7 @@
 // through typed, author-attributed ops (ops.ts) so humans, the fast AI path and
 // the LLM path all edit the same way. Pure data: no DOM, no Vue, no unworklet.
 import type { PortDef } from './catalog.ts';
-import { emptyUi, type AssetMeta, type PluginUi, type WidgetStyle } from './ui.ts';
+import { emptyUi, type AssetMeta, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
 /** 3: parts (definitions used in several places). 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 and 2 still load. */
@@ -78,6 +78,14 @@ export interface Spread {
 export interface PartPort { id: PortId; node: NodeId }
 /** A knob inside a part shown on the part itself: each use of the part has its own value. */
 export interface PartParam { id: PortId; node: NodeId; port: PortId; label?: string }
+/** A control on a part's face: it sets one of the part's parameters, for the use the face is put on the plugin for. */
+export interface FaceControl { param: PortId; type: 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button'; rect: PanelRect; label?: string; style?: WidgetStyle }
+/**
+ * A part's own little screen (like Max's bpatcher, but data): controls for its
+ * parameters and decorations, placed in a box of its own (rects are inside the
+ * box). Text and lamps bind to a control by its parameter id.
+ */
+export interface PartFace { width: number; height: number; controls: FaceControl[]; elements: UiElement[] }
 /**
  * A part: one definition, used in any number of places (kit.part nodes). The
  * nodes inside live in the document's node list with `inside` set to its id,
@@ -93,6 +101,8 @@ export interface PartDef {
   params: PartParam[];
   /** Placed from (or saved to) My parts: which one, its version then, and what it was then (to tell whether it was changed here since). */
   from?: { id: string; version: number; hash?: string };
+  /** Its own screen (absent: a default one, its name over a knob per parameter). */
+  face?: PartFace;
 }
 
 export interface PortRef { node: NodeId; port: PortId }

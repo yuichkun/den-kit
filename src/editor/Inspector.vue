@@ -4,6 +4,8 @@ import { isParamInput, type ConfigDef, type PortDef } from '../core/catalog.ts';
 import type { ConfigValue } from '../core/schema.ts';
 import { membersOf, usesOf } from '../core/parts.ts';
 import { describeDiff } from '../core/library.ts';
+import { describeFace } from '../core/face.ts';
+import { faceOnPlugin } from '../plugin/faces.ts';
 import { useSession } from './context.ts';
 import { ControlError, controlFor } from '../plugin/controls.ts';
 import ValueField from './ValueField.vue';
@@ -78,6 +80,11 @@ function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam',
 // ---- My parts ----
 /** Where the shown part stands with My parts (read again when the patch or My parts change). */
 const mine = computed(() => { void session.doc.value; void session.myParts.value; return shown.value ? session.myPartStatus(shown.value.id) : null; });
+// ---- faces ----
+const faceText = computed(() => usedPart.value && node.value ? describeFace(usedPart.value, session.catalog.inputs(node.value)) : '');
+const faceOn = computed(() => node.value ? faceOnPlugin(session.doc.value, node.value.id).length > 0 : false);
+function putFace() { const r = session.putFace(node.value!.id); session.toast(r.ok ? 'info' : 'warn', r.message); }
+function resetFace() { commit([{ op: 'updatePart', part: usedPart.value!.id, face: null }], { label: 'Default face' }); }
 function saveMine() { const r = session.saveToMyParts(shown.value!.id); session.toast(r.ok ? 'info' : 'warn', r.message); }
 function updateMine() { const r = session.updateFromMyParts(shown.value!.id); session.toast(r.ok ? 'info' : 'warn', r.message); }
 </script>
@@ -97,6 +104,14 @@ function updateMine() { const r = session.updateFromMyParts(shown.value!.id); se
           <button data-testid="part-unpack" title="Put the modules back in place of this part (⇧⌘G)" @click="unpack">Unpack <span class="kbd-hint">⇧⌘G</span></button>
           <button data-testid="part-detach" :disabled="usesOfShown.length < 2" :title="usesOfShown.length < 2 ? 'Used only here: it is already its own' : 'Give this use its own copy: edits inside it then change only this one'" @click="detach">Own copy</button>
         </template>
+      </div>
+      <div v-if="usedPart && node" class="face" data-testid="part-face">
+        <div class="muted small-text">Face: {{ faceText }}<template v-if="faceOn"> · on the plugin</template></div>
+        <div v-if="node.inside" class="muted small-text">Faces go on the plugin from uses in the main patch.</div>
+        <div v-else class="buttons">
+          <button data-testid="part-face-put" :title="'Put this use\'s controls (its parameters) and decorations on the plugin, together; again puts the current face in place of the one there'" @click="putFace">{{ faceOn ? 'Update face on plugin' : 'Put face on plugin' }}</button>
+          <button v-if="usedPart.face" data-testid="part-face-reset" title="Back to the default face (its name over a knob per parameter)" @click="resetFace">Default face</button>
+        </div>
       </div>
       <div class="mine" data-testid="my-part">
         <div v-if="mine?.entry" class="muted small-text" data-testid="my-part-status">★ From My parts: {{ mine.entry.name }} v{{ mine.version }}<template v-if="mine.changedHere"> · changed here since</template></div>
@@ -182,6 +197,7 @@ function updateMine() { const r = session.updateFromMyParts(shown.value!.id); se
 .prow .mono { font-size: 11px; flex: 1; }
 .ptoggle { color: #5ec4ff; }
 .ptoggle.on { background: #5ec4ff33; }
+.face { margin-top: 8px; }
 .mine { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .newer { background: #ffd27a14; border: 1px solid #ffd27a55; border-radius: 4px; padding: 6px 8px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
 </style>

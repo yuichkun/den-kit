@@ -32,6 +32,23 @@ const node = computed(() => one.value && !element.value ? doc.value.nodes[one.va
 const control = computed<ControlKind | undefined>(() => node.value ? CONTROL_OF[node.value.type] : undefined);
 const rect = computed<PanelRect | undefined>(() => element.value?.rect ?? node.value?.panel);
 const controls = computed(() => Object.values(doc.value.nodes).filter(n => CONTROL_OF[n.type] && !['ui.keyboard', 'ui.scope', 'ui.meter'].includes(n.type)));
+// ---- a part's face: controls wired to one use's parameters (or its face on the plugin) can become the part's face ----
+const faceUse = computed(() => {
+  const sel = selected.value, d = doc.value;
+  if (!sel.length) return null;
+  const uses = new Set<string>();
+  for (const id of sel) {
+    if (!d.nodes[id]) continue;
+    for (const e of Object.values(d.edges)) { const to = d.nodes[e.to.node]; if (e.from.node === id && to?.type === 'kit.part' && to.inside === undefined) uses.add(to.id); }
+  }
+  for (const [g, members] of Object.entries(d.ui.groups)) { const use = g.endsWith('Face') ? d.nodes[g.slice(0, -4)] : undefined; if (use?.type === 'kit.part' && members.some(m => sel.includes(m))) uses.add(use.id); }
+  return uses.size === 1 ? [...uses][0]! : null;
+});
+const facePart = computed(() => { const use = faceUse.value ? doc.value.nodes[faceUse.value] : undefined; return use?.part ? doc.value.parts[use.part] : undefined; });
+function saveFace() { const r = session.saveFace(faceUse.value!, selected.value); session.toast(r.ok ? 'info' : 'warn', r.message); }
+/** Decorations alone (no controls of a part) can become a screen part. */
+const screenable = computed(() => !facePart.value && selected.value.length > 0 && selected.value.every(id => !!doc.value.ui.elements[id]));
+function makeScreenPart() { const r = session.makeScreenPart(selected.value); session.toast(r.ok ? 'info' : 'warn', r.message); }
 const grouped = computed(() => selected.value.length > 1 && Object.values(doc.value.ui.groups).some(m => m.length === withGroups(doc.value.ui, selected.value).length && m.every(id => selected.value.includes(id))));
 
 // One gesture per field while it is being dragged or typed in, so a colour drag is one undo step.
@@ -73,6 +90,16 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
 
 <template>
   <div class="plugin-inspector" data-testid="plugin-inspector">
+    <div v-if="screenable" class="section" data-testid="screen-part-section">
+      <h3>Screen part</h3>
+      <div class="muted small">Make these decorations a part of their own: saved to My parts, it puts the same screen on other plugins.</div>
+      <button data-testid="make-screen-part" @click="makeScreenPart">Make a screen part</button>
+    </div>
+    <div v-if="facePart" class="section" data-testid="face-section">
+      <h3>Part face</h3>
+      <div class="muted small">Controls of {{ faceUse }} ({{ facePart.name }}). Saved as its face, every use of {{ facePart.name }} can put the same screen on the plugin; uses whose face is on the plugin now follow.</div>
+      <button class="primary" data-testid="save-face" @click="saveFace">Save as {{ facePart.name }}'s face</button>
+    </div>
     <!-- one decoration -->
     <template v-if="element">
       <div class="section">

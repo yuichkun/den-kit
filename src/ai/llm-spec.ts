@@ -42,6 +42,10 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"addParam","part":"drop","node":"lfo3","port":"rate","label":"Rate"}  (show a free knob inside on the part: each use sets its own) · {"op":"removeParam","part":"drop","id":"rate"}',
       '  {"op":"updatePart","part":"drop","name":"Rain drop","doc":"One drop: a noise burst through a bandpass"} · {"op":"unpackPart","node":"drop2"}  (back to ordinary modules) · {"op":"detachPart","node":"drop2"}  (this use gets its own copy)',
       '  {"op":"placeMyPart","id":"rainDrop"}  (a part the person saved in My parts — kit_list_blocks lists them — comes into this patch with one use; then use it like any part)',
+      'Faces (a part\'s own little screen; kit_get_patch says each part\'s face):',
+      '  {"op":"putFace","node":"drop1","at":{"x":24,"y":96}}  (put the face of this use on the plugin: controls wired to its parameters plus decorations, grouped as "drop1Face"; putting it again replaces it in place; "at" optional)',
+      '  {"op":"updatePart","part":"drop","face":{"width":220,"height":130,"controls":[{"param":"cutoff","type":"ui.knob","rect":{"x":12,"y":28,"w":84,"h":96},"label":"Tone"}],"elements":[{"kind":"text","text":"DROP","rect":{"x":12,"y":6,"w":196,"h":20}}]}}  (the part\'s own face: rects inside the face box; controls only for its parameters; text and lamps bind to a control by parameter id; null = the default face, its name over a knob per parameter). Then putFace each use to show it.',
+      '  {"op":"makeScreenPart","ids":["shape3","text2","image1"],"name"?:"Logo"}  (decorations on the plugin become a part that is only a screen — no sound — so it can be kept in My parts and put on other plugins; they become its use\'s face)',
       'Copies (×N: one module or part running as several side by side; kit_get_patch shows "×N", the spreads and the estimated load):',
       '  {"op":"setCount","node":"drop1","count":24}  (24 copies; 1 = once. Its outputs become a thick cable, one signal per copy: into a node with the same count copy k feeds copy k; into a single input the copies are summed ×1/√N; a single cable goes to every copy. kit.splay spreads a thick cable across left and right)',
       '  {"op":"setSpread","node":"drop1","port":"cutoff","spread":{"kind":"random","amount":1.5,"seed":3}}  (how the copies differ on a free knob, around its value: "range" evenly from −amount to +amount, "random" anywhere in that span, "harmonic" the knob × 1, 2, 3…, "each" {"values":[...]} one per copy; amount in octaves on a frequency (Hz) knob, else in the knob\'s unit; null = the same in every copy)',
@@ -60,10 +64,10 @@ export const KIT_TOOLS: ToolSpec[] = [
       type: 'object',
       properties: {
         ops: { type: 'array', minItems: 1, maxItems: 96, items: { type: 'object', properties: {
-          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief', 'makePart', 'unpackPart', 'detachPart', 'updatePart', 'addParam', 'removeParam', 'setCount', 'setSpread', 'placeMyPart'] },
+          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief', 'makePart', 'unpackPart', 'detachPart', 'updatePart', 'addParam', 'removeParam', 'setCount', 'setSpread', 'placeMyPart', 'putFace', 'makeScreenPart'] },
           node: {}, id: { type: 'string' }, from: portRef, to: {}, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' },
           for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' }, work: { type: 'string' }, brief: {},
-          part: { type: 'string' }, doc: {}, labels: { type: 'object' }, count: { type: 'number' }, spread: {},
+          part: { type: 'string' }, doc: {}, labels: { type: 'object' }, count: { type: 'number' }, spread: {}, at: { type: 'object' }, face: {},
         }, required: ['op'] } },
       },
       required: ['ops'],
@@ -153,6 +157,7 @@ Parts (build small, listen, then reuse)
 - Work in parts when a sound has a repeated or self-contained piece (one rain drop, one voice of a unison, a drum, an effect chain): build it small, listen, make it a part (makePart, or build inside a part), then use it again with different parameter values instead of copying modules.
 - Inside a part: add modules with "inside"; cables only join modules in the same place; its inputs and outputs are kit.partIn / kit.partOut nodes inside (their label names the port); show a free knob on the part with addParam. An edit inside changes every use; to change one use only, set its parameters (setValue on the use) or detachPart it first.
 - Controls (ui.*), Voice In, Out and Audio In stay in the main patch: connect a control to a parameter or an input of the part.
+- A part can have a face: its own screen (controls for its parameters and decorations). When a part should be played from the plugin, put its face on the plugin (putFace on the use) rather than adding its controls one by one; design the face once (updatePart face) and put it on every use. Decorations alone (a logo, a nameplate) can become a screen part (makeScreenPart), kept in My parts for other plugins.
 - My parts are the person's own saved parts (kit_list_blocks lists them with their inputs, parameters and outputs). When one fits the request, place it (placeMyPart) rather than building the same thing again.
 
 Copies (×N: many of the same)

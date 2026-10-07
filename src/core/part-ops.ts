@@ -6,6 +6,7 @@ import type { Catalog, PortDef } from './catalog.ts';
 import { freeSpotNear } from './layout.ts';
 import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
+import { checkFace } from './face.ts';
 import { checkBundle, type PartBundle } from './library.ts';
 import { hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
 import { spreadable } from './stacks.ts';
@@ -253,7 +254,7 @@ export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: stri
 }
 
 /** Rename or describe a part, relabel its inputs, outputs and parameters, or record where it stands with My parts. */
-export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null }) {
+export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null; face?: unknown }) {
   const def = requirePart(draft.doc, intent.part);
   const next = clone(def);
   if (intent.name !== undefined) {
@@ -262,6 +263,11 @@ export function updatePart(draft: PartDraft, intent: { part: string; name?: stri
     next.name = name;
   }
   if (intent.doc !== undefined) { const text = intent.doc === null ? '' : String(intent.doc).trim().slice(0, 600); if (text) next.doc = text; else delete next.doc; }
+  if (intent.face !== undefined) {
+    // The face is checked against the part's parameters as they are now (a use shows them all).
+    if (intent.face === null) delete next.face;
+    else next.face = checkFace(intent.face, next, partInterface(draft.doc, draft.catalog, next).inputs, { assets: draft.doc.assets });
+  }
   if (intent.from !== undefined) {
     const f = intent.from;
     if (f === null) delete next.from;
@@ -475,6 +481,11 @@ function addBundle(draft: PartDraft, bundle: PartBundle, ids: { parts: Record<st
   return def(bundle.part, ids.parts[bundle.part.id]!);
 }
 
+/** The pictures and fonts a bundle's faces use come into the patch (one already here is the same file: asset ids follow the bytes). */
+function addAssets(draft: PartDraft, bundle: PartBundle) {
+  for (const asset of Object.values(bundle.assets ?? {}).sort(byId)) if (!draft.doc.assets[asset.id]) draft.apply({ op: 'addAsset', asset: clone(asset) });
+}
+
 /** Place a part from My parts: its definition (and the parts inside it) come into the patch, with one use of it. */
 export function importPart(draft: PartDraft, intent: { bundle: unknown; from?: PartDef['from']; node?: NodeId; pos?: XY; inside?: string; ids?: { parts?: Record<string, string>; nodes?: Record<string, string> } }, created: string[]) {
   const { catalog } = draft;
@@ -483,6 +494,7 @@ export function importPart(draft: PartDraft, intent: { bundle: unknown; from?: P
   if (typeof bundle === 'string') fail('bad-bundle', `This part cannot be placed: ${bundle}.`);
   if (intent.inside !== undefined) requirePart(doc(), intent.inside);
   const ids = bundleIds(doc(), bundle as PartBundle, intent.ids);
+  addAssets(draft, bundle as PartBundle);
   const root = addBundle(draft, bundle as PartBundle, ids);
   if (intent.from) root.from = { ...intent.from };
   draft.apply({ op: 'addPart', part: root });
@@ -508,6 +520,7 @@ export function replacePart(draft: PartDraft, intent: { part: string; bundle: un
   for (const e of Object.values(doc().edges).filter(e => members.has(e.from.node) || members.has(e.to.node)).sort(byId)) draft.apply({ op: 'removeEdge', edge: e });
   for (const id of [...members].sort()) draft.apply({ op: 'removeNode', node: doc().nodes[id]! });
   const ids = bundleIds(doc(), bundle as PartBundle, {}, def.id);
+  addAssets(draft, bundle as PartBundle);
   const root = addBundle(draft, bundle as PartBundle, ids);
   root.id = def.id;
   if (intent.from) root.from = { ...intent.from }; else delete root.from;
