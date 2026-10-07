@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
 import type { NodeDef } from '../core/catalog.ts';
+import { partUses } from '../core/parts.ts';
 import { useSession } from './context.ts';
 
 const emit = defineEmits<{ (e: 'pick', type: string): void; (e: 'close'): void }>();
@@ -8,10 +9,19 @@ const session = useSession();
 const query = ref('');
 const input = ref<HTMLInputElement | null>(null);
 const active = ref(0);
-const order = ['voice', 'source', 'filter', 'envelope', 'modulation', 'fx', 'dynamics', 'math', 'ui', 'code', 'io'];
-const matches = computed<NodeDef[]>(() => {
+const order = ['part', 'voice', 'source', 'filter', 'envelope', 'modulation', 'fx', 'dynamics', 'math', 'ui', 'code', 'io'];
+type Entry = Pick<NodeDef, 'type' | 'title' | 'summary' | 'category' | 'keywords'>;
+/** The parts of this patch can be used again anywhere they fit (never inside themselves). */
+const parts = computed<Entry[]>(() => {
+  const doc = session.doc.value, scope = session.scope.value;
+  return Object.values(doc.parts).filter(p => !scope || !partUses(doc, p.id, scope)).map(p => ({ type: `part:${p.id}`, title: p.name, category: 'part', summary: p.doc ?? 'A part of this patch (use it again).', keywords: ['part', p.id] }));
+});
+const matches = computed<Entry[]>(() => {
   const q = query.value.trim().toLowerCase();
-  const all = session.catalog.list().filter(d => !(d.singleton && Object.values(session.doc.value.nodes).some(n => n.type === d.type)));
+  const inside = !!session.scope.value;
+  // Inside a part: no controls or singletons (they stay in the main patch), and its inputs and outputs can be added.
+  const blocks = session.catalog.list().filter(d => d.palette !== 'never' && (d.palette !== 'inside' || inside) && !(inside && (d.kind === 'widget' || d.singleton)) && !(d.singleton && Object.values(session.doc.value.nodes).some(n => n.type === d.type)));
+  const all: Entry[] = [...parts.value, ...blocks];
   const scored = all.map(d => {
     const hay = [d.title, d.type, d.summary, ...(d.keywords ?? [])].join(' ').toLowerCase();
     const score = !q ? 1 : d.title.toLowerCase().startsWith(q) ? 3 : (d.keywords ?? []).some(k => k.startsWith(q)) ? 2 : hay.includes(q) ? 1 : 0;

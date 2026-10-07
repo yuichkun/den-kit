@@ -17,7 +17,7 @@ export const SIGNAL = {
 export type SignalKind = keyof typeof SIGNAL;
 
 export const CATEGORY_KIND: Record<string, SignalKind> = {
-  voice: 'pitch', source: 'audio', filter: 'audio', envelope: 'control', modulation: 'modulator', fx: 'audio', dynamics: 'audio', math: 'audio', io: 'neutral', ui: 'logic', code: 'audio',
+  voice: 'pitch', source: 'audio', filter: 'audio', envelope: 'control', modulation: 'modulator', fx: 'audio', dynamics: 'audio', math: 'audio', io: 'neutral', ui: 'logic', code: 'audio', part: 'modulator',
 };
 
 export function titleColor(def: NodeDef | undefined): string {

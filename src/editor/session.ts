@@ -50,6 +50,12 @@ export class KitSession {
   readonly conversation = ref(randomId('conv'));
   /** The person is editing the plugin screen (so "darker" means the screen, not the sound). */
   readonly screenFocus = ref(false);
+  /** The part being edited: the chain of uses entered from the main patch (empty: the main patch). */
+  readonly partPath = ref<string[]>([]);
+  /** Hear only this part (a chain of uses from the main patch), or everything (null). */
+  readonly solo = ref<string[] | null>(null);
+  /** The part the patch view shows (undefined: the main patch). */
+  readonly scope = computed(() => { const last = this.partPath.value.at(-1); return last ? this.doc.value.nodes[last]?.part : undefined; });
   readonly compileStatus = ref<CompileStatus>('idle');
   readonly compileMessage = ref('');
   readonly compileIssues = shallowRef<Issue[]>([]);
@@ -134,9 +140,52 @@ export class KitSession {
     this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };
     this.selection.value = [];
     this.edgeSelection.value = [];
+    this.partPath.value = [];
+    this.solo.value = null;
     if (author.kind === 'human') this.conversation.value = randomId('conv');
     this.loadEpoch.value++;
     this.afterChange(true);
+  }
+
+  // ---- Parts: going inside, hearing one alone -----------------------------------------
+  /** Go inside a use of a part (in the part the view shows now). False when that is not a part here. */
+  enterPart(id: string): boolean {
+    const node = this.doc.value.nodes[id];
+    if (!node || node.type !== 'kit.part' || !node.part || !this.doc.value.parts[node.part] || node.inside !== this.scope.value) return false;
+    this.partPath.value = [...this.partPath.value, id];
+    this.selection.value = []; this.edgeSelection.value = [];
+    return true;
+  }
+  /** Go out `levels` parts (to the main patch with Infinity); the use we came out of becomes the selection. */
+  leavePart(levels = 1) {
+    const path = this.partPath.value;
+    if (!path.length) return;
+    const keep = Math.max(0, path.length - levels);
+    const from = path[keep]!;
+    this.partPath.value = path.slice(0, keep);
+    this.selection.value = this.doc.value.nodes[from] ? [from] : []; this.edgeSelection.value = [];
+  }
+  /** Hear only this chain of uses (null: everything). Recompiles. */
+  setSolo(path: string[] | null) {
+    if (JSON.stringify(path) === JSON.stringify(this.solo.value)) return;
+    this.solo.value = path && path.length ? [...path] : null;
+    this.afterChange(true);
+  }
+  /** After an edit or an undo: a chain that no longer leads anywhere is cut back to what still exists. */
+  private keepPathsValid() {
+    const doc = this.doc.value;
+    const valid = (path: readonly string[]) => {
+      let scope: string | undefined;
+      for (const [i, id] of path.entries()) {
+        const n = doc.nodes[id];
+        if (!n || n.type !== 'kit.part' || !n.part || !doc.parts[n.part] || n.inside !== scope) return i;
+        scope = n.part;
+      }
+      return path.length;
+    };
+    const keep = valid(this.partPath.value);
+    if (keep < this.partPath.value.length) this.partPath.value = this.partPath.value.slice(0, keep);
+    if (this.solo.value && valid(this.solo.value) < this.solo.value.length) this.solo.value = null;
   }
 
   loadStarter(id: StarterId) { this.replace(starter(id, catalog), `Load ${id}`); }
@@ -180,14 +229,25 @@ export class KitSession {
   // ---- Change propagation ------------------------------------------------------
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
     this.scheduleSave();
+    this.keepPathsValid();
     if (!ops.length || ops.some(op => op.op === 'addAsset')) void this.syncAssets();
     // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
+    // Inside parts a knob may stand for several AudioParams (each use of a part has its own), or none (a use's parameter sets it).
     if (!structural && ops.length) {
-      for (const op of ops) if (op.op === 'setValue' && typeof op.to !== 'undefined') this.engine.setParam(`${op.node}_${op.port}`, Number(op.to));
-      if (ops.some(op => op.op === 'setValue')) this.generated.value = { ...this.generated.value, values: { ...this.generated.value.values, ...Object.fromEntries(ops.filter(op => op.op === 'setValue').map(op => [`${(op as { node: string }).node}_${(op as { port: string }).port}`, Number((op as { to: unknown }).to)])) } };
+      const g = this.generated.value;
+      let values: Record<string, number> | null = null;
+      for (const op of ops) {
+        if (op.op !== 'setValue' || typeof op.to === 'undefined') continue;
+        const name = `${op.node}_${op.port}`;
+        for (const target of g.aliases[name] ?? [name]) {
+          this.engine.setParam(target, Number(op.to));
+          if (Object.hasOwn(g.values, target)) (values ??= { ...g.values })[target] = Number(op.to);
+        }
+      }
+      if (values) this.generated.value = { ...g, values };
       return;
     }
-    const generated = generate(this.doc.value, catalog);
+    const generated = generate(this.doc.value, catalog, this.solo.value ? { solo: this.solo.value } : {});
     const same = generated.hash && generated.hash === this.generated.value.hash;
     this.generated.value = generated;
     if (same) { for (const [name, value] of Object.entries(generated.values)) this.engine.setParam(name, value); return; }

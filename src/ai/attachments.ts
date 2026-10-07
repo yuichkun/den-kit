@@ -17,7 +17,8 @@ export function attachmentsOf(doc: PatchDocument, catalog: Catalog, ids: readonl
     const node = doc.nodes[id];
     if (node) {
       const def = catalog.find(node.type);
-      const title = def?.title ?? node.type;
+      const part = node.type === 'kit.part' && node.part ? doc.parts[node.part] : undefined;
+      const title = part ? `Part “${clip(part.name, 24)}”` : def?.title ?? node.type;
       out.push({ id, kind: def?.kind === 'widget' ? 'control' : 'module', label: `${title}${node.label ? ` “${clip(node.label, 24)}”` : ''}` });
       continue;
     }

@@ -7,6 +7,7 @@ import { computed, ref } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
 import type { PortDef } from '../core/catalog.ts';
 import type { PatchNode } from '../core/schema.ts';
+import { membersOf, usesOf } from '../core/parts.ts';
 import type { Issue } from '../core/issues.ts';
 import { useSession } from './context.ts';
 import { formatValue, portColor, shortLabel, titleColor, visibleInputs, SIGNAL } from './grid-style.ts';
@@ -24,10 +25,35 @@ const color = computed(() => titleColor(def.value));
 const connected = computed(() => new Set(props.data.connected));
 const inputs = computed(() => visibleInputs(session.catalog, node.value, connected.value, expanded.value));
 const outputs = computed(() => session.catalog.outputs(node.value));
-const faceSet = computed(() => new Set(def.value?.face ?? []));
+const faceSet = computed(() => new Set(session.catalog.face(node.value)));
+// ---- parts ----
+const part = computed(() => node.value.part ? session.doc.value.parts[node.value.part] : undefined);
+const isPart = computed(() => node.value.type === 'kit.part');
+/** What is inside a part, in a few words (its modules' names, in the order the sound flows). */
+const contents = computed(() => {
+  if (!part.value) return '';
+  const inner = membersOf(session.doc.value, part.value.id).filter(n => !['kit.partIn', 'kit.partOut', 'kit.comment'].includes(n.type)).sort((a, b) => a.pos.x - b.pos.x || a.pos.y - b.pos.y);
+  const names = inner.map(n => n.label ?? (n.part ? session.doc.value.parts[n.part]?.name : undefined) ?? session.catalog.find(n.type)?.title ?? n.type);
+  return names.length ? `${names.slice(0, 3).join(' → ')}${names.length > 3 ? ` +${names.length - 3}` : ''}` : 'empty';
+});
+const uses = computed(() => part.value ? usesOf(session.doc.value, part.value.id).length : 0);
+const alone = computed(() => !!session.solo.value && JSON.stringify(session.solo.value) === JSON.stringify([...session.partPath.value, props.id]));
+/** The port a part's input or output node carries. */
+const portName = computed(() => {
+  if (node.value.type !== 'kit.partIn' && node.value.type !== 'kit.partOut') return '';
+  const p = node.value.inside ? session.doc.value.parts[node.value.inside] : undefined;
+  return [...(p?.inputs ?? []), ...(p?.outputs ?? [])].find(q => q.node === props.id)?.id ?? '?';
+});
+/** Inside a part, a knob that is one of its parameters shows (and sets) the value of the use we came through. */
+const useHere = computed(() => session.partPath.value.at(-1));
+const paramOf = (p: PortDef) => {
+  const inside = node.value.inside;
+  if (!inside || !useHere.value) return undefined;
+  return session.doc.value.parts[inside]?.params.find(q => q.node === props.id && q.port === p.id);
+};
 const faceKnobs = computed(() => session.catalog.inputs(node.value).filter(p => faceSet.value.has(p.id) && !connected.value.has(p.id) && p.type === 'signal'));
 const worst = computed(() => props.data.issues.some(i => i.severity === 'error') ? 'error' : props.data.issues.some(i => i.severity === 'warning') ? 'warning' : null);
-const enumConfig = computed(() => def.value?.config.find(c => c.kind === 'enum' && (c.options?.length ?? 0) <= 4 && !['unit', 'scale', 'quality', 'mode'].includes(c.id)) ?? (node.value.type === 'kit.voiceIn' ? def.value?.config.find(c => c.id === 'mode') : undefined));
+const enumConfig = computed(() => def.value?.config.find(c => c.kind === 'enum' && (c.options?.length ?? 0) <= 4 && !['unit', 'scale', 'quality', 'mode', 'type'].includes(c.id)) ?? (node.value.type === 'kit.voiceIn' ? def.value?.config.find(c => c.id === 'mode') : undefined));
 const isWidget = computed(() => def.value?.kind === 'widget');
 const box = computed(() => moduleBox(session.catalog, node.value, connected.value, expanded.value));
 const rows = computed(() => box.value.rows);
@@ -38,14 +64,21 @@ const width = computed(() => box.value.width);
 const hasViz = computed(() => vizFor(node.value.type));
 
 function commitValue(port: PortDef, value: number | boolean, gesture?: string) {
-  const r = session.commit([{ op: 'setValue', node: props.id, port: port.id, value, clamp: true }], { gesture, label: `Set ${props.id}.${port.id}` });
+  const param = paramOf(port);
+  const target = param ? { node: useHere.value!, port: param.id } : { node: props.id, port: port.id };
+  const r = session.commit([{ op: 'setValue', node: target.node, port: target.port, value, clamp: true }], { gesture, label: `Set ${target.node}.${target.port}` });
   if (!r.ok) session.toast('warn', r.error.message);
 }
 function setConfig(key: string, value: string) {
   const r = session.commit([{ op: 'setConfig', node: props.id, key, value }]);
   if (!r.ok) session.toast('warn', r.error.message);
 }
-const num = (p: PortDef) => Number(node.value.values[p.id] ?? p.default ?? 0);
+const num = (p: PortDef) => {
+  const param = paramOf(p);
+  const own = param ? session.doc.value.nodes[useHere.value!]?.values[param.id] : undefined;
+  return Number(own ?? node.value.values[p.id] ?? p.default ?? 0);
+};
+
 const knobRange = (p: PortDef) => ({ min: p.uiMin ?? p.min ?? 0, max: p.uiMax ?? p.max ?? 1 });
 const precord = (p: PortDef) => p.binding === 'gate' ? '⎍' : p.binding === 'retrigger' ? '↑' : p.binding === 'reset' || p.binding === 'clear' ? '↺' : '';
 const precordTitle = (p: PortDef) => `Pre-cord: unconnected ${p.id} follows ${props.data.scope === 'voice' ? { gate: 'the note gate', retrigger: 'each new note', reset: 'new notes / stolen voices', clear: 'stolen voices' }[p.binding!] : { gate: 'a toggle', retrigger: 'nothing', reset: 'panic', clear: 'panic' }[p.binding!]}`;
@@ -60,10 +93,11 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
 </script>
 
 <template>
-  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment' }" :style="{ '--c': color, width: `${width}px` }" :data-node="id">
+  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment', part: isPart, port: !!portName }" :style="{ '--c': color, width: `${width}px` }" :data-node="id" :data-part="part?.id">
     <header>
       <svg v-if="data.scope === 'voice'" class="poly" width="12" height="10" viewBox="0 0 12 10" aria-label="per voice"><title>Runs once per voice</title><rect x="0" y="4" width="7" height="6" rx="1" /><rect x="3" y="2" width="7" height="6" rx="1" opacity=".7" /><rect x="5" y="0" width="7" height="6" rx="1" opacity=".45" /></svg>
-      <span class="title">{{ node.label ?? def?.title ?? node.type }}</span>
+      <span v-if="isPart" class="partmark" title="A part: Enter or double-click goes inside">◇</span>
+      <span class="title">{{ isPart ? (node.label ?? part?.name ?? 'Missing part') : portName ? `${node.type === 'kit.partIn' ? 'in' : 'out'} · ${portName}` : node.label ?? def?.title ?? node.type }}</span>
       <span v-if="def?.category === 'modulation' || def?.category === 'envelope'" class="modarrow" :style="{ color: SIGNAL.modulator }">●→</span>
     </header>
     <div v-if="!def" class="missing">Missing block<br />{{ node.type }}</div>
@@ -71,7 +105,7 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
       <div class="ins" :style="{ width: `${leftWidth}px` }">
         <div v-for="p in inputs.shown" :key="p.id" class="port in" :title="`${p.id}${p.unit ? ` (${p.unit})` : ''}${p.doc ? ` — ${p.doc}` : ''}`">
           <Handle :id="p.id" type="target" :position="Position.Left" class="ring" :class="{ on: connected.has(p.id) }" :style="{ '--pc': portColor(def, p, 'in') }" />
-          <GridKnob v-if="isSmallKnob(p)" size="small" :value="num(p)" v-bind="knobRange(p)" :default="Number(p.default ?? 0)" :scale="p.scale" :unit="p.unit" :color="portColor(def, p, 'in')" :label="p.id" @change="(v, g) => commitValue(p, v, g)" />
+          <GridKnob v-if="isSmallKnob(p)" size="small" :value="num(p)" v-bind="knobRange(p)" :default="Number(p.default ?? 0)" :scale="p.scale" :unit="p.unit" :color="portColor(def, p, 'in')" :label="paramOf(p) ? `◆ ${p.id} (this use's own value)` : p.id" :class="{ param: !!paramOf(p) }" @change="(v, g) => commitValue(p, v, g)" />
           <button v-else-if="isToggle(p)" class="tgl nodrag" :class="{ on: !!node.values[p.id] }" @click.stop="commitValue(p, !node.values[p.id])">{{ shortLabel(p) }}</button>
           <span v-else-if="p.binding && !connected.has(p.id)" class="precord" :style="{ color: SIGNAL.logic }" :title="precordTitle(p)">{{ precord(p) }}</span>
           <span v-if="!isToggle(p) && !(faceSet.has(p.id) && !connected.has(p.id)) && !(p.role === 'audio' && ['in', 'input', 'left'].includes(p.id) && inputs.shown.length <= 2)" class="plabel">{{ shortLabel(p) }}</span>
@@ -87,9 +121,13 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
           </button>
         </div>
         <div v-if="voiceText" class="voicetext">{{ voiceText }}</div>
+        <template v-if="isPart">
+          <div class="contents" data-testid="part-contents" :title="part?.doc ?? 'What is inside (Enter goes in)'">{{ part ? contents : `No part “${node.part}”` }}</div>
+          <div class="partinfo">{{ uses > 1 ? `one of ${uses} uses` : 'used once' }}<span v-if="alone" class="alone"> · alone</span></div>
+        </template>
         <ModuleViz v-if="hasViz" :node="node" :color="node.type === 'kit.out' || node.type === 'kit.audioIn' ? '#8d8d8d' : color" :width="Math.max(76, Math.min(faceWidth, 150))" :height="node.type === 'den.envelope' || node.type === 'den.curvedAdsr' ? 46 : 36" />
         <div v-if="faceKnobs.length" class="knobs">
-          <GridKnob v-for="p in faceKnobs" :key="p.id" :value="num(p)" v-bind="knobRange(p)" :default="Number(p.default ?? 0)" :scale="p.scale" :unit="p.unit" :color="color" :label="shortLabel(p)" @change="(v, g) => commitValue(p, v, g)" />
+          <GridKnob v-for="p in faceKnobs" :key="p.id" :value="num(p)" v-bind="knobRange(p)" :default="Number(p.default ?? 0)" :scale="p.scale" :unit="p.unit" :color="color" :label="`${paramOf(p) ? '◆ ' : ''}${shortLabel(p)}`" :data-param="paramOf(p)?.id" @change="(v, g) => commitValue(p, v, g)" />
         </div>
         <template v-if="isWidget">
           <div v-if="typeof widgetValue === 'number'" class="readout" :style="{ color }">{{ formatValue(widgetValue, String(node.config.unit || '')) }}</div>
@@ -139,6 +177,16 @@ header { position: relative; text-align: center; padding: 6px 22px 2px; height: 
 .code { background: #3a3a3a; border: 0; color: var(--c); font: 12px ui-monospace, monospace; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
 .note { white-space: pre-wrap; color: #e8e8e8; font-size: 12px; padding: 4px 6px; max-width: 220px; }
 .mod.comment { background: #3b3a2e; }
+/* A part: a double edge, its contents on the face. Its inputs and outputs inside: a dashed edge. */
+.mod.part { background: #262a30; box-shadow: 0 0 0 1px #5ec4ff55, 0 0 0 4px #262a30, 0 0 0 5px #5ec4ff33; }
+.mod.part.selected { box-shadow: 0 0 0 2px #d9d9d9, 0 0 0 4px #262a30, 0 0 0 5px #5ec4ff66; }
+.mod.port { background: #232323; outline: 1px dashed #5ec4ff66; outline-offset: -1px; }
+.partmark { position: absolute; left: 8px; top: 5px; color: #5ec4ff; font-size: 12px; }
+.mod.voice .partmark { left: 24px; }
+.contents { color: #cfe9ff; font-size: 11.5px; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; }
+.partinfo { color: #777; font-size: 10px; }
+.alone { color: #ffd43b; }
+:deep(.param) { outline: 1px solid #5ec4ff88; border-radius: 50%; }
 .missing { padding: 8px; color: #ff3a5c; text-align: center; }
 .badge { position: absolute; top: -7px; right: -7px; width: 16px; height: 16px; border-radius: 50%; background: #ff3a5c; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 11px; }
 .warning .badge { background: #ffd43b; color: #111; }

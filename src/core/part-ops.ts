@@ -3,6 +3,7 @@
 // (its inputs, parameters and outputs), dropping parts nothing uses any more.
 // Everything is expressed as resolved ops, so it undoes exactly.
 import type { Catalog, PortDef } from './catalog.ts';
+import { freeSpotNear } from './layout.ts';
 import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
 import { hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
@@ -69,7 +70,8 @@ function flowOrder(doc: PatchDocument, ids: readonly NodeId[]): NodeId[] {
 
 function autoName(doc: PatchDocument, catalog: Catalog, ids: readonly NodeId[]): string {
   const titles = [...new Set(ids.map(id => doc.nodes[id]!).filter(n => catalog.find(n.type)?.kind !== 'comment').map(n => n.label ?? catalog.find(n.type)?.title ?? n.type))];
-  return (titles.slice(0, 2).join(' + ') + (titles.length > 2 ? ' …' : '')).slice(0, 40) || 'Part';
+  const name = titles.length > 3 ? `${titles.slice(0, 2).join(' + ')} + ${titles.length - 2} more` : titles.join(' + ');
+  return name.slice(0, 48) || 'Part';
 }
 
 /**
@@ -153,6 +155,7 @@ export function makePart(draft: PartDraft, intent: { ids: NodeId[]; name?: strin
   }
   const use: PatchNode = { id: useId, type: 'kit.part', part: partId, pos: { x: area.x0, y: area.y0 }, config: {}, values, ...(scope !== undefined ? { inside: scope } : {}) };
   use.iface = partInterface(doc(), catalog, def);
+  use.pos = freeSpotNear(doc(), catalog, use, use.pos);
   draft.apply({ op: 'addNode', node: use });
   for (const p of inputs) edge(p.edges[0]!.from, { node: useId, port: p.id });
   for (const p of outputs) for (const e of p.edges) edge({ node: useId, port: p.id }, e.to);

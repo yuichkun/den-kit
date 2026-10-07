@@ -24,10 +24,11 @@ export function copySelection(session: KitSession): boolean {
   return true;
 }
 
-/** Paste what was copied; the new things become the selection. */
+/** Paste what was copied (into the part the patch view shows, or the main patch); the new things become the selection. */
 export function paste(session: KitSession): boolean {
   if (!clipboard) return false;
   const doc = session.doc.value;
+  const inside = session.scope.value;
   const rename = new Map<string, string>();
   const intents: Intent[] = [];
   const taken = new Set([...Object.keys(doc.nodes), ...Object.keys(doc.ui.elements), ...Object.keys(doc.ui.groups)]);
@@ -35,7 +36,8 @@ export function paste(session: KitSession): boolean {
   for (const n of clipboard.nodes) {
     if (session.catalog.find(n.type)?.singleton) continue;
     const id = fresh(n.id);
-    intents.push({ op: 'addNode', node: { ...n, id, pos: { x: n.pos.x + 40, y: n.pos.y + 40 }, panel: n.panel ? { ...n.panel, x: n.panel.x + 20, y: n.panel.y + 20 } : undefined } });
+    const { iface: _, ...rest } = n;
+    intents.push({ op: 'addNode', node: { ...rest, id, inside, pos: { x: n.pos.x + 40, y: n.pos.y + 40 }, panel: n.panel ? { ...n.panel, x: n.panel.x + 20, y: n.panel.y + 20 } : undefined } });
   }
   for (const e of clipboard.edges) if (rename.has(e.from.node) && rename.has(e.to.node)) intents.push({ op: 'connect', from: { node: rename.get(e.from.node)!, port: e.from.port }, to: { node: rename.get(e.to.node)!, port: e.to.port } });
   for (const el of clipboard.elements) {

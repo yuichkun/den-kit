@@ -4,7 +4,19 @@ import { useSession } from './context.ts';
 const session = useSession();
 const pre = ref<HTMLElement | null>(null);
 const lines = computed(() => session.generated.value.source ? session.generated.value.source.split('\n') : []);
-const highlighted = computed(() => new Set(session.selection.value.flatMap(id => session.generated.value.nodeLines[id] ?? [])));
+// A part (or a node inside one) is expanded once per use: its lines are those of every node it became.
+const highlighted = computed(() => {
+  const g = session.generated.value, path = session.partPath.value;
+  const lines = new Set<number>();
+  for (const id of session.selection.value) {
+    const chain = [...path, id];
+    for (const [flat, ls] of Object.entries(g.nodeLines)) {
+      const origin = g.origin[flat] ?? [flat];
+      if (chain.every((p, i) => origin[i] === p)) for (const l of ls) lines.add(l);
+    }
+  }
+  return lines;
+});
 watch(highlighted, async set => {
   await nextTick();
   const first = Math.min(...set);

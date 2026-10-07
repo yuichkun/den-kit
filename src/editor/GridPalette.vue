@@ -4,24 +4,33 @@
 // the canvas; the search field filters across all categories.
 import { computed, ref } from 'vue';
 import type { NodeDef } from '../core/catalog.ts';
+import { partUses } from '../core/parts.ts';
 import { useSession } from './context.ts';
 import { titleColor, portColor } from './grid-style.ts';
 
 const emit = defineEmits<{ (e: 'add', type: string): void }>();
 const session = useSession();
-const CATEGORIES = [['voice', 'Voice'], ['source', 'Oscillator'], ['filter', 'Filter'], ['envelope', 'Envelope'], ['modulation', 'LFO / Mod'], ['fx', 'FX'], ['dynamics', 'Dynamics'], ['math', 'Math'], ['io', 'I/O'], ['ui', 'Plugin UI'], ['code', 'Code']] as const;
+const CATEGORIES = [['voice', 'Voice'], ['source', 'Oscillator'], ['filter', 'Filter'], ['envelope', 'Envelope'], ['modulation', 'LFO / Mod'], ['fx', 'FX'], ['dynamics', 'Dynamics'], ['math', 'Math'], ['io', 'I/O'], ['ui', 'Plugin UI'], ['code', 'Code'], ['part', 'Parts']] as const;
 const category = ref<string>('source');
 const query = ref('');
 const taken = computed(() => new Set(Object.values(session.doc.value.nodes).map(n => n.type)));
-const list = computed<NodeDef[]>(() => {
+type Tile = Pick<NodeDef, 'type' | 'title' | 'summary' | 'category' | 'keywords' | 'inputs' | 'outputs' | 'singleton'>;
+/** This patch's parts (never offered inside themselves), then, inside a part, its inputs and outputs. */
+const parts = computed<Tile[]>(() => {
+  const doc = session.doc.value, scope = session.scope.value;
+  return Object.values(doc.parts).filter(p => !scope || !partUses(doc, p.id, scope)).map(p => ({ type: `part:${p.id}`, title: p.name, summary: p.doc ?? 'A part of this patch: click or drag to use it again.', category: 'part', keywords: ['part'], inputs: [], outputs: [] }));
+});
+const list = computed<Tile[]>(() => {
   const q = query.value.trim().toLowerCase();
-  const all = session.catalog.list();
+  const inside = !!session.scope.value;
+  const all: Tile[] = [...parts.value, ...session.catalog.list().filter(d => d.palette !== 'never' && (d.palette !== 'inside' || inside) && !(inside && (d.kind === 'widget' || d.singleton)))];
   if (!q) return all.filter(d => d.category === category.value);
   return all.filter(d => [d.title, d.type, d.summary, ...(d.keywords ?? [])].join(' ').toLowerCase().includes(q));
 });
 function drag(e: DragEvent, type: string) { e.dataTransfer?.setData('application/x-den-kit', type); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'; }
-const ins = (d: NodeDef) => (typeof d.inputs === 'function' ? [] : d.inputs).filter(p => p.role === 'audio' || p.type === 'gate').slice(0, 2);
-const outs = (d: NodeDef) => (typeof d.outputs === 'function' ? [] : d.outputs).slice(0, 2);
+const ins = (d: Tile) => (typeof d.inputs === 'function' ? [] : d.inputs).filter(p => p.role === 'audio' || p.type === 'gate').slice(0, 2);
+const outs = (d: Tile) => (typeof d.outputs === 'function' ? [] : d.outputs).slice(0, 2);
+const tileColor = (d: Tile) => titleColor(d.type.startsWith('part:') ? undefined : d as NodeDef);
 </script>
 
 <template>
@@ -35,13 +44,13 @@ const outs = (d: NodeDef) => (typeof d.outputs === 'function' ? [] : d.outputs).
     <div class="tiles">
       <div v-for="d in list" :key="d.type" class="tile" :class="{ disabled: d.singleton && taken.has(d.type) }" draggable="true" :data-type="d.type" :title="d.summary" @dragstart="drag($event, d.type)" @click="!(d.singleton && taken.has(d.type)) && emit('add', d.type)">
         <div class="mini">
-          <span class="pins l"><i v-for="p in ins(d)" :key="p.id" class="ring" :style="{ borderColor: portColor(d, p, 'in') }" /></span>
-          <span class="name" :style="{ color: titleColor(d) }">{{ d.title }}</span>
-          <span class="pins r"><i v-for="p in outs(d)" :key="p.id" class="dot" :style="{ background: portColor(d, p, 'out') }" /></span>
+          <span class="pins l"><i v-for="p in ins(d)" :key="p.id" class="ring" :style="{ borderColor: portColor(d as NodeDef, p, 'in') }" /></span>
+          <span class="name" :style="{ color: d.type.startsWith('part:') ? '#9ad7ff' : tileColor(d) }">{{ d.type.startsWith('part:') ? `◇ ${d.title}` : d.title }}</span>
+          <span class="pins r"><i v-for="p in outs(d)" :key="p.id" class="dot" :style="{ background: portColor(d as NodeDef, p, 'out') }" /></span>
         </div>
         <div class="cap">{{ d.title }}</div>
       </div>
-      <div v-if="!list.length" class="empty">No module matches “{{ query }}”.</div>
+      <div v-if="!list.length" class="empty">{{ !query && category === 'part' ? 'No parts yet: select modules and press ⌘G.' : `No module matches “${query}”.` }}</div>
     </div>
   </div>
 </template>
