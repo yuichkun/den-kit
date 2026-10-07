@@ -3,8 +3,8 @@
 // from these, so den's heterogeneous tick signatures are absorbed here.
 import type { ConfigValue, PatchNode, PortId, SignalType, Value } from './schema.ts';
 
-export type NodeKind = 'block' | 'prim' | 'voiceIn' | 'voiceMix' | 'audioIn' | 'out' | 'history' | 'codebox' | 'widget' | 'comment';
-export type Category = 'voice' | 'source' | 'filter' | 'envelope' | 'modulation' | 'fx' | 'dynamics' | 'math' | 'io' | 'ui' | 'code';
+export type NodeKind = 'block' | 'prim' | 'voiceIn' | 'voiceMix' | 'audioIn' | 'out' | 'history' | 'codebox' | 'widget' | 'comment' | 'part' | 'partIn' | 'partOut';
+export type Category = 'voice' | 'source' | 'filter' | 'envelope' | 'modulation' | 'fx' | 'dynamics' | 'math' | 'io' | 'ui' | 'code' | 'part';
 export type Unit = 'Hz' | 's' | 'dB' | 'oct' | 'st' | 'ratio' | 'gain' | 'mix' | 'cycles' | 'beats' | 'note' | 'q' | 'level' | 'bpm';
 /**
  * What an unconnected gate input means. In a voice: `gate`/`retrigger` follow the
@@ -104,6 +104,8 @@ export interface NodeDef {
   singleton?: boolean;
   /** Inputs shown as big knobs on the module face (Grid style); other params stay compact. */
   face?: readonly PortId[];
+  /** Where the palettes offer it: never (parts are placed by definition) or only inside a part. Default: everywhere. */
+  palette?: 'never' | 'inside';
 }
 
 export class Catalog {
@@ -131,6 +133,11 @@ export class Catalog {
     return typeof def.outputs === 'function' ? def.outputs(node) : [...def.outputs];
   }
   input(node: PatchNode, port: PortId): PortDef | undefined { return this.inputs(node).find(p => p.id === port); }
+  /** Inputs drawn as big knobs on the module (a part shows its first parameters). */
+  face(node: PatchNode): PortId[] {
+    if (node.type === 'kit.part') return this.inputs(node).filter(p => p.role === 'control' && p.type === 'signal').slice(0, 4).map(p => p.id);
+    return [...(this.find(node.type)?.face ?? [])];
+  }
   output(node: PatchNode, port: PortId): PortDef | undefined { return this.outputs(node).find(p => p.id === port); }
   /** Effective config: defaults filled in, unknown keys dropped. */
   config(node: PatchNode): Record<string, ConfigValue> {

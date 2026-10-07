@@ -157,9 +157,10 @@ export class CompileClient {
 }
 
 /** Inputs the worker needs besides the generated source, derived from the document. */
-export function compileInputs(doc: import('../core/schema.ts').PatchDocument, generated: Generated): CompileInputs {
+/** What the compile worker needs besides the source: node ids for error messages and the codeboxes to type-check (on the generated program's ids). */
+export function compileInputs(_doc: import('../core/schema.ts').PatchDocument, generated: Generated): CompileInputs {
   return {
-    nodes: Object.keys(doc.nodes),
-    codeboxes: Object.entries(generated.codeboxes).map(([node, line]) => ({ node, line, code: doc.nodes[node]?.code ?? '', inputs: doc.nodes[node]?.ports?.inputs ?? [], outputs: doc.nodes[node]?.ports?.outputs ?? [] })),
+    nodes: generated.nodes,
+    codeboxes: Object.entries(generated.codeboxes).map(([node, line]) => ({ node, line, code: generated.boxes[node]?.code ?? '', inputs: generated.boxes[node]?.inputs ?? [], outputs: generated.boxes[node]?.outputs ?? [] })),
   };
 }

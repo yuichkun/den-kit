@@ -3,17 +3,40 @@
 // after import) and produces messages that both people and AI can act on.
 import { checkConfigValue, checkPortValue, type Catalog } from './catalog.ts';
 import type { Issue } from './issues.ts';
+import { flatten, mapAnalysis, mapIssue, type FlattenOptions, type Flattened } from './parts.ts';
 import { analyze, type Analysis } from './scope.ts';
 import type { PatchDocument } from './schema.ts';
 
 export const LIMITS = { nodes: 400, edges: 1200, voices: 16, heldNotes: 128 } as const;
 
-export interface Validation { issues: Issue[]; analysis: Analysis }
+export interface Validation {
+  issues: Issue[];
+  /** On the patch as drawn (a part counts as one node). */
+  analysis: Analysis;
+  /** The patch with its parts expanded, and how its ids map back. */
+  flat: Flattened;
+  /** The analysis of the expanded patch (what code generation uses). */
+  flatAnalysis: Analysis;
+}
 
-export function validate(doc: PatchDocument, catalog: Catalog): Validation {
+/** Check a patch. Parts are expanded first; what is found inside them is reported on the part (with the path inside). */
+export function validate(doc: PatchDocument, catalog: Catalog, options: FlattenOptions = {}): Validation {
+  const flat = flatten(doc, catalog, options);
+  const { issues, analysis } = validateGraph(flat.doc, catalog, flat.expanded);
+  if (!flat.expanded) return { issues, analysis, flat, flatAnalysis: analysis };
+  const seen = new Set<string>();
+  const mapped = [...flat.issues, ...issues.map(i => mapIssue(i, flat))].filter(i => {
+    const key = `${i.severity}|${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+  return { issues: mapped, analysis: mapAnalysis(analysis, flat), flat, flatAnalysis: analysis };
+}
+
+function validateGraph(doc: PatchDocument, catalog: Catalog, expanded: boolean): { issues: Issue[]; analysis: Analysis } {
   const issues: Issue[] = [];
   const nodes = Object.values(doc.nodes).sort((a, b) => a.id.localeCompare(b.id));
-  if (nodes.length > LIMITS.nodes) issues.push({ severity: 'error', code: 'too-many-nodes', message: `Patches are limited to ${LIMITS.nodes} nodes in this PoC.` });
+  if (nodes.length > LIMITS.nodes) issues.push({ severity: 'error', code: 'too-many-nodes', message: expanded ? `With its parts expanded the patch has ${nodes.length} nodes; the limit is ${LIMITS.nodes} in this PoC.` : `Patches are limited to ${LIMITS.nodes} nodes in this PoC.` });
   if (Object.keys(doc.edges).length > LIMITS.edges) issues.push({ severity: 'error', code: 'too-many-edges', message: `Patches are limited to ${LIMITS.edges} cables.` });
 
   const counts = new Map<string, number>();

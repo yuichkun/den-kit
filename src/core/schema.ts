@@ -1,11 +1,12 @@
 // den-kit patch document. The browser owns one of these; every change goes
 // through typed, author-attributed ops (ops.ts) so humans, the fast AI path and
 // the LLM path all edit the same way. Pure data: no DOM, no Vue, no unworklet.
+import type { PortDef } from './catalog.ts';
 import { emptyUi, type AssetMeta, type PluginUi, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
-/** 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 still loads. */
-export const PATCH_VERSION = 2;
+/** 3: parts (definitions used in several places). 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 and 2 still load. */
+export const PATCH_VERSION = 3;
 
 export type NodeId = string;
 export type EdgeId = string;
@@ -42,6 +43,33 @@ export interface PatchNode {
   text?: string;
   /** How a widget looks on the plugin (skin, box, colours, text). */
   style?: WidgetStyle;
+  /** The part this node lives inside (its definition's id); absent: the main patch. */
+  inside?: string;
+  /** A part (kit.part): the definition it uses. */
+  part?: string;
+  /** A part's inputs (its inputs, then its parameters) and outputs, kept in step with its definition by every edit. */
+  iface?: { inputs: PortDef[]; outputs: PortDef[] };
+}
+
+/** One input or output of a part: the inlet or outlet node inside that carries it. */
+export interface PartPort { id: PortId; node: NodeId }
+/** A knob inside a part shown on the part itself: each use of the part has its own value. */
+export interface PartParam { id: PortId; node: NodeId; port: PortId; label?: string }
+/**
+ * A part: one definition, used in any number of places (kit.part nodes). The
+ * nodes inside live in the document's node list with `inside` set to its id,
+ * so every edit (by hand or by the AI) is an ordinary op and undoes like one.
+ */
+export interface PartDef {
+  id: string;
+  name: string;
+  /** What it does (shown on the part and given to the AI). */
+  doc?: string;
+  inputs: PartPort[];
+  outputs: PartPort[];
+  params: PartParam[];
+  /** Placed from My parts: which one, and its version then. */
+  from?: { id: string; version: number };
 }
 
 export interface PortRef { node: NodeId; port: PortId }
@@ -65,13 +93,17 @@ export interface PatchDocument {
   ui: PluginUi;
   /** Pictures and fonts the plugin uses (bytes live in the browser's asset store or ship with den-kit). */
   assets: Record<string, AssetMeta>;
+  /** Part definitions used in this patch, by id. */
+  parts: Record<string, PartDef>;
 }
 
 export const NODE_ID_PATTERN = /^[a-z][a-zA-Z0-9]{0,31}$/;
+/** Part definition ids look like node ids (their own namespace). */
+export const PART_ID_PATTERN = NODE_ID_PATTERN;
 export const PORT_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]{0,31}$/;
 
 export function emptyDocument(name = 'Untitled', id = randomId('patch')): PatchDocument {
-  return { schema: PATCH_SCHEMA, version: PATCH_VERSION, id, name, revision: 0, nodes: {}, edges: {}, panel: { width: 640, height: 360, theme: 'graphite' }, ui: emptyUi(), assets: {} };
+  return { schema: PATCH_SCHEMA, version: PATCH_VERSION, id, name, revision: 0, nodes: {}, edges: {}, panel: { width: 640, height: 360, theme: 'graphite' }, ui: emptyUi(), assets: {}, parts: {} };
 }
 
 let fallbackCounter = 0;

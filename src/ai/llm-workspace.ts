@@ -14,6 +14,7 @@ import { validate } from '../core/validate.ts';
 import { placeNewNodes } from '../core/layout.ts';
 import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
+import { compileInputs } from '../compile/compile-client.ts';
 import type { Rendered } from '../compile/render-client.ts';
 import { describePlugin, describeUiOp, expandOps, screenChanged, uiReference } from './plugin-tools.ts';
 import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
@@ -255,7 +256,7 @@ export class LlmWorkspace {
     if (!generated.source) return { success: false, text: 'There is nothing to play: the patch does not compile or nothing reaches Out. Fix that first (kit_get_patch shows the problems).' };
     const effect = generated.audioIn;
     let request: Omit<RenderRequest, 'id' | 'kind'>;
-    const base = { source: generated.source, nodes: Object.keys(doc.nodes), codeboxes: Object.entries(generated.codeboxes).map(([node, line]) => ({ node, line, code: doc.nodes[node]?.code ?? '', inputs: doc.nodes[node]?.ports?.inputs ?? [], outputs: doc.nodes[node]?.ports?.outputs ?? [] })), params: { ...generated.values }, image: this.deps.images };
+    const base = { source: generated.source, ...compileInputs(doc, generated), params: { ...generated.values }, image: this.deps.images };
     if (effect) {
       const input: TestSignal = phrase === 'drums' || phrase === 'noise' ? phrase : 'chords';
       request = { ...base, seconds: Math.min(8, seconds ?? 4), events: [], notes: { onSamples: [], offSamples: [] }, input };

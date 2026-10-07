@@ -11,7 +11,12 @@ export function attributeError(message: string, nodes: readonly string[], option
   if (/maximum function size|function size/i.test(message)) return [{ severity: 'error', code: 'too-large', message: 'The patch is too large to compile (WebAssembly function size limit). Use fewer voices or fewer per-voice blocks.' }];
   const ids = new Set(nodes);
   const found = new Set<string>();
-  for (const match of message.matchAll(/\b([a-z][a-zA-Z0-9]*)(?:_v\d+)?\b/g)) if (ids.has(match[1]!)) found.add(match[1]!);
+  // Ids may carry a voice suffix (`osc1_v2`), a port (`osc1_freq`), or come from inside a part (`rain1_drop1_osc1`).
+  for (const match of message.matchAll(/\b[a-z][a-zA-Z0-9_]*\b/g)) {
+    let word = match[0].replace(/_v\d+$/, '');
+    while (!ids.has(word) && word.includes('_')) word = word.slice(0, word.lastIndexOf('_'));
+    if (ids.has(word)) found.add(word);
+  }
   const codes = [...message.matchAll(/\[([a-z][a-z0-9-]+)\]/g)].map(m => m[1]!);
   const code = codes[0] ?? 'compile-failed';
   if (found.size) return [...found].map(node => ({ severity: 'error' as const, code, node, message }));

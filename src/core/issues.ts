@@ -14,6 +14,8 @@ export interface Issue {
   /** Codebox-relative position, when the issue is inside codebox source. */
   line?: number;
   column?: number;
+  /** Inside a part: the original ids from the main patch down (the part's uses, then the node inside). `node` is the first. */
+  path?: NodeId[];
 }
 
 export const hasErrors = (issues: readonly Issue[]) => issues.some(i => i.severity === 'error');

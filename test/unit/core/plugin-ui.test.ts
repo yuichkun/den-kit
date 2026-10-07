@@ -3,7 +3,7 @@ import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents, applyResolvedOps, invertAll, OpError, replaceOps, type Intent } from '../../../src/core/ops.ts';
 import { History } from '../../../src/core/history.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
+import { PATCH_VERSION, emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { isColor, sanitizeCss, stackOrder, withGroups, type AssetMeta } from '../../../src/core/ui.ts';
 import { CONTROL_KINDS, DEFAULT_SKIN, SKINS, skinDef } from '../../../src/core/skins.ts';
@@ -227,7 +227,7 @@ describe('the plugin screen: saving and loading', () => {
     delete v1.ui; delete v1.assets; v1.version = 1;
     const parsed = parseDocument(JSON.stringify(v1), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
-    expect(parsed.doc.version).toBe(2);
+    expect(parsed.doc.version).toBe(PATCH_VERSION);
     expect(parsed.doc.ui).toEqual({ look: { tokens: {}, skins: {} }, elements: {}, order: [], groups: {} });
     expect(parsed.doc.assets).toEqual({});
   });

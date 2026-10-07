@@ -13,8 +13,9 @@
 import { isParamInput, defaultValue, type Catalog, type NodeDef, type PortDef } from './catalog.ts';
 import { inlineCodebox } from './codebox.ts';
 import { hasErrors, type Issue } from './issues.ts';
+import { mapIssue, type FlattenOptions } from './parts.ts';
 import type { Scope } from './scope.ts';
-import { edgesInto, type NodeId, type PatchDocument, type PatchNode, type PortId } from './schema.ts';
+import { edgesInto, type NodeId, type PatchDocument, type PatchNode, type PortId, type PortSpec } from './schema.ts';
 import { validate } from './validate.ts';
 import { hashString } from './hash.ts';
 
@@ -35,6 +36,14 @@ export interface Generated {
   voices: { node: NodeId; capacity: number; mode: 'mono' | 'poly' } | null;
   audioIn: boolean;
   issues: Issue[];
+  /** Parts are expanded before generation: a knob of the patch as drawn (`node_port`) → the AudioParams it sets. Absent: the names are the same. */
+  aliases: Record<string, string[]>;
+  /** Expanded node id → original ids from the main patch down (only for nodes inside parts). */
+  origin: Record<NodeId, NodeId[]>;
+  /** Ids of the generated program's nodes (for attributing compile errors). */
+  nodes: NodeId[];
+  /** Codebox sources by generated node id (a codebox inside a part appears once per use). */
+  boxes: Record<NodeId, { code: string; inputs: PortSpec[]; outputs: PortSpec[] }>;
 }
 
 const RESERVED = new Set(('break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static implements interface package private protected public await async of ' +
@@ -55,9 +64,16 @@ class Writer {
 
 interface OutRef { expr: string }
 
-export function generate(doc: PatchDocument, catalog: Catalog): Generated {
-  const { issues, analysis } = validate(doc, catalog);
-  const empty = (extra: Issue[] = []): Generated => ({ source: '', hash: '', params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: [...issues, ...extra] });
+export function generate(input: PatchDocument, catalog: Catalog, options: FlattenOptions = {}): Generated {
+  const validation = validate(input, catalog, options);
+  const { flat } = validation;
+  // Generation works on the expanded patch; what it finds is said in terms of the patch as drawn.
+  const doc = flat.doc, analysis = validation.flatAnalysis;
+  const issues = [...validation.issues];
+  const known = issues.length;
+  const finish = (list: Issue[]) => [...list.slice(0, known), ...list.slice(known).map(i => mapIssue(i, flat))];
+  const mapping = { aliases: flat.aliases, origin: flat.origin, nodes: Object.keys(doc.nodes), boxes: Object.fromEntries(Object.values(doc.nodes).filter(n => n.code !== undefined && catalog.find(n.type)?.kind === 'codebox').map(n => [n.id, { code: n.code ?? '', inputs: n.ports?.inputs ?? [], outputs: n.ports?.outputs ?? [] }])) };
+  const empty = (extra: Issue[] = []): Generated => ({ source: '', hash: '', params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: finish([...issues, ...extra]), ...mapping });
   if (hasErrors(issues)) return empty();
   const node = (id: NodeId) => doc.nodes[id]!;
   const def = (id: NodeId) => catalog.get(node(id).type);
@@ -479,5 +495,5 @@ export function generate(doc: PatchDocument, catalog: Catalog): Generated {
   out.push('});');
   out.push('');
   const source = out.lines.join('\n');
-  return { source, hash: hashString(source), params, values, nodeLines: declMarks, codeboxes: codeboxLines, probes: probeNodes.map((p, channel) => ({ node: p.id, channel })), voices: voiceInNode ? { node: voiceInNode.id, capacity, mode } : null, audioIn, issues };
+  return { source, hash: hashString(source), params, values, nodeLines: declMarks, codeboxes: codeboxLines, probes: probeNodes.map((p, channel) => ({ node: p.id, channel })), voices: voiceInNode ? { node: voiceInNode.id, capacity, mode } : null, audioIn, issues: finish(issues), ...mapping };
 }

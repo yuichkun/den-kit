@@ -179,6 +179,36 @@ export const kitIO: NodeDef[] = [
   },
 ];
 
+const portType = (node: PatchNode) => node.config.type === 'gate' ? 'gate' as const : 'signal' as const;
+/** Parts: one definition used in several places. The nodes inside are expanded into ordinary nodes before checking and code generation. */
+export const kitParts: NodeDef[] = [
+  {
+    type: 'kit.part', kind: 'part', title: 'Part', category: 'part', palette: 'never',
+    summary: 'A part: a piece of patch defined once and used in several places; each use has its own parameter values.',
+    doc: 'Make one from modules with makePart; place another use with addNode {type: "kit.part", part: "<part id>"}. Its inputs (cables) and parameters (knobs) are inputs; editing inside changes every use.',
+    keywords: ['part', 'subpatch', 'macro', 'abstraction', 'module'],
+    config: [],
+    inputs: (node: PatchNode) => node.iface?.inputs ?? [],
+    outputs: (node: PatchNode) => node.iface?.outputs ?? [],
+  },
+  {
+    type: 'kit.partIn', kind: 'partIn', title: 'Part input', category: 'part', palette: 'inside',
+    summary: 'Inside a part: a signal coming in from outside (one input of the part).',
+    keywords: ['inlet', 'input', 'in'],
+    config: [{ id: 'type', kind: 'enum', options: ['signal', 'gate'], default: 'signal' }],
+    inputs: [],
+    outputs: (node: PatchNode) => [{ id: 'out', type: portType(node), label: node.label }],
+  },
+  {
+    type: 'kit.partOut', kind: 'partOut', title: 'Part output', category: 'part', palette: 'inside',
+    summary: 'Inside a part: a signal going out (one output of the part).',
+    keywords: ['outlet', 'output', 'out'],
+    config: [{ id: 'type', kind: 'enum', options: ['signal', 'gate'], default: 'signal' }],
+    inputs: (node: PatchNode) => [{ id: 'in', type: portType(node), role: 'audio', label: node.label }],
+    outputs: [],
+  },
+];
+
 const range = (node: PatchNode, key: 'min' | 'max', fallback: number) => typeof node.config[key] === 'number' ? node.config[key] as number : fallback;
 const valuePort = (node: PatchNode, id = 'value'): PortDef => {
   const min = range(node, 'min', 0), max = range(node, 'max', 1);

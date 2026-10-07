@@ -4,10 +4,13 @@
 // document is untouched (documents are treated as immutable values).
 import { checkConfigValue, checkPortValue, clampPortValue, defaultValue, type Catalog } from './catalog.ts';
 import { createsCycle } from './scope.ts';
+import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox.ts';
+import { addParam, checkPlacement, detachPart, makePart, removeParam, syncParts, syncPorts, unpackPart, updatePart } from './part-ops.ts';
+import { partInterface } from './parts.ts';
 import {
   NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
-  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PatchDocument, type PatchEdge, type PatchNode,
+  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PartDef, type PatchDocument, type PatchEdge, type PatchNode,
   type PortId, type PortRef, type PortSpec, type ThemeId, type Value, type XY,
 } from './schema.ts';
 import { CONTROL_OF, type ControlKind } from './skins.ts';
@@ -16,6 +19,7 @@ import {
   type AssetMeta, type CheckContext, type ElementKind, type Look, type PluginUi, type UiElement, type Underlay, type WidgetStyle,
 } from './ui.ts';
 
+/** A node to add. `inside` puts it in a part; a part (kit.part) names its definition in `part`. `iface` is worked out, never given. */
 export type NewNode = Partial<Omit<PatchNode, 'type'>> & { type: string };
 export type NewElement = Partial<Omit<UiElement, 'kind'>> & { kind: ElementKind } & Record<string, unknown>;
 /** setLook: tokens and skins merge key by key (null removes one); background and css replace (null removes). */
@@ -55,9 +59,21 @@ export type Intent =
   | { op: 'removeAsset'; id: string }
   | { op: 'setUnderlay'; underlay: Underlay | null }
   /** The design brief (null or empty removes it). */
-  | { op: 'setBrief'; brief: string | null };
+  | { op: 'setBrief'; brief: string | null }
+  // ---- parts ----
+  /** Make a part from modules: they move inside it, cables across the edge become its inputs and outputs, their main knobs its parameters; one use of it takes their place. */
+  | { op: 'makePart'; ids: NodeId[]; name?: string; /** The part's id (default: from the name). */ id?: string; /** The use's node id. */ node?: NodeId }
+  /** Put a part's insides back in its place as ordinary modules. */
+  | { op: 'unpackPart'; node: NodeId }
+  /** Give this use its own copy of the part (edits inside then change only it). */
+  | { op: 'detachPart'; node: NodeId; name?: string }
+  /** Rename or describe a part; relabel its inputs, outputs and parameters (null clears a label). */
+  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null> }
+  /** Show a free knob of a module inside a part on the part itself (each use gets its own value). */
+  | { op: 'addParam'; part: string; node: NodeId; port: PortId; id?: PortId; label?: string }
+  | { op: 'removeParam'; part: string; id: PortId };
 
-type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style';
+type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style' | 'inside' | 'part' | 'iface';
 type UiField = 'look' | 'order' | 'groups' | 'underlay' | 'brief';
 export interface Size { width: number; height: number }
 export type ResolvedOp =
@@ -75,19 +91,22 @@ export type ResolvedOp =
   | { op: 'setElement'; id: string; field: string; from: unknown; to: unknown }
   | { op: 'setUi'; field: UiField; from: unknown; to: unknown }
   | { op: 'addAsset'; asset: AssetMeta }
-  | { op: 'removeAsset'; asset: AssetMeta };
+  | { op: 'removeAsset'; asset: AssetMeta }
+  | { op: 'addPart'; part: PartDef }
+  | { op: 'removePart'; part: PartDef }
+  | { op: 'setPart'; id: string; from: PartDef; to: PartDef };
 
-export class OpError extends Error {
-  readonly index: number;
-  readonly code: string;
-  readonly hint?: string;
-  constructor(message: string, index: number, code: string, hint?: string) { super(message); this.name = 'OpError'; this.index = index; this.code = code; this.hint = hint; }
-}
+export { OpError } from './op-error.ts';
 
-const STRUCTURAL: ReadonlySet<ResolvedOp['op']> = new Set(['addNode', 'removeNode', 'addEdge', 'removeEdge', 'setConfig']);
-/** Does this op change the compiled program? (values, positions, labels, panel do not.) */
+const STRUCTURAL: ReadonlySet<ResolvedOp['op']> = new Set(['addNode', 'removeNode', 'addEdge', 'removeEdge', 'setConfig', 'addPart', 'removePart']);
+/** The shape of a part's ports (not their labels or defaults). */
+const portShape = (v: unknown) => { const f = v as { inputs?: Array<{ id: string; type: string; role?: string }>; outputs?: Array<{ id: string; type: string }> } | undefined; return JSON.stringify([f?.inputs?.map(p => [p.id, p.type, p.role]), f?.outputs?.map(p => [p.id, p.type])]); };
+const partShape = (p: PartDef) => JSON.stringify([p.inputs, p.outputs, p.params.map(q => [q.id, q.node, q.port])]);
+/** Does this op change the compiled program? (values, positions, labels, panel, names do not.) */
 export function isStructural(op: ResolvedOp): boolean {
-  return STRUCTURAL.has(op.op) || (op.op === 'setField' && (op.field === 'code' || op.field === 'ports'));
+  if (op.op === 'setPart') return partShape(op.from) !== partShape(op.to);
+  if (op.op === 'setField' && op.field === 'iface') return portShape(op.from) !== portShape(op.to);
+  return STRUCTURAL.has(op.op) || (op.op === 'setField' && (op.field === 'code' || op.field === 'ports' || op.field === 'inside' || op.field === 'part'));
 }
 
 const MAX_CODE = 64_000;
@@ -118,7 +137,7 @@ class Draft {
 
 /** A document whose records can be written without touching `base` (look, order, groups, underlay and assets are replaced whole, never mutated). */
 function shallowCopy(base: PatchDocument): PatchDocument {
-  return { ...base, nodes: { ...base.nodes }, edges: { ...base.edges }, panel: { ...base.panel }, ui: { ...base.ui, elements: { ...base.ui.elements } }, assets: { ...base.assets } };
+  return { ...base, nodes: { ...base.nodes }, edges: { ...base.edges }, panel: { ...base.panel }, ui: { ...base.ui, elements: { ...base.ui.elements } }, assets: { ...base.assets }, parts: { ...base.parts } };
 }
 
 /** Apply one resolved op in place on a draft document (records already shallow-copied). */
@@ -154,6 +173,9 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
     }
     case 'addAsset': doc.assets[op.asset.id] = clone(op.asset); break;
     case 'removeAsset': delete doc.assets[op.asset.id]; break;
+    case 'addPart': doc.parts[op.part.id] = clone(op.part); break;
+    case 'removePart': delete doc.parts[op.part.id]; break;
+    case 'setPart': doc.parts[op.id] = clone(op.to); break;
   }
 }
 
@@ -174,6 +196,9 @@ export function invert(op: ResolvedOp): ResolvedOp {
     case 'setUi': return { ...op, from: op.to, to: op.from };
     case 'addAsset': return { op: 'removeAsset', asset: op.asset };
     case 'removeAsset': return { op: 'addAsset', asset: op.asset };
+    case 'addPart': return { op: 'removePart', part: op.part };
+    case 'removePart': return { op: 'addPart', part: op.part };
+    case 'setPart': return { ...op, from: op.to, to: op.from };
   }
 }
 
@@ -197,17 +222,20 @@ export function applyIntents(base: PatchDocument, intents: readonly Intent[], ca
   const draft = new Draft(base, catalog);
   const created: NodeId[] = [];
   intents.forEach((intent, index) => {
-    try { resolveIntent(draft, intent, created); }
+    // Ports of parts follow each edit, so a later edit in the same transaction can use a new input or parameter.
+    try { resolveIntent(draft, intent, created); syncPorts(draft); }
     catch (error) {
       if (error instanceof OpError || error instanceof UiCheckError) throw new OpError(error.message, index, error.code, error.hint);
       throw new OpError(error instanceof Error ? error.message : String(error), index, 'internal');
     }
   });
+  // Every use of a part follows its definition; parts nothing uses go.
+  try { syncParts(draft); }
+  catch (error) { throw new OpError(error instanceof Error ? error.message : String(error), intents.length - 1, error instanceof OpError ? error.code : 'internal'); }
   draft.doc.revision = base.revision + 1;
   return { doc: draft.doc, ops: draft.ops, created };
 }
 
-function fail(code: string, message: string, hint?: string): never { throw new OpError(message, -1, code, hint); }
 
 function requireNode(draft: Draft, id: unknown): PatchNode {
   if (typeof id !== 'string' || !draft.doc.nodes[id]) {
@@ -227,7 +255,9 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       const def = catalog.find(spec.type);
       if (!def) fail('unknown-type', `Unknown node type "${spec.type}".`, 'Call list_blocks for valid types.');
       if (def.singleton && Object.values(draft.doc.nodes).some(n => n.type === def.type)) fail('singleton', `Only one ${def.title} is allowed per patch.`);
-      const id = spec.id ?? nextNodeId(draft.doc, defaultStem(spec.type));
+      checkPlacement(draft.doc, catalog, spec.type, spec.inside, spec.part);
+      const stem = def.kind === 'part' ? String(spec.part) : def.kind === 'partIn' ? `${spec.inside}In` : def.kind === 'partOut' ? `${spec.inside}Out` : defaultStem(spec.type);
+      const id = spec.id ?? nextNodeId(draft.doc, stem);
       if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Node id "${id}" must match ${NODE_ID_PATTERN} (letters/digits, starting lowercase).`);
       if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
       const config: Record<string, ConfigValue> = {};
@@ -239,6 +269,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       for (const key of Object.keys(spec.config ?? {})) if (!def.config.some(c => c.id === key)) fail('bad-config', `${def.title} has no config "${key}".`, `Config keys: ${def.config.map(c => c.id).join(', ') || 'none'}`);
       const node: PatchNode = { id, type: spec.type, pos: validXY(spec.pos) ? { ...spec.pos } : { x: 0, y: 0 }, config, values: {} };
       if (spec.label) node.label = String(spec.label).slice(0, 80);
+      if (spec.inside !== undefined) node.inside = spec.inside;
+      if (def.kind === 'part') { node.part = spec.part!; node.iface = partInterface(draft.doc, catalog, draft.doc.parts[spec.part!]!); }
       if (def.kind === 'codebox') {
         node.code = typeof spec.code === 'string' ? spec.code : CODEBOX_TEMPLATE;
         node.ports = spec.ports && validPorts(spec.ports) ? clone(spec.ports) : { inputs: [{ id: 'in', type: 'signal' }], outputs: [{ id: 'out', type: 'signal' }] };
@@ -279,6 +311,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       if (!out) fail('unknown-port', `${source.id} has no output "${from.port}".`, `Outputs: ${catalog.outputs(source).map(p => p.id).join(', ') || 'none'}`);
       const input = catalog.input(target, to.port);
       if (!input) fail('unknown-port', `${target.id} has no input "${to.port}".`, `Inputs: ${catalog.inputs(target).map(p => p.id).join(', ') || 'none'}`);
+      if ((source.inside ?? null) !== (target.inside ?? null)) fail('cross-part', `${source.id} and ${target.id} are not in the same place (${source.inside ? `${source.id} is inside part ${source.inside}` : `${source.id} is in the main patch`}, ${target.inside ? `${target.id} inside part ${target.inside}` : `${target.id} in the main patch`}).`, 'Cables stay inside one part: connect through an input or output of the part (kit.partIn / kit.partOut inside it).');
       const existing = edgesInto(draft.doc, to.node, to.port);
       if (existing.some(e => e.from.node === from.node && e.from.port === from.port)) return; // already connected: idempotent
       if (existing.length) {
@@ -503,6 +536,12 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       draft.apply({ op: 'setUi', field: 'underlay', from: draft.doc.ui.underlay, to });
       return;
     }
+    case 'makePart': return makePart(draft, intent, created);
+    case 'unpackPart': return unpackPart(draft, intent, created);
+    case 'detachPart': return detachPart(draft, intent, created);
+    case 'updatePart': return updatePart(draft, intent);
+    case 'addParam': return addParam(draft, intent);
+    case 'removeParam': return removeParam(draft, intent);
     case 'setBrief': {
       if (intent.brief !== null && typeof intent.brief !== 'string') fail('bad-intent', 'brief is text (or null to remove it).');
       const text = typeof intent.brief === 'string' ? intent.brief.trim() : '';
@@ -513,7 +552,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam.');
   }
 }
 
@@ -601,6 +640,8 @@ function arrange(draft: Draft, ids: readonly string[], to: Arrange) {
 /** Ops that turn `prev` into `next` wholesale (loading a patch as one undoable step). */
 export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp[] {
   const ops: ResolvedOp[] = [
+    ...Object.values(prev.parts).map(part => ({ op: 'removePart' as const, part })),
+    ...Object.values(next.parts).map(part => ({ op: 'addPart' as const, part })),
     ...Object.values(prev.edges).map(edge => ({ op: 'removeEdge' as const, edge })),
     ...Object.values(prev.nodes).map(node => ({ op: 'removeNode' as const, node })),
     ...Object.values(prev.ui.elements).map(element => ({ op: 'removeElement' as const, element })),

@@ -123,12 +123,21 @@ describe('A11 property: random edits always invert exactly and never throw anyth
     let doc = starter('pad', catalog);
     let applied = 0;
     for (let step = 0; step < 10000; step++) {
+      if (!Object.keys(doc.nodes).length) doc = starter('pad', catalog);
       const nodes = Object.values(doc.nodes);
       const node = pick(nodes);
       const other = pick(nodes);
       const outs = catalog.outputs(other), ins = catalog.inputs(node);
+      const parts = Object.keys(doc.parts);
       const intent: Intent = pick([
         () => ({ op: 'addNode', node: { type: pick(types), pos: { x: rand() * 1000, y: rand() * 1000 } } }),
+        // Parts: made from a few modules, unpacked, detached, used again, edited inside.
+        () => ({ op: 'makePart', ids: [node.id, other.id, pick(nodes).id].slice(0, 1 + Math.floor(rand() * 3)) }),
+        () => ({ op: 'unpackPart', node: node.id }),
+        () => ({ op: 'detachPart', node: node.id }),
+        () => ({ op: 'addNode', node: { type: rand() < 0.5 ? 'kit.part' : pick(types), part: parts.length ? pick(parts) : 'nope', inside: parts.length && rand() < 0.7 ? pick(parts) : undefined, pos: { x: 0, y: 0 } } }),
+        () => ({ op: 'addParam', part: parts.length ? pick(parts) : 'nope', node: node.id, port: ins.length ? pick(ins).id : 'x' }),
+        () => ({ op: 'removeParam', part: parts.length ? pick(parts) : 'nope', id: ins.length ? pick(ins).id : 'x' }),
         () => ({ op: 'removeNode', id: node.id }),
         () => ({ op: 'connect', from: { node: other.id, port: outs.length ? pick(outs).id : 'out' }, to: { node: node.id, port: ins.length ? pick(ins).id : 'in' }, replace: rand() < 0.5 }),
         () => ({ op: 'disconnect', id: pick(Object.keys(doc.edges).concat('e999')) }),
@@ -149,5 +158,5 @@ describe('A11 property: random edits always invert exactly and never throw anyth
       if (Object.keys(doc.nodes).length > 120) doc = starter('pad', catalog);
     }
     expect(applied).toBeGreaterThan(3000);
-  });
+  }, 30_000);
 });

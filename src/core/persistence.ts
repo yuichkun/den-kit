@@ -4,7 +4,9 @@
 import type { Catalog } from './catalog.ts';
 import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
-import { NODE_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, THEMES, nextNodeId, type PatchDocument, type PatchEdge, type PatchNode, type ThemeId } from './schema.ts';
+import { NODE_ID_PATTERN, PART_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, PORT_ID_PATTERN, THEMES, nextNodeId, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type ThemeId } from './schema.ts';
+import { applyIntents } from './ops.ts';
+import { refreshInterfaces } from './part-ops.ts';
 import { CONTROL_OF } from './skins.ts';
 import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
@@ -20,7 +22,9 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 /** The patch as JSON. With `assetData` (data: URLs by asset id) the assets travel inside the file (export). */
 export function serializeDocument(doc: PatchDocument, options: { assetData?: Record<string, string> } = {}): string {
   const assets = options.assetData ? Object.fromEntries(Object.entries(doc.assets).map(([id, a]) => [id, options.assetData![id] ? { ...a, data: options.assetData![id] } : a])) : doc.assets;
-  return JSON.stringify({ ...doc, assets, schema: PATCH_SCHEMA, version: PATCH_VERSION }, null, 2) + '\n';
+  // A part's ports are worked out from its definition when the file is read.
+  const nodes = Object.fromEntries(Object.entries(doc.nodes).map(([id, n]) => { if (!n.iface) return [id, n]; const { iface: _, ...rest } = n; return [id, rest]; }));
+  return JSON.stringify({ ...doc, nodes, assets, schema: PATCH_SCHEMA, version: PATCH_VERSION }, null, 2) + '\n';
 }
 
 const DATA_URL = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/;
@@ -44,7 +48,7 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     revision: Number.isInteger(data.revision) && (data.revision as number) >= 0 ? data.revision as number : 0,
     nodes: {}, edges: {},
     panel: { width: 640, height: 360, theme: 'graphite' },
-    ui: emptyUi(), assets: {},
+    ui: emptyUi(), assets: {}, parts: {},
   };
   const assetData: Record<string, string> = {};
   // Assets first: node styles and plugin elements refer to them.
@@ -94,6 +98,8 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (isObject(raw.ports) && Array.isArray(raw.ports.inputs) && Array.isArray(raw.ports.outputs)) node.ports = { inputs: raw.ports.inputs.filter(isObject).map(p => ({ id: String(p.id), type: p.type === 'gate' ? 'gate' : 'signal' })), outputs: raw.ports.outputs.filter(isObject).map(p => ({ id: String(p.id), type: p.type === 'gate' ? 'gate' : 'signal' })) };
     else if (def?.kind === 'codebox') node.ports = { inputs: [], outputs: [] };
     if (typeof raw.text === 'string') node.text = raw.text.slice(0, 2000);
+    if (typeof raw.inside === 'string' && raw.inside) node.inside = raw.inside;
+    if (raw.type === 'kit.part' && typeof raw.part === 'string') node.part = raw.part;
     if (raw.style !== undefined) {
       const control = CONTROL_OF[raw.type];
       try {
@@ -102,13 +108,18 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
       } catch (error) { report.push({ severity: 'warning', code: 'dropped-style', node: id, message: `Dropped the look of ${id}: ${error instanceof Error ? error.message : String(error)}` }); }
     }
     if (def) {
-      // Drop config keys and values the block does not know (report them).
+      // Drop config keys and values the block does not know (report them). A part's inputs are known once its definition is read.
       for (const k of Object.keys(node.config)) if (!def.config.some(c => c.id === k)) { delete node.config[k]; report.push({ severity: 'warning', code: 'dropped-config', node: id, message: `Dropped unknown config "${k}".` }); }
-      const ports = new Set(catalog.inputs(node).map(p => p.id));
-      for (const k of Object.keys(node.values)) if (!ports.has(k)) { delete node.values[k]; report.push({ severity: 'warning', code: 'dropped-value', node: id, port: k, message: `Dropped value for unknown input "${k}".` }); }
+      if (def.kind !== 'part') dropUnknownValues(node, catalog, report);
     }
     doc.nodes[id] = node;
   }
+  readParts(data.parts, doc, report, rename);
+  const orphans = Object.values(doc.nodes).filter(n => n.inside !== undefined && !doc.parts[n.inside]);
+  for (const n of orphans) delete doc.nodes[n.id];
+  if (orphans.length) report.push({ severity: 'warning', code: 'dropped-node', message: `Dropped ${orphans.length} node(s) inside a part the file does not define (${orphans.slice(0, 4).map(n => n.id).join(', ')}).` });
+  refreshInterfaces(doc, catalog);
+  for (const n of Object.values(doc.nodes)) if (n.type === 'kit.part') dropUnknownValues(n, catalog, report);
   const rawEdges = isObject(data.edges) ? Object.values(data.edges) : Array.isArray(data.edges) ? data.edges as unknown[] : [];
   const taken = new Set<string>();
   let counter = 0;
@@ -117,8 +128,10 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     const from = rename.get(String(raw.from.node)), to = rename.get(String(raw.to.node));
     const fromPort = String(raw.from.port), toPort = String(raw.to.port);
     if (!from || !to) { report.push({ severity: 'warning', code: 'dropped-edge', message: `Dropped cable ${String(raw.from.node)}.${fromPort} → ${String(raw.to.node)}.${toPort}: missing node.` }); continue; }
+    if (!doc.nodes[from] || !doc.nodes[to]) { report.push({ severity: 'warning', code: 'dropped-edge', message: `Dropped cable ${from}.${fromPort} → ${to}.${toPort}: missing node.` }); continue; }
     const source = doc.nodes[from]!, target = doc.nodes[to]!;
     if ((catalog.has(source.type) && !catalog.output(source, fromPort)) || (catalog.has(target.type) && !catalog.input(target, toPort))) { report.push({ severity: 'warning', code: 'dropped-edge', message: `Dropped cable ${from}.${fromPort} → ${to}.${toPort}: unknown port.` }); continue; }
+    if ((source.inside ?? '') !== (target.inside ?? '')) { report.push({ severity: 'warning', code: 'dropped-edge', message: `Dropped cable ${from}.${fromPort} → ${to}.${toPort}: it crosses the edge of a part.` }); continue; }
     const key = `${to}.${toPort}`;
     if (taken.has(key)) { report.push({ severity: 'warning', code: 'dropped-edge', node: to, port: toPort, message: `Dropped a second cable into ${key}.` }); continue; }
     taken.add(key);
@@ -132,7 +145,50 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (finite(data.panel.height) && data.panel.height >= 80) doc.panel.height = Math.min(4000, data.panel.height);
   }
   if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
-  return { ok: true, doc, report, assetData };
+  if (!Object.keys(doc.parts).length) return { ok: true, doc, report, assetData };
+  // Parts: inputs, outputs and parameters follow what is inside; parts nothing uses are dropped (as after any edit).
+  try {
+    const before = new Set(Object.keys(doc.parts));
+    const synced = applyIntents(doc, [], catalog).doc;
+    const gone = [...before].filter(id => !synced.parts[id]);
+    if (gone.length) report.push({ severity: 'info', code: 'dropped-part', message: `Dropped part(s) nothing uses: ${gone.join(', ')}.` });
+    return { ok: true, doc: { ...synced, revision: doc.revision }, report, assetData };
+  } catch (error) {
+    return { ok: false, error: `The parts in this file could not be read: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function dropUnknownValues(node: PatchNode, catalog: Catalog, report: Issue[]) {
+  const ports = new Set(catalog.inputs(node).map(p => p.id));
+  for (const k of Object.keys(node.values)) if (!ports.has(k)) { delete node.values[k]; report.push({ severity: 'warning', code: 'dropped-value', node: node.id, port: k, message: `Dropped value for unknown input "${k}".` }); }
+}
+
+/** Part definitions: what can be read is kept (node references follow renamed nodes), the rest reported. */
+function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Map<string, string>) {
+  if (raw === undefined) return;
+  if (!isObject(raw)) { report.push({ severity: 'warning', code: 'dropped-part', message: 'parts was not an object; no parts loaded.' }); return; }
+  const ref = (id: unknown) => typeof id === 'string' ? rename.get(id) ?? id : '';
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isObject(value) || !PART_ID_PATTERN.test(key)) { report.push({ severity: 'warning', code: 'dropped-part', message: `Dropped part "${key}": ${isObject(value) ? 'its id is invalid' : 'not an object'}.` }); continue; }
+    const taken = new Set<string>();
+    const ports = (list: unknown): PartPort[] => {
+      const out: PartPort[] = [];
+      if (Array.isArray(list)) for (const p of list) if (isObject(p) && typeof p.id === 'string' && PORT_ID_PATTERN.test(p.id) && !taken.has(p.id)) { taken.add(p.id); out.push({ id: p.id, node: ref(p.node) }); }
+      return out;
+    };
+    const inputs = ports(value.inputs);
+    const params: PartParam[] = [];
+    if (Array.isArray(value.params)) for (const p of value.params) {
+      if (!isObject(p) || typeof p.id !== 'string' || !PORT_ID_PATTERN.test(p.id) || taken.has(p.id) || typeof p.port !== 'string') { report.push({ severity: 'warning', code: 'dropped-param', message: `Part "${key}": dropped a parameter that could not be read.` }); continue; }
+      taken.add(p.id);
+      params.push({ id: p.id, node: ref(p.node), port: p.port, ...(typeof p.label === 'string' && p.label.trim() ? { label: p.label.trim().slice(0, 40) } : {}) });
+    }
+    taken.clear();
+    const def: PartDef = { id: key, name: typeof value.name === 'string' && value.name.trim() ? value.name.trim().slice(0, 60) : key, inputs, outputs: ports(value.outputs), params };
+    if (typeof value.doc === 'string' && value.doc.trim()) def.doc = value.doc.trim().slice(0, 600);
+    if (isObject(value.from) && typeof value.from.id === 'string' && Number.isInteger(value.from.version)) def.from = { id: value.from.id.slice(0, 80), version: value.from.version as number };
+    doc.parts[key] = def;
+  }
 }
 
 function lenient(doc: PatchDocument, report: Issue[], node?: string): CheckContext {
@@ -189,5 +245,5 @@ export function readSaveRecord(record: unknown, catalog: Catalog): ParseResult {
 
 /** Structural identity used to check export → import round trips. */
 export function documentHash(doc: PatchDocument): string {
-  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name, ui: doc.ui, assets: doc.assets }));
+  return hashString(canonicalJson({ nodes: doc.nodes, edges: doc.edges, panel: doc.panel, name: doc.name, ui: doc.ui, assets: doc.assets, parts: doc.parts }));
 }

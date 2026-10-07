@@ -16,7 +16,7 @@ beforeAll(async () => { registry = await loadRegistry(); });
 const params = (values: Record<string, number>) => Object.fromEntries(Object.entries(values).map(([k, v]) => [k, [v]]));
 const wire = (a: string, b: string): Intent => ({ op: 'connect', from: { node: a.split('.')[0]!, port: a.split('.')[1]! }, to: { node: b.split('.')[0]!, port: b.split('.')[1]! } });
 
-const testable = catalog.list().filter(d => !['voiceIn', 'voiceMix', 'out', 'audioIn', 'comment'].includes(d.kind) && !['ui.keyboard'].includes(d.type));
+const testable = catalog.list().filter(d => !['voiceIn', 'voiceMix', 'out', 'audioIn', 'comment', 'part', 'partIn', 'partOut'].includes(d.kind) && !['ui.keyboard'].includes(d.type));
 
 function patchFor(type: string, voice: boolean) {
   const def = catalog.get(type);
