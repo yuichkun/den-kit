@@ -89,8 +89,11 @@ function setRange(p: PartParam, key: 'min' | 'max' | 'unit', e: Event) {
   const now = rangeOf(p), raw = (e.target as HTMLInputElement | HTMLSelectElement).value;
   if (!now || !shown.value) return;
   const next = { ...(p.range ?? {}), min: now.min, max: now.max, unit: now.unit, [key]: key === 'unit' ? raw : Number(raw) };
-  if (key !== 'unit' && !Number.isFinite(next[key])) return;
-  commit([{ op: 'updatePart', part: shown.value.id, ranges: { [p.id]: next } }], { label: `Range of ${p.label ?? p.id}` });
+  const field = e.target as HTMLInputElement | HTMLSelectElement;
+  // A refused range (not a number, upside down, outside the knob inside) says why and shows what the range still is.
+  if (key !== 'unit' && (raw.trim() === '' || !Number.isFinite(next[key]))) { field.value = String(now[key]); return; }
+  const r = commit([{ op: 'updatePart', part: shown.value.id, ranges: { [p.id]: next } }], { label: `Range of ${p.label ?? p.id}` });
+  if (!r.ok) field.value = String(now[key]);
 }
 function resetRange(p: PartParam) { if (shown.value) commit([{ op: 'updatePart', part: shown.value.id, ranges: { [p.id]: null } }], { label: `Range of ${p.label ?? p.id}` }); }
 // ---- My parts ----

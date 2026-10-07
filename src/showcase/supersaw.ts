@@ -10,12 +10,15 @@ import type { PartFace } from '../core/schema.ts';
 import { faceIntents } from '../plugin/faces.ts';
 import { add, control, el, onlyParams, r, wire, workInSteps } from './build.ts';
 
+/** How the knobs' names read on this plugin (the Saw's face and the others alike). */
+const KNOB_TEXT = { textStyle: { font: 'michroma', size: 10, color: 'fg', case: 'upper' as const, spacing: 0.14 } };
+
 /** The Saw's own screen: Detune and Drift under its name. */
 export const SAW_FACE: PartFace = {
   width: 236, height: 152,
   controls: [
-    { param: 'detune', type: 'ui.knob', rect: { x: 16, y: 46, w: 96, h: 100 }, label: 'Detune' },
-    { param: 'drift', type: 'ui.knob', rect: { x: 124, y: 46, w: 96, h: 100 }, label: 'Drift' },
+    { param: 'detune', type: 'ui.knob', rect: { x: 16, y: 46, w: 96, h: 100 }, label: 'Detune', style: KNOB_TEXT },
+    { param: 'drift', type: 'ui.knob', rect: { x: 124, y: 46, w: 96, h: 100 }, label: 'Drift', style: KNOB_TEXT },
   ],
   elements: [
     { id: 'frame', kind: 'shape', shape: 'rect', rect: { x: 0, y: 0, w: 236, h: 152 }, style: { radius: 14, fill: [{ kind: 'color', color: '#1a0f2ad9' }], stroke: { color: '#ff3fd255', width: 1, style: 'solid' } } },
@@ -25,7 +28,7 @@ export const SAW_FACE: PartFace = {
 };
 
 export function supersaw(catalog: Catalog) {
-  const knob = { textStyle: { font: 'michroma', size: 10, color: 'fg', case: 'upper' as const, spacing: 0.14 } };
+  const knob = KNOB_TEXT;
   const panel = { radius: 14, fill: [{ kind: 'color' as const, color: '#1a0f2ad9' }], stroke: { color: '#ff3fd255', width: 1, style: 'solid' as const } };
   const inside = ['copy1', 'spread1', 'driftdir1', 'drift1', 'offset1', 'note1', 'mtof1', 'osc1'];
   return workInSteps('supersaw', 'Supersaw', catalog, [760, 440], [

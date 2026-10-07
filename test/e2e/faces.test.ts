@@ -1,7 +1,8 @@
 // U5e faces through the real UI: a part's face goes on the plugin from the
 // inspector as controls wired to that use (turning one plays the part, no
 // recompile); edited on the plugin and saved as the part's face, it is what
-// another use gets. Decorations become a screen part; its My parts file carries
+// another use gets. A parameter takes its own knob range in the inspector, and
+// the face follows. Decorations become a screen part; its My parts file carries
 // its picture, so in another browser placing it puts the screen (picture and
 // all) on that plugin.
 import { after, before, describe, it } from 'node:test';
@@ -72,6 +73,41 @@ describe('faces', () => {
       return rects.map((r: any) => [r.x - x0, r.y - y0, r.w, r.h].join(',')).sort();
     }, id);
     assert.deepEqual(await shape(second), await shape(use));
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it('a parameter gets its own knob range in the inspector; its face knob follows; a wrong range is refused with a reason; ↺ goes back', async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    const use: string = await kit(page, k => { const r = k.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]); return r.created[0]; });
+    await waitCompiled(page);
+    // Inside the part, nothing selected: the part's parameters, each with its knob range.
+    await page.evaluate(u => { const k = (window as any).__kit; k.enterPart(u); k.select([]); }, use);
+    const row = page.locator('[data-param-range="resonance"]');
+    await row.waitFor();
+    assert.equal(await row.locator('[data-range=min]').inputValue(), '0.5');
+    await row.locator('[data-range=min]').fill('1');
+    await row.locator('[data-range=min]').press('Tab');
+    await row.locator('[data-range=max]').fill('4');
+    await row.locator('[data-range=max]').press('Tab');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.parts.tone.params.find((p: any) => p.id === 'resonance').range?.max === 4);
+    assert.deepEqual(await kit(page, k => k.doc.value.parts.tone.params.find((p: any) => p.id === 'resonance').range), { min: 1, max: 4, unit: 'q' });
+    // A range upside down is refused with a reason; nothing changes.
+    await row.locator('[data-range=min]').fill('9');
+    await row.locator('[data-range=min]').press('Tab');
+    await page.waitForSelector('[data-testid=toast]:has-text("range max must be above its min")');
+    assert.equal(await kit(page, k => k.doc.value.parts.tone.params.find((p: any) => p.id === 'resonance').range.min), 1);
+    assert.equal(await row.locator('[data-range=min]').inputValue(), '1', 'the field shows the range as it still is');
+    // Out again: the face's knob turns over the part's own range.
+    await kit(page, k => k.leavePart(Infinity));
+    assert.equal(await page.evaluate(u => (window as any).__kit.putFace(u).ok, use), true);
+    const knob = await page.evaluate(u => { const d = (window as any).__kit.doc.value; return Object.values<any>(d.nodes).find(n => n.type === 'ui.knob' && Object.values<any>(d.edges).some(e => e.from.node === n.id && e.to.node === u && e.to.port === 'resonance')).config; }, use);
+    assert.deepEqual({ min: knob.min, max: knob.max }, { min: 1, max: 4 });
+    // ↺: back to the knob's own range.
+    await page.evaluate(u => { const k = (window as any).__kit; k.enterPart(u); k.select([]); }, use);
+    await page.click('[data-param-range="resonance"] [data-range=reset]');
+    await page.waitForFunction(() => !(window as any).__kit.doc.value.parts.tone.params.find((p: any) => p.id === 'resonance').range);
     assert.deepEqual(errors, []);
     await page.close();
   });

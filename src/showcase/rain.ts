@@ -60,13 +60,16 @@ export default {
 };
 `;
 
+/** How the knobs' names read on this plugin (the Drop's face and the others alike). */
+const KNOB_TEXT = { textStyle: { font: 'lato', size: 12, color: 'fg', case: 'upper' as const, spacing: 0.16 } };
+
 /** The Drop's own screen: its three knobs under its name, with a lamp for the sound. */
 export const DROP_FACE: PartFace = {
   width: 330, height: 156,
   controls: [
-    { param: 'rain', type: 'ui.knob', rect: { x: 14, y: 50, w: 96, h: 100 }, label: 'Rain' },
-    { param: 'pitch', type: 'ui.knob', rect: { x: 118, y: 50, w: 96, h: 100 }, label: 'Pitch' },
-    { param: 'splash', type: 'ui.knob', rect: { x: 222, y: 50, w: 96, h: 100 }, label: 'Splash' },
+    { param: 'rain', type: 'ui.knob', rect: { x: 14, y: 50, w: 96, h: 100 }, label: 'Rain', style: KNOB_TEXT },
+    { param: 'pitch', type: 'ui.knob', rect: { x: 118, y: 50, w: 96, h: 100 }, label: 'Pitch', style: KNOB_TEXT },
+    { param: 'splash', type: 'ui.knob', rect: { x: 222, y: 50, w: 96, h: 100 }, label: 'Splash', style: KNOB_TEXT },
   ],
   elements: [
     { id: 'frame', kind: 'shape', shape: 'rect', rect: { x: 0, y: 0, w: 330, h: 156 }, style: { radius: 16, fill: [{ kind: 'color', color: '#0d1a22c4' }], stroke: { color: '#8fd3ff44', width: 1, style: 'solid' } } },
@@ -77,7 +80,7 @@ export const DROP_FACE: PartFace = {
 };
 
 export function rain(catalog: Catalog) {
-  const knob = { textStyle: { font: 'lato', size: 12, color: 'fg', case: 'upper' as const, spacing: 0.16 } };
+  const knob = KNOB_TEXT;
   const inside = ['tick1', 'up1', 'down1', 'chance1', 'pass1', 'fall1', 'env1', 'noise1', 'pitch1', 'jitter1', 'band1', 'ring1', 'vca1'];
   return workInSteps('rain', 'Rainfall', catalog, [760, 470], [
     [
