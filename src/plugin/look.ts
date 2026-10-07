@@ -14,6 +14,8 @@ import { capture, pngBytes } from './capture.ts';
 import { checkPlugin, contrastIssues, textOverlaps, type PluginIssue, type TextBox } from './checks.ts';
 import type { Rect } from './spec.ts';
 import PluginWindow from './PluginWindow.vue';
+import { POD } from './code-frames.ts';
+import type { PodSession } from '../pod/pod-session.ts';
 
 export interface LookOptions {
   generated: Pick<Generated, 'probes'>;
@@ -23,6 +25,8 @@ export interface LookOptions {
   picture?: boolean;
   /** The longest side of the picture, in pixels (the design size is scaled down to fit). */
   maxSide?: number;
+  /** The work's pod: code parts are drawn from it (when it is up; the look never starts it). */
+  pod?: PodSession | null;
 }
 export interface LookResult { issues: PluginIssue[]; png: Uint8Array | null; width: number; height: number; ms: number }
 
@@ -38,6 +42,7 @@ async function mount(doc: PatchDocument, catalog: Catalog, options: LookOptions)
   document.body.appendChild(host);
   const spec = pluginSpec(doc, catalog, options.generated);
   const app = createApp({ render: () => h(PluginWindow, { spec, preview: true, analyser: options.analyser, assetUrls: options.assetUrls }) });
+  app.provide(POD, options.pod ?? null);
   app.mount(host);
   await nextTick();
   await document.fonts.ready;
@@ -47,6 +52,13 @@ async function mount(doc: PatchDocument, catalog: Catalog, options: LookOptions)
   await Promise.all([...host.querySelectorAll('img')].map(img => img.complete ? null : img.decode().catch(() => null)));
   await frames(3);
   if (host.querySelector('[data-element] canvas')) await wait(350);
+  // Code parts load their page from the pod and draw: wait until each is drawing (or failed), a few seconds at most.
+  if (host.querySelector('[data-code-part]')) {
+    const settled = () => [...host.querySelectorAll<HTMLElement>('[data-code-part]')].every(el => ['ready', 'error', 'missing', 'off', 'waiting'].includes(el.dataset.codeState ?? ''));
+    const deadline = performance.now() + 10_000;
+    while (!settled() && performance.now() < deadline) await wait(100);
+    await wait(300);
+  }
   await frames(2);
   return { panel, app, host };
 }
@@ -110,6 +122,12 @@ function measure(doc: PatchDocument, panel: HTMLElement): Measured {
     }
     const error = cell.querySelector('[data-canvas-error]')?.getAttribute('data-canvas-error');
     if (error) out.issues.push({ code: 'canvas-error', ids: [id], message: `The canvas ${label(doc, id)} fails: ${error}`, severity: 'error' });
+    const code = cell.querySelector<HTMLElement>('[data-code-part]');
+    if (code) {
+      const state = code.dataset.codeState, problem = code.dataset.codeError;
+      if (problem) out.issues.push({ code: 'code-error', ids: [id], message: `The code part ${label(doc, id)} fails: ${problem}`, severity: 'error' });
+      else if (state !== 'ready') out.issues.push({ code: 'code-off', ids: [id], message: `The code part ${label(doc, id)} is not showing (${state === 'loading' ? 'it did not start drawing within 10 s' : 'the pod is not running'}).`, severity: 'warn' });
+    }
     for (const img of cell.querySelectorAll('img')) if (img.complete && !img.naturalWidth && img.getAttribute('src')) out.issues.push({ code: 'missing-asset', ids: [id], message: `The picture in ${label(doc, id)} could not be loaded.`, severity: 'error' });
     if (cell.querySelector('.missing')) out.issues.push({ code: 'missing-asset', ids: [id], message: `The picture of ${label(doc, id)} is missing (its file is not in this browser).`, severity: 'error' });
   }

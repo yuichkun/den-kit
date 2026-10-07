@@ -10,10 +10,11 @@ import type { PatchDocument } from '../core/schema.ts';
 import { CONTROL_OF } from '../core/skins.ts';
 import { assetUses, stackOrder, type Fill, type UiElement } from '../core/ui.ts';
 import { intersects } from './edit.ts';
+import { partNames } from '../core/project.ts';
 import type { Rect } from './spec.ts';
 
 export interface PluginIssue {
-  code: 'empty' | 'outside' | 'cut' | 'overlap' | 'covered' | 'tiny-text' | 'unlabelled' | 'unwired' | 'missing-asset' | 'no-voice' | 'text-overflow' | 'squeezed' | 'canvas-error' | 'contrast';
+  code: 'empty' | 'outside' | 'cut' | 'overlap' | 'covered' | 'tiny-text' | 'unlabelled' | 'unwired' | 'missing-asset' | 'no-voice' | 'text-overflow' | 'squeezed' | 'canvas-error' | 'contrast' | 'code-missing' | 'code-error' | 'code-off';
   /** The things it is about (element or control ids). */
   ids: string[];
   message: string;
@@ -61,7 +62,7 @@ function opacity(el: UiElement): number {
   const o = el.style?.opacity ?? 1;
   if (el.kind === 'image') return o;
   if (el.kind === 'shape' && el.shape !== 'line') return o * fillOpacity(el.style?.fill);
-  if (el.kind === 'text' || el.kind === 'led' || el.kind === 'svg' || el.kind === 'canvas') return o * fillOpacity(el.style?.fill);
+  if (el.kind === 'text' || el.kind === 'led' || el.kind === 'svg' || el.kind === 'canvas' || el.kind === 'code') return o * fillOpacity(el.style?.fill);
   return 0;
 }
 
@@ -116,7 +117,9 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
   }
 
   // Controls that drive nothing, or that nobody can tell apart.
-  const canvasCode = elements.filter(e => e.kind === 'canvas').map(e => (e as Extract<UiElement, { kind: 'canvas' }>).code).join('\n');
+  // A control a canvas or a code part reads or moves is in use (its id appears in their code).
+  const partSources = Object.entries(doc.project?.files ?? {}).filter(([path]) => path.startsWith('src/')).map(([, text]) => text);
+  const canvasCode = [...elements.filter(e => e.kind === 'canvas').map(e => (e as Extract<UiElement, { kind: 'canvas' }>).code), ...partSources].join('\n');
   const boundText = new Set(texts.filter(t => t.bind).map(t => t.bind!.split('.')[0]!));
   for (const w of widgets) {
     if (PLAYED.has(w.type) && !Object.values(doc.edges).some(e => e.from.node === w.id) && !new RegExp(`['"\`]${w.id}['"\`]`).test(canvasCode)) {
@@ -133,6 +136,10 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
       if (!near) out.push({ code: 'unlabelled', ids: [w.id], message: `${name(doc, w.id)} has no label anyone can read; give it one (setLabel) or put a text by it.`, severity: 'warn' });
     }
   }
+
+  // Code parts whose file the project does not have.
+  const parts = new Set(partNames(doc.project));
+  for (const el of elements) if (el.kind === 'code' && !parts.has(el.part)) out.push({ code: 'code-missing', ids: [el.id], message: `${name(doc, el.id)} shows the part "${el.part}", but the project has no src/parts/${el.part}.ts${parts.size ? ` (parts: ${[...parts].join(', ')})` : ''}.`, severity: 'error' });
 
   // Pictures and fonts the plugin uses but the patch does not have.
   const uses = assetUses(doc.ui, widgets.map(n => [n.id, n.style]));

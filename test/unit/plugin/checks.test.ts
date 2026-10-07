@@ -10,6 +10,18 @@ import { checkPlugin, contrastIssues, contrastRatio, luminance, textOverlaps, vi
 describe('structural checks', () => {
   for (const w of WORKS) it(`${w.id}: nothing to fix`, () => { expect(checkPlugin(w.build(catalog), catalog)).toEqual([]); });
 
+  it('code parts: a part the project does not have is a problem; a control a part reads is in use', () => {
+    const doc = applyIntents(starter('bass', catalog), [
+      { op: 'addNode', node: { id: 'kspin', type: 'ui.knob', label: 'Spin', panel: { x: 20, y: 20, w: 84, h: 96 } } },
+      { op: 'setProjectFiles', files: { 'src/parts/reels.ts': "kit.norm('kspin')" } },
+      { op: 'addElement', element: { id: 'code1', kind: 'code', part: 'reels', rect: { x: 200, y: 20, w: 200, h: 120 }, props: {} } },
+      { op: 'addElement', element: { id: 'code2', kind: 'code', part: 'gone', rect: { x: 200, y: 160, w: 200, h: 120 }, props: {} } },
+    ], catalog).doc;
+    const issues = checkPlugin(doc, catalog);
+    expect(issues.filter(i => i.code === 'code-missing')).toEqual([{ code: 'code-missing', ids: ['code2'], message: 'code2 shows the part "gone", but the project has no src/parts/gone.ts (parts: reels).', severity: 'error' }]);
+    expect(issues.some(i => i.code === 'unwired' && i.ids.includes('kspin'))).toBe(false);
+  });
+
   it('finds what is wrong with a careless screen', () => {
     const knob = (id: string, x: number, y: number, extra: Record<string, unknown> = {}): Intent[] => [
       { op: 'addNode', node: { id, type: 'ui.knob', label: id === 'k3' ? '' : `Knob ${id}`, panel: { x, y, w: 84, h: 96 }, config: { min: 0, max: 1, scale: 'linear', unit: '' }, ...extra } },

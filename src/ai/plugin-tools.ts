@@ -18,6 +18,7 @@ import { WORKS, findWork, lookIntents } from '../showcase/index.ts';
 import { ControlError, controlFor, type ControlType } from '../plugin/controls.ts';
 import { formatValue } from '../plugin/format.ts';
 import { CANVAS_CURSORS } from '../plugin/canvas-api.ts';
+import { partNames } from '../core/project.ts';
 
 const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n)}… (${s.length} chars)` : s;
 const rectText = (r: { x: number; y: number; w: number; h: number }) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.w)},${Math.round(r.h)}`;
@@ -43,7 +44,7 @@ function skinText(control: ControlKind, skin: Skin | undefined, from: string): s
  * JSON, so an edit can start from them), with the look, the controls kept off
  * the plugin, groups and assets. `canvas` returns one canvas element's whole code.
  */
-export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { canvas?: string; problems?: string[]; handEdits?: string[] } = {}): string {
+export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { canvas?: string; problems?: string[]; handEdits?: string[]; /** How the code parts on the plugin are doing (element id → report). */ parts?: Record<string, { state: string; error?: string }> } = {}): string {
   if (options.canvas) {
     const el = doc.ui.elements[options.canvas];
     if (!el || el.kind !== 'canvas') throw new Error(`No canvas "${options.canvas}". Canvases: ${Object.values(doc.ui.elements).filter(e => e.kind === 'canvas').map(e => e.id).join(', ') || 'none'}.`);
@@ -68,7 +69,7 @@ export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { 
   if (!order.length) lines.push(' (nothing yet)');
   for (const id of order) {
     const el = doc.ui.elements[id];
-    if (el) lines.push(` ${elementLine(el)}`);
+    if (el) lines.push(` ${elementLine(el)}${el.kind === 'code' && options.parts?.[id] ? ` — ${options.parts[id]!.state}${options.parts[id]!.error ? `: ${clip(options.parts[id]!.error!, 300)}` : ''}` : ''}`);
     else lines.push(` ${widgetLine(doc, catalog, id)}`);
   }
   const off = Object.values(doc.nodes).filter(n => !n.panel && isWidget(doc, catalog, n.id) && !['ui.keyboard', 'ui.scope', 'ui.meter'].includes(n.type));
@@ -77,6 +78,10 @@ export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { 
   if (groups.length) lines.push('', `Groups (move together): ${groups.map(([g, m]) => `${g} = [${m.join(', ')}]`).join('; ')}`);
   const assets = Object.values(doc.assets);
   lines.push('', `Assets in this patch: ${assets.length ? assets.map(a => `${a.id} (${isFontAsset(a) ? 'font' : 'picture'}${a.width ? ` ${a.width}×${a.height}` : ''}${PICTURE_DOC[a.id] ? `: ${PICTURE_DOC[a.id]}` : a.source?.title ? `: ${a.source.title}` : ''})`).join('; ') : 'none'}. Bundled pictures can be used by id (kit_ui_reference "pictures").`);
+  const parts = partNames(doc.project);
+  lines.push('', doc.project
+    ? `Screen project (in the pod; kit_bash, kit_read_file, kit_write_file): ${Object.keys(doc.project.files).length} files; code parts it offers: ${parts.length ? parts.map(p => `${p} (src/parts/${p}.ts)`).join(', ') : 'none yet'}.`
+    : 'No screen project yet: your first kit_bash or kit_write_file starts one from den-kit\'s template (Vite + TypeScript; its AGENTS.md explains code parts).');
   if (options.problems) lines.push('', options.problems.length ? `Problems found by the checks:\n${options.problems.map(p => ` - ${p}`).join('\n')}` : 'The checks found no problems.');
   return lines.join('\n');
 }
@@ -110,7 +115,7 @@ function widgetLine(doc: PatchDocument, catalog: Catalog, id: string): string {
 }
 
 // ---- reference ------------------------------------------------------------------------------
-export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'canvas', 'pictures', 'looks', 'layout'] as const;
+export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'canvas', 'code', 'pictures', 'looks', 'layout'] as const;
 export type UiTopic = typeof UI_TOPICS[number];
 
 /** What the LLM can ask for on the plugin, by topic (skins can be narrowed to one control kind). */
@@ -150,6 +155,7 @@ export function uiReference(topic: string | undefined, control?: string, catalog
       '  svg: "svg" markup starting with <svg> (no scripts run).',
       '  led: "bind" (a control id, or "@level" to light with the sound), "color", "threshold" 0..1.',
       '  canvas: "code" (drawing code, see kit_ui_reference "canvas"), "props" (settings the code reads as f.props).',
+      '  code: "part" (a code part of the screen project: src/parts/<part>.ts, see kit_ui_reference "code"), "props" (the settings the part declares; the person changes them in the inspector).',
       `style (every element): {"fill":[fills],"stroke":{"color","width","style":"solid"|"dashed"|"dotted"},"radius","opacity","shadows":[{"x","y","blur","spread","color","inset"}],"rotate","blend","blur"} (a glow is a shadow with no offset).`,
       'textStyle: {"font","size" (px),"weight" 100..900,"color","align":"left"|"center"|"right","valign":"top"|"middle"|"bottom","spacing" (em),"lineHeight","case":"none"|"upper"|"lower","italic","shadows":[{"x","y","blur","color"}],"stroke":{"color","width"}}.',
       'Stacking: {"op":"arrange","ids":[..],"to":"front"|"back"|"forward"|"backward"}. Groups: {"op":"group","ids":[..]} / {"op":"ungroup","id":"g1"}. Remove: {"op":"removeElement","id":".."}.',
@@ -163,6 +169,12 @@ export function uiReference(topic: string | undefined, control?: string, catalog
       `  f.set(id, value) moves a control in its own units (clamped to its range; a switch takes true/false, an XY pad {x, y}); f.setNorm(id, 0..1) follows its scale (log for Hz). What one press (or one burst of wheel turns) writes is one undo step for the user. Controls need not be on the plugin: a canvas can be the face of controls kept off it. f.cursor(name): ${CANVAS_CURSORS.join(', ')}.`,
       'Keep draw fast (it runs 60 times a second; a frame over 1.5 s stops the canvas). Clear the canvas yourself (ctx.clearRect(0, 0, f.w, f.h)). Use f.color(token) so the canvas follows the look. An error shows in the canvas with its line number.',
       'Example: export default { draw(ctx, f) { ctx.clearRect(0, 0, f.w, f.h); ctx.fillStyle = f.color("accent"); ctx.fillRect(0, f.h * (1 - f.norm("knob1")), f.w, f.h * f.norm("knob1")); }, pointer(e, f) { if (e.type === "down" || (e.type === "move" && f.pointer.down)) f.setNorm("knob1", 1 - e.y / f.h); } };',
+    ].join('\n');
+    case 'code': return [
+      'Code parts: parts of the work\'s screen project, a real web project (Vite + TypeScript, ESLint, git) in the pod — a Linux environment in the person\'s browser with bash, Node and npm. kit_bash runs commands in its folder; kit_read_file / kit_write_file read and write its files. Its AGENTS.md is the guide: read it first.',
+      'A part is src/parts/<name>.ts (name: lowercase letters, digits, dashes) with export default part({ props?, interactive?, mount(root, kit) }). kit gives: kit.value(id) / kit.norm(id) / kit.on(id, fn) (the patch\'s controls; src/kit/controls.ts lists them with their ranges and is made by den-kit), kit.set(id, v) / kit.setNorm(id, n) with kit.begin() / kit.end() around a drag (one undo step), kit.audio.level / peak / wave (256) / spectrum (64), kit.frame(fn) (one animation loop), kit.props, kit.look and the --dk-* CSS variables, kit.size, kit.mode, kit.asset(id).',
+      'Put it on the plugin: {"op":"addElement","element":{"kind":"code","part":"<name>","rect":{...},"props":{...}}}; the same part can be placed several times with different props. It takes the mouse while the plugin plays unless it says interactive: false (a backdrop behind controls).',
+      'Any npm package works if it has no native binary (three, gsap, d3, pixi.js, …). Check with npm run check and npm run lint; see it with kit_look (it draws code parts and reports their errors, also in kit_get_plugin).',
     ].join('\n');
     case 'pictures': return [
       'Bundled pictures (use the id in a fill, an image element or a skin param; it is added to the patch when used):',
@@ -185,7 +197,7 @@ export function uiReference(topic: string | undefined, control?: string, catalog
     ].join('\n');
     default: return [
       `The plugin screen reference. Topics (kit_ui_reference {"topic": …}): ${UI_TOPICS.join(', ')} (skins also takes "control": ${CONTROL_KINDS.join(', ')}).`,
-      'Controls on the plugin are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, canvas); the look holds the colour and font tokens, the background and the default skins.',
+      'Controls on the plugin are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, canvas, code); the look holds the colour and font tokens, the background and the default skins.',
       uiReference('layout'),
     ].join('\n');
   }

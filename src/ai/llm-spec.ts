@@ -59,6 +59,7 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"addElement","element":{"kind":"text","text":"ACID","rect":{"x":24,"y":16,"w":300,"h":48},"textStyle":{"font":"oswald","size":40,"color":"fg"}}} · {"op":"updateElement","id":"text1","set":{"text":"ACID 303"}} · {"op":"removeElement","id":"text1"}',
       '  {"op":"arrange","ids":["shape1"],"to":"back"} · {"op":"group","ids":["text1","shape1"]} · {"op":"setPanelSize","width":720,"height":440}',
       '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief)',
+      '  {"op":"addElement","element":{"kind":"code","part":"reels","rect":{"x":0,"y":0,"w":720,"h":200},"props":{"speed":1.5}}}  (a code part: src/parts/reels.ts of the screen project, written with kit_write_file or kit_bash; kit_ui_reference "code")',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
     ].join('\n'),
     inputSchema: {
@@ -97,13 +98,13 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_get_plugin',
-    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations with their exact fields), controls kept off it, groups and assets. With "canvas": one canvas element\'s whole code.',
+    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations and code parts with their exact fields), controls kept off it, groups, assets and the screen project\'s parts. With "canvas": one canvas element\'s whole code.',
     inputSchema: { type: 'object', properties: { canvas: { type: 'string' } }, additionalProperties: false },
   },
   {
     name: 'kit_ui_reference',
-    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, canvas; style and textStyle fields), "canvas" (drawing code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
-    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'canvas', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, canvas, code; style and textStyle fields), "canvas" (drawing code, including taking the mouse to move controls), "code" (code parts: the screen project in the pod), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
+    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'canvas', 'code', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
   },
   {
     name: 'kit_view_picture',
@@ -112,8 +113,26 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_look',
-    description: 'Look at the plugin screen as it is drawn now: checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures and failing canvases; with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
+    description: 'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'kit_bash',
+    description: [
+      'Run a bash command in the pod: a Linux environment inside the person\'s browser with bash, git, Node, npm and the usual tools, in the folder of the work\'s screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm install a package, npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<\'EOF\' … EOF.',
+      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. No network beyond the npm registry and GitHub.',
+    ].join('\n'),
+    inputSchema: { type: 'object', properties: { command: { type: 'string' }, timeout_s: { type: 'number', minimum: 1, maximum: 600 } }, required: ['command'], additionalProperties: false },
+  },
+  {
+    name: 'kit_read_file',
+    description: 'Read a file of the screen project (path relative to it, e.g. "AGENTS.md", "src/parts/reels.ts", "src/kit/index.ts"), whole or lines from_line..to_line.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, from_line: { type: 'number' }, to_line: { type: 'number' } }, required: ['path'], additionalProperties: false },
+  },
+  {
+    name: 'kit_write_file',
+    description: 'Write a whole file of the screen project (path relative to it; folders are made). It is kept in the work at once, and code parts that use it reload on the plugin (the result says how they are doing). src/kit/controls.ts is made by den-kit from the patch: change the patch\'s controls instead.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false },
   },
   {
     name: 'kit_finish',
@@ -129,7 +148,7 @@ export function developerInstructions(blocks: string): string {
   return `You edit a modular synthesizer patch in den-kit, a Bitwig-Grid-like environment whose patch compiles to an AudioWorklet. The user plays it live while you work.
 
 How to work
-- Use only the kit_* tools. You cannot run shell commands or read files; you do not need to.
+- Use only the kit_* tools. Your shell and files are den-kit's pod (a Linux environment in the person's browser): kit_bash runs commands there, in the work's screen project; kit_read_file and kit_write_file read and write its files. The patch and the plugin's den-kit controls are edited with kit_apply_ops, not with files.
 - Start with kit_get_patch. Edit with kit_apply_ops: every call is checked (validated and compiled) and, if it passes, lands on the live patch at once, so the user hears and sees each step. A call that fails lands nothing: fix the problems it reports and send it again. Keep each call a complete, working step (add a module and wire it in the same call).
 - Prefer existing modules and knob values over new structure; keep the user's sound unless asked to replace it.
 - When the sound matters (most requests), check it with kit_listen before you finish, and adjust if it is silent, clipping or obviously off.
@@ -176,6 +195,13 @@ The plugin screen (what the user plays)
 - Colours: use the tokens (bg, fg, accent, track, knob, pointer, muted, glow) so the screen survives a change of look; fixed colours only for things printed on a picture or a plate.
 - Canvas elements draw with code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.
 - Keep what the user built unless asked to change it; change the screen only when the request is about it (or a new sound needs controls).
+
+The screen project (code parts: when den-kit's own pieces are not enough)
+- Each work can have a web project (Vite + TypeScript, ESLint, git) that lives in the pod; its code parts show on the plugin in their own box, fed with the controls' values and the sound, and can move controls (one drag is one undo step for the person). Use it when the screen needs what controls, skins, decorations and canvases do not do: a look of its own, 3D (three.js), motion and physics, a display of the sound, a control that behaves its own way, a whole custom screen.
+- Before your first code part, read the project's AGENTS.md (kit_read_file "AGENTS.md"): the part API (src/kit/index.ts), how parts reach the controls (src/kit/controls.ts, made from the patch), and the rules. A work without a project gets one from den-kit's template on your first kit_bash or kit_write_file.
+- Work as in any web project: write files, npm install what you need, run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
+- A control a code part reads or moves must exist in the patch (a knob wired to the input it stands for; it need not be on the plugin). Use the look's colours (the --dk-* CSS variables) so the part belongs to the plugin, and keep parts light (one animation loop through kit.frame).
+- Everything you change in the project lands in the work at once and undoes with your request; node_modules, dist and .git stay in the pod.
 
 Module types
 ${blocks}`;

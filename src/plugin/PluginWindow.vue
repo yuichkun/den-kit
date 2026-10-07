@@ -3,7 +3,7 @@
 // gets and centred on its background, the way a plugin fits any window size. It
 // draws everything on the plugin back to front: the look's background, the
 // widgets in their skins, and the decorations (text, shapes, pictures, SVG,
-// lamps, canvases), then the look's CSS, scoped to this plugin. Playing
+// lamps, canvases, code parts), then the look's CSS, scoped to this plugin. Playing
 // happens here (widget changes and notes go out as events); editing does not: the
 // plugin view lays its edit layer over each item (`cell` slot) and the plugin (`overlay`).
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue';
@@ -103,7 +103,7 @@ onBeforeUnmount(() => { observer?.disconnect(); cancelAnimationFrame(raf); });
           <slot name="cell" :item="item" :scale="scale" />
         </div>
         <div v-else class="cell" :data-item="item.id" :data-element="item.id" :style="cellStyle(item.element.rect)">
-          <PluginElement :element="item.element" :url="url" :controls="spec.controls" :editing="editing" :play="!editing && !preview" @set="(id, values, gesture) => emit('change', id, values, false, gesture)" />
+          <PluginElement :element="item.element" :url="url" :controls="spec.controls" :editing="editing" :play="!editing && !preview" :preview="preview" @set="(id, values, gesture) => emit('change', id, values, false, gesture)" />
           <slot name="cell" :item="item" :scale="scale" />
         </div>
       </template>

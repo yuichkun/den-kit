@@ -2,7 +2,8 @@
 // opens this page in a frame on the plugin with ?part=<name>&el=<element id>
 // &host=<its origin>, and they talk with postMessage only:
 //   page → den-kit: hello (the part's settings), ready, set / end (moves), error,
-//                   log, picture (a PNG of the part), asset? (a picture by id)
+//                   log, picture (a PNG of the part), asset? (a picture by id), key
+//                   (keys the part does not use), missing (no such part)
 //   den-kit → page: init, props, controls, frame (sound + values), look, size,
 //                   mode, picture? (asks for one), asset (bytes)
 import type { Audio, ControlValue, Kit, Part, PropSpecs, PropValues } from './index';
@@ -35,6 +36,16 @@ if (import.meta.hot) {
   import.meta.hot.on('vite:error', payload => { const err = (payload as { err?: { message?: string; id?: string; loc?: { file?: string; line?: number; column?: number } } }).err; post({ type: 'error', message: `Build error: ${err?.message ?? 'unknown'}`, stack: err?.loc ? `${err.loc.file ?? err.id ?? ''}:${err.loc.line ?? ''}:${err.loc.column ?? ''}` : err?.id }); });
   import.meta.hot.on('vite:ws:disconnect', () => post({ type: 'hmr', state: 'disconnected' }));
   import.meta.hot.on('vite:ws:connect', () => post({ type: 'hmr', state: 'connected' }));
+}
+
+// Keys the part does not use go on to den-kit (⌘Z, the computer keyboard's notes, Space…), so clicking a
+// part does not take the keyboard away. A part that uses a key calls preventDefault() on it.
+const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+for (const kind of ['keydown', 'keyup'] as const) {
+  window.addEventListener(kind, e => {
+    if (typing(e.target)) return;
+    setTimeout(() => { if (!e.defaultPrevented) post({ type: 'key', kind, key: e.key, code: e.code, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, repeat: e.repeat }); });
+  });
 }
 
 // A WebGL canvas keeps its picture between frames, so den-kit can take a picture of it.

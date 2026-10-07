@@ -22,6 +22,8 @@ import type { PluginIssue } from '../plugin/checks.ts';
 import type { PluginItem, PluginSpec, Rect } from '../plugin/spec.ts';
 import PluginWindow from '../plugin/PluginWindow.vue';
 import InsertMenu from './plugin/InsertMenu.vue';
+import { starterPart, withTemplate } from '../pod/template.ts';
+import { partPath } from '../core/project.ts';
 import InputSelect from './InputSelect.vue';
 import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
@@ -198,7 +200,7 @@ function insert(key: string, asset?: string) {
   menu.value = null;
   const meta = asset ? doc.value.assets[asset] : undefined;
   const bind = [...selected.value].find(id => { const t = doc.value.nodes[id]?.type; return t === 'ui.knob' || t === 'ui.slider' || t === 'ui.toggle'; });
-  const r = commit(insertIntents(key, at, doc.value, { asset: meta, bind }), `Add ${key}`);
+  const r = commit(insertIntents(key, at, doc.value, { asset: meta, bind, codeFiles: name => withTemplate(doc.value.project, { [partPath(name)]: starterPart(name) }) }), `Add ${key}`);
   if (r) session.select(r.created);
   // A new text opens for typing (its field takes the focus); anything else hands the keys back to the plugin view.
   if (r && key === 'text') startText(r.created[0]!);

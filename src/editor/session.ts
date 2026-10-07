@@ -357,7 +357,7 @@ export class KitSession {
 
   /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
   look(options: { picture?: boolean; doc?: PatchDocument } = {}): Promise<LookResult> {
-    return lookAt(options.doc ?? this.doc.value, catalog, { generated: this.generated.value, assetUrls: this.assetUrls.value, analyser: probe => probe >= 0 ? this.engine.probeAnalysers[probe] ?? null : this.engine.outAnalyser, picture: options.picture });
+    return lookAt(options.doc ?? this.doc.value, catalog, { generated: this.generated.value, assetUrls: this.assetUrls.value, analyser: probe => probe >= 0 ? this.engine.probeAnalysers[probe] ?? null : this.engine.outAnalyser, picture: options.picture, pod: this.pod });
   }
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */

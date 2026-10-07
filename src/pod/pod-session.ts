@@ -14,6 +14,7 @@ import { pluginSpec } from '../plugin/build.ts';
 import { GENERATED_FILES, PROJECT_LIMITS, byteLength, checkProjectPath } from '../core/project.ts';
 import { controlsSource, templateFiles } from './template.ts';
 import { PodUnavailable, keepEnd, type PodHost, type PodProcess, type PodRunResult } from './host.ts';
+import type { PodAccess } from '../ai/llm-workspace.ts';
 
 export type PodState = 'off' | 'unavailable' | 'booting' | 'syncing' | 'installing' | 'starting' | 'ready' | 'failed';
 export type PodWho = 'ai' | 'you' | 'den-kit';
@@ -331,6 +332,21 @@ export class PodSession {
   async commit(message: string) {
     const host = this.host; if (!host) return;
     await this.enqueue(() => host.run(`${GIT} add -A && (${GIT} diff --cached --quiet || ${GIT} commit -qm ${q(message.replace(/\s+/g, ' ').slice(0, 200) || 'den-kit')})`, { cwd: this.projectDir, timeoutMs: 60_000 }));
+  }
+
+  /** What the AI's tools use (src/ai/llm-workspace.ts): the same pod, its commands logged as the AI's. */
+  access(): PodAccess {
+    return {
+      unavailable: () => this.available ? null : { reason: this.message.value || 'No pod.', fix: this.fix.value },
+      ensure: async () => { await this.ensure(); },
+      bash: (command, timeoutMs) => this.bash(command, { who: 'ai', timeoutMs }),
+      readFile: path => this.readFile(path),
+      writeFile: (path, text) => this.writeFile(path, text),
+      collect: () => this.collect(),
+      projectDir: () => this.projectDir,
+      parts: () => this.parts.value,
+      status: () => ({ state: this.state.value, message: this.message.value, portal: this.portal.value }),
+    };
   }
 
   /** The controls file den-kit generates (what parts can read and move). */

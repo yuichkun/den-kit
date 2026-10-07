@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
+import { POD } from '../plugin/code-frames.ts';
 import { KitSession, MY_PARTS_KEY } from './session.ts';
 import { MAX_FILE_BYTES } from '../core/persistence.ts';
 import { COST_LIMITS, formatCpu } from '../core/cost.ts';
@@ -19,6 +20,8 @@ import CanvasEditor from './plugin/CanvasEditor.vue';
 const props = defineProps<{ session: KitSession; /** Nothing was saved yet: open on the start screen. */ firstRun?: boolean }>();
 const session = props.session;
 provide(SESSION, session);
+// Code parts on any plugin drawn in the editor come from the work's pod.
+provide(POD, session.pod);
 const view = ref<'patch' | 'plugin' | 'code'>('patch');
 const pluginEdit = ref(false);
 watchEffect(() => { props.session.screenFocus.value = view.value === 'plugin' && pluginEdit.value; });

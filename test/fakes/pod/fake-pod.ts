@@ -33,6 +33,9 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
 
   wss.on('connection', (socket: WebSocket) => {
     const send = (m: Record<string, unknown>) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(m)); };
+    // Like BrowserPod, whose pod lives in the tab: the page going away stops what it started.
+    const mine = new Set<ChildProcess>();
+    socket.on('close', () => { for (const c of mine) { try { process.kill(-c.pid!, 'SIGKILL'); } catch { /* gone */ } } });
     send({ t: 'hello', home });
     socket.on('message', async raw => {
       let m: Record<string, unknown>;
@@ -59,7 +62,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           const cwd = inside(String(m.cwd ?? home)) ?? home;
           mkdirSync(cwd, { recursive: true });
           const child = spawn('bash', [file], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-          children.add(child);
+          children.add(child); mine.add(child);
           let portalSent = false, timedOut = false;
           const onData = (b: Buffer) => {
             const text = b.toString('utf8');
@@ -73,7 +76,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           const timer = m.t === 'run' && typeof m.timeoutMs === 'number' ? setTimeout(() => { timedOut = true; try { process.kill(-child.pid!, 'SIGINT'); } catch { /* gone */ } setTimeout(() => { try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* gone */ } }, 1500); }, m.timeoutMs) : null;
           child.on('close', code => {
             if (timer) clearTimeout(timer);
-            children.delete(child);
+            children.delete(child); mine.delete(child);
             send({ t: 'exit', id, code: timedOut ? null : code, timedOut });
           });
           return;

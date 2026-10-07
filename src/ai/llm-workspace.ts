@@ -23,8 +23,29 @@ import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
 import type { LookResult } from '../plugin/look.ts';
 
 import type { ToolOutput } from './protocol.ts';
+import type { PodRunResult } from '../pod/host.ts';
+import type { PartReport } from '../pod/pod-session.ts';
+import { projectPath } from '../pod/host.ts';
 
 export type { ToolOutput };
+
+/** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
+export interface PodAccess {
+  /** Why it cannot be used and what fixes that; null when it can. */
+  unavailable(): { reason: string; fix?: string } | null;
+  /** Started and in step with the work (the first call boots it: up to a few minutes on a fresh pod). */
+  ensure(): Promise<void>;
+  bash(command: string, timeoutMs: number): Promise<PodRunResult>;
+  readFile(path: string): Promise<string | null>;
+  writeFile(path: string, text: string): Promise<void>;
+  /** The project's files that differ from the work (null: deleted), and what was left out. */
+  collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }>;
+  /** The project's folder in the pod. */
+  projectDir(): string;
+  /** The code parts on the plugin as they reported (element id → report). */
+  parts(): Record<string, PartReport>;
+  status(): { state: string; message: string; portal: string | null };
+}
 
 export interface WorkspaceDeps {
   catalog: Catalog;
@@ -45,13 +66,18 @@ export interface WorkspaceDeps {
   handEdits?(): string[];
   /** The person's saved parts (My parts), to list and place. */
   myParts?(): Library;
+  /** The pod (absent in tests that do not need it: its tools then say there is none). */
+  pod?: PodAccess;
 }
 export interface Picture { png: Uint8Array | null; width: number; height: number; palette: Array<{ color: string; share: number }> }
 
 const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
-const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_finish';
+const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_finish';
+/** Kept of a command's output for the model (the end, where errors are). */
+const MAX_COMMAND_TEXT = 12000;
+const clipEnd = (s: string, n = MAX_COMMAND_TEXT) => s.length > n ? `[… ${s.length - n} characters cut]\n${s.slice(-n)}` : s;
 
 export class LlmWorkspace {
   summary: string | null = null;
@@ -63,6 +89,8 @@ export class LlmWorkspace {
   private unseen = false;
   /** This request changed the plugin screen. */
   screenTouched = false;
+  /** This request changed the screen project (den-kit commits it in the pod's git at the end). */
+  projectTouched = false;
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
@@ -82,11 +110,14 @@ export class LlmWorkspace {
           const doc = this.deps.read();
           // ("part" was its name before U5; an old habit still works.)
           const canvas = typeof a.canvas === 'string' && a.canvas ? a.canvas : typeof a.part === 'string' && a.part ? a.part : undefined;
-          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { canvas, problems: canvas ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.() })) };
+          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { canvas, problems: canvas ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.(), parts: this.deps.pod?.parts() })) };
         }
         case 'kit_look': return await this.look();
         case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined, this.deps.catalog) };
         case 'kit_view_picture': return await this.viewPicture(String(a.id ?? ''));
+        case 'kit_bash': return await this.bash(typeof a.command === 'string' ? a.command : '', typeof a.timeout_s === 'number' ? a.timeout_s : undefined);
+        case 'kit_read_file': return await this.readFile(a.path, typeof a.from_line === 'number' ? a.from_line : undefined, typeof a.to_line === 'number' ? a.to_line : undefined);
+        case 'kit_write_file': return await this.writeFile(a.path, a.content);
         case 'kit_finish':
           if (this.unseen && !this.remindedToLook) {
             this.remindedToLook = true;
@@ -262,6 +293,99 @@ export class LlmWorkspace {
     const head = `Looked at the plugin (${doc.panel.width}×${doc.panel.height}).${this.deps.images && seen.png ? ' The picture is attached.' : ''}`;
     const body = seen.issues.length ? `${seen.issues.length} thing${seen.issues.length === 1 ? '' : 's'} to fix${errors ? ` (${errors} serious)` : ''}:\n${seen.issues.map(i => `- ${formatPluginIssue(i)}`).join('\n')}` : 'The checks found nothing to fix (overlaps, edges, text that does not fit, contrast, labels, wiring, pictures, canvases).';
     return { success: true, text: `${head}\n${body}`, imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined };
+  }
+
+  // ---- the pod: the screen project ---------------------------------------------------------
+  /** The pod, or why the tools cannot use it. */
+  private async pod(): Promise<PodAccess | ToolOutput> {
+    const pod = this.deps.pod;
+    const instead = 'Until then, build the screen from den-kit\'s controls, decorations and canvases.';
+    if (!pod) return { success: false, text: `This den-kit has no pod, so the screen project cannot be used. ${instead}` };
+    const off = pod.unavailable();
+    if (off) return { success: false, text: `The pod is not available: ${off.reason}${off.fix ? ` (Tell the person: ${off.fix})` : ''} ${instead}` };
+    try { await pod.ensure(); } catch (error) {
+      const status = pod.status();
+      return { success: false, text: `The pod did not start: ${error instanceof Error ? error.message : String(error)} (state: ${status.state}; ${status.message}). If the project itself is broken (package.json, vite.config.ts), fix it and try again; otherwise ${instead.toLowerCase()}` };
+    }
+    return pod;
+  }
+
+  /** Read the project back and keep what changed in the work (one step of this request); a line for the model. */
+  private async keepProject(pod: PodAccess, what: string): Promise<string> {
+    const { files, skipped } = await pod.collect();
+    const paths = Object.keys(files).sort();
+    const lines: string[] = [];
+    if (paths.length) {
+      const before = this.deps.read().project?.files ?? {};
+      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what);
+      const list = paths.map(p => `${p} (${files[p] === null ? 'deleted' : p in before ? 'changed' : 'new'})`);
+      if (landed.ok) {
+        this.landed++;
+        this.screenTouched = true; this.projectTouched = true;
+        this.steps.push(`${what} ✓`);
+        if (paths.some(p => p.startsWith('src/'))) this.unseen = true;
+        lines.push(`Kept in the work: ${list.slice(0, 30).join(', ')}${list.length > 30 ? `, and ${list.length - 30} more` : ''}.`);
+      } else lines.push(`The project changed (${list.slice(0, 10).join(', ')}) but could not be kept in the work: ${landed.message}`);
+    }
+    if (skipped.length) lines.push(`Not kept: ${skipped.slice(0, 10).join('; ')}.`);
+    return lines.join('\n');
+  }
+
+  /** What the code parts on the plugin say now (errors first), after giving them a moment to reload. */
+  private async partNews(pod: PodAccess, waitMs: number): Promise<string> {
+    const shown = Object.values(this.deps.read().ui.elements).filter(e => e.kind === 'code');
+    if (!shown.length) return '';
+    if (waitMs) await new Promise(r => setTimeout(r, waitMs));
+    const reports = pod.parts();
+    const lines = shown.map(el => {
+      const r = reports[el.id];
+      if (!r) return `${el.id} (part "${el.kind === 'code' ? el.part : ''}"): not loaded yet`;
+      const logs = r.logs.filter(l => /^(error|warn)/.test(l)).slice(-3);
+      return `${el.id} (part "${r.part}"): ${r.state}${r.error ? ` — ${r.error}` : ''}${logs.length && !r.error ? ` · ${logs.join(' · ')}` : ''}`;
+    });
+    return `Code parts on the plugin: ${lines.join('; ')}.`;
+  }
+
+  private async bash(command: string, timeoutS?: number): Promise<ToolOutput> {
+    if (!command.trim()) return { success: false, text: 'Give a command (bash, run in the screen project\'s folder).' };
+    const pod = await this.pod(); if (!('bash' in pod)) return pod;
+    const seconds = Math.min(600, Math.max(1, timeoutS ?? 120));
+    const r = await pod.bash(command, seconds * 1000);
+    this.steps.push(`ran \`${command.length > 48 ? `${command.slice(0, 47)}…` : command}\`${r.exitCode === 0 ? '' : ` (exit ${r.exitCode ?? 'none'})`}`);
+    const kept = await this.keepProject(pod, `ran ${command.slice(0, 40)}`);
+    const news = await this.partNews(pod, kept.startsWith('Kept') ? 1500 : 0);
+    const status = r.timedOut ? `stopped after ${seconds} s (give timeout_s for longer commands, up to 600)` : r.exitCode === null ? 'ended without an exit status' : `exit ${r.exitCode}`;
+    const dev = pod.status();
+    return {
+      success: true,
+      text: [`$ ${command}`, clipEnd(r.output) || '(no output)', `[${status} · ${(r.ms / 1000).toFixed(1)} s]`, kept, news, dev.state === 'ready' ? '' : `Dev server: ${dev.state} — ${dev.message}`].filter(Boolean).join('\n'),
+    };
+  }
+
+  private async readFile(path: unknown, from?: number, to?: number): Promise<ToolOutput> {
+    const pod = await this.pod(); if (!('bash' in pod)) return pod;
+    const p = projectPath(path, pod.projectDir());
+    if (!p.ok) return { success: false, text: p.message };
+    const text = await pod.readFile(p.path);
+    if (text === null) return { success: false, text: `There is no file ${p.path} in the project. (kit_bash "git ls-files" lists them.)` };
+    const lines = text.split('\n');
+    const a = Math.max(1, Math.floor(from ?? 1)), b = Math.min(lines.length, Math.floor(to ?? lines.length));
+    const shown = lines.slice(a - 1, b).join('\n');
+    const head = `${p.path} (${lines.length} lines${a > 1 || b < lines.length ? `; lines ${a}–${b}` : ''})`;
+    if (shown.length > 60000) return { success: true, text: `${head}, too long to show at once: read it in parts with from_line and to_line.\n${shown.slice(0, 60000)}` };
+    return { success: true, text: `${head}:\n${shown}` };
+  }
+
+  private async writeFile(path: unknown, content: unknown): Promise<ToolOutput> {
+    const pod = await this.pod(); if (!('bash' in pod)) return pod;
+    const p = projectPath(path, pod.projectDir());
+    if (!p.ok) return { success: false, text: p.message };
+    if (typeof content !== 'string') return { success: false, text: 'content is the whole text of the file.' };
+    if (p.path === 'src/kit/controls.ts') return { success: false, text: 'src/kit/controls.ts is made by den-kit from the patch (the controls and their ranges); change the patch\'s controls instead.' };
+    await pod.writeFile(p.path, content);
+    const kept = await this.keepProject(pod, `wrote ${p.path}`);
+    const news = await this.partNews(pod, p.path.startsWith('src/') ? 1500 : 0);
+    return { success: true, text: [`Wrote ${p.path} (${content.split('\n').length} lines).`, kept, news, 'Check it with kit_bash "npm run check" (TypeScript) and "npm run lint"; see it with kit_look.'].filter(Boolean).join('\n') };
   }
 
   // ---- listening ---------------------------------------------------------------------

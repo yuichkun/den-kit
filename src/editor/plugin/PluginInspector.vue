@@ -9,6 +9,7 @@ import { CONTROL_KINDS, CONTROL_OF, DEFAULT_SKIN, type ControlKind, type Skin } 
 import { THEME_TOKENS } from '../../core/themes.ts';
 import { COLOR_TOKENS, FONT_TOKENS, FONTS, TOKEN_DOC, isFontAsset, isImageAsset, withGroups, type ElementStyle, type Fill, type TextStyle, type UiElement, type WidgetStyle } from '../../core/ui.ts';
 import type { Intent } from '../../core/ops.ts';
+import { partNames, partPath } from '../../core/project.ts';
 import { useSession } from '../context.ts';
 import AssetPanel from './AssetPanel.vue';
 import ColorField from './ColorField.vue';
@@ -19,7 +20,7 @@ import SkinEditor from './SkinEditor.vue';
 import StyleEditor from './StyleEditor.vue';
 import TextStyleEditor from './TextStyleEditor.vue';
 
-const emit = defineEmits<{ (e: 'edit-canvas', id: string): void; (e: 'action', name: string): void }>();
+const emit = defineEmits<{ (e: 'edit-canvas', id: string): void; (e: 'action', name: string): void; (e: 'open-project', path?: string): void }>();
 const session = useSession();
 const doc = computed(() => session.doc.value);
 const look = computed(() => doc.value.ui.look);
@@ -75,15 +76,31 @@ watch(node, n => { label.value = n?.label ?? ''; }, { immediate: true });
 const textDraft = ref('');
 watch(element, e => { textDraft.value = e?.kind === 'text' ? e.text : e?.kind === 'svg' ? e.svg : ''; }, { immediate: true });
 const propsDraft = ref('');
-watch(element, e => { propsDraft.value = e?.kind === 'canvas' ? JSON.stringify(e.props) : ''; }, { immediate: true });
-function setProps() { try { setEl({ props: JSON.parse(propsDraft.value || '{}') }, 'Canvas settings'); } catch { session.toast('warn', 'Settings must be JSON, e.g. {"speed": 2}.'); } }
+watch(element, e => { propsDraft.value = e?.kind === 'canvas' || e?.kind === 'code' ? JSON.stringify(e.props) : ''; }, { immediate: true });
+function setProps() { try { setEl({ props: JSON.parse(propsDraft.value || '{}') }, element.value?.kind === 'code' ? 'Part settings' : 'Canvas settings'); } catch { session.toast('warn', 'Settings must be JSON, e.g. {"speed": 2}.'); } }
+// ---- a code part: which part of the project it shows, and the settings the part declares (it reports them when it loads) ----
+type PropSpec = { type: 'number'; default: number; min?: number; max?: number; step?: number; label?: string } | { type: 'boolean'; default: boolean; label?: string } | { type: 'text' | 'color'; default: string; label?: string } | { type: 'select'; default: string; options: string[]; label?: string };
+const partList = computed(() => partNames(doc.value.project));
+const codeReport = computed(() => element.value?.kind === 'code' ? session.pod?.parts.value[element.value.id] : undefined);
+const propSpecs = computed<Record<string, PropSpec>>(() => {
+  const raw = codeReport.value?.props;
+  if (!raw || typeof raw !== 'object') return {};
+  return Object.fromEntries(Object.entries(raw).filter(([, v]) => v && typeof v === 'object' && ['number', 'boolean', 'text', 'color', 'select'].includes((v as { type?: string }).type ?? ''))) as Record<string, PropSpec>;
+});
+const propValue = (key: string, spec: PropSpec) => { const v = element.value?.kind === 'code' ? element.value.props[key] : undefined; return v === undefined ? spec.default : v; };
+function setProp(key: string, value: string | number | boolean | null, done = true) {
+  if (element.value?.kind !== 'code') return;
+  const next = { ...element.value.props };
+  if (value === null) delete next[key]; else next[key] = value;
+  setEl({ props: next }, 'Part setting', done ? undefined : `prop-${key}`);
+}
 const cssDraft = ref(look.value.css ?? '');
 watch(() => look.value.css, c => { cssDraft.value = c ?? ''; });
 // The design brief: what the screen is going for, kept to by the AI on every request.
 const briefDraft = ref(doc.value.ui.brief ?? '');
 watch(() => doc.value.ui.brief, b => { briefDraft.value = b ?? ''; });
 const defaultSkinControl = ref<ControlKind>('knob');
-const KIND_TITLE: Record<string, string> = { text: 'Text', shape: 'Shape', image: 'Picture', svg: 'SVG', led: 'Lamp', canvas: 'Canvas' };
+const KIND_TITLE: Record<string, string> = { text: 'Text', shape: 'Shape', image: 'Picture', svg: 'SVG', led: 'Lamp', canvas: 'Canvas', code: 'Code part' };
 const pictures = computed(() => Object.values(assets.value).filter(isImageAsset));
 const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset));
 </script>
@@ -124,6 +141,21 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
         <template v-else-if="element.kind === 'canvas'">
           <button class="primary" type="button" data-testid="edit-canvas" @click="emit('edit-canvas', element.id)">Edit code</button>
           <div class="row"><label>Settings</label><input v-model="propsDraft" type="text" class="code" spellcheck="false" placeholder="{}" @change="setProps" /></div>
+        </template>
+        <template v-else-if="element.kind === 'code'">
+          <div class="row"><label>Part</label><select :value="element.part" data-testid="code-part-select" @change="setEl({ part: ($event.target as HTMLSelectElement).value }, 'Code part')"><option v-for="p in (partList.includes(element.part) ? partList : [element.part, ...partList])" :key="p" :value="p">{{ p }}</option></select></div>
+          <div class="muted small" data-testid="code-part-state">{{ partPath(element.part) }} · {{ codeReport ? codeReport.state : (session.pod?.message.value || 'not loaded') }}</div>
+          <div v-if="codeReport?.error" class="code-error small" data-testid="code-part-error">{{ codeReport.error }}</div>
+          <div v-for="(spec, key) in propSpecs" :key="key" class="row" :data-prop="key">
+            <label>{{ spec.label ?? key }}</label>
+            <input v-if="spec.type === 'number'" type="number" :min="spec.min" :max="spec.max" :step="spec.step ?? 'any'" :value="propValue(String(key), spec)" @change="setProp(String(key), Number(($event.target as HTMLInputElement).value))" />
+            <input v-else-if="spec.type === 'boolean'" type="checkbox" :checked="!!propValue(String(key), spec)" @change="setProp(String(key), ($event.target as HTMLInputElement).checked)" />
+            <select v-else-if="spec.type === 'select'" :value="propValue(String(key), spec)" @change="setProp(String(key), ($event.target as HTMLSelectElement).value)"><option v-for="o in spec.options" :key="o" :value="o">{{ o }}</option></select>
+            <ColorField v-else-if="spec.type === 'color'" :value="String(propValue(String(key), spec))" :clearable="true" @update="(c, done) => setProp(String(key), c, done)" />
+            <input v-else type="text" :value="propValue(String(key), spec)" @change="setProp(String(key), ($event.target as HTMLInputElement).value)" />
+          </div>
+          <div v-if="!Object.keys(propSpecs).length" class="row"><label>Settings</label><input v-model="propsDraft" type="text" class="code" spellcheck="false" placeholder="{}" @change="setProps" /></div>
+          <button type="button" data-testid="open-part-file" @click="emit('open-project', partPath(element.part))">Open its file</button>
         </template>
         <div class="row flags"><label class="check"><input type="checkbox" :checked="!!element.locked" @change="setEl({ locked: ($event.target as HTMLInputElement).checked || null }, 'Lock')" /> locked</label><label class="check"><input type="checkbox" :checked="!!element.hidden" @change="setEl({ hidden: ($event.target as HTMLInputElement).checked || null }, 'Hide')" /> hidden</label></div>
       </div>
@@ -213,4 +245,5 @@ textarea { width: 100%; resize: vertical; margin: 4px 0; font-size: 13px; }
 .flags { gap: 12px; }
 .small { font-size: 12px; }
 input[type=range] { flex: 1; min-width: 0; }
+.code-error { color: #ffb3b3; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; }
 </style>

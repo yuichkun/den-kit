@@ -6,6 +6,7 @@
 // let the AI look at the plugin (look.ts); `hideText` draws it without any text,
 // to measure what is behind each text.
 import { canvasSnapshot } from './canvas-runtime.ts';
+import { CODE_FRAMES } from './code-frames.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
@@ -138,6 +139,12 @@ function copy(node: Node, ctx: Ctx, ids: Map<string, string> | null): Node | nul
     const shot = canvasSnapshot(node);
     if (shot) ctx.work.push(shot.then(b => b ? toDataUrl(b) : '').then(src => { if (src) img.setAttribute('src', src); }));
     else { try { img.setAttribute('src', node.toDataURL('image/png')); } catch { /* a canvas we cannot read stays empty */ } }
+    out = img;
+  } else if (node instanceof HTMLIFrameElement) {
+    // A code part's frame: its page draws a picture of itself (code-frames.ts); nothing else of a frame can be read.
+    const img = document.createElementNS(XHTML_NS, 'img');
+    const shot = CODE_FRAMES.get(node);
+    if (shot) ctx.work.push(shot().then(src => { if (src) img.setAttribute('src', src); }));
     out = img;
   } else if (node instanceof HTMLImageElement) {
     const img = document.createElementNS(XHTML_NS, 'img');

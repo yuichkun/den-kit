@@ -3,6 +3,7 @@
 // intents, so inserting is one undoable step like any other edit.
 import type { Intent, NewElement } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
+import { partNames } from '../core/project.ts';
 import type { Rect } from './spec.ts';
 
 export const CANVAS_TEMPLATE = `// A canvas: draw(ctx, f) runs every frame (in a worker).
@@ -37,6 +38,7 @@ export const INSERTABLES: readonly Insertable[] = [
   { key: 'svg', title: 'SVG drawing', doc: 'Vector markup you can edit.', group: 'Decoration' },
   { key: 'led', title: 'Lamp (LED)', doc: 'Lights with a switch, a knob past a point, or the sound.', group: 'Decoration' },
   { key: 'canvas', title: 'Canvas (code)', doc: 'Your own drawing code, reacting to the sound and controls; it can take the mouse.', group: 'Decoration', also: 'custom part' },
+  { key: 'code', title: 'Code part (web)', doc: 'A part of the work\'s web project (TypeScript, any npm package), run in the pod.', group: 'Decoration', also: 'iframe vite npm three typescript project' },
   { key: 'knob', title: 'Knob', doc: 'Turn it; wire it to anything in the patch.', group: 'Control' },
   { key: 'slider', title: 'Slider', doc: 'A fader.', group: 'Control' },
   { key: 'toggle', title: 'Switch', doc: 'On/off (a gate).', group: 'Control' },
@@ -48,10 +50,10 @@ export const INSERTABLES: readonly Insertable[] = [
   { key: 'meter', title: 'Meter', doc: 'The level of a signal.', group: 'Control' },
 ];
 
-const SIZE: Record<string, [number, number]> = { text: [180, 36], value: [120, 28], rect: [180, 110], ellipse: [100, 100], line: [200, 8], svg: [96, 96], led: [14, 14], canvas: [220, 120], knob: [84, 96], slider: [44, 160], toggle: [90, 44], button: [90, 44], xy: [180, 180], keyboard: [380, 90], pads: [300, 160], scope: [220, 90], meter: [24, 120] };
+const SIZE: Record<string, [number, number]> = { text: [180, 36], value: [120, 28], rect: [180, 110], ellipse: [100, 100], line: [200, 8], svg: [96, 96], led: [14, 14], canvas: [220, 120], code: [240, 140], knob: [84, 96], slider: [44, 160], toggle: [90, 44], button: [90, 44], xy: [180, 180], keyboard: [380, 90], pads: [300, 160], scope: [220, 90], meter: [24, 120] };
 
 /** The intents that add `key` centred at `at` (design pixels). `picture` takes the asset id. */
-export function insertIntents(key: string, at: { x: number; y: number }, doc: PatchDocument, options: { asset?: { id: string; width?: number; height?: number }; bind?: string } = {}): Intent[] {
+export function insertIntents(key: string, at: { x: number; y: number }, doc: PatchDocument, options: { asset?: { id: string; width?: number; height?: number }; bind?: string; /** A code part's new file(s) by its name (the template comes with them while the work has no project). */ codeFiles?: (name: string) => Record<string, string | null> } = {}): Intent[] {
   const [w, h] = key === 'picture' && options.asset ? fitPicture(options.asset, doc) : SIZE[key] ?? [120, 80];
   const rect: Rect = { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2), w, h };
   const controls = Object.values(doc.nodes).filter(n => n.type.startsWith('ui.') && n.type !== 'ui.keyboard' && n.type !== 'ui.scope' && n.type !== 'ui.meter');
@@ -67,6 +69,13 @@ export function insertIntents(key: string, at: { x: number; y: number }, doc: Pa
     case 'svg': return element({ kind: 'svg', svg: SVG_TEMPLATE });
     case 'led': { const toggle = Object.values(doc.nodes).find(n => n.type === 'ui.toggle'); return element({ kind: 'led', bind: options.bind ?? toggle?.id ?? '@level', color: '#ff3b30' }); }
     case 'canvas': return element({ kind: 'canvas', code: CANVAS_TEMPLATE });
+    case 'code': {
+      if (!options.codeFiles) return [];
+      const taken = new Set(partNames(doc.project));
+      let name = 'wave';
+      for (let i = 2; taken.has(name); i++) name = `wave-${i}`;
+      return [{ op: 'setProjectFiles', files: options.codeFiles(name) }, ...element({ kind: 'code', part: name, props: {} })];
+    }
     default: {
       const type = key === 'pads' ? 'ui.keyboard' : `ui.${key}`;
       const label = INSERTABLES.find(i => i.key === key)?.title ?? key;

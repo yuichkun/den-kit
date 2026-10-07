@@ -7,7 +7,61 @@ import type { Scenario } from './fake-codex.ts';
 const BOX_BROKEN = "import { defineSubgraph, type Node } from '@unworklet/core';\nexport default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; bits: Node<'f32'> }) { return { out: i.in.mul( } } }));";
 const BOX_FIXED = "import { defineSubgraph, type Node } from '@unworklet/core';\n// a crude bitcrusher: quantise to 2^bits steps\nexport default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; bits: Node<'f32'> }) { const steps = i.bits.clamp(1, 16).mul(0.6931472).exp(); return { out: i.in.mul(steps).add(0.5).floor().div(steps) }; } }));";
 
+// A code part written the way a model would in the pod: TypeScript that reads a knob and moves it.
+const METER_PART = `import { part } from '../kit';
+
+// A bar that shows the cutoff knob; a click sets it (one undo step).
+export default part({
+  props: { color: { type: 'color', default: 'accent', label: 'Colour' } },
+  mount(root, kit) {
+    const bar = root.appendChild(document.createElement('div'));
+    bar.id = 'meter-bar';
+    Object.assign(bar.style, { position: 'absolute', left: '0', bottom: '0', width: '100%', background: \`var(--dk-\${kit.props.color})\` });
+    root.addEventListener('pointerdown', e => { kit.begin(); kit.setNorm('knob1', 1 - e.offsetY / kit.size.height); kit.end(); });
+    return kit.frame(() => { bar.style.height = \`\${Math.round(kit.norm('knob1') * 100)}%\`; });
+  },
+});
+`;
+
 const scenarios: Scenario[] = [
+  {
+    // The pod: the model reads the guide, writes a code part with bash, checks it with tsc and ESLint, puts it on the plugin, looks.
+    name: 'code-part',
+    match: /コード部品|a code part/i,
+    async run(t) {
+      await t.think();
+      const plugin = await t.call('kit_get_plugin', {});
+      if (!/No screen project yet/.test(plugin.text)) { await t.say('Expected no screen project yet.'); return; }
+      const guide = await t.call('kit_read_file', { path: 'AGENTS.md' });
+      if (!guide.success || !/## Code parts/.test(guide.text)) { await t.say(`No guide: ${guide.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: no AGENTS.md', info: 'other' }; }
+      await t.call('kit_apply_ops', { ops: [{ op: 'addControl', for: { node: 'cut1', port: 'hz' }, label: 'Cutoff' }] });
+      const wrote = await t.call('kit_bash', { command: `mkdir -p src/parts && cat > src/parts/meter.ts <<'EOF'\n${METER_PART}EOF\ngit status --short` });
+      if (!/meter\.ts/.test(wrote.text)) { await t.say(`Writing failed: ${wrote.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: write failed', info: 'other' }; }
+      const checked = await t.call('kit_bash', { command: 'npm run check && npm run lint', timeout_s: 180 });
+      if (!/\[exit 0/.test(checked.text)) { await t.say(`Checks failed: ${checked.text.slice(-600)}`); return { status: 'failed', message: 'scenario: checks failed', info: 'other' }; }
+      const placed = await t.call('kit_apply_ops', { ops: [{ op: 'addElement', element: { id: 'meter1', kind: 'code', part: 'meter', rect: { x: 400, y: 40, w: 60, h: 160 }, props: { color: 'accent' } } }] });
+      if (!placed.success) { await t.say(`Placing failed: ${placed.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: place failed', info: 'other' }; }
+      const seen = await t.call('kit_look', {});
+      await t.call('kit_finish', { summary: /code part meter1[^\n]*fails/.test(seen.text) ? `コード部品が動いていません: ${seen.text.slice(0, 200)}` : 'コード部品「meter」を作ってプラグインに置きました' });
+      await t.say('Done.');
+    },
+  },
+  {
+    // A broken code part: the model sees the error from the plugin, fixes the file, and the part runs.
+    name: 'code-part-fix',
+    match: /壊れた部品|broken part/i,
+    async run(t) {
+      await t.think();
+      await t.call('kit_write_file', { path: 'src/parts/oops.ts', content: "import { part } from '../kit';\nexport default part({ mount(root) { throw new Error('oops: the canvas is missing'); } });\n" });
+      await t.call('kit_apply_ops', { ops: [{ op: 'addElement', element: { id: 'oops1', kind: 'code', part: 'oops', rect: { x: 20, y: 20, w: 120, h: 80 }, props: {} } }] });
+      const first = await t.call('kit_look', {});
+      if (!/oops: the canvas is missing/.test(first.text)) { await t.say(`The look did not report the error: ${first.text.slice(0, 400)}`); return { status: 'failed', message: 'scenario: no error seen', info: 'other' }; }
+      await t.call('kit_write_file', { path: 'src/parts/oops.ts', content: "import { part } from '../kit';\nexport default part({ mount(root) { root.textContent = 'fixed'; } });\n" });
+      const second = await t.call('kit_look', {});
+      await t.call('kit_finish', { summary: /oops1[^\n]*fails/.test(second.text) ? 'まだ壊れています' : '壊れた部品を直しました' });
+      await t.say('Done.');
+    },
+  },
   {
     // npm run kit:doctor -- --deep
     name: 'doctor-ping',

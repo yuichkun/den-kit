@@ -61,10 +61,10 @@ interface Turn {
 const MAX_STEPS = 12;
 const TOOL_ACTIVITY: Record<string, string> = {
   kit_get_patch: 'reading the patch…', kit_list_blocks: 'looking up modules…', kit_describe_block: 'looking up a module…',
-  kit_apply_ops: 'editing…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_finish: 'finishing…',
+  kit_apply_ops: 'editing…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_finish: 'finishing…', kit_bash: 'running a command…', kit_read_file: 'reading a file…', kit_write_file: 'writing a file…',
   kit_get_plugin: 'reading the plugin screen…', kit_ui_reference: 'looking up how screens are built…', kit_look: 'looking at the screen…', kit_view_picture: 'looking at a picture…',
 };
-const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module', kit_get_plugin: 'read the plugin screen', kit_ui_reference: 'looked up the screen reference' };
+const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module', kit_get_plugin: 'read the plugin screen', kit_ui_reference: 'looked up the screen reference', kit_read_file: 'read a file' };
 const KEPT = 'What it already changed stays; ⌘Z takes it back.';
 
 export class LlmController {
@@ -264,6 +264,7 @@ export class LlmController {
         try { return await viewPicture(url); } catch { return null; }
       },
       handEdits: () => handEdits(this.session.history.entries(), this.session.doc.value, this.session.catalog),
+      pod: this.session.pod?.access(),
       ...this.options.deps,
     };
   }
@@ -363,6 +364,8 @@ export class LlmController {
     const ws = turn.ws;
     const landed = ws.landed > 0;
     const label = ws.summary ?? (landed ? describeSteps(ws.steps) : undefined);
+    // The screen project's changes of this request become one commit in the pod's git.
+    if (ws.projectTouched) void this.session.pod?.commit(`den-kit AI: ${label ?? turn.line.text}`).catch(() => undefined);
     if (done.status === 'completed') this.close(turn, { status: landed ? 'applied' : 'reply', ms, label });
     else if (done.status === 'interrupted') this.close(turn, { status: 'stopped', ms, label: landed ? label : undefined, message: turn.stopNote ?? (done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped.'), note: landed ? KEPT : 'Nothing was changed.' });
     else this.close(turn, { status: 'failed', ms, label: landed ? label : undefined, message: done.error?.message ?? 'The LLM request failed.', fix: done.error?.fix, note: landed ? KEPT : undefined });
