@@ -43,7 +43,7 @@ const JA_NOUNS: Array<[string, string]> = [['resonance', 'レゾナンス|レゾ
 
 // ---- the plugin screen ----------------------------------------------------------------------------
 /** Words that say the request is about the screen ("色" but not "音色"). */
-const SCREEN_WORDS = /画面|見た目|ルック|デザイン|ui|背景|テーマ|スキン|(?<!音)色|カラー|フォント|書体|文字|ラベル|パネル|\b(?:screen|look|looks|gui|interface|design|background|theme|skin|colou?rs?|font|fonts|text|labels?|panel|layout|visuals?|appearance)\b/;
+const SCREEN_WORDS = /画面|見た目|ルック|デザイン|背景|テーマ|スキン|(?<!音)色|カラー|フォント|書体|文字|ラベル|パネル|\b(?:screen|look|looks|ui|gui|interface|design|background|theme|skin|colou?rs?|font|fonts|text|labels?|panel|layout|visuals?|appearance)\b/;
 const look = (change: (m: RegExpExecArray) => LookChange) => (m: RegExpExecArray): LexItem => ({ kind: 'look', change: change(m), phrase: m[0] });
 const JA_COLORS: Array<[string, string]> = [['neon green', '蛍光グリーン|蛍光緑'], ['lime', '黄緑|ライム'], ['teal', '青緑|ティール'], ['cyan', '水色|シアン|空色'], ['yellow', '黄色|黄|イエロー'], ['red', '赤|レッド'], ['orange', 'オレンジ|橙'], ['gold', '金|ゴールド'], ['green', '緑|グリーン'], ['blue', '青|ブルー'], ['purple', '紫|パープル'], ['pink', 'ピンク|桃色'], ['magenta', 'マゼンタ'], ['white', 'ホワイト'], ['silver', '銀|シルバー']];
 const EN_COLORS: Array<[string, string]> = [['neon green', 'neon green'], ['lime', 'lime'], ['teal', 'teal'], ['cyan', 'cyan|turquoise|aqua'], ['yellow', 'yellow'], ['red', 'red'], ['orange', 'orange'], ['gold', 'gold(?:en)?'], ['green', 'green'], ['blue', 'blue'], ['purple', 'purple|violet'], ['pink', 'pink'], ['magenta', 'magenta'], ['white', 'white'], ['silver', 'silver']];
@@ -62,7 +62,7 @@ const TEXT_EN = '(?:text|labels?|fonts?|letters|type|writing|lettering)';
 
 /** Screen edits any request may ask for: colours, text size, fonts, corners, a look named with a look word. */
 const SCREEN_RULES: Rule[] = [
-  { re: new RegExp(`(${JA_LOOK})(?:っぽい|風の?|みたいな|調の?|ぽい|な|の)?\\s*(?:見た目|デザイン|画面|ルック|雰囲気|スキン|テーマ|ui)(?:に|で)?`, 'g'), item: look(m => lookOf(m[1]!)) },
+  { re: new RegExp(`(${JA_LOOK})(?:っぽい|風の?|みたいな|調の?|ぽい|な|の)?\\s*(?:見た目|デザイン|画面|ルック|雰囲気|スキン|テーマ|ui\\b)(?:に|で)?`, 'g'), item: look(m => lookOf(m[1]!)) },
   { re: new RegExp(`\\b(${EN_LOOK}) (?:look|style|theme|skin|design|ui|vibe)\\b|\\blooks? like (?:a |an )?(${EN_LOOK})\\b`, 'g'), item: look(m => lookOf(m[1] ?? m[2]!)) },
   { re: new RegExp(`${TEXT_JA}(?:大きく|でかく|拡大)`, 'g'), item: look(() => ({ kind: 'text', direction: 'bigger' })) },
   { re: new RegExp(`${TEXT_JA}(?:小さく|縮小)`, 'g'), item: look(() => ({ kind: 'text', direction: 'smaller' })) },
@@ -89,7 +89,7 @@ const SCREEN_CONTEXT_RULES: Rule[] = [
   { re: new RegExp(`(${JA_COLOR})(?:に|で)|\\b(${EN_COLOR})\\b`, 'g'), item: look(m => accent(m[1] ?? m[2]!)) },
 ];
 /** Screen nouns that carry nothing once a screen edit is recognised ("画面を", "the look"). */
-const SCREEN_FILLER = /画面|見た目|ルック|デザイン|ui|背景|テーマ|スキン|(?<!音)色|カラー|全体|プラグイン|\b(?:screen|look|looks|gui|interface|design|background|theme|skin|colou?rs?|plugin|visuals?|appearance)\b/g;
+const SCREEN_FILLER = /画面|見た目|ルック|デザイン|背景|テーマ|スキン|(?<!音)色|カラー|全体|プラグイン|\b(?:screen|look|looks|ui|gui|interface|design|background|theme|skin|colou?rs?|plugin|visuals?|appearance)\b/g;
 
 // Order matters: longer / more specific rules first; matches never overlap.
 const COMPLEX: Rule =

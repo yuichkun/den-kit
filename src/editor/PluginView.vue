@@ -267,8 +267,10 @@ const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRigh
 const BRACKET: Record<string, '[' | ']'> = { '[': '[', ']': ']', '“': '[', '‘': ']', '「': '[', '」': ']', BracketLeft: '[', BracketRight: ']' };
 const ALIGN_KEYS: Record<string, Align> = { KeyA: 'left', KeyD: 'right', KeyW: 'top', KeyS: 'bottom', KeyH: 'hcenter', KeyV: 'vcenter' };
 function onKey(e: KeyboardEvent) {
-  if (e.defaultPrevented || typing(e) || editingText.value) return;
   const mod = e.metaKey || e.ctrlKey;
+  // ⌥⌘K looks the plugin over from anywhere while editing, the AI prompt included (no reaching for the mouse).
+  if (props.edit && mod && e.altKey && e.code === 'KeyK' && !e.defaultPrevented) { e.preventDefault(); void runCheck(); return; }
+  if (e.defaultPrevented || typing(e) || editingText.value) return;
   if (!props.edit) { if (mod && e.code === 'KeyA') e.preventDefault(); return; } // playing: nothing to select (and no page-wide text selection)
   if (menu.value) return; // the menu has the keys
   const bracket = BRACKET[e.key] ?? (mod ? BRACKET[e.code] : undefined);
@@ -283,7 +285,6 @@ function onKey(e: KeyboardEvent) {
   }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) { e.preventDefault(); removeSelection(); }
   else if (e.key === 'Escape') { if (checks.value) checks.value = null; else session.select([]); }
-  else if (mod && e.altKey && e.code === 'KeyK') { e.preventDefault(); void runCheck(); }
   else if (mod && e.code === 'KeyC') copySelection(session);
   else if (mod && e.code === 'KeyV') { e.preventDefault(); paste(session); }
   else if (mod && e.code === 'KeyD') { e.preventDefault(); duplicate(session); }

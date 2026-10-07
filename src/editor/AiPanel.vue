@@ -11,8 +11,8 @@ import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type Recogn
 import AiStatus from './AiStatus.vue';
 import { offerEnter } from './keys.ts';
 
-const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null }>();
-const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void }>();
+const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
+const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void; (e: 'show-plugin'): void }>();
 const fast = props.fast;
 const llm = props.llm ?? null;
 const text = ref('');
@@ -180,6 +180,7 @@ defineExpose({ focus });
             <div v-if="o.message" class="message" :data-testid="o.id === latestId ? 'ai-message' : undefined">{{ o.message }}</div>
             <div v-if="o.fix" class="fix" data-testid="ai-fix">{{ o.fix }}</div>
             <div v-if="o.note" class="note">{{ o.note }}</div>
+            <button v-if="o.screen && !o.undone && view !== 'plugin' && o.id === latestId" type="button" class="show" data-testid="ai-show-plugin" title="The request changed the plugin screen (⌥⌘E switches)" @click="emit('show-plugin')">Show the plugin <kbd>⌥⌘E</kbd></button>
             <ul v-if="o.steps?.length && (o.live || o.id === latestId)" class="steps" data-testid="ai-steps"><li v-for="(s, k) in o.steps" :key="k">{{ s }}</li></ul>
             <div v-if="o.reply && o.reply.trim() !== (o.message ?? '').trim()" class="reply" data-testid="ai-reply">{{ o.reply }}</div>
           </template>
@@ -236,6 +237,7 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .turn.s-merged .message, .turn.s-reply .message { color: #b8b8b8; }
 .fix { color: #e0e0e0; font-family: ui-monospace, Menlo, monospace; font-size: 13.5px; overflow-wrap: anywhere; }
 .note { color: #a8a8a8; font-size: 14px; }
+.show { margin-top: 4px; padding: 2px 8px; font-size: 12px; }
 .steps { list-style: none; margin: 2px 0 0; padding: 0 0 0 10px; border-left: 1px solid #3a3a3a; color: #a5a5a5; font-size: 13.5px; display: flex; flex-direction: column; gap: 2px; }
 .steps li { overflow-wrap: anywhere; }
 .reply { color: #dcdcdc; white-space: pre-wrap; overflow-wrap: anywhere; }

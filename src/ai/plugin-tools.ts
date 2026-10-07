@@ -247,7 +247,7 @@ export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[]):
 /** "+ text "NEBULA"", "look", "ktime on the plugin" — a short account of a screen edit. */
 export function describeUiOp(op: Intent): string | null {
   switch (op.op) {
-    case 'addElement': { const e = op.element as Record<string, unknown>; return `+ ${op.element.kind}${typeof e.text === 'string' ? ` “${clip(e.text, 24)}”` : typeof e.name === 'string' ? ` ${e.name}` : ''}`; }
+    case 'addElement': { const e = op.element as Record<string, unknown>; return `+ ${op.element.kind}${typeof e.text === 'string' ? ` “${e.text.length > 24 ? `${e.text.slice(0, 23)}…` : e.text}”` : typeof e.name === 'string' ? ` ${e.name}` : ''}`; }
     case 'updateElement': return `${op.id}: ${Object.keys(op.set).join(', ')}`;
     case 'removeElement': return `− ${op.id}`;
     case 'setRect': return `place ${op.id}`;

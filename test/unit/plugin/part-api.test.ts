@@ -46,24 +46,33 @@ describe('custom parts write controls', () => {
   });
 });
 
-describe('writes the page has not shown back yet', () => {
-  it('a frame that left before the write still carries the old value: the part keeps seeing its own', () => {
-    const pending: PendingWrites = new Map([['cut', { value: 2000, at: 0 }], ['pad', { value: { x: 0.9, y: 0.1 }, at: 0 }]]);
+describe('writes the page has not taken in yet', () => {
+  it('a frame or mouse event that left before the page took a write in still carries the old value: the part keeps seeing its own', () => {
+    const pending: PendingWrites = new Map([['cut', { value: 2000, write: 3 }], ['pad', { value: { x: 0.9, y: 0.1 }, write: 4 }]]);
     const stale = frame();
-    overlayPending(stale, pending, 100);
+    overlayPending(stale, pending, 2);
     expect(stale.values.cut).toBe(2000);
     expect(stale.norms.cut).toBeCloseTo(Math.log(20) / Math.log(100));
     expect(stale.values.pad).toEqual({ x: 0.9, y: 0.1 });
     expect(pending.size).toBe(2);
   });
-  it('once a frame shows the write (or after a while) the page has the say again', () => {
-    const pending: PendingWrites = new Map([['cut', { value: 2000, at: 0 }], ['mix', { value: 0.9, at: 0 }]]);
-    const shown = frame(); shown.values.cut = 2000;
-    overlayPending(shown, pending, 100);
+  it('once the page has taken a write in, the page has the say again (an undo may have changed the value since)', () => {
+    const pending: PendingWrites = new Map([['cut', { value: 2000, write: 3 }], ['mix', { value: 0.9, write: 4 }]]);
+    const afterUndo = frame();
+    overlayPending(afterUndo, pending, 3);
+    expect(afterUndo.values.cut).toBe(1000);
+    expect(afterUndo.values.mix).toBe(0.9);
     expect([...pending.keys()]).toEqual(['mix']);
     const later = frame();
-    overlayPending(later, pending, 1000);
+    overlayPending(later, pending, 4);
     expect(later.values.mix).toBe(0.5);
+    expect(pending.size).toBe(0);
+  });
+  it('a write to a control that is gone is forgotten', () => {
+    const pending: PendingWrites = new Map([['gone', { value: 1, write: 5 }]]);
+    const f = frame();
+    overlayPending(f, pending, 0);
+    expect(f.values.gone).toBeUndefined();
     expect(pending.size).toBe(0);
   });
 });

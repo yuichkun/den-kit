@@ -67,7 +67,8 @@ export async function openKit(h: Harness, options: { clearStorage?: boolean; que
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
   const context = await h.browser.newContext({ viewport: options.viewport ?? { width: 1440, height: 900 } });
   const page = await context.newPage();
-  page.on('close', () => { void context.close(); });
+  // The context goes with its page; at the end of a file the browser may already be closing, which is fine.
+  page.on('close', () => { context.close().catch(() => undefined); });
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });

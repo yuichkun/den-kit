@@ -6,7 +6,7 @@
 // on them would (the page makes one press one undo step).
 // Nothing here can reach the page; network APIs are taken away before the code loads.
 /// <reference lib="webworker" />
-import { NO_POINTER, PART_CURSORS, overlayPending, writeControl, type PartFrame, type PartPointer, type PartPointerEvent, type PartRange, type PartValue, type PendingWrites } from './part-api.ts';
+import { NO_POINTER, PART_CURSORS, overlayPending, writeControl, type PartControls, type PartFrame, type PartPointer, type PartPointerEvent, type PartRange, type PartValue, type PendingWrites } from './part-api.ts';
 
 interface Frame {
   t: number; dt: number; w: number; h: number;
@@ -19,6 +19,8 @@ interface Frame {
 type Draw = (ctx: OffscreenCanvasRenderingContext2D, f: Frame) => void;
 type Pointer = (e: PartPointerEvent, f: Frame) => void;
 type FrameMessage = { type: 'frame' } & PartFrame;
+/** What a mouse event before the first frame sees of time and the sound. */
+const QUIET: PartFrame = { t: 0, dt: 1 / 60, level: 0, peak: 0, wave: new Float32Array(256), spectrum: new Float32Array(64), values: {}, norms: {}, ranges: {}, acked: 0, colors: {}, pointer: NO_POINTER };
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
@@ -30,10 +32,11 @@ let props: Record<string, unknown> = {};
 let state: Record<string, unknown> = {};
 let ready = false;
 let generation = 0;
-/** The latest frame's data (pointer events between frames read and write it). */
+/** The latest frame's data, with the controls as the latest message (a frame or a mouse event) had them. */
 let last: PartFrame | null = null;
-/** Writes the page has not shown back yet (see overlayPending). */
+/** Writes the page has not taken in yet (see overlayPending), and how many the part has made. */
 const pending: PendingWrites = new Map();
+let writes = 0;
 let cursor = 'default';
 
 for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts', 'Worker', 'SharedWorker', 'indexedDB', 'caches', 'BroadcastChannel']) {
@@ -67,8 +70,9 @@ function frameOf(m: PartFrame): Frame {
 }
 
 function write(m: PartFrame, id: string, values: Record<string, number | boolean>) {
-  pending.set(id, { value: m.values[id]!, at: performance.now() });
-  postMessage({ type: 'set', id, values });
+  const n = ++writes;
+  pending.set(id, { value: m.values[id]!, write: n });
+  postMessage({ type: 'set', id, values, write: n });
 }
 
 function resize(w: number, h: number, ratio: number) {
@@ -112,10 +116,14 @@ onmessage = async (e: MessageEvent) => {
     catch { postMessage({ type: 'snapshot', seq: m.seq, blob: null }); }
   }
   else if (m.type === 'pointer') {
-    // The pointer state follows every event, so the next frame draws the mouse where it is.
+    // The event carries the controls as the page has them now: the last frame may be from before an
+    // undo or a redo (or from before a frame could be sent at all). The pointer state follows every
+    // event, so the next frame draws the mouse where it is.
     const ev = m.event as PartPointerEvent;
-    if (last) last.pointer = m.pointer as PartPointer;
-    if (ready && pointer && last) {
+    const c = m.controls as PartControls;
+    overlayPending(c, pending, c.acked);
+    last = { ...(last ?? QUIET), values: c.values, norms: c.norms, ranges: c.ranges, acked: c.acked, pointer: m.pointer as PartPointer };
+    if (ready && pointer) {
       try { pointer(ev, frameOf(last)); }
       catch (error) { fail(error, 'Pointer'); }
     }
@@ -123,7 +131,7 @@ onmessage = async (e: MessageEvent) => {
   }
   else if (m.type === 'frame') {
     const fm = m as FrameMessage;
-    overlayPending(fm, pending, performance.now());
+    overlayPending(fm, pending, fm.acked);
     last = { ...fm, pointer: fm.pointer ?? NO_POINTER };
     if (!ready || !ctx || !draw) { postMessage({ type: 'drawn' }); return; }
     const f = frameOf(last);

@@ -238,6 +238,21 @@ describe('building the plugin screen by hand', () => {
     await page.waitForTimeout(600);
     await page.keyboard.press('Control+KeyZ');
     assert.deepEqual(await values(), [q, g]);
+    // Right after an undo or a redo the part may not have had a frame yet: a wheel turn still starts from the value as it is now.
+    await page.keyboard.press('Control+KeyZ');
+    assert.deepEqual(await values(), [1, 0.5]);
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))); // the part has seen the undo
+    await page.evaluate(async () => {
+      (window as any).__kit.redo();
+      await Promise.resolve(); // the page catches up, as between two input events, but no frame goes to the part
+      const box = document.querySelector('[data-element=part1] .part-box') as HTMLElement;
+      const r = box.getBoundingClientRect();
+      for (let i = 0; i < 3; i++) box.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true }));
+    });
+    await page.waitForFunction(q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6, q);
+    await page.waitForTimeout(600);
+    await page.keyboard.press('Control+KeyZ');
+    assert.deepEqual(await values(), [q, g]);
     // Editing: the part is a box to select and move, not a control.
     await page.keyboard.press('Control+KeyE');
     await page.waitForSelector('[data-testid=plugin-edit].active');

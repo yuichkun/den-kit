@@ -60,11 +60,13 @@ describe('looking the plugin over', () => {
     assert.ok(has('part-error', 'bad'), JSON.stringify(seen.issues));
     assert.match(seen.issues.find(i => i.code === 'part-error')!.message, /no paint/);
     assert.equal(seen.issues.find(i => i.code === 'contrast' && i.ids.includes('faint'))!.severity, 'error');
-    // The same in the editor: ⌥⌘K in edit mode lists it; picking one selects what it is about.
+    // The same in the editor: ⌥⌘K in edit mode lists it (even with the cursor still in the AI prompt); picking one selects what it is about.
     await page.keyboard.press('Control+Alt+KeyE');
     await page.waitForSelector('[data-testid=plugin-view]');
     await page.keyboard.press('Control+KeyE');
     await page.waitForSelector('[data-testid=plugin-edit].active');
+    await page.keyboard.press('Control+k');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-testid=ai-input]'));
     await page.keyboard.press('Control+Alt+KeyK');
     await page.waitForSelector('[data-testid=plugin-checks] .issue[data-code=text-overflow]');
     assert.equal(await page.locator('[data-testid=plugin-checks] .issue').count(), seen.issues.length);

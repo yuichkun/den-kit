@@ -54,6 +54,10 @@ describe('the words for screen edits', () => {
     expect(parseRequest('宇宙っぽく').items.some(i => i.kind === 'look')).toBe(false);
     expect(looks('宇宙っぽく', true).items).toEqual([expect.objectContaining({ kind: 'wear', work: 'space' })]);
     expect(parseRequest('more space').items).toEqual([expect.objectContaining({ kind: 'fx', fx: 'reverb' })]);
+    // Screen words are whole words: "guitar" has no "ui" in it ("UIを暗く" does).
+    expect(parseRequest('make a guitar pedal sound').items.some(i => i.kind === 'look')).toBe(false);
+    expect(parseRequest('make a guitar pedal sound').screen).toBe(false);
+    expect(looks('UIを暗くして').items).toEqual([expect.objectContaining({ kind: 'tone', direction: 'darker' })]);
     // "丸く" alone is a mellower sound; "角を丸く" is the screen.
     expect(parseRequest('丸くして').items).toEqual([expect.objectContaining({ kind: 'adjust', aspect: 'brightness', direction: 'down' })]);
   });

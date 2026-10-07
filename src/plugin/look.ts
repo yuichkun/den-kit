@@ -134,7 +134,7 @@ function measure(doc: PatchDocument, panel: HTMLElement): Measured {
         row.style.fontSize = '';
         const natural = parseFloat(getComputedStyle(row).fontSize);
         row.style.fontSize = `${shrunk}px`;
-        if (shrunk < natural * 0.75) out.issues.push({ code: 'squeezed', ids: [id], message: `The ${kind} of ${label(doc, id)} ("${row.textContent.trim()}") is squeezed to ${shrunk.toFixed(1)} px to fit; make the control wider or the words shorter.`, severity: 'warn' });
+        if (shrunk < natural * 0.75) out.issues.push({ code: 'squeezed', ids: [id], message: `The ${kind} of ${label(doc, id)}${kind === 'value' ? ` ("${row.textContent.trim()}")` : ''} is squeezed to ${shrunk.toFixed(1)} px to fit; make the control wider or the words shorter.`, severity: 'warn' });
       }
     }
   }

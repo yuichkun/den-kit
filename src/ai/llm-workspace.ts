@@ -57,6 +57,8 @@ export class LlmWorkspace {
   readonly steps: string[] = [];
   /** The screen changed since the model last looked at it (kit_finish asks it to look first, once). */
   private unseen = false;
+  /** This request changed the plugin screen. */
+  screenTouched = false;
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
@@ -150,9 +152,11 @@ export class LlmWorkspace {
       if (error instanceof OpError) return refuse(error, expanded ? expanded.origin[error.index] ?? error.index : error.index);
       throw error;
     }
-    // New modules get their ids now, so the edit lands on the live patch exactly as tried here.
+    // New modules, decorations and groups get their ids now (in the order they were made), so the edit lands on the live patch exactly as tried here.
     let k = 0;
-    const intents = expanded.intents.map(o => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } } : o);
+    const intents = expanded.intents.map((o): Intent => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } }
+      : o.op === 'addElement' ? { ...o, element: { ...o.element, id: trial.created[k++]! } }
+      : o.op === 'group' ? { ...o, id: trial.created[k++]! } : o);
     // Modules added without a position go next to what they connect to (never on top of others).
     const toPlace = intents.flatMap(o => o.op === 'addNode' && !o.node.pos ? [o.node.id!] : []);
     const moves = toPlace.length ? placeNewNodes(trial.doc, catalog, toPlace) : [];
@@ -210,7 +214,7 @@ export class LlmWorkspace {
       return { success: false, text: `Not applied: ${landed.message} Call kit_get_patch to see the patch as it is now, then try again.` };
     }
     this.landed++;
-    if (screenChanged(before, doc, catalog)) this.unseen = true;
+    if (screenChanged(before, doc, catalog)) { this.unseen = true; this.screenTouched = true; }
     this.steps.push(generated.source ? `${step} ✓` : step);
     return { success: true, text: `Applied ${what}; it is live now. ${report}` };
   }

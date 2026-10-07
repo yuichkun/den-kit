@@ -61,6 +61,8 @@ export interface Outcome {
   /** What the model said. */
   reply?: string;
   fix?: string;
+  /** It changed the plugin screen (the panel offers to show it). */
+  screen?: boolean;
 }
 
 export interface RequestTrace {
@@ -261,7 +263,9 @@ export class FastPath {
       const r = this.apply(decision.plan, { kind: 'ai-fast', handler: base.route, trace: base.id });
       if (!r.ok) { trace.decision = 'error'; return { ...base, status: 'nothing', message: r.message }; }
       trace.applied = true;
-      return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId };
+      const plans = decision.plan.kind === 'multi' ? decision.plan.plans : [decision.plan];
+      const screen = plans.some(p => p.kind === 'look' || p.kind === 'template') || undefined;
+      return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId, screen };
     }
     // ('chips' and 'escalate' never get here: run() turns them into an LLM request or a one-line 'nothing'.)
     return { ...base, status: 'nothing', message: 'message' in decision ? decision.message : undefined };

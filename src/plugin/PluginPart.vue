@@ -10,7 +10,7 @@ import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { COLOR_TOKENS, tokenVar, type PartElement } from '../core/ui.ts';
 import { toUnit } from './format.ts';
 import { TAP } from './meters.ts';
-import { NO_POINTER, PART_CURSORS, type PartPointer, type PartPointerEvent, type PartPointerType } from './part-api.ts';
+import { NO_POINTER, PART_CURSORS, type PartControls, type PartPointer, type PartPointerEvent, type PartPointerType } from './part-api.ts';
 import { PART_CANVASES, PartRunner, type PartFrame } from './part-runtime.ts';
 import type { WidgetSpec } from './spec.ts';
 
@@ -29,6 +29,8 @@ const cursor = ref('default');
 let runner: PartRunner | null = null;
 let raf = 0, last = 0, colorsAt = 0, observer: ResizeObserver | null = null;
 let colors: Record<string, string> = {};
+/** The part's writes taken in so far (they are numbered; see overlayPending). */
+let acked = 0;
 
 function size() {
   const el = canvas.value!;
@@ -40,9 +42,8 @@ function readColors() {
   const style = getComputedStyle(canvas.value!);
   colors = Object.fromEntries(COLOR_TOKENS.map(t => [t, style.getPropertyValue(tokenVar(t)).trim() || '#888']));
 }
-function frame(t: number): PartFrame {
-  const wave = new Float32Array(256), spectrum = new Float32Array(64);
-  const m = tap?.read(wave, spectrum) ?? { level: 0, peak: 0 };
+/** The controls as they are now (every frame and every mouse event carries them). */
+function controls(): PartControls {
   const values: PartFrame['values'] = {}, norms: Record<string, number> = {}, ranges: PartFrame['ranges'] = {};
   for (const c of Object.values(props.controls)) {
     if (c.type === 'ui.xy') { values[c.id] = { x: Number(c.values.x ?? 0.5), y: Number(c.values.y ?? 0.5) }; norms[c.id] = Number(c.values.x ?? 0.5); ranges[c.id] = { min: 0, max: 1, log: false, unit: '' }; continue; }
@@ -52,9 +53,14 @@ function frame(t: number): PartFrame {
     ranges[c.id] = { min, max, log, unit: String(c.config.unit ?? '') };
     norms[c.id] = typeof v === 'boolean' ? (v ? 1 : 0) : toUnit(v, min, max, log);
   }
+  return { values, norms, ranges, acked };
+}
+function frame(t: number): PartFrame {
+  const wave = new Float32Array(256), spectrum = new Float32Array(64);
+  const m = tap?.read(wave, spectrum) ?? { level: 0, peak: 0 };
   const dt = last ? Math.min(0.1, (t - last) / 1000) : 1 / 60;
   last = t;
-  return { t: t / 1000, dt, level: m.level, peak: m.peak, wave, spectrum, values, norms, ranges, colors, pointer: { ...pointer } };
+  return { t: t / 1000, dt, level: m.level, peak: m.peak, wave, spectrum, ...controls(), colors, pointer: { ...pointer } };
 }
 function tick(t: number) {
   raf = requestAnimationFrame(tick);
@@ -83,7 +89,9 @@ function endGesture() {
   if (gesture?.timer) clearTimeout(gesture.timer);
   gesture = null;
 }
-function onSet(id: string, values: Record<string, number | boolean>) {
+function onSet(id: string, values: Record<string, number | boolean>, write: number) {
+  // Taken in, whether or not it lands (the plugin may have stopped playing): from here on the part reads the page's values.
+  acked = Math.max(acked, write);
   if (!props.play) return;
   const g = gesture ?? startGesture(false);
   emit('set', id, values, g.key);
@@ -107,7 +115,7 @@ function send(type: PartPointerType, e: MouseEvent, extra: { dx?: number; dy?: n
   const dx = extra.dx ?? p.x - pointer.x, dy = extra.dy ?? p.y - pointer.y;
   pointer = { x: p.x, y: p.y, over: extra.over ?? pointer.over, down: extra.down ?? pointer.down, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
   const event: PartPointerEvent = { type, x: p.x, y: p.y, dx, dy, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
-  return runner?.pointer(event, { ...pointer }) ?? -1;
+  return runner?.pointer(event, { ...pointer }, controls()) ?? -1;
 }
 const live = () => props.play && interactive.value && runner && !runner.stopped;
 function down(e: PointerEvent) {
@@ -136,7 +144,7 @@ function dbl(e: MouseEvent) { if (live()) { e.preventDefault(); send('double', e
 const generation = ref(0);
 async function start() {
   endGesture();
-  runner?.stop(); runner = null;
+  runner?.stop(); runner = null; acked = 0;
   error.value = null; interactive.value = false; cursor.value = 'default';
   generation.value++;
   await nextTick();

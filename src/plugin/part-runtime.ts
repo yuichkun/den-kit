@@ -1,10 +1,12 @@
 // The page side of a custom part: hands the canvas to a worker, feeds it a
 // frame of data (time, the sound, control values and ranges, the look's
 // colours, the mouse) each animation frame, one at a time, and stops it if a
-// frame takes too long. Mouse events go to the worker as they happen; what the
-// part writes to controls comes back through `onSet`.
+// frame takes too long. Mouse events go to the worker as they happen, each with
+// the controls as they are then; what the part writes to controls comes back
+// through `set`, numbered, and the page says which writes it has taken in
+// (`acked` in the controls it sends).
 import PartWorker from './part.worker.ts?worker';
-import type { PartFrame, PartPointer, PartPointerEvent } from './part-api.ts';
+import type { PartControls, PartFrame, PartPointer, PartPointerEvent } from './part-api.ts';
 
 export type { PartFrame };
 export interface PartStatus { error: string | null; line?: number }
@@ -12,8 +14,8 @@ export interface PartEvents {
   status(status: PartStatus): void;
   /** The code loaded; `interactive`: it handles the mouse (exports pointer). */
   loaded?(interactive: boolean): void;
-  /** The part moved a control. */
-  set?(id: string, values: Record<string, number | boolean>): void;
+  /** The part moved a control (its `write`-th write). */
+  set?(id: string, values: Record<string, number | boolean>, write: number): void;
   cursor?(cursor: string): void;
   /** The worker finished handling mouse event `seq` (and sent what it wrote). */
   handled?(seq: number): void;
@@ -36,15 +38,16 @@ export class PartRunner {
     const offscreen = canvas.transferControlToOffscreen();
     this.worker = new PartWorker();
     this.worker.onmessage = (e: MessageEvent) => {
+      if (this.dead) return; // stopped: what it still had on the way is not this part's any more
       const m = e.data;
       if (m.type === 'drawn' || m.type === 'loaded') { this.busy = false; if (m.type === 'loaded') { this.on.status({ error: null }); this.on.loaded?.(!!m.interactive); } }
       else if (m.type === 'error') this.on.status({ error: m.message, line: m.line });
-      else if (m.type === 'set') this.on.set?.(String(m.id), m.values);
+      else if (m.type === 'set') this.on.set?.(String(m.id), m.values, Number(m.write));
       else if (m.type === 'cursor') this.on.cursor?.(String(m.cursor));
       else if (m.type === 'handled') this.on.handled?.(Number(m.seq));
       else if (m.type === 'snapshot') { const done = this.snapshots.get(Number(m.seq)); this.snapshots.delete(Number(m.seq)); done?.(m.blob instanceof Blob ? m.blob : null); }
     };
-    this.worker.onerror = e => { e.preventDefault(); this.on.status({ error: e.message || 'The part crashed.' }); };
+    this.worker.onerror = e => { e.preventDefault(); if (!this.dead) this.on.status({ error: e.message || 'The part crashed.' }); };
     this.busy = true; this.since = performance.now();
     this.worker.postMessage({ type: 'init', canvas: offscreen, code, props, ...size }, [offscreen]);
   }
@@ -53,11 +56,11 @@ export class PartRunner {
   setProps(props: Record<string, unknown>) { this.worker?.postMessage({ type: 'props', props }); }
   resize(size: { w: number; h: number; ratio: number }) { this.worker?.postMessage({ type: 'resize', ...size }); }
 
-  /** Pass a mouse event on; returns its sequence number (see `handled`), or -1 when the part is stopped. */
-  pointer(event: PartPointerEvent, state: PartPointer): number {
+  /** Pass a mouse event on, with the controls as they are now; returns its sequence number (see `handled`), or -1 when the part is stopped. */
+  pointer(event: PartPointerEvent, state: PartPointer, controls: PartControls): number {
     if (this.dead || !this.worker) return -1;
     const seq = ++this.seq;
-    this.worker.postMessage({ type: 'pointer', event, pointer: state, seq });
+    this.worker.postMessage({ type: 'pointer', event, pointer: state, controls, seq });
     return seq;
   }
 

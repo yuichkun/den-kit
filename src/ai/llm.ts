@@ -294,6 +294,7 @@ export class LlmController {
     const output = await turn.ws.call(tool, args);
     if (this.turn !== turn) return output;
     const added = turn.ws.steps.slice(before);
+    if (turn.ws.screenTouched && !turn.line.screen) this.update(turn, { screen: true });
     const step = added.length ? added.join(' · ') : TOOL_DONE[tool] ?? (output.success ? '' : `${tool} failed`);
     if (tool === 'kit_finish' && turn.ws.summary) this.update(turn, { label: turn.ws.summary });
     if (step) this.step(turn, step);

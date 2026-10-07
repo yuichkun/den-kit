@@ -182,7 +182,7 @@ async function importPatch(e: Event) {
       </div>
       <div v-if="session.fast" v-show="aiOpen" class="ai-dock" data-testid="ai-dock" :style="{ width: `${dockWidth}px` }">
         <div class="resizer" title="Drag to resize" @pointerdown="resizeAi" />
-        <AiPanel ref="ai" :fast="session.fast" :llm="session.llm" @request="aiOpen = true" @leave="backToCanvas" @close="aiOpen = false" />
+        <AiPanel ref="ai" :fast="session.fast" :llm="session.llm" :view="view" @request="aiOpen = true" @leave="backToCanvas" @close="aiOpen = false" @show-plugin="view = 'plugin'" />
       </div>
     </div>
     <CodeboxEditor v-if="editing && session.doc.value.nodes[editing]" :id="editing" @close="editing = null" />

@@ -15,8 +15,12 @@ export interface PartPointerEvent { type: PartPointerType; x: number; y: number;
 export interface PartFrame {
   t: number; dt: number; level: number; peak: number; wave: Float32Array; spectrum: Float32Array;
   values: Record<string, PartValue>; norms: Record<string, number>; ranges: Record<string, PartRange>;
+  /** The part's writes the page has taken in so far: every one numbered up to this. */
+  acked: number;
   colors: Record<string, string>; pointer: PartPointer;
 }
+/** The controls as the page has them now (sent with every frame and every mouse event). */
+export type PartControls = Pick<PartFrame, 'values' | 'norms' | 'ranges' | 'acked'>;
 
 export const NO_POINTER: PartPointer = { x: 0, y: 0, over: false, down: false, shift: false, alt: false, meta: false };
 /** Cursors a part may show over itself. */
@@ -28,21 +32,22 @@ export function normOf(value: PartValue, range: PartRange | undefined): number {
   if (typeof value === 'boolean') return value ? 1 : 0;
   return range ? toUnit(value, range.min, range.max, range.log) : 0;
 }
-const same = (a: PartValue | undefined, b: PartValue) => typeof b === 'object' ? !!a && typeof a === 'object' && Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9 : typeof b === 'number' ? typeof a === 'number' && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b)) : a === b;
 
-/** What the part wrote that the page has not shown back yet. */
-export type PendingWrites = Map<string, { value: PartValue; at: number }>;
+/** What the part wrote, by control: the value and the write's number (the page takes writes in in order). */
+export type PendingWrites = Map<string, { value: PartValue; write: number }>;
 /**
- * A frame may have left the page before the page saw the part's last write; it
- * then still carries the old value. Until a frame shows the written value (or
- * `holdMs` passes), the part keeps seeing what it wrote, so a burst of relative
- * moves (wheel turns) adds up instead of starting over from a stale value.
+ * A frame or a mouse event may have left the page before the page took in the
+ * part's last writes; it then still carries the old values. Until the page has
+ * taken a write in (`acked` reaches its number), the part keeps seeing what it
+ * wrote, so a burst of relative moves (wheel turns) adds up instead of starting
+ * over from a stale value. After that the page has the say, whatever it did
+ * with the write (an undo may already have changed the value again).
  */
-export function overlayPending(frame: Pick<PartFrame, 'values' | 'norms' | 'ranges'>, pending: PendingWrites, now: number, holdMs = 500) {
+export function overlayPending(controls: Pick<PartFrame, 'values' | 'norms' | 'ranges'>, pending: PendingWrites, acked: number) {
   for (const [id, p] of pending) {
-    if (now - p.at > holdMs || same(frame.values[id], p.value) || frame.values[id] === undefined) { pending.delete(id); continue; }
-    frame.values[id] = p.value;
-    frame.norms[id] = normOf(p.value, frame.ranges[id]);
+    if (p.write <= acked || controls.values[id] === undefined) { pending.delete(id); continue; }
+    controls.values[id] = p.value;
+    controls.norms[id] = normOf(p.value, controls.ranges[id]);
   }
 }
 

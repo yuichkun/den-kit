@@ -250,5 +250,20 @@ describe('LlmWorkspace', () => {
     const plain = workspace({ images: false, viewPicture: async () => seen });
     expect((await plain.ws.call('kit_view_picture', { id: 'sc-wood' })).imageDataUrl).toBeUndefined();
   });
+
+  it('one edit that adds decorations, controls and a group lands with the same ids it was tried with', async () => {
+    const { ws, state } = workspace();
+    const r = await ws.call('kit_apply_ops', { ops: [
+      { op: 'addElement', element: { kind: 'text', text: 'TITLE', rect: { x: 20, y: 10, w: 200, h: 30 } } },
+      { op: 'addControl', for: { node: 'filter1', port: 'resonance' }, label: 'Res', panel: { x: 20, y: 60, w: 84, h: 96 } },
+      { op: 'addElement', element: { kind: 'shape', shape: 'rect', rect: { x: 10, y: 50, w: 120, h: 120 } } },
+      { op: 'group', ids: ['text1', 'shape1'] },
+    ] });
+    expect(r.success).toBe(true);
+    expect(r.text).toMatch(/new ids: text1, knob1, shape1, group1/);
+    expect(Object.keys(state.live.ui.elements).sort()).toEqual(['shape1', 'text1']);
+    expect(state.live.nodes.knob1!.type).toBe('ui.knob');
+    expect(state.live.ui.groups.group1).toEqual(['text1', 'shape1']);
+  });
 });
 

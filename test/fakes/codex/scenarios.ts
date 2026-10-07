@@ -41,6 +41,37 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // A screen built the way a model would: read, brief, edit, look, fix what the look found, look again.
+    name: 'screen',
+    match: /画面を作って|design (?:the|a) (?:plugin )?screen/i,
+    async run(t) {
+      await t.think();
+      const plugin = await t.call('kit_get_plugin', {});
+      if (!/No design brief yet/.test(plugin.text)) { await t.say('Expected no brief yet.'); return; }
+      await t.call('kit_ui_reference', { topic: 'skins', control: 'knob' });
+      await t.call('kit_apply_ops', { ops: [{ op: 'setBrief', brief: 'Night-drive bass: deep blue, neon cyan accents, Orbitron type; the name on top, a row of big knobs.' }] });
+      // A first pass with two mistakes in it: two knobs on top of each other, and a subtitle too dark to read.
+      const first = await t.call('kit_apply_ops', { ops: [
+        { op: 'setPanelSize', width: 640, height: 300 },
+        { op: 'setLook', look: { tokens: { bg: '#0b1020', fg: '#e6f1ff', accent: '#3ad1ff', muted: '#8aa0c0', font: 'orbitron', labelFont: 'orbitron', valueFont: 'orbitron' }, background: [{ kind: 'radial', x: 0.5, y: 0.2, stops: [{ color: '#1b2a55', at: 0 }, { color: '#0b1020', at: 1 }] }], skins: { knob: { name: 'ring', params: { thickness: 5 } } } } },
+        { op: 'addElement', element: { kind: 'text', text: 'NIGHT BASS', rect: { x: 24, y: 18, w: 592, h: 48 }, textStyle: { size: 34, weight: 700, color: 'fg', align: 'left', spacing: 0.2 } } },
+        { op: 'addElement', element: { kind: 'text', text: 'a bass for driving at night', rect: { x: 26, y: 66, w: 400, h: 20 }, textStyle: { size: 12, color: '#1c2640', align: 'left' } } },
+        { op: 'addControl', for: { node: 'cut1', port: 'hz' }, label: 'Cutoff', panel: { x: 24, y: 110, w: 96, h: 110 } },
+        { op: 'addControl', for: { node: 'filter1', port: 'resonance' }, label: 'Resonance', panel: { x: 70, y: 110, w: 96, h: 110 } },
+        { op: 'addControl', for: { node: 'aenv1', port: 'release' }, label: 'Release', panel: { x: 248, y: 110, w: 96, h: 110 } },
+      ] });
+      if (!first.success) { await t.say(`The edit failed: ${first.text.slice(0, 300)}`); return; }
+      const seen = await t.call('kit_look', {});
+      const fixes: Array<Record<string, unknown>> = [];
+      if (/knob1 \("Cutoff"\) and knob2 \("Resonance"\) overlap/.test(seen.text)) fixes.push({ op: 'setRect', id: 'knob2', rect: { x: 136, y: 110, w: 96, h: 110 } });
+      if (/text2 .*hard to read/.test(seen.text)) fixes.push({ op: 'updateElement', id: 'text2', set: { textStyle: { size: 12, color: 'muted', align: 'left' } } });
+      if (fixes.length) await t.call('kit_apply_ops', { ops: fixes });
+      const again = await t.call('kit_look', {});
+      await t.call('kit_finish', { summary: /found nothing to fix/.test(again.text) ? `夜のドライブ風の画面を作りました（チェックで ${fixes.length} 件直しました）` : `Made a screen; still to fix: ${again.text.slice(0, 160)}` });
+      await t.say('Done.');
+    },
+  },
+  {
     name: 'explain',
     match: /how does|explain|説明|仕組み/i,
     async run(t) {
