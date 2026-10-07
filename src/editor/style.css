@@ -61,6 +61,10 @@ input[type=range] { accent-color: var(--accent); }
 .tabs { display: flex; gap: 0; background: #161616; border-radius: 4px; padding: 2px; }
 .tabs button { background: transparent; box-shadow: none; color: #9a9a9a; padding: 3px 12px; }
 .tabs button.active { background: #3a3a3a; color: #fff; }
+/* The pod's state on the Project tab: grey off, amber working, green ready, red failed. */
+.pod-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: 1px; background: #555; }
+.pod-dot.ready { background: #45d16b; } .pod-dot.failed { background: #ff5b5b; }
+.pod-dot.booting, .pod-dot.syncing, .pod-dot.installing, .pod-dot.starting { background: #ffb02e; }
 .toasts { position: fixed; right: calc(var(--ai-w, 0px) + 14px); bottom: 110px; display: flex; flex-direction: column; gap: 6px; z-index: 50; max-width: 440px; }
 .toast { padding: 9px 12px; border-radius: 5px; background: #2f2f2f; border-left: 3px solid var(--accent-2); box-shadow: 0 6px 20px #000c; }
 .toast.warn { border-left-color: var(--warn); } .toast.error { border-left-color: var(--error); }

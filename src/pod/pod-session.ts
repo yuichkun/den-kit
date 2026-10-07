@@ -13,6 +13,7 @@ import type { KitSession } from '../editor/session.ts';
 import { pluginSpec } from '../plugin/build.ts';
 import { GENERATED_FILES, PROJECT_LIMITS, byteLength, checkProjectPath } from '../core/project.ts';
 import { controlsSource, templateFiles } from './template.ts';
+import { CHECK_FILE } from './pod-check.ts';
 import { PodUnavailable, keepEnd, type PodHost, type PodProcess, type PodRunResult } from './host.ts';
 import type { PodAccess } from '../ai/llm-workspace.ts';
 
@@ -191,7 +192,7 @@ export class PodSession {
       const seen = new Set<string>();
       for (const line of listed.output.split('\n')) {
         const path = line.trim().replace(/^\.\//, '');
-        if (!path || seen.has(path)) continue;
+        if (!path || seen.has(path) || path === CHECK_FILE) continue;
         if (GENERATED_FILES.has(path)) {
           const text = await host.readFile(`${this.projectDir}/${path}`);
           if (text !== null && text !== this.controlsText) { await host.writeFile(`${this.projectDir}/${path}`, this.controlsText); skipped.push(`${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`); }

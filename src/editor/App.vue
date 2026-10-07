@@ -8,6 +8,7 @@ import { COST_LIMITS, formatCpu } from '../core/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
+import ProjectView, { podCheck } from './ProjectView.vue';
 import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
@@ -22,7 +23,10 @@ const session = props.session;
 provide(SESSION, session);
 // Code parts on any plugin drawn in the editor come from the work's pod.
 provide(POD, session.pod);
-const view = ref<'patch' | 'plugin' | 'code'>('patch');
+const view = ref<'patch' | 'plugin' | 'code' | 'project'>('patch');
+/** A file of the screen project to open in the Project view. */
+const projectFile = ref<string | null>(null);
+function openProject(path?: string) { if (path) projectFile.value = path; view.value = 'project'; }
 const pluginEdit = ref(false);
 watchEffect(() => { props.session.screenFocus.value = view.value === 'plugin' && pluginEdit.value; });
 const editing = ref<string | null>(null);
@@ -123,6 +127,24 @@ function keys(e: KeyboardEvent) {
 function closeMenu(e: PointerEvent) { if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false; }
 /** My parts saved in another tab show up here too. */
 function storageChanged(e: StorageEvent) { if (e.key === MY_PARTS_KEY) session.reloadMyParts(); }
+/**
+ * With a BrowserPod key, the pod check runs once by itself (the first time in this browser), after the
+ * start overlay: what working in the pod feels like, measured; the Project view shows it.
+ */
+const POD_CHECKED = 'den-kit:pod-checked';
+function firstPodCheck() {
+  const pod = session.pod;
+  if (!pod || pod.kind !== 'browserpod') return;
+  try { if (localStorage.getItem(POD_CHECKED)) return; localStorage.setItem(POD_CHECKED, String(Date.now())); } catch { return; }
+  const check = podCheck();
+  session.toast('info', 'Checking the pod (BrowserPod) once: see Project for each step and its time.');
+  void check.run(pod).then(() => {
+    pod.note(check.summary(pod.kind).split('\n')[0]!);
+    session.bridge?.telemetry({ kind: 'pod-check', pod: pod.kind, ok: check.ok, totalMs: check.totalMs.value, steps: check.steps.value, first: true });
+    session.toast(check.ok ? 'info' : 'warn', `Pod check: ${check.ok ? 'every step passed' : 'some steps failed'} (see Project).`);
+  });
+}
+watch(() => session.engineState.value, s => { if (s === 'running') firstPodCheck(); });
 onMounted(() => {
   window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);
@@ -168,6 +190,7 @@ async function importPatch(e: Event) {
         <button :class="{ active: view === 'patch' }" data-testid="view-patch" title="Patch (⌥⌘E switches)" @click="view = 'patch'">Patch</button>
         <button :class="{ active: view === 'plugin' }" data-testid="view-plugin" title="Plugin (⌥⌘E switches)" @click="view = 'plugin'">Plugin</button>
         <button :class="{ active: view === 'code' }" data-testid="view-code" @click="view = 'code'">Code</button>
+        <button v-if="session.pod" :class="{ active: view === 'project' }" data-testid="view-project" title="The screen project and its pod (bash, git, Node, npm)" @click="view = 'project'">Project <i class="pod-dot" :class="session.pod.state.value" /></button>
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
@@ -178,13 +201,14 @@ async function importPatch(e: Event) {
     <div class="body">
       <div class="left">
         <div class="main">
-          <div v-show="!focusMode" class="sidebar">
-            <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-canvas="id => editingCanvas = id" @action="name => pluginView?.action(name)" />
+          <div v-show="!focusMode && view !== 'project'" class="sidebar">
+            <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-canvas="id => editingCanvas = id" @action="name => pluginView?.action(name)" @open-project="openProject" />
             <Inspector v-else @edit-code="id => editing = id" />
           </div>
           <div class="workspace" data-testid="workspace">
             <PatchView v-if="view === 'patch'" @edit-code="id => editing = id" />
             <PluginView v-else-if="view === 'plugin'" ref="pluginView" v-model:edit="pluginEdit" :focus="focusMode" @fullscreen="setFocus(!focusMode)" @edit-canvas="id => editingCanvas = id" />
+            <ProjectView v-else-if="view === 'project'" :open="projectFile" />
             <CodeView v-else />
             <div v-if="banner.length" class="banner" :class="{ below: view === 'patch' }" data-testid="banner"><div v-for="(line, i) in banner" :key="i">{{ line }}</div></div>
             <button v-if="focusMode" class="leave-focus" data-testid="leave-focus" @click="setFocus(false)">Leave full screen <span class="kbd-hint">Esc</span></button>

@@ -18,7 +18,22 @@ export interface BrowserPodOptions {
   log?(line: string): void;
 }
 
-const env = (vars: Record<string, string> | undefined) => Object.entries({ CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb', npm_config_progress: 'false', npm_config_fund: 'false', npm_config_audit: 'false', ...vars }).map(([k, v]) => `${k}=${v}`);
+/** Quiet, colourless tools (their output goes to den-kit's log and to the AI). */
+const QUIET = { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb', npm_config_progress: 'false', npm_config_fund: 'false', npm_config_audit: 'false', npm_config_update_notifier: 'false' };
+/** Set by the shell itself; not carried over from the pod's environment. */
+const SHELL_OWN = new Set(['PWD', 'OLDPWD', 'SHLVL', '_']);
+/** `env` lines (KEY=value), or `export -p` lines (declare -x KEY="value") when there is no env. */
+export function parseEnv(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split('\n')) {
+    const plain = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    const declared = /^declare -x ([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/.exec(line);
+    if (declared) out[declared[1]!] = declared[2]!.replace(/\\(["\\$`])/g, '$1');
+    else if (plain) out[plain[1]!] = plain[2]!;
+  }
+  for (const k of SHELL_OWN) delete out[k];
+  return out;
+}
 
 export async function bootBrowserPod(options: BrowserPodOptions): Promise<PodHost> {
   if (!globalThis.crossOriginIsolated) throw new PodUnavailable('This page is not cross-origin isolated, which BrowserPod needs.', 'Open den-kit through `npm run kit:dev` (it sends the COOP and COEP headers).');
@@ -35,9 +50,12 @@ export async function bootBrowserPod(options: BrowserPodOptions): Promise<PodHos
   return host;
 }
 
-class BrowserPodHost implements PodHost {
+/** Exported for the tests (test/fakes/pod/mock-browserpod.ts stands in for BrowserPod there). */
+export class BrowserPodHost implements PodHost {
   readonly kind = 'browserpod' as const;
   home = '/home/user';
+  /** The pod's own environment (PATH, HOME…), read once without passing any (see init). */
+  private base: Record<string, string> = {};
   private readonly portals = new Map<number, string>();
   private readonly listeners = new Set<(p: Portal) => void>();
   private scripts = 0;
@@ -53,15 +71,23 @@ class BrowserPodHost implements PodHost {
     });
   }
 
-  /** Where home is (scripts and the project live under it). */
+  /**
+   * The pod's own environment (read once without passing one: run's env may replace the
+   * environment rather than add to it, so every command gets it back) and where home is.
+   */
   async init() {
     const nonce = newNonce();
-    const r = await this.exec(['-c', `printf '%s' "$HOME"; printf '\\n${exitMarker(nonce)}%d>>\\n' $?`], nonce, { timeoutMs: 60_000 });
-    const home = r.output.trim().split('\n').at(-1)?.trim();
-    if (home && home.startsWith('/')) this.home = home;
+    const r = await this.exec(['-c', `env 2>/dev/null || export -p; printf '\\n${exitMarker(nonce)}%d>>\\n' $?`], nonce, { timeoutMs: 60_000 }, null);
+    this.base = parseEnv(r.output);
+    if (this.base.HOME?.startsWith('/')) this.home = this.base.HOME; else this.base.HOME = this.home;
+    // Without one, the usual places (Node and npm live in one of them).
+    this.base.PATH ??= '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+    this.log?.(`pod environment: ${Object.keys(this.base).join(', ')}; home ${this.home}`);
     const dir = `${this.home}/.den-kit/run`;
     await this.pod.createDirectory(dir, { recursive: true }).catch(() => undefined);
   }
+  /** The environment a command runs with: the pod's own, quiet tools, then the command's. */
+  private env(vars?: Record<string, string>): string[] { return Object.entries({ ...this.base, ...QUIET, ...vars }).map(([k, v]) => `${k}=${v}`); }
 
   async run(script: string, options: PodRunOptions = {}): Promise<PodRunResult> {
     const nonce = newNonce();
@@ -70,7 +96,8 @@ class BrowserPodHost implements PodHost {
     return this.exec(['-c', runnerLine(nonce), 'den-kit', options.cwd ?? this.home, path], nonce, options);
   }
 
-  private async exec(args: string[], nonce: string, options: PodRunOptions): Promise<PodRunResult> {
+  /** Run bash with `args`; `env` null: the pod's own environment untouched (to read it). */
+  private async exec(args: string[], nonce: string, options: PodRunOptions, env: string[] | null = this.env(options.env)): Promise<PodRunResult> {
     const started = performance.now();
     const decoder = new TextDecoder();
     let raw = '', seen = 0, settled = false;
@@ -86,7 +113,7 @@ class BrowserPodHost implements PodHost {
         if (readExit(text, nonce)) resolveMarker();
       },
     });
-    const ran = this.pod.run('bash', args, { terminal, cwd: options.cwd ?? this.home, env: env(options.env), echo: false }).catch(error => { raw += `\n${error instanceof Error ? error.message : String(error)}\n`; });
+    const ran = this.pod.run('bash', args, { terminal, cwd: options.cwd ?? this.home, ...(env ? { env } : {}), echo: false }).catch(error => { raw += `\n${error instanceof Error ? error.message : String(error)}\n`; });
     let timedOut = false;
     const timer = options.timeoutMs ? new Promise<void>(r => setTimeout(() => { if (!settled) { timedOut = true; terminal.write('\x03'); } r(); }, options.timeoutMs)) : null;
     // The marker is the end; the run itself ending (without one) is too. A timeout gives it two more seconds to print.
@@ -108,7 +135,7 @@ class BrowserPodHost implements PodHost {
         cols: 200, rows: 50,
         onOutput: buffer => { const text = cleanOutput(decoder.decode(buffer, { stream: true })); out = keepEnd(out + text, 64_000); if (text) options.onOutput?.(text); },
       });
-      await this.pod.run('bash', [path], { terminal, cwd: options.cwd ?? this.home, env: env(options.env), echo: false });
+      await this.pod.run('bash', [path], { terminal, cwd: options.cwd ?? this.home, env: this.env(options.env), echo: false });
     })().catch(error => { out += `\n${error instanceof Error ? error.message : String(error)}`; }).finally(() => { running = false; self.log?.(`${name} ended`); });
     return { name, done, get running() { return running; }, output: () => out };
   }

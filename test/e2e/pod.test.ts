@@ -137,6 +137,40 @@ describe('the pod: a free environment for the AI', () => {
   });
 });
 
+describe('the Project view', () => {
+  it('starts the pod, runs the person\'s commands into the work, keeps an edited file with ⌘S, and the pod check passes every step', { timeout: 420000 }, async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await page.click('[data-testid=view-project]');
+    await page.waitForSelector('[data-testid=project-view]');
+    // A new page: its pod starts when asked (or when the work needs it).
+    await page.click('[data-testid=pod-start]');
+    await page.waitForFunction(() => (window as any).__kit.pod.state.value === 'ready', null, { timeout: 180000 });
+    await page.fill('[data-testid=pod-command]', 'echo hello > note.txt && cat note.txt');
+    await page.press('[data-testid=pod-command]', 'Enter');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.project?.files['note.txt'] === 'hello\n', null, { timeout: 30000 });
+    const entry = await kit(page, k => { const e = k.pod.log.value.filter((x: any) => x.who === 'you').at(-1); return { command: e.command, exitCode: e.exitCode, output: e.output }; });
+    assert.deepEqual(entry, { command: 'echo hello > note.txt && cat note.txt', exitCode: 0, output: 'hello' });
+    assert.ok(await kit(page, k => !!k.doc.value.project.files['package.json']), 'the template became the work\'s');
+    // Edit the file in den-kit: ⌘S keeps it in the work, and the pod gets it.
+    await page.click('[data-file="note.txt"]');
+    await page.fill('[data-testid=file-text]', 'hello again\n');
+    await page.press('[data-testid=file-text]', 'Control+s');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.project.files['note.txt'] === 'hello again\n');
+    await page.waitForFunction(async () => (await (window as any).__kit.pod.readFile('note.txt')) === 'hello again\n', null, { timeout: 20000, polling: 300 });
+    // The pod check: every step, timed.
+    await page.click('[data-testid=pod-check]');
+    await page.waitForFunction(() => !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') && document.querySelectorAll('[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped').length === 9, null, { timeout: 300000 });
+    const steps = await page.$$eval('[data-testid=pod-check-panel] .step', els => els.map(e => `${(e as HTMLElement).dataset.step}:${e.className.replace('step ', '')}`));
+    assert.deepEqual(steps, ['boot:ok', 'tools:ok', 'check:ok', 'lint:ok', 'install:ok', 'build:ok', 'git:ok', 'part:ok', 'edit:ok'], await page.locator('[data-testid=pod-check-panel]').innerText());
+    // The check changed nothing in the work (its scratch part stayed in the pod and is gone).
+    assert.equal(await kit(page, k => Object.keys(k.doc.value.project.files).some((p: string) => p.includes('_den-kit-check'))), false);
+    assert.equal(await kit(page, async k => await k.pod.readFile('src/parts/_den-kit-check.ts')), null);
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+});
+
 describe('without a pod (no BrowserPod key)', () => {
   let bare: Harness;
   before(async () => { bare = await startHarness({ bridge: false }); });

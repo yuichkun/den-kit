@@ -85,7 +85,9 @@ export default defineConfig({
     },
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
-  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript'], esbuildOptions: { target: 'es2022' } },
+  // BrowserPod is loaded only when a work first needs the pod: listed here so Vite prepares it at start
+  // (found later, Vite would prepare it then and reload the page in the middle of the AI's first command).
+  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript', '@leaningtech/browserpod'], esbuildOptions: { target: 'es2022' } },
   preview: { headers: ISOLATION },
   build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
   test: {
