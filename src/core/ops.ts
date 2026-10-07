@@ -548,11 +548,11 @@ function leaveStack(draft: Draft, ids: readonly string[]) {
   if (ui.order.some(id => ids.includes(id))) draft.apply({ op: 'setUi', field: 'order', from: ui.order, to: ui.order.filter(id => !ids.includes(id)) });
   if (Object.values(ui.groups).some(m => m.some(id => ids.includes(id)))) draft.apply({ op: 'setUi', field: 'groups', from: ui.groups, to: withoutMembers(ui.groups, ids) });
 }
-const ELEMENT_STEM: Record<ElementKind, string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', part: 'part' };
+const ELEMENT_STEM: Record<ElementKind, string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas' };
 function addElement(draft: Draft, spec: NewElement, created: string[]) {
   if (!spec || typeof spec !== 'object') fail('bad-intent', 'addElement needs element {kind, rect, ...}.');
   if (Object.keys(draft.doc.ui.elements).length >= LIMITS.elements) fail('too-large', `A plugin holds at most ${LIMITS.elements} elements.`);
-  const id = typeof spec.id === 'string' && spec.id ? spec.id : nextNodeId(draft.doc, ELEMENT_STEM[spec.kind as ElementKind] ?? 'element');
+  const id = typeof spec.id === 'string' && spec.id ? spec.id : nextNodeId(draft.doc, ELEMENT_STEM[(spec.kind as string) === 'part' ? 'canvas' : spec.kind as ElementKind] ?? 'element');
   if (!NODE_ID_PATTERN.test(id)) fail('bad-id', `Element id "${id}" must match ${NODE_ID_PATTERN} (letters/digits, starting lowercase).`);
   if (draft.doc.nodes[id] || draft.doc.ui.elements[id] || draft.doc.ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
   const element = checkElement({ ...spec, id }, checkContext(draft));

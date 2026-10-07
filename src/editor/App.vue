@@ -13,7 +13,7 @@ import AiPanel from './AiPanel.vue';
 import StartOverlay from './StartOverlay.vue';
 import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
-import PartEditor from './plugin/PartEditor.vue';
+import CanvasEditor from './plugin/CanvasEditor.vue';
 
 const props = defineProps<{ session: KitSession; /** Nothing was saved yet: open on the start screen. */ firstRun?: boolean }>();
 const session = props.session;
@@ -22,7 +22,7 @@ const view = ref<'patch' | 'plugin' | 'code'>('patch');
 const pluginEdit = ref(false);
 watchEffect(() => { props.session.screenFocus.value = view.value === 'plugin' && pluginEdit.value; });
 const editing = ref<string | null>(null);
-const editingPart = ref<string | null>(null);
+const editingCanvas = ref<string | null>(null);
 const pluginView = ref<InstanceType<typeof PluginView> | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const menu = ref(false);
@@ -109,7 +109,7 @@ function keys(e: KeyboardEvent) {
   if (field && !settled) return; // the prompt keeps its own undo
   if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) session.redo(); else session.undo(); }
   else if (mod && e.code === 'KeyY') { e.preventDefault(); session.redo(); }
-  else if (e.key === 'Escape' && !e.defaultPrevented) { editing.value = null; editingPart.value = null; menu.value = false; if (focusMode.value) void setFocus(false); }
+  else if (e.key === 'Escape' && !e.defaultPrevented) { editing.value = null; editingCanvas.value = null; menu.value = false; if (focusMode.value) void setFocus(false); }
 }
 function closeMenu(e: PointerEvent) { if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false; }
 onMounted(() => {
@@ -166,12 +166,12 @@ async function importPatch(e: Event) {
       <div class="left">
         <div class="main">
           <div v-show="!focusMode" class="sidebar">
-            <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-part="id => editingPart = id" @action="name => pluginView?.action(name)" />
+            <PluginInspector v-if="view === 'plugin' && pluginEdit" @edit-canvas="id => editingCanvas = id" @action="name => pluginView?.action(name)" />
             <Inspector v-else @edit-code="id => editing = id" />
           </div>
           <div class="workspace" data-testid="workspace">
             <PatchView v-if="view === 'patch'" @edit-code="id => editing = id" />
-            <PluginView v-else-if="view === 'plugin'" ref="pluginView" v-model:edit="pluginEdit" :focus="focusMode" @fullscreen="setFocus(!focusMode)" @edit-part="id => editingPart = id" />
+            <PluginView v-else-if="view === 'plugin'" ref="pluginView" v-model:edit="pluginEdit" :focus="focusMode" @fullscreen="setFocus(!focusMode)" @edit-canvas="id => editingCanvas = id" />
             <CodeView v-else />
             <div v-if="banner.length" class="banner" :class="{ below: view === 'patch' }" data-testid="banner"><div v-for="(line, i) in banner" :key="i">{{ line }}</div></div>
             <button v-if="focusMode" class="leave-focus" data-testid="leave-focus" @click="setFocus(false)">Leave full screen <span class="kbd-hint">Esc</span></button>
@@ -186,7 +186,7 @@ async function importPatch(e: Event) {
       </div>
     </div>
     <CodeboxEditor v-if="editing && session.doc.value.nodes[editing]" :id="editing" @close="editing = null" />
-    <PartEditor v-if="editingPart && session.doc.value.ui.elements[editingPart]" :id="editingPart" @close="editingPart = null" />
+    <CanvasEditor v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]" :id="editingCanvas" @close="editingCanvas = null" />
     <div class="toasts"><div v-for="t in session.toasts.value" :key="t.id" class="toast" :class="t.kind" data-testid="toast">{{ t.text }}</div></div>
     <StartOverlay v-if="!starting" />
     <StartScreen v-if="starting" @close="started" />

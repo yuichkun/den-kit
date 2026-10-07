@@ -5,7 +5,7 @@ import type { Intent, NewElement } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import type { Rect } from './spec.ts';
 
-export const PART_TEMPLATE = `// A custom part: draw(ctx, f) runs every frame (in a worker).
+export const CANVAS_TEMPLATE = `// A canvas: draw(ctx, f) runs every frame (in a worker).
 // f.w, f.h: its size · f.t, f.dt: seconds · f.level, f.peak: the sound now (0..1)
 // f.wave, f.spectrum: the waveform and a 0..1 spectrum (Float32Array)
 // f.value('knob1'), f.norm('knob1'): a control's value (raw, or 0..1)
@@ -26,7 +26,7 @@ export default function draw(ctx, f) {
 
 const SVG_TEMPLATE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" fill="none" stroke="#e8e8e8" stroke-width="4"/><path d="M50 14 L58 42 L86 50 L58 58 L50 86 L42 58 L14 50 L42 42 Z" fill="#ff9c1a"/></svg>';
 
-export interface Insertable { key: string; title: string; doc: string; group: 'Decoration' | 'Control' }
+export interface Insertable { key: string; title: string; doc: string; group: 'Decoration' | 'Control'; /** More words that find it (old names). */ also?: string }
 export const INSERTABLES: readonly Insertable[] = [
   { key: 'text', title: 'Text', doc: 'A title, a label, a note.', group: 'Decoration' },
   { key: 'value', title: 'Value readout', doc: 'Shows a control\'s value as text.', group: 'Decoration' },
@@ -36,7 +36,7 @@ export const INSERTABLES: readonly Insertable[] = [
   { key: 'picture', title: 'Picture', doc: 'One of the assets (drop files to add more).', group: 'Decoration' },
   { key: 'svg', title: 'SVG drawing', doc: 'Vector markup you can edit.', group: 'Decoration' },
   { key: 'led', title: 'Lamp (LED)', doc: 'Lights with a switch, a knob past a point, or the sound.', group: 'Decoration' },
-  { key: 'part', title: 'Custom part', doc: 'Your own drawing code (canvas), reacting to the sound and controls.', group: 'Decoration' },
+  { key: 'canvas', title: 'Canvas (code)', doc: 'Your own drawing code, reacting to the sound and controls; it can take the mouse.', group: 'Decoration', also: 'custom part' },
   { key: 'knob', title: 'Knob', doc: 'Turn it; wire it to anything in the patch.', group: 'Control' },
   { key: 'slider', title: 'Slider', doc: 'A fader.', group: 'Control' },
   { key: 'toggle', title: 'Switch', doc: 'On/off (a gate).', group: 'Control' },
@@ -48,7 +48,7 @@ export const INSERTABLES: readonly Insertable[] = [
   { key: 'meter', title: 'Meter', doc: 'The level of a signal.', group: 'Control' },
 ];
 
-const SIZE: Record<string, [number, number]> = { text: [180, 36], value: [120, 28], rect: [180, 110], ellipse: [100, 100], line: [200, 8], svg: [96, 96], led: [14, 14], part: [220, 120], knob: [84, 96], slider: [44, 160], toggle: [90, 44], button: [90, 44], xy: [180, 180], keyboard: [380, 90], pads: [300, 160], scope: [220, 90], meter: [24, 120] };
+const SIZE: Record<string, [number, number]> = { text: [180, 36], value: [120, 28], rect: [180, 110], ellipse: [100, 100], line: [200, 8], svg: [96, 96], led: [14, 14], canvas: [220, 120], knob: [84, 96], slider: [44, 160], toggle: [90, 44], button: [90, 44], xy: [180, 180], keyboard: [380, 90], pads: [300, 160], scope: [220, 90], meter: [24, 120] };
 
 /** The intents that add `key` centred at `at` (design pixels). `picture` takes the asset id. */
 export function insertIntents(key: string, at: { x: number; y: number }, doc: PatchDocument, options: { asset?: { id: string; width?: number; height?: number }; bind?: string } = {}): Intent[] {
@@ -66,7 +66,7 @@ export function insertIntents(key: string, at: { x: number; y: number }, doc: Pa
     case 'picture': return options.asset ? element({ kind: 'image', asset: options.asset.id, fit: 'contain' }) : [];
     case 'svg': return element({ kind: 'svg', svg: SVG_TEMPLATE });
     case 'led': { const toggle = Object.values(doc.nodes).find(n => n.type === 'ui.toggle'); return element({ kind: 'led', bind: options.bind ?? toggle?.id ?? '@level', color: '#ff3b30' }); }
-    case 'part': return element({ kind: 'part', code: PART_TEMPLATE });
+    case 'canvas': return element({ kind: 'canvas', code: CANVAS_TEMPLATE });
     default: {
       const type = key === 'pads' ? 'ui.keyboard' : `ui.${key}`;
       const label = INSERTABLES.find(i => i.key === key)?.title ?? key;

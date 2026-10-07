@@ -3,7 +3,7 @@
 // gets and centred on its background, the way a plugin fits any window size. It
 // draws everything on the plugin back to front: the look's background, the
 // widgets in their skins, and the decorations (text, shapes, pictures, SVG,
-// lamps, custom parts), then the look's CSS, scoped to this plugin. Playing
+// lamps, canvases), then the look's CSS, scoped to this plugin. Playing
 // happens here (widget changes and notes go out as events); editing does not: the
 // plugin view lays its edit layer over each item (`cell` slot) and the plugin (`overlay`).
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue';
@@ -28,7 +28,7 @@ const props = defineProps<{
   preview?: boolean;
 }>();
 const emit = defineEmits<{
-  /** A control moved; `done` when the gesture ends (release, or a click that sets it at once). A custom part names its gesture (one press can move several controls). */
+  /** A control moved; `done` when the gesture ends (release, or a click that sets it at once). A canvas names its gesture (one press can move several controls). */
   (e: 'change', widget: string, values: Record<string, number | boolean>, done: boolean, gesture?: string): void;
   (e: 'note', note: number, on: boolean): void;
 }>();
@@ -62,7 +62,7 @@ function onWidget(w: WidgetSpec, e: Event, done: boolean) {
 }
 function onNote(e: Event) { const d = (e as CustomEvent<{ note: number; on: boolean }>).detail; emit('note', d.note, d.on); }
 
-// The sound, for lamps and custom parts.
+// The sound, for lamps and canvases.
 const meters = shallowRef<Meters>({ level: 0, peak: 0 });
 const tap = analyserTap(() => props.analyser?.(-1) ?? null);
 provide(LEVEL, meters);
@@ -121,7 +121,7 @@ onBeforeUnmount(() => { observer?.disconnect(); cancelAnimationFrame(raf); });
 .fill { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
 .underlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .cell { position: absolute; box-sizing: border-box; }
-/* Decorations never catch the mouse: the controls under them still play (a custom part that handles the mouse takes it while playing). */
+/* Decorations never catch the mouse: the controls under them still play (a canvas that handles the mouse takes it while playing). */
 .cell[data-element] { pointer-events: none; }
 .panel.clip { overflow: hidden; }
 </style>

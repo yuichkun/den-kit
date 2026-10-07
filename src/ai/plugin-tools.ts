@@ -1,6 +1,6 @@
 // The plugin's screen for the LLM: a readable account of what is on it, the
 // reference for what it can ask for (look, fonts, skins, elements, custom
-// parts, the bundled pictures), and the shorthands it may use in kit_apply_ops
+// canvases, the bundled pictures), and the shorthands it may use in kit_apply_ops
 // (addControl; bundled pictures by id). Pure functions over the patch; the
 // workspace (llm-workspace.ts) calls them.
 import type { Catalog } from '../core/catalog.ts';
@@ -14,7 +14,7 @@ import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import { WORKS, findWork, lookIntents } from '../showcase/index.ts';
 import { ControlError, controlFor, type ControlType } from '../plugin/controls.ts';
 import { formatValue } from '../plugin/format.ts';
-import { PART_CURSORS } from '../plugin/part-api.ts';
+import { CANVAS_CURSORS } from '../plugin/canvas-api.ts';
 
 const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n)}… (${s.length} chars)` : s;
 const rectText = (r: { x: number; y: number; w: number; h: number }) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.w)},${Math.round(r.h)}`;
@@ -38,13 +38,13 @@ function skinText(control: ControlKind, skin: Skin | undefined, from: string): s
 /**
  * Everything on the plugin, back to front, as one line each (exact fields as
  * JSON, so an edit can start from them), with the look, the controls kept off
- * the plugin, groups and assets. `part` returns one custom part's whole code.
+ * the plugin, groups and assets. `canvas` returns one canvas element's whole code.
  */
-export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { part?: string; problems?: string[]; handEdits?: string[] } = {}): string {
-  if (options.part) {
-    const el = doc.ui.elements[options.part];
-    if (!el || el.kind !== 'part') throw new Error(`No custom part "${options.part}". Parts: ${Object.values(doc.ui.elements).filter(e => e.kind === 'part').map(e => e.id).join(', ') || 'none'}.`);
-    return `Custom part ${el.id}${el.name ? ` "${el.name}"` : ''}, ${rectText(el.rect)}, props ${JSON.stringify(el.props)}:\n${el.code}`;
+export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { canvas?: string; problems?: string[]; handEdits?: string[] } = {}): string {
+  if (options.canvas) {
+    const el = doc.ui.elements[options.canvas];
+    if (!el || el.kind !== 'canvas') throw new Error(`No canvas "${options.canvas}". Canvases: ${Object.values(doc.ui.elements).filter(e => e.kind === 'canvas').map(e => e.id).join(', ') || 'none'}.`);
+    return `Canvas ${el.id}${el.name ? ` "${el.name}"` : ''}, ${rectText(el.rect)}, props ${JSON.stringify(el.props)}:\n${el.code}`;
   }
   const base = THEME_TOKENS[doc.panel.theme] ?? THEME_TOKENS.graphite;
   const look = doc.ui.look;
@@ -69,7 +69,7 @@ export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { 
     else lines.push(` ${widgetLine(doc, catalog, id)}`);
   }
   const off = Object.values(doc.nodes).filter(n => !n.panel && isWidget(doc, catalog, n.id) && !['ui.keyboard', 'ui.scope', 'ui.meter'].includes(n.type));
-  if (off.length) lines.push('', `Controls in the patch but not on the plugin (put one on with setPanel; custom parts can move them with f.set): ${off.map(n => widgetLine(doc, catalog, n.id)).join(' · ')}`);
+  if (off.length) lines.push('', `Controls in the patch but not on the plugin (put one on with setPanel; a canvas can move them with f.set): ${off.map(n => widgetLine(doc, catalog, n.id)).join(' · ')}`);
   const groups = Object.entries(doc.ui.groups);
   if (groups.length) lines.push('', `Groups (move together): ${groups.map(([g, m]) => `${g} = [${m.join(', ')}]`).join('; ')}`);
   const assets = Object.values(doc.assets);
@@ -80,7 +80,7 @@ export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { 
 
 function elementLine(el: UiElement): string {
   const shown: Record<string, unknown> = { ...el };
-  if (el.kind === 'part') shown.code = `${clip(el.code.replace(/\s+/g, ' '), 160)} — whole code: kit_get_plugin {"part":"${el.id}"}${/\bpointer\s*\(/.test(el.code) ? '; it takes the mouse' : ''}`;
+  if (el.kind === 'canvas') shown.code = `${clip(el.code.replace(/\s+/g, ' '), 160)} — whole code: kit_get_plugin {"canvas":"${el.id}"}${/\bpointer\s*\(/.test(el.code) ? '; it takes the mouse' : ''}`;
   if (el.kind === 'svg') shown.svg = clip(el.svg, 160);
   return JSON.stringify(shown);
 }
@@ -107,7 +107,7 @@ function widgetLine(doc: PatchDocument, catalog: Catalog, id: string): string {
 }
 
 // ---- reference ------------------------------------------------------------------------------
-export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'looks', 'layout'] as const;
+export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'canvas', 'pictures', 'looks', 'layout'] as const;
 export type UiTopic = typeof UI_TOPICS[number];
 
 /** What the LLM can ask for on the plugin, by topic (skins can be narrowed to one control kind). */
@@ -139,26 +139,26 @@ export function uiReference(topic: string | undefined, control?: string, catalog
       ].join('\n');
     }
     case 'elements': return [
-      'Elements: decorations on the plugin (they never catch the mouse, except custom parts that handle it). Add: {"op":"addElement","element":{"kind":"text",…,"rect":{"x":..,"y":..,"w":..,"h":..}}} (id optional). Change: {"op":"updateElement","id":"text1","set":{field: value}} — a field is replaced whole (send the whole textStyle or style); null removes an optional field. Move or resize anything (an element or a control): {"op":"setRect","id":"..","rect":{...}}.',
+      'Elements: decorations on the plugin (they never catch the mouse, except a canvas that handles it). Add: {"op":"addElement","element":{"kind":"text",…,"rect":{"x":..,"y":..,"w":..,"h":..}}} (id optional). Change: {"op":"updateElement","id":"text1","set":{field: value}} — a field is replaced whole (send the whole textStyle or style); null removes an optional field. Move or resize anything (an element or a control): {"op":"setRect","id":"..","rect":{...}}.',
       ...ELEMENT_KINDS.map(k => `  ${k}: fields ${ELEMENT_FIELDS(k).join(', ')}`),
       '  text: "text" (\\n for lines); "bind":"knob1" shows that control\'s value ("{value}" in the text marks where).',
       '  shape: "shape":"rect"|"ellipse"|"line" (a line is drawn with style.stroke).',
       '  image: "asset" (a picture asset id), "fit":"cover"|"contain"|"stretch".',
       '  svg: "svg" markup starting with <svg> (no scripts run).',
       '  led: "bind" (a control id, or "@level" to light with the sound), "color", "threshold" 0..1.',
-      '  part: "code" (a custom part, see kit_ui_reference "parts"), "props" (settings the code reads as f.props).',
+      '  canvas: "code" (drawing code, see kit_ui_reference "canvas"), "props" (settings the code reads as f.props).',
       `style (every element): {"fill":[fills],"stroke":{"color","width","style":"solid"|"dashed"|"dotted"},"radius","opacity","shadows":[{"x","y","blur","spread","color","inset"}],"rotate","blend","blur"} (a glow is a shadow with no offset).`,
       'textStyle: {"font","size" (px),"weight" 100..900,"color","align":"left"|"center"|"right","valign":"top"|"middle"|"bottom","spacing" (em),"lineHeight","case":"none"|"upper"|"lower","italic","shadows":[{"x","y","blur","color"}],"stroke":{"color","width"}}.',
       'Stacking: {"op":"arrange","ids":[..],"to":"front"|"back"|"forward"|"backward"}. Groups: {"op":"group","ids":[..]} / {"op":"ungroup","id":"g1"}. Remove: {"op":"removeElement","id":".."}.',
-      `Limits: ${LIMITS.elements} elements, text ${LIMITS.text} chars, svg ${LIMITS.svg} chars, part code ${LIMITS.code} chars.`,
+      `Limits: ${LIMITS.elements} elements, text ${LIMITS.text} chars, svg ${LIMITS.svg} chars, canvas code ${LIMITS.code} chars.`,
     ].join('\n');
-    case 'parts': return [
-      'Custom parts: JavaScript that draws on a canvas every frame, in a worker (no page, no network). export default draw(ctx, f), or { setup(ctx, f), draw(ctx, f), pointer(e, f) }.',
+    case 'canvas': return [
+      'Canvas elements: JavaScript that draws on a canvas every frame, in a worker (no page, no network). export default draw(ctx, f), or { setup(ctx, f), draw(ctx, f), pointer(e, f) }.',
       'f (each frame): f.w, f.h (its size in design px; the canvas is already scaled) · f.t, f.dt (seconds) · f.level, f.peak (the sound now, 0..1) · f.wave (256 samples) · f.spectrum (64 bands, 0..1, low to high)',
       '  f.value(id) (a control\'s value in its units), f.norm(id) (0..1), f.xy(id), f.on(id), f.range(id) → {min, max, log, unit} · f.color("accent") (the look\'s colours) · f.props (the element\'s props) · f.state (kept between frames; setup runs again after a resize)',
-      'With pointer(e, f), the part takes the mouse while the plugin plays (not while editing): e.type is "down", "move", "up", "wheel", "double" or "leave"; e.x, e.y in the part; e.dx, e.dy (moves since the last event; wheel: about ±100 a notch); e.shift, e.alt, e.meta. f.pointer = {x, y, over, down, …} for drawing hover and press.',
-      `  f.set(id, value) moves a control in its own units (clamped to its range; a switch takes true/false, an XY pad {x, y}); f.setNorm(id, 0..1) follows its scale (log for Hz). What one press (or one burst of wheel turns) writes is one undo step for the user. Controls need not be on the plugin: a part can be the face of controls kept off it. f.cursor(name): ${PART_CURSORS.join(', ')}.`,
-      'Keep draw fast (it runs 60 times a second; a frame over 1.5 s stops the part). Clear the canvas yourself (ctx.clearRect(0, 0, f.w, f.h)). Use f.color(token) so the part follows the look. An error shows in the part with its line number.',
+      'With pointer(e, f), the canvas takes the mouse while the plugin plays (not while editing): e.type is "down", "move", "up", "wheel", "double" or "leave"; e.x, e.y in the canvas; e.dx, e.dy (moves since the last event; wheel: about ±100 a notch); e.shift, e.alt, e.meta. f.pointer = {x, y, over, down, …} for drawing hover and press.',
+      `  f.set(id, value) moves a control in its own units (clamped to its range; a switch takes true/false, an XY pad {x, y}); f.setNorm(id, 0..1) follows its scale (log for Hz). What one press (or one burst of wheel turns) writes is one undo step for the user. Controls need not be on the plugin: a canvas can be the face of controls kept off it. f.cursor(name): ${CANVAS_CURSORS.join(', ')}.`,
+      'Keep draw fast (it runs 60 times a second; a frame over 1.5 s stops the canvas). Clear the canvas yourself (ctx.clearRect(0, 0, f.w, f.h)). Use f.color(token) so the canvas follows the look. An error shows in the canvas with its line number.',
       'Example: export default { draw(ctx, f) { ctx.clearRect(0, 0, f.w, f.h); ctx.fillStyle = f.color("accent"); ctx.fillRect(0, f.h * (1 - f.norm("knob1")), f.w, f.h * f.norm("knob1")); }, pointer(e, f) { if (e.type === "down" || (e.type === "move" && f.pointer.down)) f.setNorm("knob1", 1 - e.y / f.h); } };',
     ].join('\n');
     case 'pictures': return [
@@ -182,7 +182,7 @@ export function uiReference(topic: string | undefined, control?: string, catalog
     ].join('\n');
     default: return [
       `The plugin screen reference. Topics (kit_ui_reference {"topic": …}): ${UI_TOPICS.join(', ')} (skins also takes "control": ${CONTROL_KINDS.join(', ')}).`,
-      'Controls on the plugin are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, part); the look holds the colour and font tokens, the background and the default skins.',
+      'Controls on the plugin are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, canvas); the look holds the colour and font tokens, the background and the default skins.',
       uiReference('layout'),
     ].join('\n');
   }

@@ -1,23 +1,23 @@
 <script setup lang="ts">
-// A custom part: its code draws on a canvas every frame, in a worker
-// (part.worker.ts), fed with the time, the plugin's sound, the controls' values
-// and ranges, the look's colours and the mouse. A part that exports pointer()
+// A canvas: its code draws on a canvas every frame, in a worker
+// (canvas.worker.ts), fed with the time, the plugin's sound, the controls' values
+// and ranges, the look's colours and the mouse. A canvas that exports pointer()
 // takes the mouse while the plugin plays and can move controls (f.set): what it
 // writes during one press, or one burst of wheel turns, is one gesture, so one
-// ⌘Z takes it back, as with a knob. A broken or slow part shows its error in its
+// ⌘Z takes it back, as with a knob. A broken or slow canvas shows its error in its
 // box and never stops the rest of the plugin.
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { COLOR_TOKENS, tokenVar, type PartElement } from '../core/ui.ts';
+import { COLOR_TOKENS, tokenVar, type CanvasElement } from '../core/ui.ts';
 import { toUnit } from './format.ts';
 import { TAP } from './meters.ts';
-import { NO_POINTER, PART_CURSORS, type PartControls, type PartPointer, type PartPointerEvent, type PartPointerType } from './part-api.ts';
-import { PART_CANVASES, PartRunner, type PartFrame } from './part-runtime.ts';
+import { NO_POINTER, CANVAS_CURSORS, type CanvasControls, type CanvasPointer, type CanvasPointerEvent, type CanvasPointerType } from './canvas-api.ts';
+import { CANVAS_RUNNERS, CanvasRunner, type CanvasFrame } from './canvas-runtime.ts';
 import type { WidgetSpec } from './spec.ts';
 
-const props = defineProps<{ element: PartElement; controls: Record<string, WidgetSpec>; /** The plugin plays (not editing, not a preview): the part may take the mouse and move controls. */ play?: boolean }>();
+const props = defineProps<{ element: CanvasElement; controls: Record<string, WidgetSpec>; /** The plugin plays (not editing, not a preview): the canvas may take the mouse and move controls. */ play?: boolean }>();
 const emit = defineEmits<{
   (e: 'status', error: string | null, line?: number): void;
-  /** The part moved a control, as part of `gesture` (one press, or one burst of wheel turns). */
+  /** The canvas moved a control, as part of `gesture` (one press, or one burst of wheel turns). */
   (e: 'set', id: string, values: Record<string, number | boolean>, gesture: string): void;
 }>();
 const tap = inject(TAP, null);
@@ -26,10 +26,10 @@ const canvas = ref<HTMLCanvasElement | null>(null);
 const error = ref<string | null>(null);
 const interactive = ref(false);
 const cursor = ref('default');
-let runner: PartRunner | null = null;
+let runner: CanvasRunner | null = null;
 let raf = 0, last = 0, colorsAt = 0, observer: ResizeObserver | null = null;
 let colors: Record<string, string> = {};
-/** The part's writes taken in so far (they are numbered; see overlayPending). */
+/** The canvas's writes taken in so far (they are numbered; see overlayPending). */
 let acked = 0;
 
 function size() {
@@ -43,8 +43,8 @@ function readColors() {
   colors = Object.fromEntries(COLOR_TOKENS.map(t => [t, style.getPropertyValue(tokenVar(t)).trim() || '#888']));
 }
 /** The controls as they are now (every frame and every mouse event carries them). */
-function controls(): PartControls {
-  const values: PartFrame['values'] = {}, norms: Record<string, number> = {}, ranges: PartFrame['ranges'] = {};
+function controls(): CanvasControls {
+  const values: CanvasFrame['values'] = {}, norms: Record<string, number> = {}, ranges: CanvasFrame['ranges'] = {};
   for (const c of Object.values(props.controls)) {
     if (c.type === 'ui.xy') { values[c.id] = { x: Number(c.values.x ?? 0.5), y: Number(c.values.y ?? 0.5) }; norms[c.id] = Number(c.values.x ?? 0.5); ranges[c.id] = { min: 0, max: 1, log: false, unit: '' }; continue; }
     const v = c.values.value; if (v === undefined) continue;
@@ -55,7 +55,7 @@ function controls(): PartControls {
   }
   return { values, norms, ranges, acked };
 }
-function frame(t: number): PartFrame {
+function frame(t: number): CanvasFrame {
   const wave = new Float32Array(256), spectrum = new Float32Array(64);
   const m = tap?.read(wave, spectrum) ?? { level: 0, peak: 0 };
   const dt = last ? Math.min(0.1, (t - last) / 1000) : 1 / 60;
@@ -70,9 +70,9 @@ function tick(t: number) {
 }
 
 // ---- the mouse ---------------------------------------------------------------------------
-let pointer: PartPointer = { ...NO_POINTER };
+let pointer: CanvasPointer = { ...NO_POINTER };
 /**
- * The gesture the part's writes belong to: a press (it ends once the worker has
+ * The gesture the canvas's writes belong to: a press (it ends once the worker has
  * handled the release), or loose writes (wheel turns, drawing) that end after a
  * pause. Writes that share a gesture merge into one undo step; ending one sends
  * nothing (sending the last values again could land after a ⌘Z and redo it).
@@ -82,7 +82,7 @@ let gestures = 0;
 const QUIET_MS = 400;
 function startGesture(press: boolean) {
   endGesture();
-  gesture = { key: `part-${props.element.id}-${++gestures}-${Date.now()}`, press, releaseSeq: null, timer: null };
+  gesture = { key: `canvas-${props.element.id}-${++gestures}-${Date.now()}`, press, releaseSeq: null, timer: null };
   return gesture;
 }
 function endGesture() {
@@ -90,7 +90,7 @@ function endGesture() {
   gesture = null;
 }
 function onSet(id: string, values: Record<string, number | boolean>, write: number) {
-  // Taken in, whether or not it lands (the plugin may have stopped playing): from here on the part reads the page's values.
+  // Taken in, whether or not it lands (the plugin may have stopped playing): from here on the canvas reads the page's values.
   acked = Math.max(acked, write);
   if (!props.play) return;
   const g = gesture ?? startGesture(false);
@@ -99,7 +99,7 @@ function onSet(id: string, values: Record<string, number | boolean>, write: numb
 }
 function onHandled(seq: number) { if (gesture?.press && gesture.releaseSeq === seq) endGesture(); }
 
-/** The event's point in the part's own pixels (the part may be scaled with the plugin, and turned). */
+/** The event's point in the canvas's own pixels (the canvas may be scaled with the plugin, and turned). */
 function local(e: MouseEvent): { x: number; y: number } {
   const r = box.value!.getBoundingClientRect();
   const w = props.element.rect.w, h = props.element.rect.h;
@@ -110,11 +110,11 @@ function local(e: MouseEvent): { x: number; y: number } {
   const dx = (e.clientX - (r.left + r.width / 2)) / k, dy = (e.clientY - (r.top + r.height / 2)) / k;
   return { x: w / 2 + dx * c + dy * s, y: h / 2 - dx * s + dy * c };
 }
-function send(type: PartPointerType, e: MouseEvent, extra: { dx?: number; dy?: number; over?: boolean; down?: boolean } = {}): number {
+function send(type: CanvasPointerType, e: MouseEvent, extra: { dx?: number; dy?: number; over?: boolean; down?: boolean } = {}): number {
   const p = local(e);
   const dx = extra.dx ?? p.x - pointer.x, dy = extra.dy ?? p.y - pointer.y;
   pointer = { x: p.x, y: p.y, over: extra.over ?? pointer.over, down: extra.down ?? pointer.down, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
-  const event: PartPointerEvent = { type, x: p.x, y: p.y, dx, dy, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
+  const event: CanvasPointerEvent = { type, x: p.x, y: p.y, dx, dy, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
   return runner?.pointer(event, { ...pointer }, controls()) ?? -1;
 }
 const live = () => props.play && interactive.value && runner && !runner.stopped;
@@ -153,14 +153,14 @@ async function start() {
   observer = new ResizeObserver(() => runner?.resize(size()));
   observer.observe(el);
   readColors();
-  runner = new PartRunner(el, props.element.code, props.element.props, size(), {
+  runner = new CanvasRunner(el, props.element.code, props.element.props, size(), {
     status: s => { error.value = s.error ? `${s.error}${s.line ? ` (line ${s.line})` : ''}` : null; emit('status', s.error, s.line); if (s.error) endGesture(); },
     loaded: on => { interactive.value = on; },
     set: onSet,
-    cursor: c => { if ((PART_CURSORS as readonly string[]).includes(c)) cursor.value = c; },
+    cursor: c => { if ((CANVAS_CURSORS as readonly string[]).includes(c)) cursor.value = c; },
     handled: onHandled,
   });
-  PART_CANVASES.set(el, runner);
+  CANVAS_RUNNERS.set(el, runner);
 }
 onMounted(() => { void start(); raf = requestAnimationFrame(tick); box.value?.addEventListener('wheel', wheel, { passive: false }); });
 onBeforeUnmount(() => { endGesture(); cancelAnimationFrame(raf); observer?.disconnect(); runner?.stop(); box.value?.removeEventListener('wheel', wheel); });
@@ -171,16 +171,16 @@ watch(() => props.play, play => { if (!play) { endGesture(); pointer = { ...NO_P
 </script>
 
 <template>
-  <div ref="box" class="part-box" :class="{ live: play && interactive }" :style="play && interactive ? { cursor } : undefined" :data-part-error="error ?? undefined" :data-interactive="interactive ? '' : undefined" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @pointerleave="leave" @dblclick="dbl">
-    <canvas :key="generation" ref="canvas" class="part" />
-    <div v-if="error" class="error" data-testid="part-error">{{ error }}</div>
+  <div ref="box" class="canvas-box" :class="{ live: play && interactive }" :style="play && interactive ? { cursor } : undefined" :data-canvas-error="error ?? undefined" :data-interactive="interactive ? '' : undefined" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @pointerleave="leave" @dblclick="dbl">
+    <canvas :key="generation" ref="canvas" class="surface" />
+    <div v-if="error" class="error" data-testid="canvas-error">{{ error }}</div>
   </div>
 </template>
 
 <style scoped>
-.part-box { position: absolute; inset: 0; }
-/* Only a part that handles the mouse catches it, and only while the plugin plays; otherwise the controls under it play. */
-.part-box.live { pointer-events: auto; touch-action: none; }
-.part-box :deep(canvas) { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.canvas-box { position: absolute; inset: 0; }
+/* Only a canvas that handles the mouse catches it, and only while the plugin plays; otherwise the controls under it play. */
+.canvas-box.live { pointer-events: auto; touch-action: none; }
+.canvas-box :deep(canvas) { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .error { position: absolute; left: 4px; right: 4px; bottom: 4px; padding: 3px 6px; border-radius: 4px; background: #300c; color: #ffb3b3; font: 11px/1.3 ui-monospace, Menlo, monospace; white-space: pre-wrap; max-height: 60%; overflow: hidden; }
 </style>

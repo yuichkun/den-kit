@@ -1,6 +1,6 @@
 // お題 8 — 宇宙っぽい空間系エフェクト。星空の見た目で、音に合わせて粒が動く。
 // A slow, deep chorus (the drift) into echoes that bounce left and right, into
-// a very long, dark reverb. A custom part fills the sky with dust that drifts
+// a very long, dark reverb. A canvas fills the sky with dust that drifts
 // out from the middle: louder sound sends it faster, and each grain glows with
 // its own band of the spectrum. The dust takes its colours from the look.
 import type { Catalog } from '../core/catalog.ts';
@@ -71,7 +71,7 @@ export function space(catalog: Catalog) {
       ],
       skins: { knob: { name: 'ring', params: { thickness: 3, round: true } } },
     } },
-    el({ kind: 'part', name: 'Stardust', code: STARDUST, rect: r(0, 0, 720, 440) }),
+    el({ kind: 'canvas', name: 'Stardust', code: STARDUST, rect: r(0, 0, 720, 440) }),
     el({ kind: 'text', name: 'Title', text: 'NEBULA', rect: r(0, 26, 720, 60), textStyle: { font: 'orbitron', size: 46, weight: 700, color: 'fg', spacing: 0.5, shadows: glow } }),
     el({ kind: 'text', name: 'Subtitle', text: 'DRIFT · ECHOES · A VERY LONG SKY', rect: r(0, 88, 720, 18), textStyle: { font: 'orbitron', size: 11, color: 'muted', spacing: 0.34 } }),
     el({ kind: 'shape', shape: 'rect', name: 'Console', rect: r(48, 300, 624, 120), locked: true, style: { radius: 18, fill: [{ kind: 'color', color: '#0a0820a8' }], stroke: { color: '#8f7bff55', width: 1, style: 'solid' }, shadows: [{ x: 0, y: 0, blur: 24, spread: 0, color: '#6a4bff33', inset: false }] } }),

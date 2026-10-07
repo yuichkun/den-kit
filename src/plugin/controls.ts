@@ -28,7 +28,7 @@ export interface ControlRequest {
 }
 export class ControlError extends Error { constructor(message: string) { super(message); this.name = 'ControlError'; } }
 
-/** Things on the plugin that a new control should not cover (backdrops, big pictures and full-size parts do not count). */
+/** Things on the plugin that a new control should not cover (backdrops, big pictures and full-size canvases do not count). */
 export function obstacles(doc: PatchDocument, catalog: Catalog): Rect[] {
   const area = doc.panel.width * doc.panel.height;
   const out: Rect[] = [];

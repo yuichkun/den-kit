@@ -1,5 +1,5 @@
 // Looking at the plugin the way a person would: draw it off-screen at its design
-// size, see where the browser put each text and label, ask custom parts whether
+// size, see where the browser put each text and label, ask canvases whether
 // they work, take a picture without text to see what is behind each text, and
 // run the screen checks (checks.ts) on all of it. The AI gets the problems (and
 // the picture, when its model accepts images); the plugin view shows the same
@@ -43,7 +43,7 @@ async function mount(doc: PatchDocument, catalog: Catalog, options: LookOptions)
   await document.fonts.ready;
   const panel = host.querySelector<HTMLElement>('[data-testid=panel]');
   if (!panel) { app.unmount(); host.remove(); throw new Error('The plugin did not draw.'); }
-  // Pictures load, controls lay out and custom parts draw their first frames.
+  // Pictures load, controls lay out and canvases draw their first frames.
   await Promise.all([...host.querySelectorAll('img')].map(img => img.complete ? null : img.decode().catch(() => null)));
   await frames(3);
   if (host.querySelector('[data-element] canvas')) await wait(350);
@@ -74,7 +74,7 @@ function textBox(id: string, what: string, kind: TextBox['kind'], el: Element, r
   color[3] *= opacityUp(el, panel);
   return { id, what, kind, rect, color, size: parseFloat(cs.fontSize) || 12, bold: Number(cs.fontWeight) >= 600 };
 }
-/** The part of a line box where the letters are (a line box has room above and below them). */
+/** The canvas of a line box where the letters are (a line box has room above and below them). */
 const inked = (r: Rect): Rect => ({ x: r.x, y: r.y + r.h * 0.18, w: r.w, h: r.h * 0.64 });
 const union = (rects: Rect[]): Rect => {
   const x0 = Math.min(...rects.map(r => r.x)), y0 = Math.min(...rects.map(r => r.y));
@@ -108,8 +108,8 @@ function measure(doc: PatchDocument, panel: HTMLElement): Measured {
         if (wide || tall) out.issues.push({ code: 'text-overflow', ids: [id], message: `${what} does not fit its box (${Math.round(r.w)}×${Math.round(r.h)}; the words need about ${Math.ceil(all.w)}×${Math.ceil(all.h)}): make the box ${wide ? 'wider' : 'taller'}, the text smaller, or the words fewer.`, severity: 'warn' });
       }
     }
-    const error = cell.querySelector('[data-part-error]')?.getAttribute('data-part-error');
-    if (error) out.issues.push({ code: 'part-error', ids: [id], message: `The custom part ${label(doc, id)} fails: ${error}`, severity: 'error' });
+    const error = cell.querySelector('[data-canvas-error]')?.getAttribute('data-canvas-error');
+    if (error) out.issues.push({ code: 'canvas-error', ids: [id], message: `The canvas ${label(doc, id)} fails: ${error}`, severity: 'error' });
     for (const img of cell.querySelectorAll('img')) if (img.complete && !img.naturalWidth && img.getAttribute('src')) out.issues.push({ code: 'missing-asset', ids: [id], message: `The picture in ${label(doc, id)} could not be loaded.`, severity: 'error' });
     if (cell.querySelector('.missing')) out.issues.push({ code: 'missing-asset', ids: [id], message: `The picture of ${label(doc, id)} is missing (its file is not in this browser).`, severity: 'error' });
   }

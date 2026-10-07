@@ -80,13 +80,13 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_get_plugin',
-    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations with their exact fields), controls kept off it, groups and assets. With "part": one custom part\'s whole code.',
-    inputSchema: { type: 'object', properties: { part: { type: 'string' } }, additionalProperties: false },
+    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations with their exact fields), controls kept off it, groups and assets. With "canvas": one canvas element\'s whole code.',
+    inputSchema: { type: 'object', properties: { canvas: { type: 'string' } }, additionalProperties: false },
   },
   {
     name: 'kit_ui_reference',
-    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, part; style and textStyle fields), "parts" (custom canvas code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
-    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, canvas; style and textStyle fields), "canvas" (drawing code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
+    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'canvas', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
   },
   {
     name: 'kit_view_picture',
@@ -95,7 +95,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_look',
-    description: 'Look at the plugin screen as it is drawn now: checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures and failing custom parts; with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
+    description: 'Look at the plugin screen as it is drawn now: checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures and failing canvases; with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -136,14 +136,14 @@ The patch model
   Declare its ports with kit_write_codebox; inputs become knobs when unconnected.
 
 The plugin screen (what the user plays)
-- The plugin is a window of fixed design size that scales to fit. Its controls are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, custom part); the look holds the colour and font tokens, the background and the default skin of each control kind.
-- Read it with kit_get_plugin; edit it with kit_apply_ops (screen edits are checked like any edit and land at once; they never recompile the sound). kit_ui_reference has the skins, fonts, element fields, custom parts and bundled pictures.
+- The plugin is a window of fixed design size that scales to fit. Its controls are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, canvas); the look holds the colour and font tokens, the background and the default skin of each control kind.
+- Read it with kit_get_plugin; edit it with kit_apply_ops (screen edits are checked like any edit and land at once; they never recompile the sound). kit_ui_reference has the skins, fonts, element fields, canvas code and bundled pictures.
 - After screen edits, look with kit_look and fix what it finds before you finish.
 - Designing a screen: start from the design brief (kit_get_plugin shows it; with none yet, write one first with setBrief: the idea, palette, type and layout in 2-4 short lines) and keep to it on later requests. A ready look (wearLook) is a quick start. When the person points at a picture, look at it with kit_view_picture.
 - What the person changed by hand (kit_get_plugin lists it) stays as they made it unless the request is about it.
 - A control for a module input: addControl (wired, ranged and placed for you). Label every control; keep text at 11 px or more and readable against what is behind it; leave 16-24 px margins; line things up; nothing opaque over a control.
 - Colours: use the tokens (bg, fg, accent, track, knob, pointer, muted, glow) so the screen survives a change of look; fixed colours only for things printed on a picture or a plate.
-- Custom parts draw with canvas code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.
+- Canvas elements draw with code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.
 - Keep what the user built unless asked to change it; change the screen only when the request is about it (or a new sound needs controls).
 
 Module types

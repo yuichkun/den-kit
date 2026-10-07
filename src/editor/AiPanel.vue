@@ -109,7 +109,7 @@ function keydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && listening.value) { e.preventDefault(); voice.cancel(); return; }
   // Esc stops a running LLM request (outside other text fields).
   if (e.key === 'Escape' && !inOtherField(e) && llm?.busy.value) { e.preventDefault(); llm.stop(); return; }
-  // Enter anywhere outside a text field jumps to the prompt, unless a view claims it (Enter on a selected text or part opens it).
+  // Enter anywhere outside a text field jumps to the prompt, unless a view claims it (Enter on a selected text or canvas opens it).
   if (e.key === 'Enter' && !mod && !e.defaultPrevented && !inPrompt(e) && !inOtherField(e) && !(e.target as HTMLElement | null)?.closest?.('button')) { if (offerEnter(e)) return; e.preventDefault(); focus(); }
 }
 function keyup(e: KeyboardEvent) {

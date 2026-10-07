@@ -1,6 +1,6 @@
 // The plugin's own screen beyond the widget nodes: its look (colours, fonts,
 // background, control skins, CSS), the decorations that live only on the plugin
-// (text, shapes, images, SVG, LEDs, custom parts), their stacking order and
+// (text, shapes, images, SVG, LEDs, canvases), their stacking order and
 // groups, the reference picture laid under the editor, and the assets (pictures,
 // fonts) all of these use. Pure data and checks: ops.ts edits it, persistence.ts
 // loads it, the plugin renderer draws it. Every value that reaches CSS passes a
@@ -128,7 +128,7 @@ export interface TextStyle {
 }
 
 // ---- elements -----------------------------------------------------------------------------
-export const ELEMENT_KINDS = ['text', 'shape', 'image', 'svg', 'led', 'part'] as const;
+export const ELEMENT_KINDS = ['text', 'shape', 'image', 'svg', 'led', 'canvas'] as const;
 export type ElementKind = typeof ELEMENT_KINDS[number];
 interface ElementBase { id: string; rect: Rect; name?: string; style?: ElementStyle; locked?: boolean; hidden?: boolean }
 /** Text. With `bind` it shows that control's value: `{value}` in the text is replaced by it (e.g. "CUTOFF {value}"). */
@@ -138,9 +138,9 @@ export interface ImageElement extends ElementBase { kind: 'image'; asset: string
 export interface SvgElement extends ElementBase { kind: 'svg'; svg: string }
 /** A lamp: on while the bound control is on (or above `threshold`), or with `@level` while sound comes out. */
 export interface LedElement extends ElementBase { kind: 'led'; bind: string; color: string; threshold: number }
-/** A custom part: code that draws on a canvas every frame (runs in a worker). */
-export interface PartElement extends ElementBase { kind: 'part'; code: string; props: Record<string, string | number | boolean> }
-export type UiElement = TextElement | ShapeElement | ImageElement | SvgElement | LedElement | PartElement;
+/** A canvas: code that draws every frame (runs in a worker) and may take the mouse. (Files before U5 called it a custom part, kind "part".) */
+export interface CanvasElement extends ElementBase { kind: 'canvas'; code: string; props: Record<string, string | number | boolean> }
+export type UiElement = TextElement | ShapeElement | ImageElement | SvgElement | LedElement | CanvasElement;
 
 /** How one widget node looks (its own overrides on top of the plugin's look). */
 export interface WidgetStyle {
@@ -409,7 +409,8 @@ const SVG_START = /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i;
 /** Check (and normalise) one element. */
 export function checkElement(v: unknown, ctx: CheckContext): UiElement {
   if (!isObj(v)) bad('bad-element', 'An element is an object with a kind.');
-  const e = v as Record<string, unknown>;
+  // A canvas was called a custom part (kind "part") before U5: older files and old habits still work.
+  const e = (v.kind === 'part' ? { ...v, kind: 'canvas' } : v) as Record<string, unknown>;
   const kind = oneOf(e.kind, ELEMENT_KINDS, 'element kind');
   const known = ['id', 'kind', 'rect', 'name', 'style', 'locked', 'hidden', ...KIND_FIELDS[kind]];
   for (const key of Object.keys(e)) if (!known.includes(key)) bad('bad-element', `A ${kind} element has no "${key}".`, `Fields: ${known.join(', ')}.`);
@@ -433,14 +434,14 @@ export function checkElement(v: unknown, ctx: CheckContext): UiElement {
       return { ...base, kind, svg };
     }
     case 'led': return { ...base, kind, bind: checkBind(e.bind, ctx, true), color: e.color === undefined ? 'accent' : checkColor(e.color, 'LED colour'), threshold: num(e.threshold, 0, 1, 'threshold', 0.5) };
-    case 'part': {
+    case 'canvas': {
       const code = str(e.code, LIMITS.code, 'code');
-      if (!/export\s+default/.test(code)) bad('bad-code', 'A custom part must `export default` its draw function (or {setup, draw}).');
+      if (!/export\s+default/.test(code)) bad('bad-code', 'A canvas must `export default` its draw function (or {setup, draw, pointer}).');
       return { ...base, kind, code, props: e.props === undefined ? {} : checkProps(e.props) };
     }
   }
 }
-const KIND_FIELDS: Record<ElementKind, string[]> = { text: ['text', 'textStyle', 'bind'], shape: ['shape'], image: ['asset', 'fit'], svg: ['svg'], led: ['bind', 'color', 'threshold'], part: ['code', 'props'] };
+const KIND_FIELDS: Record<ElementKind, string[]> = { text: ['text', 'textStyle', 'bind'], shape: ['shape'], image: ['asset', 'fit'], svg: ['svg'], led: ['bind', 'color', 'threshold'], canvas: ['code', 'props'] };
 export const ELEMENT_FIELDS = (kind: ElementKind) => ['rect', 'name', 'style', 'locked', 'hidden', ...KIND_FIELDS[kind]];
 
 export function checkAsset(v: unknown): AssetMeta {

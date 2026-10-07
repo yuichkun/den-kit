@@ -76,8 +76,9 @@ export class LlmWorkspace {
         case 'kit_listen': return await this.listen(typeof a.phrase === 'string' ? a.phrase : undefined, typeof a.seconds === 'number' ? a.seconds : undefined);
         case 'kit_get_plugin': {
           const doc = this.deps.read();
-          const part = typeof a.part === 'string' && a.part ? a.part : undefined;
-          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { part, problems: part ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.() })) };
+          // ("part" was its name before U5; an old habit still works.)
+          const canvas = typeof a.canvas === 'string' && a.canvas ? a.canvas : typeof a.part === 'string' && a.part ? a.part : undefined;
+          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { canvas, problems: canvas ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.() })) };
         }
         case 'kit_look': return await this.look();
         case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined, this.deps.catalog) };
@@ -242,7 +243,7 @@ export class LlmWorkspace {
     const errors = seen.issues.filter(i => i.severity === 'error').length;
     this.steps.push(`looked at the screen (${seen.issues.length ? `${seen.issues.length} to fix` : 'fine'})`);
     const head = `Looked at the plugin (${doc.panel.width}×${doc.panel.height}).${this.deps.images && seen.png ? ' The picture is attached.' : ''}`;
-    const body = seen.issues.length ? `${seen.issues.length} thing${seen.issues.length === 1 ? '' : 's'} to fix${errors ? ` (${errors} serious)` : ''}:\n${seen.issues.map(i => `- ${formatPluginIssue(i)}`).join('\n')}` : 'The checks found nothing to fix (overlaps, edges, text that does not fit, contrast, labels, wiring, pictures, custom parts).';
+    const body = seen.issues.length ? `${seen.issues.length} thing${seen.issues.length === 1 ? '' : 's'} to fix${errors ? ` (${errors} serious)` : ''}:\n${seen.issues.map(i => `- ${formatPluginIssue(i)}`).join('\n')}` : 'The checks found nothing to fix (overlaps, edges, text that does not fit, contrast, labels, wiring, pictures, canvases).';
     return { success: true, text: `${head}\n${body}`, imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined };
   }
 

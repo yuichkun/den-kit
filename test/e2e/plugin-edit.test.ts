@@ -137,30 +137,33 @@ describe('building the plugin screen by hand', () => {
     await page.close(); await other.close();
   });
 
-  it('custom parts draw in a worker; an error shows in the part, an endless loop is stopped, the page keeps working', async () => {
+  it('canvases draw in a worker; an error shows in the canvas, an endless loop is stopped, the page keeps working', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await pluginEdit(page);
     await page.keyboard.press('Shift+Space');
+    // Its old name still finds it.
     await page.keyboard.type('custom');
+    await page.waitForSelector('[data-testid=insert-menu] .item.current[data-insert=canvas]');
+    await page.fill('[data-testid=insert-search]', 'canvas');
     await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-element=part1] canvas');
-    // Enter opens the code; a throwing draw shows its message in the part.
+    await page.waitForSelector('[data-element=canvas1] canvas');
+    // Enter opens the code; a throwing draw shows its message in the canvas.
     await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-testid=part-editor]');
-    await page.fill('[data-testid=part-source]', 'export default function draw(ctx, f) { throw new Error("boom " + Math.round(f.w)); }');
-    await page.click('[data-testid=part-apply]');
+    await page.waitForSelector('[data-testid=canvas-editor]');
+    await page.fill('[data-testid=canvas-source]', 'export default function draw(ctx, f) { throw new Error("boom " + Math.round(f.w)); }');
+    await page.click('[data-testid=canvas-apply]');
     await page.keyboard.press('Escape');
-    await page.waitForFunction(() => document.querySelector('[data-element=part1] [data-part-error]')?.getAttribute('data-part-error')?.includes('boom 220'), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector('[data-element=canvas1] [data-canvas-error]')?.getAttribute('data-canvas-error')?.includes('boom 220'), null, { timeout: 10000 });
     // An endless loop: stopped after the time limit, with a message; the editor still answers.
-    await kit(page, k => k.commit([{ op: 'updateElement', id: 'part1', set: { code: 'export default function draw() { for (;;) {} }' } }]));
-    await page.waitForFunction(() => document.querySelector('[data-element=part1] [data-part-error]')?.getAttribute('data-part-error')?.includes('Stopped'), null, { timeout: 10000 });
+    await kit(page, k => k.commit([{ op: 'updateElement', id: 'canvas1', set: { code: 'export default function draw() { for (;;) {} }' } }]));
+    await page.waitForFunction(() => document.querySelector('[data-element=canvas1] [data-canvas-error]')?.getAttribute('data-canvas-error')?.includes('Stopped'), null, { timeout: 10000 });
     await page.keyboard.press('Shift+Space');
     await page.waitForSelector('[data-testid=insert-menu]');
     await page.keyboard.press('Escape');
-    // A good part again: the error goes away.
-    await kit(page, k => k.commit([{ op: 'updateElement', id: 'part1', set: { code: 'export default (ctx, f) => { ctx.fillStyle = f.color("accent"); ctx.fillRect(0, 0, f.w * f.norm("nope"), f.h); };' } }]));
-    await page.waitForFunction(() => !document.querySelector('[data-element=part1] [data-part-error]'), null, { timeout: 10000 });
+    // A good canvas again: the error goes away.
+    await kit(page, k => k.commit([{ op: 'updateElement', id: 'canvas1', set: { code: 'export default (ctx, f) => { ctx.fillStyle = f.color("accent"); ctx.fillRect(0, 0, f.w * f.norm("nope"), f.h); };' } }]));
+    await page.waitForFunction(() => !document.querySelector('[data-element=canvas1] [data-canvas-error]'), null, { timeout: 10000 });
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -191,7 +194,7 @@ describe('building the plugin screen by hand', () => {
     await page.close();
   });
 
-  it('a custom part that handles the mouse moves controls: one press is one undo step; the wheel too; editing still selects it', async () => {
+  it('a canvas that handles the mouse moves controls: one press is one undo step; the wheel too; editing still selects it', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     const PART = `export default {
@@ -212,14 +215,14 @@ describe('building the plugin screen by hand', () => {
       { op: 'connect', from: { node: 'kq', port: 'out' }, to: { node: 'filter1', port: 'resonance' } },
       { op: 'addNode', node: { id: 'kg', type: 'ui.knob', label: 'G', pos: { x: -300, y: 200 }, config: { min: 0, max: 1, scale: 'linear', unit: '' }, values: { value: 0.5 } } },
     ]));
-    await page.evaluate(code => (window as any).__kit.commit([{ op: 'addElement', element: { kind: 'part', code, rect: { x: 40, y: 40, w: 300, h: 200 } } }]), PART);
+    await page.evaluate(code => (window as any).__kit.commit([{ op: 'addElement', element: { kind: 'canvas', code, rect: { x: 40, y: 40, w: 300, h: 200 } } }]), PART);
     await page.keyboard.press('Control+Alt+KeyE');
-    await page.waitForSelector('[data-element=part1] .part-box[data-interactive]');
+    await page.waitForSelector('[data-element=canvas1] .canvas-box[data-interactive]');
     const values = () => kit(page, (k: any) => [k.doc.value.nodes.kq.values.value, k.doc.value.nodes.kg.values.value]);
-    const b = (await page.locator('[data-element=part1] .part-box').boundingBox())!;
+    const b = (await page.locator('[data-element=canvas1] .canvas-box').boundingBox())!;
     // Hovering: the part chose its own cursor.
     await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.5);
-    await page.waitForFunction(() => (document.querySelector('[data-element=part1] .part-box') as HTMLElement).style.cursor === 'grab');
+    await page.waitForFunction(() => (document.querySelector('[data-element=canvas1] .canvas-box') as HTMLElement).style.cursor === 'grab');
     await page.mouse.down();
     await page.mouse.move(b.x + b.width * 0.75, b.y + b.height * 0.25, { steps: 8 });
     await page.mouse.up();
@@ -245,7 +248,7 @@ describe('building the plugin screen by hand', () => {
     await page.evaluate(async () => {
       (window as any).__kit.redo();
       await Promise.resolve(); // the page catches up, as between two input events, but no frame goes to the part
-      const box = document.querySelector('[data-element=part1] .part-box') as HTMLElement;
+      const box = document.querySelector('[data-element=canvas1] .canvas-box') as HTMLElement;
       const r = box.getBoundingClientRect();
       for (let i = 0; i < 3; i++) box.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true }));
     });
@@ -257,7 +260,7 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.press('Control+KeyE');
     await page.waitForSelector('[data-testid=plugin-edit].active');
     await page.mouse.click(b.x + b.width * 0.5, b.y + b.height * 0.5);
-    assert.deepEqual(await kit(page, (k: any) => k.selection.value), ['part1']);
+    assert.deepEqual(await kit(page, (k: any) => k.selection.value), ['canvas1']);
     assert.deepEqual(await values(), [q, g]);
     assert.deepEqual(errors, []);
     await page.close();

@@ -1,5 +1,5 @@
-// What the plugin's sound looks like right now, for lamps (`@level`) and custom
-// parts: the plugin window reads its output analyser once per frame and shares it.
+// What the plugin's sound looks like right now, for lamps (`@level`) and
+// canvases: the plugin window reads its output analyser once per frame and shares it.
 import type { InjectionKey, Ref } from 'vue';
 
 export interface Meters { level: number; peak: number }

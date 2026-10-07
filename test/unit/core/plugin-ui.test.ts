@@ -27,7 +27,7 @@ const undoes = (doc: PatchDocument, ...intents: Intent[]) => {
 };
 
 describe('the plugin screen: decorations', () => {
-  it('adds text, shapes, pictures, SVG, LEDs and custom parts on top, each undoable', () => {
+  it('adds text, shapes, pictures, SVG, LEDs and canvases on top, each undoable', () => {
     let doc = base();
     const r = undoes(doc,
       { op: 'addElement', element: { kind: 'shape', shape: 'rect', rect: { x: 0, y: 0, w: 300, h: 200 }, style: { fill: [{ kind: 'image', asset: 'wood', fit: 'tile', size: 128 }, { kind: 'linear', angle: 180, stops: [{ color: '#0000', at: 0 }, { color: 'rgba(0,0,0,.4)', at: 1 }] }], radius: 12, shadows: [{ x: 0, y: 4, blur: 12, spread: 0, color: '#0008', inset: false }] } } },
@@ -35,12 +35,12 @@ describe('the plugin screen: decorations', () => {
       { op: 'addElement', element: { kind: 'image', asset: 'wood', fit: 'cover', rect: { x: 200, y: 10, w: 40, h: 40 } } },
       { op: 'addElement', element: { kind: 'svg', svg: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>', rect: { x: 250, y: 10, w: 20, h: 20 } } },
       { op: 'addElement', element: { kind: 'led', bind: 'sw1', rect: { x: 280, y: 10, w: 12, h: 12 }, color: '#ff3b30' } },
-      { op: 'addElement', element: { kind: 'part', code: 'export default (ctx, f) => { ctx.fillRect(0, 0, f.w * f.level, f.h); };', rect: { x: 10, y: 140, w: 280, h: 40 }, props: { speed: 2 } } },
+      { op: 'addElement', element: { kind: 'canvas', code: 'export default (ctx, f) => { ctx.fillRect(0, 0, f.w * f.level, f.h); };', rect: { x: 10, y: 140, w: 280, h: 40 }, props: { speed: 2 } } },
     );
-    expect(r.created).toEqual(['shape1', 'text1', 'image1', 'svg1', 'led1', 'part1']);
+    expect(r.created).toEqual(['shape1', 'text1', 'image1', 'svg1', 'led1', 'canvas1']);
     doc = r.doc;
     // New things go on top of what was there (the knobs keep their place below).
-    expect(stack(doc)).toEqual(['k1', 'k2', 'shape1', 'text1', 'image1', 'svg1', 'led1', 'part1']);
+    expect(stack(doc)).toEqual(['k1', 'k2', 'shape1', 'text1', 'image1', 'svg1', 'led1', 'canvas1']);
     expect(doc.ui.elements.led1).toMatchObject({ kind: 'led', bind: 'sw1', threshold: 0.5 });
     // Ids are shared with modules: a module cannot take an element's id and the other way round.
     expect(failure(() => apply(doc, { op: 'addNode', node: { id: 'text1', type: 'den.lfo' } })).code).toBe('duplicate-id');
@@ -57,7 +57,7 @@ describe('the plugin screen: decorations', () => {
     expect(add({ kind: 'text', text: 'x', textStyle: { font: 'papyrus' } })).toMatchObject({ code: 'bad-font', hint: expect.stringContaining('caveat') });
     expect(add({ kind: 'text', text: 'x', textStyle: { font: 'wood' } }).code).toBe('bad-asset'); // a picture is not a font
     expect(add({ kind: 'svg', svg: '<script>alert(1)</script>' }).code).toBe('bad-svg');
-    expect(add({ kind: 'part', code: 'function draw() {}' }).code).toBe('bad-code');
+    expect(add({ kind: 'canvas', code: 'function draw() {}' }).code).toBe('bad-code');
     expect(add({ kind: 'led', bind: 'ghost' }).code).toBe('unknown-node');
     expect(add({ kind: 'text', text: 'x', bind: '@level' }).code).toBe('bad-bind');
     expect(add({ kind: 'blob' })).toMatchObject({ code: 'bad-value', message: expect.stringContaining('text, shape') });
@@ -209,6 +209,18 @@ describe('the plugin screen: saving and loading', () => {
     expect(documentHash(parsed.doc)).toBe(documentHash(doc));
     expect(parsed.assetData).toEqual({ wood: 'data:image/jpeg;base64,AAAA' });
     expect(JSON.parse(serializeDocument(doc)).assets.wood.data).toBeUndefined(); // autosave and plain export keep only the description
+  });
+  it('a canvas was called a custom part (kind "part") before U5: such files load, and the old word still adds one', () => {
+    const doc = apply(base(), { op: 'addElement', element: { kind: 'canvas', code: 'export default () => {};', rect: { x: 0, y: 0, w: 40, h: 40 } } }).doc;
+    const old = JSON.parse(serializeDocument(doc));
+    old.ui.elements.canvas1.kind = 'part';
+    const parsed = parseDocument(JSON.stringify(old), catalog);
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(parsed.report).toEqual([]);
+    expect(parsed.doc.ui.elements.canvas1).toMatchObject({ kind: 'canvas', code: 'export default () => {};' });
+    const r = applyIntents(base(), [{ op: 'addElement', element: { kind: 'part' as never, code: 'export default () => {};', rect: { x: 0, y: 0, w: 40, h: 40 } } }], catalog);
+    expect(r.created).toEqual(['canvas1']);
+    expect(r.doc.ui.elements.canvas1!.kind).toBe('canvas');
   });
   it('version 1 patches load with an empty plugin screen', () => {
     const v1 = JSON.parse(serializeDocument(starter('bass', catalog)));

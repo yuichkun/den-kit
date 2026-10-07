@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The code of a custom part, with a live preview: the draft runs as you type
+// The code of a canvas, with a live preview: the draft runs as you type
 // (after a pause), so mistakes show at once; Apply (⌘Enter) puts it on the plugin.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { PartElement } from '../../core/ui.ts';
+import type { CanvasElement } from '../../core/ui.ts';
 import { pluginSpec } from '../../plugin/build.ts';
-import { PART_TEMPLATE } from '../../plugin/inserts.ts';
+import { CANVAS_TEMPLATE } from '../../plugin/inserts.ts';
 import PluginWindow from '../../plugin/PluginWindow.vue';
 import type { PluginSpec } from '../../plugin/spec.ts';
 import { useSession } from '../context.ts';
@@ -13,8 +13,8 @@ import { controlWriter } from '../play.ts';
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 const session = useSession();
-const element = computed(() => session.doc.value.ui.elements[props.id] as PartElement | undefined);
-const code = ref(element.value?.code ?? PART_TEMPLATE);
+const element = computed(() => session.doc.value.ui.elements[props.id] as CanvasElement | undefined);
+const code = ref(element.value?.code ?? CANVAS_TEMPLATE);
 const propsText = ref(JSON.stringify(element.value?.props ?? {}, null, 1));
 const preview = ref(code.value);
 const status = ref<string | null>(null);
@@ -22,11 +22,11 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 watch(code, c => { if (timer) clearTimeout(timer); timer = setTimeout(() => { preview.value = c; }, 600); });
 const parsedProps = computed(() => { try { const p = JSON.parse(propsText.value || '{}'); return p && typeof p === 'object' && !Array.isArray(p) ? p : null; } catch { return null; } });
 const dirty = computed(() => code.value !== element.value?.code || JSON.stringify(parsedProps.value) !== JSON.stringify(element.value?.props));
-/** The plugin as it is, with the draft in place of this part (and nothing else on top of it). */
+/** The plugin as it is, with the draft in place of this canvas (and nothing else on top of it). */
 const spec = computed<PluginSpec | null>(() => {
   const el = element.value; if (!el) return null;
   const base = pluginSpec(session.doc.value, session.catalog, session.generated.value);
-  const draft: PartElement = { ...el, code: preview.value, props: parsedProps.value ?? el.props, rect: { x: 0, y: 0, w: el.rect.w, h: el.rect.h } };
+  const draft: CanvasElement = { ...el, code: preview.value, props: parsedProps.value ?? el.props, rect: { x: 0, y: 0, w: el.rect.w, h: el.rect.h } };
   return { ...base, width: el.rect.w, height: el.rect.h, background: [], css: '', items: [{ kind: 'element', id: el.id, element: draft }] };
 });
 function apply() {
@@ -39,10 +39,10 @@ function key(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); apply(); }
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); emit('close'); }
 }
-// The preview plays: a part that handles the mouse moves the real controls (one ⌘Z each press).
+// The preview plays: a canvas that handles the mouse moves the real controls (one ⌘Z each press).
 const onChange = controlWriter(session);
 const analyser = (probe: number) => probe >= 0 ? session.engine.probeAnalysers[probe] ?? null : session.engine.outAnalyser;
-// Opened from the keyboard (Enter on the part): the code takes the keys at once, and gives them back to the plugin view on close.
+// Opened from the keyboard (Enter on the canvas): the code takes the keys at once, and gives them back to the plugin view on close.
 const source = ref<HTMLTextAreaElement | null>(null);
 onMounted(() => void nextTick(() => source.value?.focus()));
 onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-view]')?.focus());
@@ -50,14 +50,14 @@ onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-v
 
 <template>
   <div class="overlay" @pointerdown.self="emit('close')">
-    <div class="modal" data-testid="part-editor">
-      <header><b>Custom part {{ id }}</b><span class="muted">JavaScript, drawn on a canvas each frame · ⌘/Ctrl+Enter applies · Esc closes</span><span style="flex:1" /><button @click="code = PART_TEMPLATE">Template</button><button class="primary" :disabled="!dirty" data-testid="part-apply" @click="apply">Apply</button><button @click="emit('close')">Close</button></header>
+    <div class="modal" data-testid="canvas-editor">
+      <header><b>Canvas {{ id }}</b><span class="muted">JavaScript, drawn on a canvas each frame · ⌘/Ctrl+Enter applies · Esc closes</span><span style="flex:1" /><button @click="code = CANVAS_TEMPLATE">Template</button><button class="primary" :disabled="!dirty" data-testid="canvas-apply" @click="apply">Apply</button><button @click="emit('close')">Close</button></header>
       <div class="body">
-        <textarea ref="source" v-model="code" spellcheck="false" data-testid="part-source" @keydown="key" />
+        <textarea ref="source" v-model="code" spellcheck="false" data-testid="canvas-source" @keydown="key" />
         <aside>
           <h4>Preview</h4>
           <div class="preview"><PluginWindow v-if="spec" :spec="spec" :analyser="analyser" :asset-urls="session.assetUrls.value" @change="onChange" /></div>
-          <div v-if="status" class="issue error" data-testid="part-status">{{ status }}</div>
+          <div v-if="status" class="issue error" data-testid="canvas-status">{{ status }}</div>
           <h4>Settings (f.props)</h4>
           <textarea v-model="propsText" class="props" :class="{ bad: !parsedProps }" spellcheck="false" rows="4" />
           <h4>What f has</h4>

@@ -38,10 +38,10 @@ describe('structural checks', () => {
     expect(checkPlugin(starter('bass', catalog), catalog)).toEqual([expect.objectContaining({ code: 'empty' })]);
   });
 
-  it('a control a custom part moves is not unwired; a missing picture is reported', () => {
+  it('a control a canvas moves is not unwired; a missing picture is reported', () => {
     const doc = applyIntents(starter('bass', catalog), [
       { op: 'addNode', node: { id: 'kq', type: 'ui.knob', label: 'Q', panel: { x: 20, y: 20, w: 84, h: 96 } } },
-      { op: 'addElement', element: { kind: 'part', code: 'export default { draw() {}, pointer(e, f) { f.setNorm("kq", e.x / f.w); } };', rect: { x: 200, y: 20, w: 200, h: 100 } } },
+      { op: 'addElement', element: { kind: 'canvas', code: 'export default { draw() {}, pointer(e, f) { f.setNorm("kq", e.x / f.w); } };', rect: { x: 200, y: 20, w: 200, h: 100 } } },
     ], catalog).doc;
     expect(checkPlugin(doc, catalog)).toEqual([]);
     const broken = { ...doc, ui: { ...doc.ui, look: { ...doc.ui.look, background: [{ kind: 'image' as const, asset: 'nope-pic', fit: 'cover' as const }] } } };

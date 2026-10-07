@@ -1,6 +1,6 @@
 // お題 10 — XY でフィルターを弾くエフェクト。ネオンの見た目で、指の軌跡が光る。
 // A resonant multimode filter played with one finger: across sweeps the cutoff
-// over seven octaves, up raises the resonance. A custom part paints the
+// over seven octaves, up raises the resonance. A canvas paints the
 // finger's glowing trail and a neon floor that pulses with the sound.
 import type { Catalog } from '../core/catalog.ts';
 import { add, asset, control, el, r, wire, work } from './build.ts';
@@ -66,7 +66,7 @@ export function neon(catalog: Catalog) {
     } },
     el({ kind: 'text', name: 'Title', text: 'FILTER', rect: r(30, 18, 580, 78), textStyle: { font: 'monoton', size: 62, color: 'accent', spacing: 0.08, shadows: [{ x: 0, y: 0, blur: 6, color: 'accent' }, { x: 0, y: 0, blur: 24, color: 'accent' }, { x: 0, y: 0, blur: 48, color: '#7a0aff' }] } }),
     el({ kind: 'shape', shape: 'rect', name: 'Tube', rect: r(36, 106, 568, 372), locked: true, style: { radius: 18, stroke: { color: 'glow', width: 2, style: 'solid' }, shadows: [{ x: 0, y: 0, blur: 14, spread: 1, color: 'glow', inset: false }, { x: 0, y: 0, blur: 10, spread: 0, color: 'glow', inset: true }] } }),
-    el({ kind: 'part', name: 'Trail', code: NEON_TRAIL, rect: r(40, 110, 560, 364) }),
+    el({ kind: 'canvas', name: 'Trail', code: NEON_TRAIL, rect: r(40, 110, 560, 364) }),
     ...control('pad1', 'ui.xy', 'Sweep', null, r(40, 110, 560, 364), { style: { skin: { name: 'glow', params: { dot: 'accent', size: 22, trail: 0, glow: 34, crosshair: true, label: 'none' } } } }),
     wire('pad1.x', 'oct1.in'), wire('pad1.y', 'q1.in'),
     el({ kind: 'text', name: 'X label', text: 'CUTOFF →', rect: r(440, 484, 160, 22), textStyle: { size: 12, color: 'muted', align: 'right', spacing: 0.24, shadows: [{ x: 0, y: 0, blur: 8, color: 'glow' }] } }),

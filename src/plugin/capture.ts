@@ -1,11 +1,11 @@
-// A picture of a part of the page as the browser draws it, made in the page:
+// A picture of a canvas of the page as the browser draws it, made in the page:
 // the elements (the controls' shadow DOM included) are copied with the styles
-// the browser computed for them, canvases become pictures (custom parts hand
+// the browser computed for them, canvases become pictures (canvases hand
 // over theirs from their workers), pictures and fonts are inlined, and the copy
 // is drawn through an SVG image onto a canvas. Nothing leaves the page. Used to
 // let the AI look at the plugin (look.ts); `hideText` draws it without any text,
 // to measure what is behind each text.
-import { partSnapshot } from './part-runtime.ts';
+import { canvasSnapshot } from './canvas-runtime.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
@@ -135,8 +135,8 @@ function copy(node: Node, ctx: Ctx, ids: Map<string, string> | null): Node | nul
   let out: Element;
   if (node instanceof HTMLCanvasElement) {
     const img = document.createElementNS(XHTML_NS, 'img') as HTMLImageElement;
-    const part = partSnapshot(node);
-    if (part) ctx.work.push(part.then(b => b ? toDataUrl(b) : '').then(src => { if (src) img.setAttribute('src', src); }));
+    const shot = canvasSnapshot(node);
+    if (shot) ctx.work.push(shot.then(b => b ? toDataUrl(b) : '').then(src => { if (src) img.setAttribute('src', src); }));
     else { try { img.setAttribute('src', node.toDataURL('image/png')); } catch { /* a canvas we cannot read stays empty */ } }
     out = img;
   } else if (node instanceof HTMLImageElement) {

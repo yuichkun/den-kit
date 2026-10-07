@@ -2,7 +2,7 @@
 // person, with ✓ Check). The plugin is drawn off-screen and photographed in the
 // page; the checks measure where things were drawn: text that does not fit,
 // labels squeezed, words on a control, text too faint for what is behind it,
-// custom parts that fail. Every showcase work passes; a careless screen does not.
+// canvases that fail. Every showcase work passes; a careless screen does not.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -40,7 +40,7 @@ describe('looking the plugin over', () => {
     await page.close();
   });
 
-  it('a careless screen: what does not fit, what is squeezed, words on a control, faint text, a failing part — and ✓ Check shows it', async () => {
+  it('a careless screen: what does not fit, what is squeezed, words on a control, faint text, a failing canvas — and ✓ Check shows it', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await kit(page, k => k.commit([
@@ -49,7 +49,7 @@ describe('looking the plugin over', () => {
       { op: 'addElement', element: { id: 'over', kind: 'text', text: 'OVER THE KNOB', rect: { x: 4, y: 44, w: 120, h: 20 }, textStyle: { size: 14, color: 'fg' } } },
       { op: 'addElement', element: { id: 'long', kind: 'text', text: 'This sentence is much too long for its little box', rect: { x: 200, y: 20, w: 90, h: 20 }, textStyle: { size: 14 } } },
       { op: 'addElement', element: { id: 'faint', kind: 'text', text: 'Faint words', rect: { x: 340, y: 200, w: 200, h: 24 }, textStyle: { size: 14, color: '#3a3a3a' } } },
-      { op: 'addElement', element: { id: 'bad', kind: 'part', code: 'export default function draw() { throw new Error("no paint"); }', rect: { x: 380, y: 20, w: 120, h: 80 } } },
+      { op: 'addElement', element: { id: 'bad', kind: 'canvas', code: 'export default function draw() { throw new Error("no paint"); }', rect: { x: 380, y: 20, w: 120, h: 80 } } },
     ]));
     const seen = await look(page);
     const has = (code: string, id: string) => seen.issues.some(i => i.code === code && i.ids.includes(id));
@@ -57,8 +57,8 @@ describe('looking the plugin over', () => {
     assert.ok(has('squeezed', 'kl'), JSON.stringify(seen.issues));
     assert.ok(has('overlap', 'over'), JSON.stringify(seen.issues));
     assert.ok(has('contrast', 'faint'), JSON.stringify(seen.issues));
-    assert.ok(has('part-error', 'bad'), JSON.stringify(seen.issues));
-    assert.match(seen.issues.find(i => i.code === 'part-error')!.message, /no paint/);
+    assert.ok(has('canvas-error', 'bad'), JSON.stringify(seen.issues));
+    assert.match(seen.issues.find(i => i.code === 'canvas-error')!.message, /no paint/);
     assert.equal(seen.issues.find(i => i.code === 'contrast' && i.ids.includes('faint'))!.severity, 'error');
     // The same in the editor: ⌥⌘K in edit mode lists it (even with the cursor still in the AI prompt); picking one selects what it is about.
     await page.keyboard.press('Control+Alt+KeyE');

@@ -93,14 +93,14 @@ describe('showcase works', () => {
       expect(compiled.wasm.byteLength).toBeLessThan(1_500_000);
     }, 60000);
 
-    it(`${w.id}: saves and loads back unchanged; custom parts load and draw`, async () => {
+    it(`${w.id}: saves and loads back unchanged; canvases load and draw`, async () => {
       const doc = w.build(catalog);
       const parsed = parseDocument(serializeDocument(doc), catalog);
       if (!parsed.ok) throw new Error(parsed.error);
       expect(parsed.report).toEqual([]);
       expect(documentHash(parsed.doc)).toBe(documentHash(doc));
       for (const el of Object.values(doc.ui.elements)) {
-        if (el.kind !== 'part') continue;
+        if (el.kind !== 'canvas') continue;
         const mod = await import(`data:text/javascript;base64,${Buffer.from(el.code).toString('base64')}`);
         const part = typeof mod.default === 'function' ? { draw: mod.default } : mod.default;
         const ctx = fakeCanvas();

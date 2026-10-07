@@ -15,7 +15,7 @@ const rows = computed(() => {
   const q = query.value.trim().toLowerCase();
   const pictures = Object.values(session.doc.value.assets).filter(isImageAsset).map(a => ({ key: 'picture', asset: a.id, title: a.name, doc: 'Picture', group: 'Picture' }));
   const all = [...INSERTABLES.filter(i => i.key !== 'picture').map(i => ({ ...i, asset: undefined as string | undefined })), ...pictures];
-  return q ? all.filter(r => `${r.title} ${r.doc} ${r.key}`.toLowerCase().includes(q)) : all;
+  return q ? all.filter(r => `${r.title} ${r.doc} ${r.key} ${'also' in r ? r.also ?? '' : ''}`.toLowerCase().includes(q)) : all;
 });
 function key(e: KeyboardEvent) {
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); emit('close'); }

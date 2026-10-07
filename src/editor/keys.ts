@@ -1,6 +1,6 @@
 // Who gets Enter. Enter from anywhere outside a text field jumps to the AI
 // prompt, but a view can claim it first: Enter on a selected text opens it for
-// typing, on a custom part opens its code. The AI panel hears keys before
+// typing, on a canvas opens its code. The AI panel hears keys before
 // everything else, so it offers Enter to the claims before jumping.
 type Claim = (e: KeyboardEvent) => boolean;
 const claims = new Set<Claim>();

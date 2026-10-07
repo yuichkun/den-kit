@@ -29,7 +29,7 @@ import { claimEnter } from './keys.ts';
 import { controlWriter } from './play.ts';
 
 const props = defineProps<{ edit: boolean; focus?: boolean }>();
-const emit = defineEmits<{ (e: 'update:edit', value: boolean): void; (e: 'fullscreen'): void; (e: 'edit-part', id: string): void }>();
+const emit = defineEmits<{ (e: 'update:edit', value: boolean): void; (e: 'fullscreen'): void; (e: 'edit-canvas', id: string): void }>();
 defineExpose({ action });
 const session = useSession();
 const doc = computed(() => session.doc.value);
@@ -161,7 +161,7 @@ function doubleClick(id: string, e: MouseEvent) {
   session.select([id]);
   const el = doc.value.ui.elements[id];
   if (el?.kind === 'text') startText(id);
-  else if (el?.kind === 'part') emit('edit-part', id);
+  else if (el?.kind === 'canvas') emit('edit-canvas', id);
 }
 function backgroundDouble(e: MouseEvent) {
   if (!props.edit || (e.target as HTMLElement).closest('[data-item], .insert-menu, .bar')) return;
@@ -296,12 +296,12 @@ function onKey(e: KeyboardEvent) {
   else if (e.altKey && !mod && ALIGN_KEYS[e.code]) { e.preventDefault(); action(`align-${ALIGN_KEYS[e.code]}`); }
 }
 
-/** Enter on one selected text or custom part opens it (the text for typing, the part's code). */
+/** Enter on one selected text or canvas opens it (the text for typing, the canvas's code). */
 function onEnter(e: KeyboardEvent): boolean {
   if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.defaultPrevented || !props.edit || menu.value || editingText.value || typing(e) || selected.value.size !== 1) return false;
   const id = [...selected.value][0]!, el = doc.value.ui.elements[id];
   if (el?.kind === 'text') { e.preventDefault(); startText(id); return true; }
-  if (el?.kind === 'part') { e.preventDefault(); emit('edit-part', id); return true; }
+  if (el?.kind === 'canvas') { e.preventDefault(); emit('edit-canvas', id); return true; }
   return false;
 }
 // The AI panel offers Enter here before jumping to its prompt; without the panel, the window listener takes it.
@@ -321,7 +321,7 @@ const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.l
       </div>
       <select :value="doc.panel.theme" data-testid="plugin-theme" title="Base theme (the look's own colours stay on top)" @change="commit([{ op: 'setTheme', theme: ($event.target as HTMLSelectElement).value as never }], 'Theme')"><option v-for="t in THEMES" :key="t" :value="t">{{ t }}</option></select>
       <label v-if="hasInput" class="input">Input <InputSelect /></label>
-      <button v-if="edit" class="small" data-testid="plugin-add" title="Add text, shapes, pictures, lamps, custom parts or controls (Shift+Space)" @click="openMenu({ x: W / 2, y: H / 2 })">+ Add <kbd>⇧Space</kbd></button>
+      <button v-if="edit" class="small" data-testid="plugin-add" title="Add text, shapes, pictures, lamps, canvases or controls (Shift+Space)" @click="openMenu({ x: W / 2, y: H / 2 })">+ Add <kbd>⇧Space</kbd></button>
       <button v-if="edit" class="small" data-testid="plugin-check" title="Look the plugin over: overlaps, things cut by the edge, text that does not fit or is hard to read, unlabelled or unwired controls (⌥⌘K)" @click="runCheck">✓ Check <kbd>⌥⌘K</kbd></button>
       <span class="muted hint">{{ edit ? 'drag · handles resize · ⌥A/D/W/S align · ⌘G group · ⌘]/[ stack · Tab next · Enter text' : `${W} × ${H} · scales to the window` }}</span>
       <span style="flex:1" />

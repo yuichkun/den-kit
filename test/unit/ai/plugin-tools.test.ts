@@ -20,15 +20,15 @@ describe('kit_get_plugin', () => {
     expect(text).toMatch(/Look background \(bottom first\): picture sc-starfield cover \| radial/);
     expect(text).toContain('knob ring (look: thickness 3, round true)');
     // Back to front: the part (the sky) first, the knobs last.
-    const order = ['"id":"part1"', '"text":"NEBULA"', '"id":"ktime"', '"id":"ksky"'].map(s => text.indexOf(s));
+    const order = ['"id":"canvas1"', '"text":"NEBULA"', '"id":"ktime"', '"id":"ksky"'].map(s => text.indexOf(s));
     expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
     expect(text).toMatch(/"id":"ktime","control":"knob","label":"Time","panel":\{"x":78,"y":308,"w":96,"h":104\},"skin":"ring \(own: thickness 3, ticks 0, round true, value \\"inside\\"\)"/);
     expect(text).toMatch(/"value":"420 ms","range":"80\.0 ms … 1\.40 s \(log\)","drives":\["→ echo1\.timeSeconds"\]/);
-    expect(text).toContain('whole code: kit_get_plugin {\\"part\\":\\"part1\\"}');
+    expect(text).toContain('whole code: kit_get_plugin {\\"canvas\\":\\"canvas1\\"}');
     expect(text).toMatch(/Assets in this patch: sc-starfield \(picture 1600×1067: Night sky/);
     // One part's whole code on request.
-    expect(describePlugin(doc, catalog, { part: 'part1' })).toContain('f.state.grains');
-    expect(() => describePlugin(doc, catalog, { part: 'nope' })).toThrow(/Parts: part1/);
+    expect(describePlugin(doc, catalog, { canvas: 'canvas1' })).toContain('f.state.grains');
+    expect(() => describePlugin(doc, catalog, { canvas: 'nope' })).toThrow(/Canvases: canvas1/);
   });
 
   it('a plain patch: nothing on the plugin yet, theme tokens, controls kept off the plugin listed', () => {
@@ -49,7 +49,7 @@ describe('kit_ui_reference', () => {
     expect(knobs).toContain('chicken');
     expect(knobs).not.toContain('footswitch');
     expect(uiReference('skins')).toContain('footswitch');
-    expect(uiReference('parts')).toMatch(/f\.setNorm\(id, 0\.\.1\)/);
+    expect(uiReference('canvas')).toMatch(/f\.setNorm\(id, 0\.\.1\)/);
     expect(uiReference('pictures')).toMatch(/sc-wood: Warm mid-brown wood grain/);
     expect(uiReference('fonts')).toContain('orbitron');
   });

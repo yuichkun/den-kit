@@ -22,7 +22,7 @@ function pick(id: string, e: MouseEvent) {
   else session.select([id]);
 }
 const toggle = (id: string, field: 'hidden' | 'locked', value: boolean) => session.commit([{ op: 'updateElement', id, set: { [field]: value || null } }], { label: value ? (field === 'hidden' ? 'Hide' : 'Lock') : (field === 'hidden' ? 'Show' : 'Unlock') });
-const ICON: Record<string, string> = { text: 'T', rect: '▭', ellipse: '◯', line: '—', image: '▣', svg: '✦', led: '●', part: '{}', knob: '◔', slider: '▮', toggle: '⏻', button: '◉', xy: '✛', keyboard: '▤', scope: '∿', meter: '▁' };
+const ICON: Record<string, string> = { text: 'T', rect: '▭', ellipse: '◯', line: '—', image: '▣', svg: '✦', led: '●', canvas: '{}', knob: '◔', slider: '▮', toggle: '⏻', button: '◉', xy: '✛', keyboard: '▤', scope: '∿', meter: '▁' };
 </script>
 
 <template>

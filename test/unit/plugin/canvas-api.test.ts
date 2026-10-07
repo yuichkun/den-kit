@@ -1,15 +1,15 @@
-// What a custom part may write to controls: checked, clamped, and visible to
+// What a canvas may write to controls: checked, clamped, and visible to
 // later reads in the same frame.
 import { describe, expect, it } from 'vitest';
-import { PartWriteError, overlayPending, writeControl, type PartFrame, type PendingWrites } from '../../../src/plugin/part-api.ts';
+import { CanvasWriteError, overlayPending, writeControl, type CanvasFrame, type PendingWrites } from '../../../src/plugin/canvas-api.ts';
 
-const frame = (): Pick<PartFrame, 'values' | 'norms' | 'ranges'> => ({
+const frame = (): Pick<CanvasFrame, 'values' | 'norms' | 'ranges'> => ({
   values: { cut: 1000, mix: 0.5, on: false, pad: { x: 0.5, y: 0.5 } },
   norms: { cut: 0.5, mix: 0.5, on: 0, pad: 0.5 },
   ranges: { cut: { min: 100, max: 10000, log: true, unit: 'Hz' }, mix: { min: 0, max: 1, log: false, unit: '' }, on: { min: 0, max: 1, log: false, unit: '' }, pad: { min: 0, max: 1, log: false, unit: '' } },
 });
 
-describe('custom parts write controls', () => {
+describe('canvases write controls', () => {
   it('sets a value in its own units, clamped to its range, and later reads see it', () => {
     const f = frame();
     expect(writeControl(f, 'cut', 20000)).toEqual({ value: 10000 });
@@ -35,7 +35,7 @@ describe('custom parts write controls', () => {
 
   it('refuses unknown controls, wrong shapes and non-finite numbers with a message that says what to do', () => {
     const f = frame();
-    expect(() => writeControl(f, 'nope', 1)).toThrow(PartWriteError);
+    expect(() => writeControl(f, 'nope', 1)).toThrow(CanvasWriteError);
     expect(() => writeControl(f, 'nope', 1)).toThrow(/Controls: cut, mix, on, pad/);
     expect(() => writeControl({ values: {}, norms: {}, ranges: {} }, 'k1', 1)).toThrow(/Add a knob/);
     expect(() => writeControl(f, 'cut', Number.NaN)).toThrow(/must be a number/);

@@ -4,7 +4,7 @@
 // behind it, controls that drive nothing or have no label, pictures that are
 // missing. The structural checks read the patch alone (pure); the measured ones
 // take what the browser saw when it drew the plugin (look.ts): text that does
-// not fit, custom parts that failed, the pixels behind each text.
+// not fit, canvases that failed, the pixels behind each text.
 import type { Catalog } from '../core/catalog.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import { CONTROL_OF } from '../core/skins.ts';
@@ -13,7 +13,7 @@ import { intersects } from './edit.ts';
 import type { Rect } from './spec.ts';
 
 export interface PluginIssue {
-  code: 'empty' | 'outside' | 'cut' | 'overlap' | 'covered' | 'tiny-text' | 'unlabelled' | 'unwired' | 'missing-asset' | 'no-voice' | 'text-overflow' | 'squeezed' | 'part-error' | 'contrast';
+  code: 'empty' | 'outside' | 'cut' | 'overlap' | 'covered' | 'tiny-text' | 'unlabelled' | 'unwired' | 'missing-asset' | 'no-voice' | 'text-overflow' | 'squeezed' | 'canvas-error' | 'contrast';
   /** The things it is about (element or control ids). */
   ids: string[];
   message: string;
@@ -61,7 +61,7 @@ function opacity(el: UiElement): number {
   const o = el.style?.opacity ?? 1;
   if (el.kind === 'image') return o;
   if (el.kind === 'shape' && el.shape !== 'line') return o * fillOpacity(el.style?.fill);
-  if (el.kind === 'text' || el.kind === 'led' || el.kind === 'svg' || el.kind === 'part') return o * fillOpacity(el.style?.fill);
+  if (el.kind === 'text' || el.kind === 'led' || el.kind === 'svg' || el.kind === 'canvas') return o * fillOpacity(el.style?.fill);
   return 0;
 }
 
@@ -116,10 +116,10 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
   }
 
   // Controls that drive nothing, or that nobody can tell apart.
-  const partCode = elements.filter(e => e.kind === 'part').map(e => (e as Extract<UiElement, { kind: 'part' }>).code).join('\n');
+  const canvasCode = elements.filter(e => e.kind === 'canvas').map(e => (e as Extract<UiElement, { kind: 'canvas' }>).code).join('\n');
   const boundText = new Set(texts.filter(t => t.bind).map(t => t.bind!.split('.')[0]!));
   for (const w of widgets) {
-    if (PLAYED.has(w.type) && !Object.values(doc.edges).some(e => e.from.node === w.id) && !new RegExp(`['"\`]${w.id}['"\`]`).test(partCode)) {
+    if (PLAYED.has(w.type) && !Object.values(doc.edges).some(e => e.from.node === w.id) && !new RegExp(`['"\`]${w.id}['"\`]`).test(canvasCode)) {
       out.push({ code: 'unwired', ids: [w.id], message: `${name(doc, w.id)} drives nothing: connect it to a module input (or remove it).`, severity: 'warn' });
     }
     if (w.type === 'ui.keyboard' && !Object.values(doc.nodes).some(n => n.type === 'kit.voiceIn')) out.push({ code: 'no-voice', ids: [w.id], message: `${name(doc, w.id)} plays nothing: the patch has no Voice In (it is an effect).`, severity: 'warn' });

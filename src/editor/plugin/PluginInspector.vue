@@ -19,7 +19,7 @@ import SkinEditor from './SkinEditor.vue';
 import StyleEditor from './StyleEditor.vue';
 import TextStyleEditor from './TextStyleEditor.vue';
 
-const emit = defineEmits<{ (e: 'edit-part', id: string): void; (e: 'action', name: string): void }>();
+const emit = defineEmits<{ (e: 'edit-canvas', id: string): void; (e: 'action', name: string): void }>();
 const session = useSession();
 const doc = computed(() => session.doc.value);
 const look = computed(() => doc.value.ui.look);
@@ -58,15 +58,15 @@ watch(node, n => { label.value = n?.label ?? ''; }, { immediate: true });
 const textDraft = ref('');
 watch(element, e => { textDraft.value = e?.kind === 'text' ? e.text : e?.kind === 'svg' ? e.svg : ''; }, { immediate: true });
 const propsDraft = ref('');
-watch(element, e => { propsDraft.value = e?.kind === 'part' ? JSON.stringify(e.props) : ''; }, { immediate: true });
-function setProps() { try { setEl({ props: JSON.parse(propsDraft.value || '{}') }, 'Part settings'); } catch { session.toast('warn', 'Settings must be JSON, e.g. {"speed": 2}.'); } }
+watch(element, e => { propsDraft.value = e?.kind === 'canvas' ? JSON.stringify(e.props) : ''; }, { immediate: true });
+function setProps() { try { setEl({ props: JSON.parse(propsDraft.value || '{}') }, 'Canvas settings'); } catch { session.toast('warn', 'Settings must be JSON, e.g. {"speed": 2}.'); } }
 const cssDraft = ref(look.value.css ?? '');
 watch(() => look.value.css, c => { cssDraft.value = c ?? ''; });
 // The design brief: what the screen is going for, kept to by the AI on every request.
 const briefDraft = ref(doc.value.ui.brief ?? '');
 watch(() => doc.value.ui.brief, b => { briefDraft.value = b ?? ''; });
 const defaultSkinControl = ref<ControlKind>('knob');
-const KIND_TITLE: Record<string, string> = { text: 'Text', shape: 'Shape', image: 'Picture', svg: 'SVG', led: 'Lamp', part: 'Custom part' };
+const KIND_TITLE: Record<string, string> = { text: 'Text', shape: 'Shape', image: 'Picture', svg: 'SVG', led: 'Lamp', canvas: 'Canvas' };
 const pictures = computed(() => Object.values(assets.value).filter(isImageAsset));
 const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset));
 </script>
@@ -94,8 +94,8 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
           <div class="row"><label>Colour</label><ColorField :value="element.color" :clearable="false" @update="(c, done) => c && setEl({ color: c }, 'Lamp colour', done ? undefined : 'led')" /></div>
           <div class="row"><label>From</label><input type="range" min="0" max="1" step="0.01" :value="element.threshold" @change="setEl({ threshold: Number(($event.target as HTMLInputElement).value) }, 'Lamp')" /></div>
         </template>
-        <template v-else-if="element.kind === 'part'">
-          <button class="primary" type="button" data-testid="edit-part" @click="emit('edit-part', element.id)">Edit code</button>
+        <template v-else-if="element.kind === 'canvas'">
+          <button class="primary" type="button" data-testid="edit-canvas" @click="emit('edit-canvas', element.id)">Edit code</button>
           <div class="row"><label>Settings</label><input v-model="propsDraft" type="text" class="code" spellcheck="false" placeholder="{}" @change="setProps" /></div>
         </template>
         <div class="row flags"><label class="check"><input type="checkbox" :checked="!!element.locked" @change="setEl({ locked: ($event.target as HTMLInputElement).checked || null }, 'Lock')" /> locked</label><label class="check"><input type="checkbox" :checked="!!element.hidden" @change="setEl({ hidden: ($event.target as HTMLInputElement).checked || null }, 'Hide')" /> hidden</label></div>
