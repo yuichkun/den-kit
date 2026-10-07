@@ -173,6 +173,42 @@ describe('the plugin view', () => {
   });
 });
 
+describe('widgets under the mouse', () => {
+  it('a knob drag ends on release (two drags are two undo steps); a key played with the mouse stops on release', async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await page.evaluate(`(${KNOBS})(window.__kit)`);
+    await page.keyboard.press('Control+Alt+KeyE');
+    const knob = page.locator('[data-widget=kres] dk-knob');
+    await knob.waitFor();
+    const value = () => kit(page, k => k.doc.value.nodes.kres.values.value);
+    const v0 = await value();
+    const drag = async (dy: number) => {
+      const b = (await knob.boundingBox())!;
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - 10);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - 10 - dy, { steps: 5 });
+      await page.mouse.up();
+    };
+    await drag(30);
+    const v1 = await value();
+    await drag(30); // well within the 1.5 s merge window: only an ended gesture keeps it apart
+    const v2 = await value();
+    assert.ok(v0 < v1 && v1 < v2, `${v0} < ${v1} < ${v2}`);
+    await page.keyboard.press('Control+z');
+    assert.equal(await value(), v1, 'the second drag is its own undo step');
+    // The keyboard at the bottom, played with the mouse: the key stops when released.
+    const keys = (await page.locator('[data-testid=keyboard] dk-keyboard').boundingBox())!;
+    await page.mouse.move(keys.x + keys.width * 0.3, keys.y + keys.height * 0.85);
+    await page.mouse.down();
+    await page.waitForFunction(() => (window as any).__kit.heldNotes.value.length === 1);
+    await page.mouse.up();
+    await page.waitForFunction(() => (window as any).__kit.heldNotes.value.length === 0, null, { timeout: 2000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+});
+
 describe('the start screen', () => {
   it('opens on the first launch only; arrows and Enter start a patch (and the sound); ⌥⌘N brings it back; Esc keeps the patch', async () => {
     const { page, errors } = await openKit(h, { startScreen: true, start: false });
