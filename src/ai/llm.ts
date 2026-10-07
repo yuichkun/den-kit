@@ -118,7 +118,7 @@ export class LlmController {
 
   /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
   run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[] } = {}): Outcome {
-    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined };
+    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.fast.where() };
     const taken = this.take(line);
     if (taken) return taken;
     const failed: Outcome = { ...line, status: 'failed', message: this.reason() };
@@ -208,7 +208,8 @@ export class LlmController {
   /** The request text with what Codex should know about the moment it was made. */
   private compose(text: string, steering: boolean, line: Outcome): string {
     const attached = line.attached?.length ? `\n[den-kit] The person attached (points at) these: ${describeAttachments(line.attached)}. The request is about them: change these unless they clearly ask for something new.` : '';
-    if (steering) return `[den-kit] The user adds, while you work:${attached}\n\n${text}`;
+    const where = line.where ? `\n[den-kit] The person is inside part "${line.where.name}" (part ${line.where.part}, entered through ${line.where.path.join(' › ')}). The request is about this part unless they clearly say otherwise: add modules with "inside": "${line.where.part}", show knobs on it with addParam; the parameters of the use they came through are set on ${line.where.path.at(-1)}. An edit inside changes every use of the part.` : '';
+    if (steering) return `[den-kit] The user adds, while you work:${attached}${where}\n\n${text}`;
     const parts = [`[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.`];
     // What happened that this conversation's LLM has not seen: the whole recent story for a new conversation,
     // otherwise the requests after its last one (the fast path handled them) and the person's own edits.
@@ -220,7 +221,7 @@ export class LlmController {
     // Edits made while it worked count too: it may not have looked at them.
     const hand = handEditsSince(this.session.history.entries(), this.thread ? this.lastStarted : 0);
     if (hand) parts.push(`[den-kit] The person edited by hand${this.thread ? ' since your last turn' : ''}: ${hand}.`);
-    return `${parts.join('\n')}${attached}\n\n${text}`;
+    return `${parts.join('\n')}${attached}${where}\n\n${text}`;
   }
 
   private blocks(): string {

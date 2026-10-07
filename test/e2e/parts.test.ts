@@ -25,6 +25,18 @@ async function pick(page: Page, ids: string[]) {
   for (const [i, id] of ids.entries()) await page.click(`.vue-flow__node[data-id="${id}"] header`, { modifiers: i ? ['Shift'] : [] });
 }
 async function compiles(page: Page) { return kit(page, k => k.compiler.stats.started); }
+/** Where something is once the view has stopped moving (going into a part refits the view). */
+async function settledBox(page: Page, selector: string) {
+  let last = '';
+  for (let i = 0; i < 40; i++) {
+    const box = await page.locator(selector).boundingBox();
+    const now = JSON.stringify(box);
+    if (box && now === last) return box;
+    last = now;
+    await page.waitForTimeout(80);
+  }
+  throw new Error(`${selector} never stopped moving`);
+}
 
 describe('parts', () => {
   it('⌘G makes a part of the picked modules and it still plays; Enter goes in, Esc comes out; ⇧⌘G unpacks; ⌘Z undoes each step', async () => {
@@ -50,8 +62,7 @@ describe('parts', () => {
     assert.ok(!inside.includes('voice1') && !inside.includes(use), 'the main patch is not shown inside');
     // The ◆ knob inside (resonance, a parameter) sets the use's own value, without recompiling.
     const started = await compiles(page);
-    const knob = page.locator('.vue-flow__node[data-id="filter1"] [data-param=resonance] svg');
-    const box = (await knob.boundingBox())!;
+    const box = await settledBox(page, '.vue-flow__node[data-id="filter1"] [data-param=resonance] svg');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down(); await page.mouse.move(box.x + box.width / 2, box.y - 40, { steps: 6 }); await page.mouse.up();
     const value = await kit(page, (k: any) => { const id = k.partPath.value[0]; return k.doc.value.nodes[id].values.resonance; });
@@ -139,6 +150,22 @@ describe('parts', () => {
     await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.tone2.part !== 'tone');
     assert.equal(await page.locator('[data-testid=part-name]').inputValue(), 'Tone 2');
     assert.equal(await kit(page, k => Object.keys(k.doc.value.parts).length), 2);
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it('the start screen starts from an empty part, opened from the inside; what was typed is asked there', async () => {
+    const { page, errors } = await openKit(h, { startScreen: true, start: false });
+    await page.waitForSelector('[data-testid=start-screen]');
+    await page.fill('[data-testid=start-describe]', 'Rain');
+    await page.click('[data-card=part]');
+    await page.waitForSelector('[data-testid=part-crumbs]');
+    assert.equal(await page.locator('[data-testid=part-crumbs] .crumb.here').textContent(), 'Rain');
+    assert.deepEqual(await kit(page, k => k.partPath.value), ['part1']);
+    assert.deepEqual(await shown(page), ['partOut1']);
+    // The request typed on the start screen was asked inside the part (no AI here: it says why, and nothing changes).
+    await page.waitForFunction(() => (window as any).__kit.fast.history.value.length > 0);
+    assert.deepEqual(await kit(page, k => k.fast.history.value[0].where), { path: ['part1'], part: 'part', name: 'Rain' });
     assert.deepEqual(errors, []);
     await page.close();
   });

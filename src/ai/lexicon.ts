@@ -13,7 +13,9 @@ export type LexItem =
   /** A change of the plugin screen (colours, text size, font, corners, a look). */
   | { kind: 'look'; change: LookChange; amount?: Amount; phrase: string }
   /** Needs the LLM (code, wiring, explanations): never guessed by the fast path. */
-  | { kind: 'complex'; phrase: string };
+  | { kind: 'complex'; phrase: string }
+  /** Make the selection a part, unpack a part, give a use its own copy. */
+  | { kind: 'part'; action: 'make' | 'unpack' | 'detach'; phrase: string };
 
 export interface LexResult {
   items: LexItem[];
@@ -90,6 +92,13 @@ const SCREEN_CONTEXT_RULES: Rule[] = [
 ];
 /** Screen nouns that carry nothing once a screen edit is recognised ("画面を", "the look"). */
 const SCREEN_FILLER = /画面|見た目|ルック|デザイン|背景|テーマ|スキン|(?<!音)色|カラー|全体|プラグイン|\b(?:screen|look|looks|ui|gui|interface|design|background|theme|skin|colou?rs?|plugin|visuals?|appearance)\b/g;
+
+// ---- parts: what the person selected becomes a part, a part goes back to modules, a use gets its own copy.
+const PART_RULES: Rule[] = [
+  { re: /(?:これ|ここ|選んだ(?:もの|の)?|それ|選択(?:範囲)?)?(?:を)?\s*(?:パーツ|部品)(?:に|化)(?:して|する|しよう)?|ひとまとめに(?:して)?|\bmake (?:it |this |these |them |the selection )?(?:into )?a part\b|\b(?:turn|group) (?:it|this|these|them|the selection) into a part\b/g, item: m => ({ kind: 'part', action: 'make', phrase: m[0] }) },
+  { re: /(?:この|その)?(?:パーツ|部品)?(?:を)?\s*(?:ほどいて|ほどく|ばらして|バラして|解体して)|\bunpack(?: (?:it|this|the part))?\b|\bbreak (?:it|this|the part) (?:apart|up)\b/g, item: m => ({ kind: 'part', action: 'unpack', phrase: m[0] }) },
+  { re: /(?:この|その)?(?:パーツ|部品)?(?:を)?\s*(?:切り離して|切り離す|独立させて)|\bdetach(?: (?:it|this|the part))?\b|\b(?:give (?:it|this) )?(?:its )?own copy\b/g, item: m => ({ kind: 'part', action: 'detach', phrase: m[0] }) },
+];
 
 // Order matters: longer / more specific rules first; matches never overlap.
 const COMPLEX: Rule =
@@ -216,7 +225,7 @@ export function parseRequest(raw: string, options: { screen?: boolean } = {}): L
   const taken: Array<[number, number]> = [];
   const overlaps = (s: number, e: number) => taken.some(([a, b]) => s < b && e > a);
   const found: Array<{ at: number; end: number; item: LexItem }> = [];
-  for (const rule of [COMPLEX, ...SCREEN_RULES, ...(screen ? SCREEN_CONTEXT_RULES : []), ...RULES]) {
+  for (const rule of [...PART_RULES, COMPLEX, ...SCREEN_RULES, ...(screen ? SCREEN_CONTEXT_RULES : []), ...RULES]) {
     rule.re.lastIndex = 0;
     for (let m = rule.re.exec(lower); m; m = rule.re.exec(lower)) {
       if (!m[0]) { rule.re.lastIndex++; continue; }

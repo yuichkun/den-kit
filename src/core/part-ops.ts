@@ -227,7 +227,7 @@ export function unpackPart(draft: PartDraft, intent: { node: NodeId }, created: 
 }
 
 /** Give this use its own copy of the part, so edits inside change only it. */
-export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: string }, created: string[]) {
+export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: string }, _created: string[]) {
   const doc = () => draft.doc;
   const use = requireUse(doc(), intent.node);
   const def = doc().parts[use.part]!;
@@ -247,7 +247,6 @@ export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: stri
     draft.apply({ op: 'addEdge', edge: { id: nextEdgeId(doc()), from: { node: rename.get(e.from.node)!, port: e.from.port }, to: { node: rename.get(e.to.node)!, port: e.to.port } } });
   }
   draft.apply({ op: 'setField', node: use.id, field: 'part', from: def.id, to: copyId });
-  created.push(copyId);
 }
 
 /** Rename or describe a part, or relabel its inputs, outputs and parameters. */

@@ -35,6 +35,12 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"setValue","node":"filter1","port":"resonance","value":2,"clamp":true}  (knob value of an unconnected input)',
       '  {"op":"setConfig","node":"osc1","key":"waveform","value":"sine"}  (construction setting; recompiles)',
       '  {"op":"setLabel","node":"lfo2","label":"Wobble"} · {"op":"move","node":"lfo2","pos":{"x":400,"y":200}} · {"op":"setName","name":"Acid bass"}',
+      'Parts (a piece of patch defined once and used in several places; kit_get_patch lists each part, its uses and what is inside):',
+      '  {"op":"makePart","ids":["osc1","filter1"],"name":"Drop","id":"drop"}  (the modules move inside; cables across the edge become its inputs and outputs, their main knobs its parameters; one use, "drop1", takes their place and sounds the same)',
+      '  {"op":"addNode","node":{"type":"kit.part","part":"drop","values":{"cutoff":2400}}}  (another use, with its own parameter values) · {"op":"setValue","node":"drop2","port":"cutoff","value":900}  (one use\'s parameter)',
+      '  {"op":"addNode","node":{"type":"den.lfo","inside":"drop"}}  (a module inside the part: every use gets it; cables only join modules with the same "inside") · {"op":"addNode","node":{"type":"kit.partIn","inside":"drop","label":"trigger"}}  (a new input of the part; kit.partOut for an output)',
+      '  {"op":"addParam","part":"drop","node":"lfo3","port":"rate","label":"Rate"}  (show a free knob inside on the part: each use sets its own) · {"op":"removeParam","part":"drop","id":"rate"}',
+      '  {"op":"updatePart","part":"drop","name":"Rain drop","doc":"One drop: a noise burst through a bandpass"} · {"op":"unpackPart","node":"drop2"}  (back to ordinary modules) · {"op":"detachPart","node":"drop2"}  (this use gets its own copy)',
       'Screen edits (the plugin the user plays; kit_get_plugin shows it, kit_ui_reference explains every field):',
       '  {"op":"addControl","for":{"node":"filter1","port":"cutoff"},"label":"Cutoff","panel":{"x":24,"y":96,"w":84,"h":96}}  (a knob for a module input, wired, with the input\'s range and unit; "type":"ui.slider"|"ui.toggle"|"ui.button"; leave out "panel" to use the first free space)',
       '  {"op":"setPanel","node":"knob1","panel":{"x":24,"y":96,"w":84,"h":96}}  (put an existing control on the plugin; null takes it off) · {"op":"setRect","id":"knob1","rect":{...}}  (move or resize a control or an element)',
@@ -49,9 +55,10 @@ export const KIT_TOOLS: ToolSpec[] = [
       type: 'object',
       properties: {
         ops: { type: 'array', minItems: 1, maxItems: 96, items: { type: 'object', properties: {
-          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief'] },
+          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief', 'makePart', 'unpackPart', 'detachPart', 'updatePart', 'addParam', 'removeParam'] },
           node: {}, id: { type: 'string' }, from: portRef, to: {}, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' },
           for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' }, work: { type: 'string' }, brief: {},
+          part: { type: 'string' }, doc: {}, labels: { type: 'object' },
         }, required: ['op'] } },
       },
       required: ['ops'],
@@ -122,6 +129,7 @@ How to work
 - The user may play and edit while you work. If an edit is refused because the patch changed, read it again. The whole request is one undo step for the user.
 - Requests can start with [den-kit] notes: what happened since your last turn (requests the fast path handled, the person's own edits, things they undid) or, in a new conversation, what came before. Use them for follow-ups such as "more", "not that one" or "like before".
 - When the person attached things (they point at them), the request is about those: change them rather than building something new, unless they clearly ask for something new.
+- When the person is inside a part (a [den-kit] note says which), the request is about that part: work inside it unless they clearly ask for something else.
 
 The patch model
 - Cables carry a signal (one f32 per sample) or a gate (on/off). An input takes at most one cable; an unconnected input is a knob (its value in "values") or follows its default/binding.
@@ -134,6 +142,12 @@ The patch model
   import { defineSubgraph, type Node } from '@unworklet/core';
   export default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; drive: Node<'f32'> }) { return { out: i.in.mul(i.drive).tanh() }; } }));
   Declare its ports with kit_write_codebox; inputs become knobs when unconnected.
+
+Parts (build small, listen, then reuse)
+- A part is a piece of patch defined once and used in several places (kit.part nodes; each use has its own parameter values). Nodes inside a part have "inside": "<part id>"; kit_get_patch lists every part, its uses, inputs, parameters, outputs and what is inside.
+- Work in parts when a sound has a repeated or self-contained piece (one rain drop, one voice of a unison, a drum, an effect chain): build it small, listen, make it a part (makePart, or build inside a part), then use it again with different parameter values instead of copying modules.
+- Inside a part: add modules with "inside"; cables only join modules in the same place; its inputs and outputs are kit.partIn / kit.partOut nodes inside (their label names the port); show a free knob on the part with addParam. An edit inside changes every use; to change one use only, set its parameters (setValue on the use) or detachPart it first.
+- Controls (ui.*), Voice In, Out and Audio In stay in the main patch: connect a control to a parameter or an input of the part.
 
 The plugin screen (what the user plays)
 - The plugin is a window of fixed design size that scales to fit. Its controls are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, canvas); the look holds the colour and font tokens, the background and the default skin of each control kind.

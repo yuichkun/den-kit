@@ -6,7 +6,7 @@
 // showcase (arrows) and, the Subway way, the look it should wear (Tab to the
 // looks, arrows, Enter). Sounds without a screen are at the bottom.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { STARTERS, type StarterId } from '../core/starters.ts';
+import { STARTERS, partStarter, type StarterId } from '../core/starters.ts';
 import { emptyDocument, type PatchDocument } from '../core/schema.ts';
 import { generate } from '../core/codegen.ts';
 import { pluginSpec } from '../plugin/build.ts';
@@ -31,16 +31,19 @@ const built = computed(() => WORKS.map(w => {
   const urls = Object.fromEntries(Object.values(doc.assets).filter(a => a.url).map(a => [a.id, a.url!.startsWith('/') ? a.url! : `/${a.url}`]));
   return { work: w, spec: pluginSpec(doc, session.catalog, generate(doc, session.catalog)), urls, accent: doc.ui.look.tokens.accent ?? '#ff9c1a', bg: doc.ui.look.tokens.bg ?? '#222' };
 }));
-const sounds = computed(() => [...STARTERS.map(id => ({ id, title: SOUNDS[id] })), { id: 'empty' as const, title: 'Empty' }]);
+const sounds = computed(() => [{ id: 'part' as const, title: 'A part (start small)' }, ...STARTERS.map(id => ({ id, title: SOUNDS[id] })), { id: 'empty' as const, title: 'Empty' }]);
 const chosenLook = computed(() => look.value >= 0 ? WORKS[look.value] : undefined);
 
-async function start(kind: 'describe' | 'work' | 'sound', options: { work?: Work; look?: Work; sound?: StarterId | 'empty' } = {}) {
+async function start(kind: 'describe' | 'work' | 'sound', options: { work?: Work; look?: Work; sound?: StarterId | 'empty' | 'part' } = {}) {
   const request = text.value.trim();
   void session.ensureAudio().then(ok => { if (ok) void session.connectMidi(); }); // picking is the click that may start sound
+  // A part: open from the inside; what was typed is asked there (build it small, then use it again).
+  const part = kind === 'sound' && options.sound === 'part';
   if (kind === 'work' && options.work) session.loadWork(options.work, options.look);
-  else if (kind === 'sound' && options.sound && options.sound !== 'empty') session.loadStarter(options.sound);
+  else if (part) { session.replace(partStarter(session.catalog, request ? request.slice(0, 40) : 'Part'), 'Start from a part'); session.enterPart('part1'); }
+  else if (kind === 'sound' && options.sound && options.sound !== 'empty' && options.sound !== 'part') session.loadStarter(options.sound);
   else session.replace(emptyDocument(request ? request.slice(0, 40) : 'Untitled'), 'New patch');
-  const asked = kind === 'describe' && !!request;
+  const asked = (kind === 'describe' || part) && !!request;
   emit('close', asked);
   if (asked) await session.fast?.run(request, { via: 'typed' });
 }

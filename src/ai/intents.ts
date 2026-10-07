@@ -200,6 +200,8 @@ export type Plan =
   | { kind: 'multi'; plans: Plan[]; intents: Intent[]; label: string; short: string }
   /** A change of the plugin screen (look-intents.ts). */
   | { kind: 'look'; change: string; intents: Intent[]; label: string; short: string }
+  /** Make the selection a part, unpack one, give one its own copy. */
+  | { kind: 'part'; action: 'make' | 'unpack' | 'detach'; intents: Intent[]; label: string; short: string }
   | { kind: 'template'; template: string; doc: PatchDocument; label: string; short: string };
 
 export type PlanResult =
@@ -289,6 +291,19 @@ export function planAddFx(doc: PatchDocument, catalog: Catalog, fx: FxId): PlanR
 }
 
 /** Several plans as one transaction (all planned against the same document). */
+/** "パーツにして" / "ほどいて" / "切り離して" on the selection. */
+export function planPart(doc: PatchDocument, action: 'make' | 'unpack' | 'detach', selection: readonly string[]): PlanResult {
+  const picked = selection.filter(id => doc.nodes[id]);
+  if (action === 'make') {
+    if (!picked.length) return { ok: false, reason: 'no-target', message: 'Select the modules for the part first (drag over them), then ask again, or press ⌘G.' };
+    return { ok: true, plan: { kind: 'part', action, intents: [{ op: 'makePart', ids: picked }], label: `made a part of ${picked.join(', ')}`, short: 'part' } };
+  }
+  const uses = picked.filter(id => doc.nodes[id]!.type === 'kit.part');
+  if (!uses.length) return { ok: false, reason: 'no-target', message: action === 'unpack' ? 'Select the part to unpack first (or press ⇧⌘G on it).' : 'Select the use of a part that should get its own copy first.' };
+  if (action === 'unpack') return { ok: true, plan: { kind: 'part', action, intents: uses.map(id => ({ op: 'unpackPart' as const, node: id })), label: `unpacked ${uses.join(', ')}`, short: 'unpack' } };
+  return { ok: true, plan: { kind: 'part', action, intents: uses.map(id => ({ op: 'detachPart' as const, node: id })), label: `own copy for ${uses.join(', ')}`, short: 'own copy' } };
+}
+
 export function combinePlans(plans: Plan[]): Plan {
   if (plans.length === 1) return plans[0]!;
   const intents = plans.flatMap(p => p.kind === 'template' ? [] : p.intents);

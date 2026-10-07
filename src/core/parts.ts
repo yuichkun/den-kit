@@ -345,3 +345,39 @@ export function mapAnalysis(analysis: Analysis, flat: Flattened): Analysis {
 
 /** The expanded id of `node` inside the part entered through `path` (the chain of uses from the main patch). */
 export const expandedId = (path: readonly NodeId[], node: NodeId) => [...path, node].join('_');
+
+// ---- what one place in the patch looks like (for the fast path) ------------------------------
+
+/**
+ * The patch as seen from one place: the main patch (its modules and the
+ * parts' uses, not their insides) or the inside of the part entered through
+ * `path`, where a knob that is a parameter shows the value of the use it was
+ * entered through. Ids are the document's own.
+ */
+export function partView(doc: PatchDocument, path: readonly NodeId[] = []): PatchDocument {
+  const use = path.length ? doc.nodes[path.at(-1)!] : undefined;
+  const scope = use?.part;
+  if (path.length && (!scope || !doc.parts[scope])) return partView(doc, []);
+  const def = scope ? doc.parts[scope] : undefined;
+  const nodes: Record<NodeId, PatchNode> = {};
+  for (const n of Object.values(doc.nodes)) {
+    if (n.inside !== scope) continue;
+    const params = def && use ? def.params.filter(p => p.node === n.id && Object.hasOwn(use.values, p.id)) : [];
+    nodes[n.id] = params.length ? { ...n, values: { ...n.values, ...Object.fromEntries(params.map(p => [p.port, use!.values[p.id]!])) } } : n;
+  }
+  const edges = Object.fromEntries(Object.entries(doc.edges).filter(([, e]) => nodes[e.from.node] && nodes[e.to.node]));
+  return { ...doc, nodes, edges };
+}
+
+/** Edits planned on a part's view, as edits of the patch: a knob that is a parameter sets the value of the use it was entered through. */
+export function fromPartView<T extends { op: string }>(doc: PatchDocument, path: readonly NodeId[], intents: readonly T[]): T[] {
+  const use = path.length ? doc.nodes[path.at(-1)!] : undefined;
+  const def = use?.part ? doc.parts[use.part] : undefined;
+  if (!use || !def) return [...intents];
+  return intents.map(i => {
+    if (i.op !== 'setValue') return i;
+    const v = i as unknown as { node: NodeId; port: PortId };
+    const p = def.params.find(q => q.node === v.node && q.port === v.port);
+    return p ? { ...i, node: use.id, port: p.id } : i;
+  });
+}

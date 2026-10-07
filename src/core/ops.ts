@@ -212,7 +212,13 @@ export function applyResolvedOps(base: PatchDocument, ops: readonly ResolvedOp[]
   return doc;
 }
 
-export interface ApplyResult { doc: PatchDocument; ops: ResolvedOp[]; /** Ids created by addNode intents, in order. */ created: NodeId[] }
+export interface ApplyResult {
+  doc: PatchDocument; ops: ResolvedOp[];
+  /** Ids created by addNode, addElement, group and makePart intents (and the modules unpackPart brings out), in order. */
+  created: NodeId[];
+  /** The index of the intent that made each of `created`. */
+  createdBy: number[];
+}
 
 /**
  * Apply intents atomically. Throws OpError (with the failing intent index)
@@ -220,7 +226,7 @@ export interface ApplyResult { doc: PatchDocument; ops: ResolvedOp[]; /** Ids cr
  */
 export function applyIntents(base: PatchDocument, intents: readonly Intent[], catalog: Catalog): ApplyResult {
   const draft = new Draft(base, catalog);
-  const created: NodeId[] = [];
+  const created: NodeId[] = [], createdBy: number[] = [];
   intents.forEach((intent, index) => {
     // Ports of parts follow each edit, so a later edit in the same transaction can use a new input or parameter.
     try { resolveIntent(draft, intent, created); syncPorts(draft); }
@@ -228,12 +234,13 @@ export function applyIntents(base: PatchDocument, intents: readonly Intent[], ca
       if (error instanceof OpError || error instanceof UiCheckError) throw new OpError(error.message, index, error.code, error.hint);
       throw new OpError(error instanceof Error ? error.message : String(error), index, 'internal');
     }
+    while (createdBy.length < created.length) createdBy.push(index);
   });
   // Every use of a part follows its definition; parts nothing uses go.
   try { syncParts(draft); }
   catch (error) { throw new OpError(error instanceof Error ? error.message : String(error), intents.length - 1, error instanceof OpError ? error.code : 'internal'); }
   draft.doc.revision = base.revision + 1;
-  return { doc: draft.doc, ops: draft.ops, created };
+  return { doc: draft.doc, ops: draft.ops, created, createdBy };
 }
 
 

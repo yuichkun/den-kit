@@ -452,6 +452,12 @@ function describeIntents(intents: Intent[]): string {
       case 'connect': return `Connect ${i.from.node} → ${i.to.node}`;
       case 'addNode': return `Add ${i.node.type.split('.').pop()}`;
       case 'removeNode': return `Delete ${i.id}`;
+      case 'makePart': return 'Make a part';
+      case 'unpackPart': return 'Unpack a part';
+      case 'detachPart': return 'Own copy of a part';
+      case 'addParam': return `Show ${i.node}.${i.port} on the part`;
+      case 'removeParam': return `Hide ${i.id} from the part`;
+      case 'updatePart': return i.name !== undefined ? 'Rename a part' : 'Describe a part';
       default: return i.op;
     }
   }

@@ -15,6 +15,7 @@ import { reactive, shallowRef, ref, watch } from 'vue';
 import type { KitSession } from '../editor/session.ts';
 import type { Author } from '../core/history.ts';
 import { randomId } from '../core/schema.ts';
+import { fromPartView, partView } from '../core/parts.ts';
 import { parseRequest } from './lexicon.ts';
 import { buildFullRequest, buildTargetRequest, type BuiltRequest } from './jev-questions.ts';
 import { readAnswers, type ReadAnswers } from './jev-answers.ts';
@@ -75,6 +76,8 @@ export interface Outcome {
   attached?: Attachment[];
   /** "もっと" / "more": the request this line did again. */
   repeats?: string;
+  /** Asked inside a part: which one, and the chain of uses it was entered through. */
+  where?: { path: string[]; part: string; name: string };
 }
 
 export interface RequestTrace {
@@ -145,7 +148,14 @@ export class FastPath {
     const doc = this.session.doc.value;
     return attached ? attached.filter(a => a.kind !== 'cable' && doc.nodes[a.id]).map(a => a.id) : [...this.session.selection.value];
   }
-  private ctxFor(aim: readonly string[]): RouteContext { return { doc: this.session.doc.value, catalog: this.session.catalog, selection: [...aim] }; }
+  /** Plans see the place the person is working in: the main patch, or the inside of the part they went into. */
+  private ctxFor(aim: readonly string[]): RouteContext { return { doc: partView(this.session.doc.value, this.session.partPath.value), catalog: this.session.catalog, selection: [...aim] }; }
+  /** Inside a part, a request is about it: which part, and the chain of uses it was entered through. */
+  where(): Outcome['where'] {
+    const path = this.session.partPath.value, doc = this.session.doc.value;
+    const part = path.length ? doc.nodes[path.at(-1)!]?.part : undefined;
+    return part && doc.parts[part] ? { path: [...path], part, name: doc.parts[part]!.name } : undefined;
+  }
   /** Save the conversation now (it is also saved shortly after every change). */
   persist() {
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
@@ -177,6 +187,7 @@ export class FastPath {
     const started = performance.now();
     const id = randomId('rq');
     const attached = options.attached?.length ? options.attached : undefined;
+    const where = this.where();
     const aim = this.aimed(options.attached);
     const ctx = () => this.ctxFor(aim);
     // "戻して" takes the last AI change back; "もっと" does the last fast change again.
@@ -193,7 +204,7 @@ export class FastPath {
     const lex = parseRequest(query, { screen: this.session.screenFocus.value });
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
     const finish = (given: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
-      extra = { attached, repeats, ...extra };
+      extra = { attached, repeats, where, ...extra };
       let decision = given;
       if (controller.signal.aborted && this.controller !== controller) {
         this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
@@ -225,7 +236,7 @@ export class FastPath {
     };
     if (!text) return finish({ kind: 'nothing', message: 'Type what you want, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.' }, 'none');
     this.busy.value = true;
-    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, attached, repeats });
+    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, attached, repeats, where });
 
     const before = this.snapshot();
     const stage = lexiconStage(lex, ctx());
@@ -324,8 +335,8 @@ export class FastPath {
     return { result, read };
   }
 
-  private snapshot() { const d = this.session.doc.value; return { revision: d.revision, id: d.id, selection: this.session.selection.value.join(','), epoch: this.session.loadEpoch.value }; }
-  private unchanged(s: ReturnType<FastPath['snapshot']>) { const now = this.snapshot(); return now.revision === s.revision && now.id === s.id && now.selection === s.selection && now.epoch === s.epoch; }
+  private snapshot() { const d = this.session.doc.value; return { revision: d.revision, id: d.id, selection: this.session.selection.value.join(','), epoch: this.session.loadEpoch.value, path: this.session.partPath.value.join('/') }; }
+  private unchanged(s: ReturnType<FastPath['snapshot']>) { const now = this.snapshot(); return now.revision === s.revision && now.id === s.id && now.selection === s.selection && now.epoch === s.epoch && now.path === s.path; }
 
   private realize(decision: Decision, base: Omit<Outcome, 'status'>, trace: RequestTrace): Outcome {
     trace.decision = decision.kind;
@@ -348,7 +359,8 @@ export class FastPath {
       this.session.replace({ ...plan.doc, id: this.session.doc.value.id }, `AI: ${plan.label}`, true, author);
       return { ok: true, txId: this.session.history.peek()?.id };
     }
-    const r = this.session.commit(plan.intents, { author, label: `AI: ${plan.label}` });
+    // Planned on the place the person is in: a knob that is a part's parameter sets the use they came through.
+    const r = this.session.commit(fromPartView(this.session.doc.value, this.session.partPath.value, plan.intents), { author, label: `AI: ${plan.label}` });
     if (!r.ok) return { ok: false, message: `Could not apply “${plan.short}”: ${r.error.message}` };
     return { ok: true, txId: r.ops.length ? this.session.history.peek()?.id : undefined };
   }

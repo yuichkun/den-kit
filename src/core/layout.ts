@@ -118,14 +118,18 @@ export function placeNewNodes(doc: PatchDocument, catalog: Catalog, ids: readonl
   const inputsOf = (id: NodeId) => new Set(Object.values(doc.edges).filter(e => e.to.node === id).map(e => e.to.port));
   const size = (id: NodeId) => moduleBox(catalog, doc.nodes[id]!, inputsOf(id));
   const pending = new Set(ids.filter(id => doc.nodes[id]));
-  const rects = new Map<NodeId, { x: number; y: number; w: number; h: number }>();
-  for (const n of Object.values(doc.nodes)) if (!pending.has(n.id)) { const b = size(n.id); rects.set(n.id, { x: n.pos.x, y: n.pos.y, w: b.width, h: b.height }); }
-  const overlaps = (r: { x: number; y: number; w: number; h: number }) => [...rects.values()].some(q => r.x < q.x + q.w + MARGIN && q.x < r.x + r.w + MARGIN && r.y < q.y + q.h + MARGIN && q.y < r.y + r.h + MARGIN);
+  // Each part (and the main patch) is its own canvas: only modules in the same one are in the way.
+  const rects = new Map<NodeId, { x: number; y: number; w: number; h: number; scope?: string }>();
+  for (const n of Object.values(doc.nodes)) if (!pending.has(n.id)) { const b = size(n.id); rects.set(n.id, { x: n.pos.x, y: n.pos.y, w: b.width, h: b.height, scope: n.inside }); }
+  let scope: string | undefined;
+  const near = () => [...rects.values()].filter(q => q.scope === scope);
+  const overlaps = (r: { x: number; y: number; w: number; h: number }) => near().some(q => r.x < q.x + q.w + MARGIN && q.x < r.x + r.w + MARGIN && r.y < q.y + q.h + MARGIN && q.y < r.y + r.h + MARGIN);
   const edges = Object.values(doc.edges);
   const moves: Array<{ op: 'move'; node: NodeId; pos: XY }> = [];
   for (const id of ids) {
     if (!pending.has(id)) continue;
     const b = size(id);
+    scope = doc.nodes[id]!.inside;
     // Modulators sit under what they feed (output toward its inputs); followers under what feeds them.
     const target = edges.find(e => e.from.node === id && rects.has(e.to.node));
     const source = edges.find(e => e.to.node === id && rects.has(e.from.node));
@@ -133,7 +137,7 @@ export function placeNewNodes(doc: PatchDocument, catalog: Catalog, ids: readonl
     if (target) { const t = rects.get(target.to.node)!; anchor = { x: t.x - Math.round(b.width / 2), y: t.y + t.h + MARGIN }; }
     else if (source) { const s = rects.get(source.from.node)!; anchor = { x: s.x + Math.round(s.w / 2), y: s.y + s.h + MARGIN }; }
     else {
-      const all = [...rects.values()];
+      const all = near();
       anchor = all.length ? { x: Math.min(...all.map(r => r.x)), y: Math.max(...all.map(r => r.y + r.h)) + MARGIN } : { x: 0, y: 0 };
     }
     let spot: XY | null = null;
@@ -143,8 +147,8 @@ export function placeNewNodes(doc: PatchDocument, catalog: Catalog, ids: readonl
         if (!overlaps({ x: p.x, y: p.y, w: b.width, h: b.height })) { spot = p; break; }
       }
     }
-    spot ??= { x: anchor.x, y: Math.max(...[...rects.values()].map(r => r.y + r.h), 0) + MARGIN };
-    rects.set(id, { x: spot.x, y: spot.y, w: b.width, h: b.height });
+    spot ??= { x: anchor.x, y: Math.max(...near().map(r => r.y + r.h), 0) + MARGIN };
+    rects.set(id, { x: spot.x, y: spot.y, w: b.width, h: b.height, scope });
     pending.delete(id);
     moves.push({ op: 'move', node: id, pos: spot });
   }

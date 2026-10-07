@@ -102,3 +102,21 @@ export function starter(id: StarterId, catalog: Catalog): PatchDocument {
     case 'rhythmic': return build('Rhythmic Delay', catalog, delay('rhythmic'));
   }
 }
+
+/**
+ * Start from a part: an empty part (its one output inside) wired to Out, to
+ * build something small inside it, listen, and use it again. The person opens
+ * it from the inside (the use is part1).
+ */
+export function partStarter(catalog: Catalog, name = 'Part'): PatchDocument {
+  const doc = emptyDocument(name);
+  doc.parts = { part: { id: 'part', name, inputs: [], outputs: [{ id: 'out', node: 'partOut1' }], params: [] } };
+  doc.nodes = {
+    part1: { id: 'part1', type: 'kit.part', part: 'part', pos: { x: 120, y: 120 }, config: {}, values: {} },
+    out1: { id: 'out1', type: 'kit.out', pos: { x: 480, y: 120 }, config: {}, values: {} },
+    partOut1: { id: 'partOut1', type: 'kit.partOut', inside: 'part', pos: { x: 600, y: 120 }, config: { type: 'signal' }, values: {} },
+  };
+  doc.edges = { e1: { id: 'e1', from: { node: 'part1', port: 'out' }, to: { node: 'out1', port: 'left' } } };
+  // The part's ports are worked out like after any edit.
+  return { ...applyIntents(doc, [], catalog).doc, revision: 0 };
+}

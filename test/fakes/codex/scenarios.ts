@@ -72,6 +72,32 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // Parts the way a model would use them: make the core of the sound a part, use it again with its own setting, listen.
+    name: 'parts',
+    match: /パーツにして.*重ね|make .* a part and layer/i,
+    async run(t) {
+      await t.think();
+      const patch = await t.call('kit_get_patch', {});
+      if (!patch.text.includes('"osc1"')) { await t.say('I could not find the oscillator.'); return; }
+      const made = await t.call('kit_apply_ops', { ops: [{ op: 'makePart', ids: ['osc1', 'filter1'], name: 'Core', id: 'core' }] });
+      if (!/new ids: core1/.test(made.text)) { await t.say(`Making the part failed: ${made.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: makePart failed', info: 'other' }; }
+      const layered = await t.call('kit_apply_ops', { ops: [
+        { op: 'addNode', node: { id: 'core2', type: 'kit.part', part: 'core', values: { resonance: 4 } } },
+        { op: 'addNode', node: { id: 'layer1', type: 'kit.add', label: 'Layers' } },
+        { op: 'connect', from: { node: 'voice1', port: 'pitch' }, to: { node: 'core2', port: 'frequency' } },
+        { op: 'connect', from: { node: 'cut1', port: 'out' }, to: { node: 'core2', port: 'cutoff' } },
+        { op: 'connect', from: { node: 'core1', port: 'out' }, to: { node: 'layer1', port: 'a' } },
+        { op: 'connect', from: { node: 'core2', port: 'out' }, to: { node: 'layer1', port: 'b' } },
+        { op: 'connect', from: { node: 'layer1', port: 'out' }, to: { node: 'vca1', port: 'a' }, replace: true },
+        { op: 'updatePart', part: 'core', doc: 'The oscillator through the filter.' },
+      ] });
+      if (!/Compiled OK/.test(layered.text)) { await t.say(`Layering failed: ${layered.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: layering failed', info: 'other' }; }
+      const heard = await t.call('kit_listen', { phrase: 'bass', seconds: 1.5 });
+      await t.call('kit_finish', { summary: !heard.success || /"silent":true/.test(heard.text) ? '重ねましたが、音が出ていません' : 'パーツ「Core」にして、もう1つ重ねました' });
+      await t.say('Done.');
+    },
+  },
+  {
     name: 'explain',
     match: /how does|explain|説明|仕組み/i,
     async run(t) {

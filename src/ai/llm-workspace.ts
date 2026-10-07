@@ -105,7 +105,7 @@ export class LlmWorkspace {
     const nodes = Object.values(doc.nodes).map(n => {
       const def = catalog.find(n.type);
       const config = Object.fromEntries(Object.entries(n.config).filter(([k, v]) => def?.config.find(c => c.id === k)?.default !== v));
-      return { id: n.id, type: n.type, title: def?.title, label: n.label, config: Object.keys(config).length ? config : undefined, values: Object.keys(n.values).length ? n.values : undefined, ports: n.ports, code: n.code ? clip(n.code, 4000) : undefined, text: n.text };
+      return { id: n.id, type: n.type, title: def?.title, label: n.label, inside: n.inside, part: n.part, config: Object.keys(config).length ? config : undefined, values: Object.keys(n.values).length ? n.values : undefined, ports: n.ports, code: n.code ? clip(n.code, 4000) : undefined, text: n.text };
     });
     const cables = Object.values(doc.edges).map(e => `${e.from.node}.${e.from.port} -> ${e.to.node}.${e.to.port}`);
     const problems = validate(doc, catalog).issues.filter(i => i.severity !== 'info').map(formatIssue);
@@ -154,11 +154,17 @@ export class LlmWorkspace {
       if (error instanceof OpError) return refuse(error, expanded ? expanded.origin[error.index] ?? error.index : error.index);
       throw error;
     }
-    // New modules, decorations and groups get their ids now (in the order they were made), so the edit lands on the live patch exactly as tried here.
-    let k = 0;
-    const intents = expanded.intents.map((o): Intent => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } }
-      : o.op === 'addElement' ? { ...o, element: { ...o.element, id: trial.created[k++]! } }
-      : o.op === 'group' ? { ...o, id: trial.created[k++]! } : o);
+    // New modules, decorations, groups and parts get their ids now, so the edit lands on the live patch exactly as tried here.
+    const madeBy = (i: number) => trial.created.filter((_, j) => trial.createdBy[j] === i);
+    const intents = expanded.intents.map((o, i): Intent => {
+      const id = madeBy(i)[0];
+      if (!id) return o;
+      if (o.op === 'addNode') return { ...o, node: { ...o.node, id } };
+      if (o.op === 'addElement') return { ...o, element: { ...o.element, id } };
+      if (o.op === 'group') return { ...o, id };
+      if (o.op === 'makePart') return { ...o, node: id, id: o.id ?? trial.doc.nodes[id]?.part };
+      return o;
+    });
     // Modules added without a position go next to what they connect to (never on top of others).
     const toPlace = intents.flatMap(o => o.op === 'addNode' && !o.node.pos ? [o.node.id!] : []);
     const moves = toPlace.length ? placeNewNodes(trial.doc, catalog, toPlace) : [];
@@ -286,6 +292,12 @@ export function describeOps(ops: Intent[], created: string[]): string {
       case 'setValue': return `${o.node}.${o.port} = ${typeof o.value === 'number' ? +o.value.toFixed(3) : o.value}`;
       case 'setConfig': return `${o.node} ${o.key} = ${o.value}`;
       case 'setCode': return `code ${o.node}`;
+      case 'makePart': return `part ${o.name ?? o.id ?? ''}`.trim();
+      case 'unpackPart': return `unpack ${o.node}`;
+      case 'detachPart': return `own copy of ${o.node}`;
+      case 'addParam': return `◆ ${o.node}.${o.port}`;
+      case 'removeParam': return `− ◆ ${o.id}`;
+      case 'updatePart': return `part ${o.name ?? o.part}`;
       default: return describeUiOp(o) ?? o.op;
     }
   });
