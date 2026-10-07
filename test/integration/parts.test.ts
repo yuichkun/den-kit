@@ -88,12 +88,14 @@ describe('parts sound like the modules they were made from', () => {
     expect(peak(solo)).toBeGreaterThan(0.01);
     expect(difference(solo, alone)).toBe(0);
   });
-  it('a codebox inside a part used twice compiles once per use and keeps its own state', async () => {
+  it('a codebox inside a part used twice is one module with an instance (its own state) per use', async () => {
     let doc = apply(pair(true), { op: 'addNode', node: { id: 'box1', type: 'kit.codebox', inside: 'tone' } });
     const outlet = doc.parts.tone!.outputs[0]!.node;
     doc = apply(doc, { op: 'connect', from: { node: 'lp1', port: 'out' }, to: { node: 'box1', port: 'in' } }, { op: 'connect', from: { node: 'box1', port: 'out' }, to: { node: outlet, port: 'in' }, replace: true });
     const out = await render(doc);
     expect(peak(out)).toBeGreaterThan(0.001);
-    expect(Object.keys(generate(doc, catalog).codeboxes).sort()).toEqual(['tone1_box1', 'tone2_box1']);
+    const g = generate(doc, catalog);
+    expect(Object.keys(g.codeboxes)).toEqual(['tone1_box1']);
+    expect(g.source.match(/instantiate\(tone1_box1Box, /g)).toHaveLength(2);
   });
 });

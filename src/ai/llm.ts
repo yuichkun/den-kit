@@ -225,7 +225,8 @@ export class LlmController {
   }
 
   private blocks(): string {
-    return this.session.catalog.list().filter(d => d.kind !== 'comment').map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n');
+    // Not what expansion makes (sums of copies and the like): only what can be placed.
+    return this.session.catalog.list().filter(d => d.kind !== 'comment' && (d.palette !== 'never' || d.kind === 'part')).map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n');
   }
 
   /** What the workspace of turn `id` may do; landing works only while that turn runs, on the patch it started on. */

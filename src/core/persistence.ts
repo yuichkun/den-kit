@@ -4,10 +4,11 @@
 import type { Catalog } from './catalog.ts';
 import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
-import { NODE_ID_PATTERN, PART_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, PORT_ID_PATTERN, THEMES, nextNodeId, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type ThemeId } from './schema.ts';
+import { MAX_COUNT, NODE_ID_PATTERN, PART_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, PORT_ID_PATTERN, THEMES, nextNodeId, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type Spread, type ThemeId } from './schema.ts';
 import { applyIntents } from './ops.ts';
 import { refreshInterfaces } from './part-ops.ts';
 import { CONTROL_OF } from './skins.ts';
+import { checkSpread, spreadable, stackable } from './stacks.ts';
 import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
 /** Exports carry their pictures and fonts inside, so they can be large. */
@@ -69,6 +70,8 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (THEMES.includes(data.panel.theme as ThemeId)) doc.panel.theme = data.panel.theme as ThemeId;
   }
   const rename = new Map<string, string>();
+  // Spreads are checked once every node's inputs are known (a part's come from its definition).
+  const spreads = new Map<string, Record<string, unknown>>();
   const rawNodes = isObject(data.nodes) ? Object.entries(data.nodes) : Array.isArray(data.nodes) ? (data.nodes as unknown[]).map((n, i) => [String(i), n] as const) : [];
   if (data.nodes !== undefined && !rawNodes.length && !isObject(data.nodes)) report.push({ severity: 'warning', code: 'bad-nodes', message: 'nodes was not an object; no nodes loaded.' });
   for (const [key, raw] of rawNodes) {
@@ -100,6 +103,15 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (typeof raw.text === 'string') node.text = raw.text.slice(0, 2000);
     if (typeof raw.inside === 'string' && raw.inside) node.inside = raw.inside;
     if (raw.type === 'kit.part' && typeof raw.part === 'string') node.part = raw.part;
+    if (raw.count !== undefined && raw.count !== 1) {
+      if (!Number.isInteger(raw.count) || (raw.count as number) < 1 || (raw.count as number) > MAX_COUNT) report.push({ severity: 'warning', code: 'dropped-count', node: id, message: `Dropped ×${String(raw.count)} on ${id}: a count is a whole number from 1 to ${MAX_COUNT}.` });
+      else if (def && !stackable(catalog, raw.type)) report.push({ severity: 'warning', code: 'dropped-count', node: id, message: `Dropped ×${raw.count} on ${id}: ${def.title} cannot run as copies.` });
+      else node.count = raw.count as number;
+    }
+    if (raw.spread !== undefined) {
+      if (isObject(raw.spread)) spreads.set(id, raw.spread);
+      else report.push({ severity: 'warning', code: 'dropped-spread', node: id, message: `Dropped the spreads of ${id}: not an object.` });
+    }
     if (raw.style !== undefined) {
       const control = CONTROL_OF[raw.type];
       try {
@@ -120,6 +132,19 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
   if (orphans.length) report.push({ severity: 'warning', code: 'dropped-node', message: `Dropped ${orphans.length} node(s) inside a part the file does not define (${orphans.slice(0, 4).map(n => n.id).join(', ')}).` });
   refreshInterfaces(doc, catalog);
   for (const n of Object.values(doc.nodes)) if (n.type === 'kit.part') dropUnknownValues(n, catalog, report);
+  for (const [id, raw] of spreads) {
+    const node = doc.nodes[id];
+    if (!node) continue;
+    if (!catalog.has(node.type)) { report.push({ severity: 'warning', code: 'dropped-spread', node: id, message: `Dropped the spreads of ${id}: its block is unknown.` }); continue; }
+    const kept: Record<string, Spread> = {};
+    for (const [port, value] of Object.entries(raw)) {
+      const def = catalog.input(node, port);
+      const checked = spreadable(def) ? checkSpread(value, def!) : `${port} is not a knob that can spread`;
+      if (typeof checked === 'string') report.push({ severity: 'warning', code: 'dropped-spread', node: id, port, message: `Dropped the spread of ${id}.${port}: ${checked}.` });
+      else kept[port] = checked;
+    }
+    if (Object.keys(kept).length) node.spread = kept;
+  }
   const rawEdges = isObject(data.edges) ? Object.values(data.edges) : Array.isArray(data.edges) ? data.edges as unknown[] : [];
   const taken = new Set<string>();
   let counter = 0;

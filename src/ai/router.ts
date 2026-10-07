@@ -5,7 +5,7 @@ import type { Catalog } from '../core/catalog.ts';
 import { applyIntents } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import {
-  AMOUNTS, ASPECTS, aspectById, candidates, chooseTargets, combinePlans, existingFx, FX, planAddFx, planAdjust, planPart,
+  AMOUNTS, ASPECTS, aspectById, candidates, chooseTargets, combinePlans, existingFx, FX, planAddFx, planAdjust, planPart, planStack,
   type Amount, type Candidate, type Direction, type FxId, type Plan, type PlanResult, type Target,
 } from './intents.ts';
 import type { LexItem, LexResult } from './lexicon.ts';
@@ -58,6 +58,7 @@ export function planItem(item: LexItem, doc: PatchDocument, catalog: Catalog, se
   if (item.kind === 'complex') return { ok: false, reason: 'unknown', message: NEEDS_LLM };
   if (item.kind === 'look') return planLook(doc, catalog, item.change, item.amount);
   if (item.kind === 'part') return planPart(doc, item.action, selection);
+  if (item.kind === 'stack') return planStack(doc, catalog, item, selection);
   const tdoc = buildTemplate(item.template, catalog);
   const info = TEMPLATE_INFO[item.template];
   return { ok: true, plan: { kind: 'template', template: item.template, doc: tdoc, label: `new ${info.title.toLowerCase()} patch`, short: `new ${info.title}` } };
@@ -78,8 +79,13 @@ export function planSequence(items: readonly LexItem[], ctx: RouteContext): { pl
     if (!r.ok && r.reason === 'ambiguous' && template && r.candidates?.length) r = planItem(item, doc, ctx.catalog, selection, [r.candidates[0]!]);
     if (!r.ok) { failures.push({ item, result: r }); continue; }
     plans.push(r.plan);
-    // (Part edits change what there is to plan on; the knob plans after them see the patch as it was.)
-    if (r.plan.kind !== 'template' && r.plan.kind !== 'part') doc = applyIntents(doc, r.plan.intents, ctx.catalog).doc;
+    // (Part edits change what there is to plan on; the knob plans after them see the patch as it was,
+    // except copies: "パーツにして8本重ねて" stacks the new part.)
+    if (r.plan.kind === 'part' && items.some(i => i.kind === 'stack')) {
+      const made = applyIntents(doc, r.plan.intents, ctx.catalog);
+      doc = made.doc;
+      if (r.plan.action === 'make' && made.created.length) selection = made.created;
+    } else if (r.plan.kind !== 'template' && r.plan.kind !== 'part') doc = applyIntents(doc, r.plan.intents, ctx.catalog).doc;
   }
   if (template) {
     const info = TEMPLATE_INFO[template.template];

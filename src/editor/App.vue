@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect 
 import { SESSION } from './context.ts';
 import { KitSession } from './session.ts';
 import { MAX_FILE_BYTES } from '../core/persistence.ts';
+import { COST_LIMITS, formatCpu } from '../core/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
@@ -75,6 +76,11 @@ const status = computed(() => {
   if (s === 'empty') return { cls: 'muted', text: 'Nothing to play', title: msg };
   if (s === 'ok') return { cls: 'ok', text: `✓ ${(session.lastCompileMs.value / 1000).toFixed(1)} s`, title: msg };
   return { cls: 'muted', text: '', title: '' };
+});
+// The estimated load, only once it is worth a glance (copies and parts can make a patch heavy).
+const load = computed(() => {
+  const cpu = session.validation.value.cost.cpu;
+  return cpu < 0.25 ? null : { text: formatCpu(cpu), heavy: cpu > COST_LIMITS.warnCpu };
 });
 // Problems that belong to the whole patch (not one module) and the safety mute.
 const banner = computed(() => {
@@ -159,6 +165,7 @@ async function importPatch(e: Event) {
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
+      <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated share of one CPU core (measured on a cloud machine; a recent Mac is usually faster). The inspector shows each module's share.">{{ load.text }}</span>
       <span class="status" :class="status.cls" data-testid="compile-status" :title="status.title">{{ status.text }}</span>
       <button v-if="!aiOpen && session.fast" class="ai-toggle" data-testid="ai-open" title="Show the AI panel (⌘J)" @click="aiOpen = true">✦ AI <span class="kbd-hint">⌘J</span></button>
     </div>

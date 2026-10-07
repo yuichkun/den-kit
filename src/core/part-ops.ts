@@ -7,6 +7,7 @@ import { freeSpotNear } from './layout.ts';
 import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
 import { hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
+import { spreadable } from './stacks.ts';
 import {
   NODE_ID_PATTERN, PART_ID_PATTERN, PORT_ID_PATTERN, clone, nextEdgeId, nextNodeId,
   type NodeId, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value, type XY,
@@ -166,6 +167,7 @@ export function makePart(draft: PartDraft, intent: { ids: NodeId[]; name?: strin
 export function unpackPart(draft: PartDraft, intent: { node: NodeId }, created: string[]) {
   const doc = () => draft.doc;
   const use = requireUse(doc(), intent.node);
+  if ((use.count ?? 1) > 1) fail('stacked', `${use.id} runs as ×${use.count} copies; set it to ×1 before unpacking it.`, `setCount {node: "${use.id}", count: 1}, then unpackPart.`);
   const def = doc().parts[use.part]!;
   const members = membersOf(doc(), def.id);
   const body = members.filter(n => !isPartPort(n));
@@ -408,6 +410,12 @@ function followPorts(draft: PartDraft, id: NodeId) {
   const params = new Map(inputs.filter(p => p.role === 'control').map(p => [p.id, p]));
   for (const [port, value] of Object.entries(node.values)) if (!params.has(port)) draft.apply({ op: 'setValue', node: id, port, from: value, to: undefined });
   for (const [port, def] of params) if (!Object.hasOwn(node.values, port)) draft.apply({ op: 'setValue', node: id, port, from: undefined, to: def.default ?? (def.type === 'gate' ? false : 0) });
+  // Spreads of parameters that are gone (or no longer knobs) go too.
+  const spread = draft.doc.nodes[id]!.spread;
+  if (spread) {
+    const keep = Object.fromEntries(Object.entries(spread).filter(([port]) => spreadable(params.get(port))));
+    if (Object.keys(keep).length !== Object.keys(spread).length) draft.apply({ op: 'setField', node: id, field: 'spread', from: spread, to: Object.keys(keep).length ? keep : undefined });
+  }
 }
 
 /** Work out every use's ports from its part (a document read from a file; edits keep them in step by themselves). */

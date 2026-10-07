@@ -4,7 +4,8 @@
 // hand-built ones. Every plan is a plain list of op intents (one undo step).
 import type { Catalog, Category, PortDef } from '../core/catalog.ts';
 import type { Intent } from '../core/ops.ts';
-import { edgesFrom, edgesInto, nextNodeId, type PatchDocument, type PatchNode, type PortId } from '../core/schema.ts';
+import { MAX_COUNT, edgesFrom, edgesInto, nextNodeId, type PatchDocument, type PatchNode, type PortId, type Spread } from '../core/schema.ts';
+import { copiesOf, spreadable, spreadReach, stackable } from '../core/stacks.ts';
 
 export type Direction = 'up' | 'down' | 'set_max' | 'set_min';
 export type Amount = 'tiny' | 'small' | 'medium' | 'large' | 'extreme';
@@ -202,6 +203,8 @@ export type Plan =
   | { kind: 'look'; change: string; intents: Intent[]; label: string; short: string }
   /** Make the selection a part, unpack one, give one its own copy. */
   | { kind: 'part'; action: 'make' | 'unpack' | 'detach'; intents: Intent[]; label: string; short: string }
+  /** ×N on the selection: how many copies, or how they differ. */
+  | { kind: 'stack'; intents: Intent[]; label: string; short: string }
   | { kind: 'template'; template: string; doc: PatchDocument; label: string; short: string };
 
 export type PlanResult =
@@ -302,6 +305,55 @@ export function planPart(doc: PatchDocument, action: 'make' | 'unpack' | 'detach
   if (!uses.length) return { ok: false, reason: 'no-target', message: action === 'unpack' ? 'Select the part to unpack first (or press ⇧⌘G on it).' : 'Select the use of a part that should get its own copy first.' };
   if (action === 'unpack') return { ok: true, plan: { kind: 'part', action, intents: uses.map(id => ({ op: 'unpackPart' as const, node: id })), label: `unpacked ${uses.join(', ')}`, short: 'unpack' } };
   return { ok: true, plan: { kind: 'part', action, intents: uses.map(id => ({ op: 'detachPart' as const, node: id })), label: `own copy for ${uses.join(', ')}`, short: 'own copy' } };
+}
+
+/** The knob a fast "spread it" acts on: one already spread, else the first free face knob, else any free knob that can spread. */
+function mainSpreadKnob(doc: PatchDocument, catalog: Catalog, node: PatchNode): PortDef | undefined {
+  const fed = new Set(edgesInto(doc, node.id).map(e => e.to.port));
+  const free = catalog.inputs(node).filter(p => spreadable(p) && !fed.has(p.id));
+  const face = catalog.face(node);
+  return free.find(p => node.spread?.[p.id]) ?? free.find(p => face.includes(p.id)) ?? free[0];
+}
+/** A gentle first spread: a quarter octave on a frequency knob, a tenth of the knob's range elsewhere. */
+const firstAmount = (port: PortDef) => port.scale === 'log' ? 0.25 : Number((spreadReach(port) / 10).toPrecision(3));
+
+/** "7本重ねて" / "stack 8" / "もっと重ねて" / "ばらつかせて" on the selected modules or parts. */
+export function planStack(doc: PatchDocument, catalog: Catalog, item: { count?: number; more?: boolean; spread?: 'more' | 'less' | 'off' }, selection: readonly string[]): PlanResult {
+  const picked = selection.filter(id => doc.nodes[id] && stackable(catalog, doc.nodes[id]!.type));
+  if (!picked.length) return { ok: false, reason: 'no-target', message: selection.length ? 'What is selected cannot run as copies (Voice In, Voice Mix, Out and controls stay single): select a module or a part.' : 'Select the module or part to stack first (or set its count in the inspector).' };
+  if (item.count !== undefined || item.more) {
+    const intents: Intent[] = picked.map(id => {
+      const now = copiesOf(catalog, doc.nodes[id]);
+      const count = item.more ? Math.min(MAX_COUNT, now > 1 ? now * 2 : 4) : Math.max(1, Math.min(MAX_COUNT, Math.round(item.count!)));
+      return { op: 'setCount', node: id, count };
+    });
+    const n = (intents[0] as { count: number }).count;
+    const capped = item.count !== undefined && item.count > MAX_COUNT ? ` (${MAX_COUNT} is the most)` : '';
+    return { ok: true, plan: { kind: 'stack', intents, label: n === 1 ? `${picked.join(', ')} back to one copy` : `${picked.join(', ')} ×${n}${capped}`, short: `×${n}` } };
+  }
+  const stacked = picked.filter(id => copiesOf(catalog, doc.nodes[id]) > 1);
+  if (!stacked.length) return { ok: false, reason: 'no-target', message: 'Spreads make copies differ: stack it first ("8本重ねて", "stack 8").' };
+  const intents: Intent[] = [], changed: string[] = [];
+  for (const id of stacked) {
+    const node = doc.nodes[id]!;
+    if (item.spread === 'off') {
+      for (const port of Object.keys(node.spread ?? {}).sort()) intents.push({ op: 'setSpread', node: id, port, spread: null });
+      if (node.spread && Object.keys(node.spread).length) changed.push(id);
+      continue;
+    }
+    const port = mainSpreadKnob(doc, catalog, node);
+    if (!port) continue;
+    const old = node.spread?.[port.id];
+    if (item.spread === 'less' && !old) continue;
+    const ranged = old && (old.kind === 'range' || old.kind === 'random') ? old : undefined;
+    const amount = ranged ? Math.min(spreadReach(port), Math.abs(ranged.amount ?? 0) * (item.spread === 'less' ? 0.6 : 1.6) || firstAmount(port)) : firstAmount(port);
+    const spread: Spread = ranged ? { ...ranged, amount: Number(amount.toPrecision(3)) } : { kind: 'range', amount };
+    intents.push({ op: 'setSpread', node: id, port: port.id, spread });
+    changed.push(`${id}.${port.id}`);
+  }
+  if (!intents.length) return { ok: false, reason: item.spread === 'less' ? 'at-limit' : 'no-target', message: item.spread === 'off' ? 'The copies are already the same.' : item.spread === 'less' ? 'Nothing is spread yet.' : 'No free knob to spread (a cable replaces a knob); the AI can add a module to spread instead.' };
+  const label = item.spread === 'off' ? `copies of ${changed.join(', ')} the same again` : `${item.spread === 'less' ? 'less spread on' : 'spread'} ${changed.join(', ')}`;
+  return { ok: true, plan: { kind: 'stack', intents, label, short: item.spread === 'off' ? 'same' : item.spread === 'less' ? 'less spread' : 'spread' } };
 }
 
 export function combinePlans(plans: Plan[]): Plan {

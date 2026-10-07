@@ -98,6 +98,29 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: 'stacks',
+    match: /スーパーソー|supersaw/i,
+    async run(t) {
+      await t.think();
+      const patch = await t.call('kit_get_patch', {});
+      if (!patch.text.includes('"osc1"') || !patch.text.includes('"voice1"')) { await t.say('I could not find the oscillator.'); return; }
+      // Seven saws per voice, each detuned a little: copies of a pitch shift and of the oscillator, joined copy to copy.
+      const stacked = await t.call('kit_apply_ops', { ops: [
+        { op: 'addNode', node: { id: 'detune1', type: 'kit.pitchMod', label: 'Detune', count: 7, spread: { semitones: { kind: 'range', amount: 0.15 } } } },
+        { op: 'setCount', node: 'osc1', count: 7 },
+        { op: 'setConfig', node: 'osc1', key: 'waveform', value: 'saw' },
+        { op: 'connect', from: { node: 'voice1', port: 'pitch' }, to: { node: 'detune1', port: 'hz' } },
+        { op: 'connect', from: { node: 'detune1', port: 'out' }, to: { node: 'osc1', port: 'frequency' }, replace: true },
+      ] });
+      if (!/Compiled OK/.test(stacked.text)) { await t.say(`Stacking failed: ${stacked.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: stacking failed', info: 'other' }; }
+      const patched = await t.call('kit_get_patch', {});
+      const heard = await t.call('kit_listen', { phrase: 'bass', seconds: 1.5 });
+      const silent = !heard.success || /"silent":true/.test(heard.text);
+      await t.call('kit_finish', { summary: silent ? '重ねましたが、音が出ていません' : /×7/.test(patched.text) ? 'ノコギリ波を7本重ねて、少しずつずらしました' : '重ねたはずが ×7 が見えません' });
+      await t.say('Done.');
+    },
+  },
+  {
     name: 'explain',
     match: /how does|explain|説明|仕組み/i,
     async run(t) {

@@ -3,7 +3,8 @@
 // expressions directly; den helpers (modulatePitch/modulateCutoff) are reused so
 // starter patches match den's own engines.
 import type { NodeDef, PortDef } from '../core/catalog.ts';
-import type { PatchNode } from '../core/schema.ts';
+import { MAX_COUNT, type PatchNode } from '../core/schema.ts';
+import { position, random01 } from '../core/stacks.ts';
 
 const sig = (id: string, def: number, min: number, max: number, extra: Partial<PortDef> = {}): PortDef => ({ id, type: 'signal', role: 'control', default: def, min, max, ...extra });
 const audio = (id: string, label?: string, extra: Partial<PortDef> = {}): PortDef => ({ id, type: 'signal', role: 'audio', label, ...extra });
@@ -149,7 +150,7 @@ export const kitIO: NodeDef[] = [
     summary: 'Sums all voices into one signal. done frees a voice (connect the amp envelope done).',
     keywords: ['sum', 'voices', 'poly'],
     config: [],
-    inputs: [audio('in'), { id: 'done', type: 'gate', binding: 'gate', doc: 'Voice finished. Unconnected: the voice frees at note-off.' }],
+    inputs: [audio('in'), { id: 'done', type: 'gate', binding: 'gate', merge: 'all', doc: 'Voice finished. Unconnected: the voice frees at note-off. From copies (×N): when all of them are.' }],
     outputs: [out()],
   },
   {
@@ -206,6 +207,80 @@ export const kitParts: NodeDef[] = [
     config: [{ id: 'type', kind: 'enum', options: ['signal', 'gate'], default: 'signal' }],
     inputs: (node: PatchNode) => [{ id: 'in', type: portType(node), role: 'audio', label: node.label }],
     outputs: [],
+  },
+];
+
+const lit = (x: number) => `f32(${x})`;
+const width = (node: PatchNode) => Math.max(1, Math.min(MAX_COUNT, Math.floor(Number(node.config.n ?? 1)) || 1));
+const many = (node: PatchNode, type: 'signal' | 'gate' = 'signal'): PortDef[] => Array.from({ length: width(node) }, (_, k): PortDef => type === 'gate' ? { id: `in${k}`, type: 'gate', default: false } : audio(`in${k}`));
+const HALF = Math.SQRT1_2;
+/** Equal-power gains of copy k of n across left and right, with width (0: all centred, 1: spread over the whole field) applied later. */
+const splayGains = (k: number, n: number) => { const angle = (position(k, n) + 1) * Math.PI / 4; return { l: Math.cos(angle), r: Math.sin(angle) }; };
+
+/**
+ * ×N. Splay and Copy number are placed by people; the rest is made when the
+ * patch is expanded (a thick cable summed into a thin input, Splay over n
+ * copies, the copy number of each copy).
+ */
+export const kitStacks: NodeDef[] = [
+  {
+    type: 'kit.splay', face: ['width'], kind: 'prim', title: 'Splay', category: 'math', stack: false,
+    summary: 'Spreads copies (a thick ×N cable) across left and right, equal-power, scaled by 1/√N. One signal sits in the middle.',
+    doc: 'Copy 1 goes furthest left, the last furthest right. width 0 puts every copy in the middle, 1 spreads them over the whole field.',
+    keywords: ['splay', 'spread', 'stereo', 'width', 'pan', 'unison', 'copies'], config: [],
+    inputs: [audio('in'), sig('width', 1, 0, 1, { unit: 'mix', roles: ['width'] })], outputs: [out('left', 'L'), out('right', 'R')],
+    prim: i => ({ left: `${i.in}.mul(${lit(HALF)})`, right: `${i.in}.mul(${lit(HALF)})` }),
+  },
+  {
+    type: 'kit.copy', kind: 'prim', title: 'Copy number', category: 'math',
+    summary: 'Which copy this is, in a node or part that runs as copies (×N): index 0…N−1, count N, position −1…+1, and a random number fixed per copy.',
+    doc: 'Inside a part used ×N (or stacked itself) each copy reads its own numbers: use them to give copies different pitches, pans or timings. Alone (×1) it reads index 0, count 1, position 0. seed picks other random numbers.',
+    keywords: ['copy', 'index', 'voice number', 'stack', 'clone', 'instance', 'random'],
+    config: [{ id: 'seed', kind: 'number', default: 1, min: 0, max: 2147483647, integer: true, doc: 'Another seed gives other random numbers.' }],
+    inputs: [], outputs: [out('index'), out('count'), out('position'), out('random')],
+    prim: (_i, node) => ({ index: lit(0), count: lit(1), position: lit(0), random: lit(random01(Number(node.config.seed ?? 1), [])) }),
+  },
+  {
+    type: 'kit.copyConst', kind: 'prim', title: 'Copy number (one copy)', category: 'math', palette: 'never', stack: false,
+    summary: 'The numbers of one copy (made when copies are expanded).',
+    config: ['index', 'count', 'position', 'random'].map(id => ({ id, kind: 'number' as const, default: id === 'count' ? 1 : 0, min: -1e6, max: 1e6 })),
+    inputs: [], outputs: [out('index'), out('count'), out('position'), out('random')],
+    prim: (_i, node) => ({ index: lit(Number(node.config.index ?? 0)), count: lit(Number(node.config.count ?? 1)), position: lit(Number(node.config.position ?? 0)), random: lit(Number(node.config.random ?? 0)) }),
+  },
+  {
+    type: 'kit.stackSum', kind: 'prim', title: 'Sum of copies', category: 'math', palette: 'never', stack: false,
+    summary: 'The copies on a thick cable summed and scaled by 1/√N (made where a thick cable meets a thin input).',
+    config: [{ id: 'n', kind: 'number', default: 2, min: 1, max: MAX_COUNT, integer: true }],
+    inputs: (node: PatchNode) => many(node), outputs: [out()],
+    prim: (i, node) => {
+      const n = width(node), terms = Array.from({ length: n }, (_, k) => i[`in${k}`]!);
+      return { out: `${terms.reduce((sum, t) => `${sum}.add(${t})`)}.mul(${lit(1 / Math.sqrt(n))})` };
+    },
+  },
+  {
+    type: 'kit.stackGate', kind: 'prim', title: 'Gates of copies', category: 'math', palette: 'never', stack: false,
+    summary: 'The copies of a gate combined: on while any copy is (or, with mode all, while every copy is).',
+    config: [{ id: 'n', kind: 'number', default: 2, min: 1, max: MAX_COUNT, integer: true }, { id: 'mode', kind: 'enum', options: ['any', 'all'], default: 'any' }],
+    inputs: (node: PatchNode) => many(node, 'gate'), outputs: [{ id: 'out', type: 'gate' }],
+    prim: (i, node) => {
+      const n = width(node), join = node.config.mode === 'all' ? 'and' : 'or';
+      return { out: Array.from({ length: n }, (_, k) => i[`in${k}`]!).reduce((all, t) => `${all}.${join}(${t})`) };
+    },
+  },
+  {
+    type: 'kit.splayN', kind: 'prim', title: 'Splay (copies)', category: 'math', palette: 'never', stack: false,
+    summary: 'Splay over n copies (made when copies are expanded).',
+    config: [{ id: 'n', kind: 'number', default: 2, min: 1, max: MAX_COUNT, integer: true }],
+    inputs: (node: PatchNode) => [...many(node), sig('width', 1, 0, 1, { unit: 'mix', roles: ['width'] })], outputs: [out('left', 'L'), out('right', 'R')],
+    prim: (i, node) => {
+      // Each copy's gain moves from the middle (width 0) to its place (width 1); 1/√n keeps the level of n unrelated copies.
+      const n = width(node), scale = 1 / Math.sqrt(n), w = `${i.width}.clamp(0, 1)`;
+      const side = (g: (k: number) => number) => Array.from({ length: n }, (_, k) => {
+        const d = (g(k) - HALF) * scale;
+        return Math.abs(d) < 1e-12 ? `${i[`in${k}`]}.mul(${lit(HALF * scale)})` : `${i[`in${k}`]}.mul(${w}.mul(${lit(d)}).add(${lit(HALF * scale)}))`;
+      }).reduce((sum, t) => `${sum}.add(${t})`);
+      return { left: side(k => splayGains(k, n).l), right: side(k => splayGains(k, n).r) };
+    },
   },
 ];
 

@@ -8,6 +8,8 @@ import { Handle, Position } from '@vue-flow/core';
 import type { PortDef } from '../core/catalog.ts';
 import type { PatchNode } from '../core/schema.ts';
 import { membersOf, usesOf } from '../core/parts.ts';
+import { formatCpu } from '../core/cost.ts';
+import { copiesOf } from '../core/stacks.ts';
 import type { Issue } from '../core/issues.ts';
 import { useSession } from './context.ts';
 import { formatValue, portColor, shortLabel, titleColor, visibleInputs, SIGNAL } from './grid-style.ts';
@@ -62,6 +64,14 @@ const leftWidth = computed(() => box.value.left);
 const rightWidth = computed(() => box.value.right);
 const width = computed(() => box.value.width);
 const hasViz = computed(() => vizFor(node.value.type));
+// ---- copies (×N) ----
+const copies = computed(() => copiesOf(session.catalog, node.value));
+/** The load of what this box expands into, shown where it is worth knowing (copies, parts). */
+const load = computed(() => {
+  if (copies.value <= 1 && !isPart.value) return '';
+  const cpu = session.validation.value.cost.byNode[props.id] ?? 0;
+  return cpu >= 0.01 ? formatCpu(cpu).replace(' CPU', '') : '';
+});
 
 function commitValue(port: PortDef, value: number | boolean, gesture?: string) {
   const param = paramOf(port);
@@ -93,12 +103,13 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
 </script>
 
 <template>
-  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment', part: isPart, port: !!portName }" :style="{ '--c': color, width: `${width}px` }" :data-node="id" :data-part="part?.id">
+  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment', part: isPart, port: !!portName, stacked: copies > 1 }" :style="{ '--c': color, width: `${width}px` }" :data-node="id" :data-part="part?.id" :data-count="copies > 1 ? copies : undefined">
     <header>
       <svg v-if="data.scope === 'voice'" class="poly" width="12" height="10" viewBox="0 0 12 10" aria-label="per voice"><title>Runs once per voice</title><rect x="0" y="4" width="7" height="6" rx="1" /><rect x="3" y="2" width="7" height="6" rx="1" opacity=".7" /><rect x="5" y="0" width="7" height="6" rx="1" opacity=".45" /></svg>
       <span v-if="isPart" class="partmark" title="A part: Enter or double-click goes inside">◇</span>
       <span class="title">{{ isPart ? (node.label ?? part?.name ?? 'Missing part') : portName ? `${node.type === 'kit.partIn' ? 'in' : 'out'} · ${portName}` : node.label ?? def?.title ?? node.type }}</span>
-      <span v-if="def?.category === 'modulation' || def?.category === 'envelope'" class="modarrow" :style="{ color: SIGNAL.modulator }">●→</span>
+      <span v-if="copies > 1" class="count" data-testid="stack-badge" :title="`Runs as ${copies} copies side by side (its outputs are thick cables). Set the count and how knobs differ in the inspector.`">×{{ copies }}</span>
+      <span v-else-if="def?.category === 'modulation' || def?.category === 'envelope'" class="modarrow" :style="{ color: SIGNAL.modulator }">●→</span>
     </header>
     <div v-if="!def" class="missing">Missing block<br />{{ node.type }}</div>
     <div v-else class="body" :style="{ minHeight: `${rows * 24 + 4}px` }">
@@ -144,6 +155,7 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
         </div>
       </div>
     </div>
+    <div v-if="load" class="load" data-testid="stack-load" title="Estimated share of one CPU core for what this box expands into">{{ load }}</div>
     <div v-if="worst" class="badge" :title="data.issues.map(i => i.message).join('\n')">!</div>
   </div>
 </template>
@@ -188,6 +200,13 @@ header { position: relative; text-align: center; padding: 6px 22px 2px; height: 
 .alone { color: #ffd43b; }
 :deep(.param) { outline: 1px solid #5ec4ff88; border-radius: 50%; }
 .missing { padding: 8px; color: #ff3a5c; text-align: center; }
+/* ×N: copies stacked behind the box, the count in the corner, the load under it. */
+.mod.stacked::before, .mod.stacked::after { content: ''; position: absolute; inset: 0; border-radius: 6px; background: #262626; border: 1px solid #4a4a4a; z-index: -1; pointer-events: none; }
+.mod.stacked::before { transform: translate(4px, 4px); }
+.mod.stacked::after { transform: translate(8px, 8px); opacity: .6; }
+.mod.stacked header { padding: 6px 34px 2px; }
+.count { position: absolute; right: 6px; top: 5px; color: #5ec4ff; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.load { position: absolute; right: 6px; bottom: 2px; color: #8a8a8a; font-size: 9.5px; font-variant-numeric: tabular-nums; pointer-events: none; }
 .badge { position: absolute; top: -7px; right: -7px; width: 16px; height: 16px; border-radius: 50%; background: #ff3a5c; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 11px; }
 .warning .badge { background: #ffd43b; color: #111; }
 /* Ports: rings for inputs, filled dots for outputs, coloured by signal type. */

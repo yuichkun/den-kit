@@ -42,6 +42,7 @@ input[type=range] { accent-color: var(--accent); }
 .status { font-size: 12px; padding: 3px 10px; border-radius: 4px; font-variant-numeric: tabular-nums; }
 .status:empty { display: none; }
 .status.ok { color: var(--ok); } .status.error { color: var(--error); background: #161616; } .status.busy { color: var(--warn); } .status.muted { color: var(--muted); }
+.status.load { color: var(--muted); } .status.load.heavy { color: var(--warn); }
 .main { display: grid; grid-template-columns: 270px 1fr; min-height: 0; }
 .kit-shell.focus .main { grid-template-columns: 1fr; }
 .sidebar { background: var(--panel); overflow: auto; min-height: 0; }

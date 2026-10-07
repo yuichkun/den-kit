@@ -14,7 +14,7 @@ class FakeWorker implements WorkerLike {
   succeed(i = this.received.length - 1) { const r = this.received[i]!; this.onmessage?.({ data: { id: r.id, result: { hash: r.hash, meta: {} as never, moduleSource: '', wasm: new ArrayBuffer(1), processorName: `p-${r.hash}`, sampleRate: 48000, compileMs: 1 } } }); }
   fail(message: string) { const r = this.received.at(-1)!; this.onmessage?.({ data: { id: r.id, error: { message, issues: [{ severity: 'error', code: 'x', message }] } } }); }
 }
-const gen = (hash: string): Generated => ({ source: `// ${hash}`, hash, params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: [], aliases: {}, origin: {}, nodes: [], boxes: {} });
+const gen = (hash: string): Generated => ({ source: `// ${hash}`, hash, params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: [], origin: {}, nodes: [], boxes: {} });
 const inputs = { nodes: [], codeboxes: [] };
 
 function setup() {

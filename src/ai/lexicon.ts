@@ -15,7 +15,9 @@ export type LexItem =
   /** Needs the LLM (code, wiring, explanations): never guessed by the fast path. */
   | { kind: 'complex'; phrase: string }
   /** Make the selection a part, unpack a part, give a use its own copy. */
-  | { kind: 'part'; action: 'make' | 'unpack' | 'detach'; phrase: string };
+  | { kind: 'part'; action: 'make' | 'unpack' | 'detach'; phrase: string }
+  /** ×N on the selection: a count ("7本重ねて", "stack 8"), more copies, or how the copies differ (spread more, less, not at all). */
+  | { kind: 'stack'; count?: number; more?: boolean; spread?: 'more' | 'less' | 'off'; phrase: string };
 
 export interface LexResult {
   items: LexItem[];
@@ -98,6 +100,33 @@ const PART_RULES: Rule[] = [
   { re: /(?:これ|ここ|選んだ(?:もの|の)?|それ|選択(?:範囲)?)?(?:を)?\s*(?:パーツ|部品)(?:に|化)(?:して|する|しよう)?|ひとまとめに(?:して)?|\bmake (?:it |this |these |them |the selection )?(?:into )?a part\b|\b(?:turn|group) (?:it|this|these|them|the selection) into a part\b/g, item: m => ({ kind: 'part', action: 'make', phrase: m[0] }) },
   { re: /(?:この|その)?(?:パーツ|部品)?(?:を)?\s*(?:ほどいて|ほどく|ばらして|バラして|解体して)|\bunpack(?: (?:it|this|the part))?\b|\bbreak (?:it|this|the part) (?:apart|up)\b/g, item: m => ({ kind: 'part', action: 'unpack', phrase: m[0] }) },
   { re: /(?:この|その)?(?:パーツ|部品)?(?:を)?\s*(?:切り離して|切り離す|独立させて)|\bdetach(?: (?:it|this|the part))?\b|\b(?:give (?:it|this) )?(?:its )?own copy\b/g, item: m => ({ kind: 'part', action: 'detach', phrase: m[0] }) },
+];
+
+/** "16", "十六", "三十二", "百二十八" → a number (undefined when it is not one). */
+export function readNumber(text: string): number | undefined {
+  if (/^\d+$/.test(text)) return Number(text);
+  const DIGIT: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  let total = 0, digit = 0;
+  for (const ch of text) {
+    if (DIGIT[ch]) digit = DIGIT[ch]!;
+    else if (ch === '十') { total += (digit || 1) * 10; digit = 0; }
+    else if (ch === '百') { total += (digit || 1) * 100; digit = 0; }
+    else return undefined;
+  }
+  return total + digit || undefined;
+}
+const NUM = '(\\d{1,3}|[一二三四五六七八九十百]{1,5})';
+const count = (m: RegExpExecArray): LexItem => ({ kind: 'stack', count: readNumber(m[1]!) ?? 1, phrase: m[0] });
+/** ×N: copies of the selected module or part, and how they differ. */
+const STACK_RULES: Rule[] = [
+  { re: new RegExp(`${NUM}\\s*(?:本|個|つ|重|枚|台|体|人)?\\s*(?:に|で|を)?\\s*(?:重ね|かさね|並べ|ならべ|増や|ふや|複製)`, 'g'), item: count },
+  { re: new RegExp(`(?<![a-z])[×✕x]\\s*${NUM}(?![\\da-z])`, 'g'), item: count },
+  { re: /重ね(?:る(?:の)?)?(?:を)?\s*(?:やめ|止め)|(?:1|一)\s*(?:本|個|つ)に(?:戻|もど)|\b(?:unstack(?: it| them)?|(?:just )?(?:a )?single copy|back to one copy)\b/g, item: m => ({ kind: 'stack', count: 1, phrase: m[0] }) },
+  { re: /(?:もっと|さらに)\s*重ね|重ね(?:る数)?(?:を)?\s*増や|\bmore copies\b|\bstack (?:it |them )?more\b/g, item: m => ({ kind: 'stack', more: true, phrase: m[0] }) },
+  { re: new RegExp(`\\b(?:stack|layer)(?: (?:it|this|them|that))?(?: up)?(?: (?:to|by|x|×))? ?(\\d{1,3})(?: times| copies| layers| deep)?\\b|\\b(\\d{1,3}) (?:copies|layers|clones)\\b`, 'g'), item: m => ({ kind: 'stack', count: Number(m[1] ?? m[2]), phrase: m[0] }) },
+  { re: /(?:ばらつき|ばらけ|散らばり|揺らぎ|デチューン)(?:を|は)?\s*(?:なくし|無くし|ゼロに|やめ)|\b(?:no spread|unspread|without spread|all the same)\b/g, item: m => ({ kind: 'stack', spread: 'off', phrase: m[0] }) },
+  { re: /(?:ばらつき|ばらけ|散らばり|揺らぎ|デチューン)(?:を|は)?\s*(?:減らし|少なく|小さく|抑え|控えめ)|\b(?:less (?:spread|detune|variation)|tighter)\b/g, item: m => ({ kind: 'stack', spread: 'less', phrase: m[0] }) },
+  { re: /ばらつ(?:かせ|け|き)|ばらけさせ|散らし|散らば[らせ]|デチューン|\b(?:spread (?:it|them|the copies)(?: out)?|spread out|vary (?:it|them|the copies)|detune(?: it| them)?|randomi[sz]e (?:it|them|the copies))\b/g, item: m => ({ kind: 'stack', spread: 'more', phrase: m[0] }) },
 ];
 
 // Order matters: longer / more specific rules first; matches never overlap.
@@ -225,7 +254,7 @@ export function parseRequest(raw: string, options: { screen?: boolean } = {}): L
   const taken: Array<[number, number]> = [];
   const overlaps = (s: number, e: number) => taken.some(([a, b]) => s < b && e > a);
   const found: Array<{ at: number; end: number; item: LexItem }> = [];
-  for (const rule of [...PART_RULES, COMPLEX, ...SCREEN_RULES, ...(screen ? SCREEN_CONTEXT_RULES : []), ...RULES]) {
+  for (const rule of [...STACK_RULES, ...PART_RULES, COMPLEX, ...SCREEN_RULES, ...(screen ? SCREEN_CONTEXT_RULES : []), ...RULES]) {
     rule.re.lastIndex = 0;
     for (let m = rule.re.exec(lower); m; m = rule.re.exec(lower)) {
       if (!m[0]) { rule.re.lastIndex++; continue; }

@@ -1,7 +1,9 @@
 // Compact English description of a patch for AI context (Jev state and LLM
 // tools). Deterministic and size-bounded: Jev prefers short, relevant state.
 import type { Catalog } from './catalog.ts';
+import { formatCpu } from './cost.ts';
 import { formatIssue, type Issue } from './issues.ts';
+import { copiesOf, describeSpread } from './stacks.ts';
 import type { Analysis } from './scope.ts';
 import { edgesFrom, edgesInto, type PatchDocument } from './schema.ts';
 import { validate } from './validate.ts';
@@ -11,13 +13,15 @@ const fmt = (v: unknown) => typeof v === 'number' ? String(Math.round(v * 10000)
 export interface DescribeOptions { maxChars?: number; selection?: readonly string[]; includeIssues?: boolean }
 
 export function describePatch(doc: PatchDocument, catalog: Catalog, options: DescribeOptions = {}): string {
-  const { issues, analysis, flat, flatAnalysis } = validate(doc, catalog);
+  const { issues, analysis, flat, flatAnalysis, cost } = validate(doc, catalog);
   const lines: string[] = [];
   const all = Object.values(doc.nodes).sort((a, b) => a.id.localeCompare(b.id));
   const nodes = all.filter(n => n.inside === undefined);
   const voice = nodes.find(n => n.type === 'kit.voiceIn');
   const parts = Object.values(doc.parts).sort((a, b) => a.id.localeCompare(b.id));
   lines.push(`Patch "${doc.name}": ${nodes.length} nodes, ${Object.values(doc.edges).filter(e => !doc.nodes[e.from.node]?.inside).length} cables${parts.length ? `, ${parts.length} part${parts.length === 1 ? '' : 's'} (listed after the main patch)` : ''}.${voice ? ` Voice In ${voice.id}: ${voice.config.mode}, ${voice.config.mode === 'mono' ? 1 : voice.config.capacity} voice(s)${voice.config.mode === 'mono' ? `, legato ${voice.config.legato}` : ''}.` : ' No Voice In (effect or generator).'}`);
+  const stacked = Object.values(doc.nodes).some(n => copiesOf(catalog, n) > 1);
+  lines.push(`Estimated load: ${formatCpu(cost.cpu)} of one core, ${Math.round(cost.kB)} kB of code.${stacked ? ' ×N nodes run as N copies; their outputs carry one signal per copy (a thick cable).' : ''}`);
   if (options.selection?.length) lines.push(`Selected: ${options.selection.join(', ')}.`);
   // Inside parts, a node runs per voice when any use of it does.
   const voiced = new Set<string>();
@@ -29,6 +33,7 @@ export function describePatch(doc: PatchDocument, catalog: Catalog, options: Des
     const part = node.part ? doc.parts[node.part] : undefined;
     const title = def.kind === 'part' ? (part ? `Part "${part.name}" (part ${part.id})` : `MISSING PART ${node.part}`) : def.kind === 'partIn' || def.kind === 'partOut' ? `${def.title} "${portName(doc, node)}"` : def.title;
     const scope = (node.inside === undefined ? analysis.scope.get(node.id) === 'voice' : voiced.has(node.id)) ? ' (per voice)' : '';
+    const count = copiesOf(catalog, node);
     const config = Object.entries(catalog.config(node)).map(([k, v]) => `${k}=${fmt(v)}`).join(' ');
     const ins: string[] = [], knobs: string[] = [];
     for (const port of catalog.inputs(node)) {
@@ -36,13 +41,14 @@ export function describePatch(doc: PatchDocument, catalog: Catalog, options: Des
       if (edge) ins.push(`${port.id}←${edge.from.node}.${edge.from.port}`);
       else if (Object.hasOwn(node.values, port.id) && !port.hidden) {
         const param = node.inside ? doc.parts[node.inside]?.params.find(p => p.node === node.id && p.port === port.id) : undefined;
-        knobs.push(`${port.id}=${fmt(node.values[port.id])}${port.unit ? port.unit : ''}${param ? ` (the part's parameter ${param.id}: each use sets its own)` : ''}`);
+        const spread = count > 1 ? node.spread?.[port.id] : undefined;
+        knobs.push(`${port.id}=${fmt(node.values[port.id])}${port.unit ? port.unit : ''}${spread ? ` (copies spread: ${describeSpread(spread, port)})` : ''}${param ? ` (the part's parameter ${param.id}: each use sets its own)` : ''}`);
       }
       else if (port.hidden && Object.hasOwn(node.values, port.id)) knobs.push(`value=${fmt(node.values[port.id])}`);
     }
     const outs = catalog.outputs(node).flatMap(port => edgesFrom(doc, node.id, port.id).map(e => `${port.id}→${e.to.node}.${e.to.port}`));
     const label = node.label ? ` "${node.label}"` : '';
-    const bits = [`${indent}- ${node.id}${label}: ${title}${scope}`];
+    const bits = [`${indent}- ${node.id}${label}: ${title}${count > 1 ? ` ×${count}` : ''}${scope}`];
     if (config) bits.push(`[${config}]`);
     if (ins.length) bits.push(`in: ${ins.join(', ')}`);
     if (knobs.length) bits.push(`knobs: ${knobs.join(', ')}`);

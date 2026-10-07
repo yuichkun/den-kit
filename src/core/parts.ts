@@ -13,6 +13,7 @@ import type { Catalog, PortDef } from './catalog.ts';
 import type { Issue } from './issues.ts';
 import { analyze, type Analysis, type Scope } from './scope.ts';
 import { clone, type EdgeId, type NodeId, type PartDef, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value } from './schema.ts';
+import { copiesOf, hasStacks, position, random01, spreadable, spreadValue } from './stacks.ts';
 
 /** How deep parts may sit inside parts. */
 export const PART_DEPTH = 8;
@@ -99,15 +100,15 @@ export function partInterface(doc: PatchDocument, catalog: Catalog, def: PartDef
 // ---- flattening ------------------------------------------------------------------------
 
 export interface Flattened {
-  /** The main patch with every part expanded into ordinary nodes (the document itself when it has no parts). */
+  /** The main patch with every part and every stack expanded into ordinary nodes (the document itself when there is nothing to expand). */
   doc: PatchDocument;
-  /** Expanded node id → original ids from the main patch down (the part's uses, then the node inside). */
+  /** Expanded node id → original ids from the main patch down (the part's uses, then the node inside). Copies of a node share its path. */
   origin: Record<NodeId, NodeId[]>;
   /** Expanded cable id → the cable it came from. */
   edges: Record<EdgeId, EdgeId>;
-  /** A knob of the document (`node_port`) → the AudioParams it sets after expansion. */
-  aliases: Record<string, string[]>;
-  /** Problems with the parts themselves (a missing definition, a part inside itself…), on original ids. */
+  /** Knobs that are the same in every copy stay one AudioParam: expanded node → its input → the AudioParam's name. */
+  shared: Record<NodeId, Record<PortId, string>>;
+  /** Problems with the parts and stacks themselves (a missing definition, a part inside itself…), on original ids. */
   issues: Issue[];
   /** False when there was nothing to expand. */
   expanded: boolean;
@@ -119,12 +120,22 @@ export interface FlattenOptions {
 }
 
 interface Ctx {
+  /** Expanded ids here start with this: '' in the main patch, 'rain1_' inside a use, 'rain1_3_' inside its fourth copy. */
   prefix: string;
+  /** The same without copy numbers ('rain1_'): the names of AudioParams every copy shares. */
+  plain: string;
   path: NodeId[];
   part: PartDef | null;
   instance: PatchNode | null;
   parent: Ctx | null;
-  /** The use's parameter values as they reach the inside (its own, or what an outer part's parameters set). */
+  /** Which copy of its use this is (0 of 1 for a single use). */
+  k: number;
+  n: number;
+  /** Copy numbers from the main patch in, one per stacked use around (seeds and Copy number's random). */
+  copies: number[];
+  /** The innermost stack around: what Copy number reads. */
+  copy: { k: number; n: number };
+  /** The use's parameter values as they reach the inside (its own, or what an outer part's parameters set), for this copy. */
   values: Record<PortId, Value>;
   members: PatchNode[];
   edges: PatchEdge[];
@@ -132,12 +143,15 @@ interface Ctx {
   into: Map<string, PatchEdge>;
 }
 
+/** Copies of uses (each one a scope of its own) stop here, well past what the node cap allows. */
+const MAX_CONTEXTS = 2 * MAX_EXPANDED;
+
 export function hasParts(doc: PatchDocument): boolean {
   return Object.keys(doc.parts ?? {}).length > 0 || Object.values(doc.nodes).some(n => n.inside !== undefined || n.type === 'kit.part' || isPartPort(n));
 }
 
 export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOptions = {}): Flattened {
-  if (!hasParts(doc)) return { doc, origin: {}, edges: {}, aliases: {}, issues: [], expanded: false };
+  if (!hasParts(doc) && !hasStacks(Object.values(doc.nodes), catalog)) return { doc, origin: {}, edges: {}, shared: {}, issues: [], expanded: false };
   const issues: Issue[] = [];
   const scopes = new Map<string, PatchNode[]>();
   for (const n of Object.values(doc.nodes).sort(byId)) {
@@ -160,10 +174,15 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
   const flatEdges: Record<EdgeId, PatchEdge> = {};
   const origin: Record<NodeId, NodeId[]> = {};
   const edgeOrigin: Record<EdgeId, EdgeId> = {};
-  const aliases: Record<string, string[]> = {};
+  const shared: Record<NodeId, Record<PortId, string>> = {};
   const ctxs = new Map<string, Ctx | null>();
   const reported = new Set<string>();
-  const report = (issue: Issue) => { const key = `${issue.code}|${issue.path?.join('/') ?? issue.node}`; if (!reported.has(key)) { reported.add(key); issues.push(issue); } };
+  const report = (issue: Issue) => { const key = `${issue.code}|${issue.path?.join('/') ?? issue.node}|${issue.port ?? ''}`; if (!reported.has(key)) { reported.add(key); issues.push(issue); } };
+  const copies = (n: PatchNode | undefined) => copiesOf(catalog, n);
+  /** The expanded id of copy k of `n` here. */
+  const flatId = (ctx: Ctx, n: PatchNode, k: number) => copies(n) > 1 ? `${ctx.prefix}${n.id}_${k}` : `${ctx.prefix}${n.id}`;
+  /** Where a problem is, as drawn: the node in the main patch, and the path inside parts. */
+  const where = (ctx: Ctx, node: NodeId) => ctx.path.length ? { node: ctx.path[0], path: [...ctx.path, node] } : { node };
 
   const intoMap = (edges: PatchEdge[], path: NodeId[]) => {
     const into = new Map<string, PatchEdge>();
@@ -174,16 +193,30 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
     }
     return into;
   };
-  const valuesOf = (ctx: Ctx, n: PatchNode): Record<PortId, Value> => {
+  /** A node's knob values in copy k: the use's parameters land on the knobs they stand for, then the node's own spread. */
+  const valuesOf = (ctx: Ctx, n: PatchNode, k: number): Record<PortId, Value> => {
     const v = { ...n.values };
     if (ctx.part) for (const p of ctx.part.params) if (p.node === n.id && Object.hasOwn(ctx.values, p.id)) v[p.port] = ctx.values[p.id]!;
+    const count = copies(n);
+    if (count > 1 && n.spread) for (const [port, s] of Object.entries(n.spread)) {
+      const def = catalog.input(n, port), base = v[port] ?? def?.default;
+      if (def && spreadable(def) && typeof base === 'number') v[port] = spreadValue(base, s, k, count, def);
+    }
     return v;
   };
-  const root: Ctx = { prefix: '', path: [], part: null, instance: null, parent: null, values: {}, members: scopes.get('') ?? [], edges: scopeEdges.get('') ?? [], into: new Map() };
+  /** Does a knob differ between copies (its own spread, or a spread parameter of a use around it)? */
+  const varies = (ctx: Ctx, n: PatchNode, port: PortId): boolean => {
+    if (copies(n) > 1 && n.spread?.[port] && spreadable(catalog.input(n, port))) return true;
+    const p = ctx.part?.params.find(q => q.node === n.id && q.port === port);
+    return !!(p && ctx.parent && ctx.instance && varies(ctx.parent, ctx.instance, p.id));
+  };
+  const root: Ctx = { prefix: '', plain: '', path: [], part: null, instance: null, parent: null, k: 0, n: 1, copies: [], copy: { k: 0, n: 1 }, values: {}, members: scopes.get('') ?? [], edges: scopeEdges.get('') ?? [], into: new Map() };
   root.into = intoMap(root.edges, []);
   ctxs.set('', root);
-  const childOf = (ctx: Ctx, instance: PatchNode): Ctx | null => {
-    const key = `${ctx.prefix}${instance.id}_`;
+  /** The inside of copy k of a use. */
+  const childOf = (ctx: Ctx, instance: PatchNode, k: number): Ctx | null => {
+    const n = copies(instance);
+    const key = n > 1 ? `${ctx.prefix}${instance.id}_${k}_` : `${ctx.prefix}${instance.id}_`;
     if (ctxs.has(key)) return ctxs.get(key)!;
     const path = [...ctx.path, instance.id];
     const def = instance.part ? doc.parts[instance.part] : undefined;
@@ -193,114 +226,200 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
       let recursive = false;
       for (let c: Ctx | null = ctx; c; c = c.parent) if (c.part?.id === def.id) recursive = true;
       if (recursive || path.length > PART_DEPTH) report({ severity: 'error', code: 'part-recursion', node: path[0], path, message: recursive ? `Part ${def.name} is used inside itself.` : `Parts sit more than ${PART_DEPTH} deep.` });
+      else if (ctxs.size >= MAX_CONTEXTS) { capped = true; report({ severity: 'error', code: 'too-many-nodes', message: `With its parts and copies expanded the patch is far too big (more than ${MAX_CONTEXTS} uses); use fewer copies.` }); }
       else {
         const edges = scopeEdges.get(def.id) ?? [];
-        child = { prefix: key, path, part: def, instance, parent: ctx, values: valuesOf(ctx, instance), members: scopes.get(def.id) ?? [], edges, into: intoMap(edges, path) };
+        child = { prefix: key, plain: `${ctx.plain}${instance.id}_`, path, part: def, instance, parent: ctx, k, n, copies: n > 1 ? [...ctx.copies, k] : ctx.copies, copy: n > 1 ? { k, n } : ctx.copy, values: valuesOf(ctx, instance, k), members: scopes.get(def.id) ?? [], edges, into: intoMap(edges, path) };
       }
     }
     ctxs.set(key, child);
     return child;
   };
-  /** Who controls a knob inside a part: a parameter of a use (outermost), or the knob itself (shared by every use). */
-  const controller = (ctx: Ctx, node: NodeId, port: PortId): PortRef => {
-    const p = ctx.part?.params.find(q => q.node === node && q.port === port);
-    return p && ctx.parent && ctx.instance ? controller(ctx.parent, ctx.instance.id, p.id) : { node, port };
+  const addEdge = (id: EdgeId, from: PortRef, to: PortRef, original: EdgeId) => {
+    let key = id;
+    for (let n = 2; flatEdges[key]; n++) key = `${id}$${n}`;
+    flatEdges[key] = { id: key, from: { ...from }, to: { ...to } }; edgeOrigin[key] = original;
   };
-  /** The expanded output that carries what (ctx, ref) puts out; null when nothing does (an unconnected input of a part). */
-  const sourceOf = (ctx: Ctx, ref: PortRef, seen = new Set<string>()): PortRef | null => {
+  /** A thick cable meeting a thin input: the copies summed (×1/√N), or for gates combined. Made once per source. */
+  const mixdown = (ctx: Ctx, ref: PortRef, refs: PortRef[], edge: EdgeId, all = false): PortRef => {
+    const gate = catalog.output(doc.nodes[ref.node]!, ref.port)?.type === 'gate';
+    const mode = gate ? (all ? 'all' : 'any') : 'sum';
+    const id = `${ctx.prefix}${ref.node}_${ref.port}$${mode}`;
+    if (!out[id]) {
+      out[id] = gate ? { id, type: 'kit.stackGate', pos: { x: 0, y: 0 }, config: { n: refs.length, mode }, values: {} } : { id, type: 'kit.stackSum', pos: { x: 0, y: 0 }, config: { n: refs.length }, values: {} };
+      origin[id] = [...ctx.path, ref.node];
+      count++;
+      refs.forEach((r, k) => addEdge(`${id}$${k}`, r, { node: id, port: `in${k}` }, edge));
+    }
+    return { node: id, port: 'out' };
+  };
+  /** What copy k of m reads from a cable carrying `refs` (one per copy of its source). */
+  const pick = (refs: PortRef[], k: number, m: number, mix: () => PortRef, at: { ctx: Ctx; node: NodeId; port: PortId; edge: EdgeId }): PortRef => {
+    const w = refs.length;
+    if (w === 1) return refs[0]!;
+    if (m === 1) return mix();
+    if (w !== m) report({ severity: 'warning', code: 'stack-mismatch', ...where(at.ctx, at.node), port: at.port, edge: at.edge, message: `A ×${w} cable goes into ×${m} copies (${at.node}.${at.port}): copy k takes copy k mod ${w}. Give both sides the same count, or make one side ×1.` });
+    return refs[k % w]!;
+  };
+  /** The expanded outputs that carry what (ctx, ref) puts out: one per copy of its source (a thick cable has several), none when nothing does. */
+  const sourceOf = (ctx: Ctx, ref: PortRef, seen: ReadonlySet<string> = new Set()): PortRef[] => {
     const key = `${ctx.prefix}${ref.node}.${ref.port}`;
-    if (seen.has(key)) { report({ severity: 'error', code: 'cycle', node: ctx.path[0] ?? ref.node, path: ctx.path.length ? [...ctx.path, ref.node] : undefined, message: 'A part feeds its own input without a History node in between. Insert a History node to delay one sample.' }); return null; }
-    seen.add(key);
+    if (seen.has(key)) { report({ severity: 'error', code: 'cycle', node: ctx.path[0] ?? ref.node, path: ctx.path.length ? [...ctx.path, ref.node] : undefined, message: 'A part feeds its own input without a History node in between. Insert a History node to delay one sample.' }); return []; }
+    const next = new Set(seen).add(key);
     const n = doc.nodes[ref.node];
-    if (!n) return null;
+    if (!n) return [];
     if (n.type === 'kit.partIn') {
-      if (!ctx.part || !ctx.parent || !ctx.instance) return null;
+      if (!ctx.part || !ctx.parent || !ctx.instance) return [];
       const p = ctx.part.inputs.find(q => q.node === n.id);
       const e = p && ctx.parent.into.get(`${ctx.instance.id}.${p.id}`);
-      return e ? sourceOf(ctx.parent, e.from, seen) : null;
+      if (!e) return [];
+      const parent = ctx.parent, refs = sourceOf(parent, e.from, next);
+      return refs.length ? [pick(refs, ctx.k, ctx.n, () => mixdown(parent, e.from, refs, e.id), { ctx: parent, node: ctx.instance.id, port: p!.id, edge: e.id })] : [];
     }
     if (n.type === 'kit.part') {
-      const child = childOf(ctx, n);
-      const o = child?.part!.outputs.find(q => q.id === ref.port);
-      const e = o && child!.into.get(`${o.node}.in`);
-      return e ? sourceOf(child!, e.from, seen) : null;
+      const refs: PortRef[] = [];
+      for (let k = 0; k < copies(n); k++) {
+        const child = childOf(ctx, n, k);
+        const o = child?.part!.outputs.find(q => q.id === ref.port);
+        const e = o && child!.into.get(`${o.node}.in`);
+        const inner = e ? sourceOf(child!, e.from, next) : [];
+        if (!inner.length) return [];
+        // A thick cable into a part's output is summed there: a part's outputs are thin (the use's copies make them thick).
+        refs.push(inner.length === 1 ? inner[0]! : mixdown(child!, e!.from, inner, e!.id));
+      }
+      return refs;
     }
-    if (n.type === 'kit.partOut') return null;
-    return { node: `${ctx.prefix}${n.id}`, port: ref.port };
+    if (n.type === 'kit.partOut') return [];
+    return Array.from({ length: copies(n) }, (_, k) => ({ node: flatId(ctx, n, k), port: ref.port }));
   };
-  /** The expanded knob a parameter of a use stands for. */
-  const paramTarget = (ctx: Ctx, paramId: PortId): PortRef | null => {
+  /** The expanded knobs a parameter of a use stands for (several when what it reaches runs as copies). */
+  const paramTargets = (ctx: Ctx, paramId: PortId): PortRef[] => {
     const p = ctx.part?.params.find(q => q.id === paramId);
     const n = p ? doc.nodes[p.node] : undefined;
-    if (!p || !n || n.inside !== ctx.part!.id || isPartPort(n)) return null;
-    if (n.type === 'kit.part') { const child = childOf(ctx, n); return child ? paramTarget(child, p.port) : null; }
-    return { node: `${ctx.prefix}${n.id}`, port: p.port };
+    if (!p || !n || n.inside !== ctx.part!.id || isPartPort(n)) return [];
+    const refs: PortRef[] = [];
+    for (let k = 0; k < copies(n); k++) {
+      if (n.type === 'kit.part') { const child = childOf(ctx, n, k); if (child) refs.push(...paramTargets(child, p.port)); }
+      else refs.push({ node: flatId(ctx, n, k), port: p.port });
+    }
+    return refs;
   };
-  const addEdge = (id: EdgeId, from: PortRef, to: PortRef, original: EdgeId) => { flatEdges[id] = { id, from: { ...from }, to: { ...to } }; edgeOrigin[id] = original; };
 
-  let count = 0;
+  let count = 0, capped = false;
+  /** Copy k of a node: its values for this copy, its own seed in a stack, and the AudioParams it shares with the other copies. */
+  const emit = (ctx: Ctx, n: PatchNode, k: number) => {
+    const many = copies(n);
+    const id = flatId(ctx, n, k);
+    count++;
+    // The expanded patch is never edited: only what differs per use and copy is copied.
+    const copy: PatchNode = { ...n, id, values: valuesOf(ctx, n, k) };
+    delete copy.inside; delete copy.part; delete copy.iface; delete copy.count; delete copy.spread;
+    out[id] = copy;
+    origin[id] = [...ctx.path, n.id];
+    const place = many > 1 ? [...ctx.copies, k] : ctx.copies;
+    if (!place.length) return;
+    const seedKey = catalog.find(n.type)?.seed;
+    if (seedKey) {
+      // Copies of something random are different: each gets its own seed (the same every time).
+      const seed = Number(catalog.config(n)[seedKey] ?? 1);
+      copy.config = { ...copy.config, [seedKey]: 1 + ((seed - 1 + Math.floor(random01(seed, place) * 2147483645)) % 2147483646) };
+    }
+    if (n.type === 'kit.copy') {
+      const c = many > 1 ? { k, n: many } : ctx.copy;
+      copy.type = 'kit.copyConst';
+      copy.config = { index: c.k, count: c.n, position: position(c.k, c.n), random: random01(Number(n.config.seed ?? 1), place) };
+    }
+    const shares: Record<PortId, string> = {};
+    for (const port of catalog.inputs(n)) if (port.role !== 'audio' && !varies(ctx, n, port.id)) shares[port.id] = `${ctx.plain}${n.id}_${port.id}`;
+    if (Object.keys(shares).length) shared[id] = shares;
+  };
+  const wire = (ctx: Ctx, e: PatchEdge) => {
+    const target = doc.nodes[e.to.node]!, source = doc.nodes[e.from.node]!;
+    if (source.type === 'kit.part' && source.part && doc.parts[source.part] && !doc.parts[source.part]!.outputs.some(o => o.id === e.from.port)) { report({ severity: 'error', code: 'unknown-port', edge: e.id, ...where(ctx, source.id), port: e.from.port, message: `${source.id} has no output "${e.from.port}".` }); return; }
+    if (target.type === 'kit.part' && target.part && doc.parts[target.part] && ![...doc.parts[target.part]!.inputs, ...doc.parts[target.part]!.params].some(p => p.id === e.to.port)) { report({ severity: 'error', code: 'unknown-port', edge: e.id, ...where(ctx, target.id), port: e.to.port, message: `${target.id} has no input "${e.to.port}".` }); return; }
+    if (isPartPort(target)) return; // a part's output: joined up from outside
+    const m = copies(target), at = { ctx, node: target.id, port: e.to.port, edge: e.id };
+    const tag = (k: number) => `${ctx.prefix}${e.id}${m > 1 ? `_${k}` : ''}`;
+    if (target.type === 'kit.part') {
+      // A cable into a parameter of a part goes to the knob inside it; a cable into an input is joined up from inside.
+      if (!childOf(ctx, target, 0)?.part!.params.some(p => p.id === e.to.port)) return;
+      const refs = sourceOf(ctx, e.from);
+      if (!refs.length) return;
+      for (let k = 0; k < m; k++) {
+        const child = childOf(ctx, target, k);
+        if (!child) continue;
+        const from = pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id), at);
+        paramTargets(child, e.to.port).forEach((to, j) => addEdge(`${tag(k)}${j ? `$${j}` : ''}`, from, to, e.id));
+      }
+      return;
+    }
+    const refs = sourceOf(ctx, e.from);
+    if (!refs.length) return;
+    if (target.type === 'kit.splay' && e.to.port === 'in' && refs.length > 1) {
+      // Splay takes every copy of a thick cable.
+      const id = flatId(ctx, target, 0);
+      if (out[id]) out[id] = { ...out[id]!, type: 'kit.splayN', config: { n: refs.length } };
+      refs.forEach((from, k) => addEdge(`${ctx.prefix}${e.id}_${k}`, from, { node: id, port: `in${k}` }, e.id));
+      return;
+    }
+    const all = catalog.input(target, e.to.port)?.merge === 'all';
+    for (let k = 0; k < m; k++) addEdge(tag(k), pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id, all), at), { node: flatId(ctx, target, k), port: e.to.port }, e.id);
+  };
   const expand = (ctx: Ctx) => {
     for (const n of ctx.members) {
-      if (count >= MAX_EXPANDED) { report({ severity: 'error', code: 'too-many-nodes', message: `With its parts expanded the patch has more than ${MAX_EXPANDED} nodes; use parts fewer times (or make them smaller).` }); return; }
+      if (capped) return;
       if (isPartPort(n)) { if (!ctx.part) report({ severity: 'warning', code: 'part-port-outside', node: n.id, message: `${n.id} is an input or output of a part, but it is in the main patch; it does nothing here.` }); continue; }
-      if (n.type === 'kit.part') { const child = childOf(ctx, n); if (child) expand(child); continue; }
-      const id = `${ctx.prefix}${n.id}`;
-      count++;
-      // The expanded patch is never edited: only what differs per use is copied.
-      const copy: PatchNode = { ...n, id, values: valuesOf(ctx, n) };
-      delete copy.inside; delete copy.part; delete copy.iface;
-      out[id] = copy;
-      origin[id] = [...ctx.path, n.id];
-      if (ctx.part) for (const port of Object.keys(copy.values)) {
-        const c = controller(ctx, n.id, port);
-        (aliases[`${c.node}_${c.port}`] ??= []).push(`${id}_${port}`);
+      if (n.type === 'kit.part') { for (let k = 0; k < copies(n); k++) { const child = childOf(ctx, n, k); if (child) expand(child); } continue; }
+      for (let k = 0; k < copies(n); k++) {
+        if (count >= MAX_EXPANDED) { capped = true; report({ severity: 'error', code: 'too-many-nodes', message: `With its parts and copies expanded the patch has more than ${MAX_EXPANDED} nodes; use fewer copies or smaller parts.` }); return; }
+        emit(ctx, n, k);
       }
     }
-    for (const e of ctx.edges) {
-      const target = doc.nodes[e.to.node]!, source = doc.nodes[e.from.node]!;
-      const where = (n: PatchNode) => ctx.path.length ? { node: ctx.path[0], path: [...ctx.path, n.id] } : { node: n.id };
-      if (source.type === 'kit.part' && source.part && doc.parts[source.part] && !doc.parts[source.part]!.outputs.some(o => o.id === e.from.port)) { report({ severity: 'error', code: 'unknown-port', edge: e.id, ...where(source), port: e.from.port, message: `${source.id} has no output "${e.from.port}".` }); continue; }
-      if (target.type === 'kit.part' && target.part && doc.parts[target.part] && ![...doc.parts[target.part]!.inputs, ...doc.parts[target.part]!.params].some(p => p.id === e.to.port)) { report({ severity: 'error', code: 'unknown-port', edge: e.id, ...where(target), port: e.to.port, message: `${target.id} has no input "${e.to.port}".` }); continue; }
-      if (target.type === 'kit.part') {
-        // A cable into a parameter of a part goes to the knob inside it; a cable into an input is joined up from inside.
-        const child = childOf(ctx, target);
-        if (!child?.part!.params.some(p => p.id === e.to.port)) continue;
-        const to = paramTarget(child, e.to.port), from = sourceOf(ctx, e.from);
-        if (to && from) addEdge(`${ctx.prefix}${e.id}`, from, to, e.id);
-        continue;
-      }
-      if (isPartPort(target)) continue; // a part's output: joined up from outside
-      const from = sourceOf(ctx, e.from);
-      if (from) addEdge(`${ctx.prefix}${e.id}`, from, { node: `${ctx.prefix}${target.id}`, port: e.to.port }, e.id);
-    }
+    if (!capped) for (const e of ctx.edges) wire(ctx, e);
   };
   expand(root);
 
-  const flat: PatchDocument = { ...doc, nodes: out, edges: flatEdges, parts: {} };
-  if (options.solo?.length) solo(flat, catalog, options.solo, { doc, root, childOf, sourceOf, issues });
-  return { doc: flat, origin, edges: edgeOrigin, aliases, issues, expanded: true };
+  // Past the cap the patch is not played: keep the nodes for the message, drop the cables.
+  const flat: PatchDocument = { ...doc, nodes: out, edges: capped ? {} : flatEdges, parts: {} };
+  if (options.solo?.length && !capped) solo(flat, catalog, options.solo, { doc, root, childOf, sourceOf, copies, issues });
+  return { doc: flat, origin, edges: edgeOrigin, shared, issues, expanded: true };
 }
 
-/** Hear one part alone: its first output (and second, as the right channel) go to Out instead of what normally does. */
-function solo(flat: PatchDocument, catalog: Catalog, path: readonly NodeId[], env: { doc: PatchDocument; root: Ctx; childOf: (ctx: Ctx, n: PatchNode) => Ctx | null; sourceOf: (ctx: Ctx, ref: PortRef) => PortRef | null; issues: Issue[] }) {
-  let ctx: Ctx = env.root, parent: Ctx = env.root;
+/** Hear one part alone: its first output (and second, as the right channel) go to Out instead of what normally does; copies are summed. */
+function solo(flat: PatchDocument, catalog: Catalog, path: readonly NodeId[], env: { doc: PatchDocument; root: Ctx; childOf: (ctx: Ctx, n: PatchNode, k: number) => Ctx | null; sourceOf: (ctx: Ctx, ref: PortRef) => PortRef[]; copies: (n: PatchNode) => number; issues: Issue[] }) {
+  // Every copy along the chain: the part may sit in a stacked use, or be one itself.
+  let level: Ctx[] = [env.root], parents: Ctx[] = [];
   for (const id of path) {
     const n = env.doc.nodes[id];
-    const next = n && n.type === 'kit.part' && (n.inside ?? null) === (ctx.part?.id ?? null) ? env.childOf(ctx, n) : null;
-    if (!next) { env.issues.push({ severity: 'warning', code: 'solo-missing', message: 'The part to hear alone is gone; playing everything.' }); return; }
-    parent = ctx; ctx = next;
+    const next: Ctx[] = [];
+    for (const ctx of level) {
+      if (!n || n.type !== 'kit.part' || (n.inside ?? null) !== (ctx.part?.id ?? null)) break;
+      for (let k = 0; k < env.copies(n); k++) { const child = env.childOf(ctx, n, k); if (child) next.push(child); }
+    }
+    if (!next.length) { env.issues.push({ severity: 'warning', code: 'solo-missing', message: 'The part to hear alone is gone; playing everything.' }); return; }
+    parents = level; level = next;
   }
+  const part = level[0]!.part!, use = path.at(-1)!;
   const out = Object.values(flat.nodes).find(n => n.type === 'kit.out');
-  const sources = ctx.part!.outputs.slice(0, 2).map(o => env.sourceOf(parent, { node: ctx.instance!.id, port: o.id }));
-  if (!out || !sources[0]) { env.issues.push({ severity: 'warning', code: 'solo-silent', node: path[0], message: out ? `${ctx.part!.name} has no output connected inside, so there is nothing to hear alone.` : 'Hearing a part alone needs an Out node.' }); return; }
+  const sources = part.outputs.slice(0, 2).map(o => parents.flatMap(p => env.sourceOf(p, { node: use, port: o.id })));
+  if (!out || !sources[0]?.length) { env.issues.push({ severity: 'warning', code: 'solo-silent', node: path[0], message: out ? `${part.name} has no output connected inside, so there is nothing to hear alone.` : 'Hearing a part alone needs an Out node.' }); return; }
   for (const e of Object.values(flat.edges)) if (e.to.node === out.id) delete flat.edges[e.id];
+  const sides = (['left', 'right'] as const).map((port, i) => {
+    const refs = sources[i];
+    if (!refs?.length) return null;
+    if (refs.length === 1) return refs[0]!;
+    const sum = `solo${port === 'left' ? 'L' : 'R'}Sum`;
+    flat.nodes[sum] = { id: sum, type: 'kit.stackSum', pos: { x: 0, y: 0 }, config: { n: refs.length }, values: {} };
+    refs.forEach((r, k) => { flat.edges[`${sum}$${k}`] = { id: `${sum}$${k}`, from: { ...r }, to: { node: sum, port: `in${k}` } }; });
+    return { node: sum, port: 'out' };
+  });
   const scope = analyze(flat, catalog).scope;
-  ['left', 'right'].forEach((port, i) => {
-    let from = sources[i];
+  sides.forEach((from, i) => {
     if (!from) return;
+    const port = i ? 'right' : 'left';
     if (scope.get(from.node) === 'voice') {
       // A part that runs per voice is summed first (as Voice Mix would).
-      const mix = `solo${port === 'left' ? 'L' : 'R'}Mix`;
+      const mix = `solo${i ? 'R' : 'L'}Mix`;
       flat.nodes[mix] = { id: mix, type: 'kit.voiceMix', pos: { x: 0, y: 0 }, config: {}, values: {} };
       flat.edges[`solo-${port}-mix`] = { id: `solo-${port}-mix`, from: { ...from }, to: { node: mix, port: 'in' } };
       from = { node: mix, port: 'out' };
@@ -311,15 +430,16 @@ function solo(flat: PatchDocument, catalog: Catalog, path: readonly NodeId[], en
 
 // ---- mapping back ------------------------------------------------------------------------
 
-/** "use_inner_node" → "node (in use › inner)". */
+/** "use_inner_node" → "node (in use › inner)"; a copy "osc1_3" → "osc1". */
 export function readableIds(message: string, flat: Flattened): string {
   if (!flat.expanded) return message;
+  const name = (path: NodeId[], port?: string) => `${path.at(-1)}${port ? `.${port}` : ''}${path.length > 1 ? ` (in ${path.slice(0, -1).join(' › ')})` : ''}`;
   return message.replace(/\b[a-z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+\b/g, m => {
     const path = flat.origin[m];
-    if (path) return `${path.at(-1)} (in ${path.slice(0, -1).join(' › ')})`;
+    if (path) return name(path);
     const cut = m.lastIndexOf('_');
     const head = flat.origin[m.slice(0, cut)];
-    return head ? `${head.at(-1)}.${m.slice(cut + 1)} (in ${head.slice(0, -1).join(' › ')})` : m;
+    return head ? name(head, m.slice(cut + 1)) : m;
   });
 }
 
@@ -328,7 +448,7 @@ export function mapIssue(issue: Issue, flat: Flattened): Issue {
   if (!flat.expanded) return issue;
   const mapped: Issue = { ...issue, message: readableIds(issue.message, flat) };
   const path = issue.node ? flat.origin[issue.node] : undefined;
-  if (path && path.length > 1) { mapped.node = path[0]; mapped.path = path; }
+  if (path) { mapped.node = path[0]; if (path.length > 1) mapped.path = path; else delete mapped.path; }
   if (issue.edge) mapped.edge = flat.edges[issue.edge] ?? issue.edge;
   return mapped;
 }
@@ -343,8 +463,11 @@ export function mapAnalysis(analysis: Analysis, flat: Flattened): Analysis {
   return { scope, live: new Set([...analysis.live].map(top)), order: { pre: unique(analysis.order.pre), voice: unique(analysis.order.voice), post: unique(analysis.order.post) }, issues: analysis.issues.map(i => mapIssue(i, flat)) };
 }
 
-/** The expanded id of `node` inside the part entered through `path` (the chain of uses from the main patch). */
-export const expandedId = (path: readonly NodeId[], node: NodeId) => [...path, node].join('_');
+/** The expanded id of `node` inside the part entered through `path` (the chain of uses from the main patch); the first copy where something runs as copies. */
+export function expandedId(doc: PatchDocument, path: readonly NodeId[], node: NodeId, catalog?: Catalog): NodeId {
+  const seg = (id: NodeId) => (catalog ? copiesOf(catalog, doc.nodes[id]) : doc.nodes[id]?.count ?? 1) > 1 ? `${id}_0` : id;
+  return [...path.map(seg), seg(node)].join('_');
+}
 
 // ---- what one place in the patch looks like (for the fast path) ------------------------------
 

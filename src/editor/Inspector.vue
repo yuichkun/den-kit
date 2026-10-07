@@ -7,6 +7,8 @@ import { useSession } from './context.ts';
 import { ControlError, controlFor } from '../plugin/controls.ts';
 import ValueField from './ValueField.vue';
 import InputSelect from './InputSelect.vue';
+import StackSection from './StackSection.vue';
+import { stackable } from '../core/stacks.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -107,6 +109,7 @@ function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam',
         <button v-if="def.kind === 'codebox'" class="primary" @click="emit('edit-code', node.id)">Edit code</button>
         <div v-if="node.type === 'kit.audioIn'" class="row" title="What this effect patch hears while you try it"><label>Input</label><InputSelect /></div>
       </div>
+      <StackSection v-if="stackable(session.catalog, node.type)" :node="node" />
       <div v-if="configDefs.length" class="section">
         <h3>Construction (recompiles)</h3>
         <div v-for="c in configDefs" :key="c.id" class="row" :title="c.doc">

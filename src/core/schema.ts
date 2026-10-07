@@ -49,6 +49,29 @@ export interface PatchNode {
   part?: string;
   /** A part's inputs (its inputs, then its parameters) and outputs, kept in step with its definition by every edit. */
   iface?: { inputs: PortDef[]; outputs: PortDef[] };
+  /** ×N: the node (or part) runs as this many copies side by side; its outputs then carry one signal per copy (a thick cable). Absent: once. */
+  count?: number;
+  /** How the copies differ, knob by knob (knobs without an entry are the same in every copy). */
+  spread?: Record<PortId, Spread>;
+}
+
+/** The most copies of one node. */
+export const MAX_COUNT = 128;
+export const SPREAD_KINDS = ['range', 'random', 'harmonic', 'each'] as const;
+export type SpreadKind = typeof SPREAD_KINDS[number];
+/**
+ * How the copies of a stacked node differ on one knob. The knob's own value is
+ * the centre: `range` places the copies evenly from −amount to +amount around
+ * it, `random` anywhere in that span (fixed by `seed`), `harmonic` at 1, 2, 3…
+ * times it, `each` gives every copy its own value. On a frequency (log) knob the
+ * amount is in octaves; elsewhere in the knob's unit.
+ */
+export interface Spread {
+  kind: SpreadKind;
+  amount?: number;
+  seed?: number;
+  /** each: one value per copy (copies past the end use the knob's value). */
+  values?: number[];
 }
 
 /** One input or output of a part: the inlet or outlet node inside that carries it. */

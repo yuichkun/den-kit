@@ -13,7 +13,7 @@
 import { isParamInput, defaultValue, type Catalog, type NodeDef, type PortDef } from './catalog.ts';
 import { inlineCodebox } from './codebox.ts';
 import { hasErrors, type Issue } from './issues.ts';
-import { mapIssue, type FlattenOptions } from './parts.ts';
+import { flatten, mapIssue, type FlattenOptions } from './parts.ts';
 import type { Scope } from './scope.ts';
 import { edgesInto, type NodeId, type PatchDocument, type PatchNode, type PortId, type PortSpec } from './schema.ts';
 import { validate } from './validate.ts';
@@ -36,9 +36,7 @@ export interface Generated {
   voices: { node: NodeId; capacity: number; mode: 'mono' | 'poly' } | null;
   audioIn: boolean;
   issues: Issue[];
-  /** Parts are expanded before generation: a knob of the patch as drawn (`node_port`) → the AudioParams it sets. Absent: the names are the same. */
-  aliases: Record<string, string[]>;
-  /** Expanded node id → original ids from the main patch down (only for nodes inside parts). */
+  /** Parts and copies are expanded before generation: expanded node id → original ids from the main patch down. */
   origin: Record<NodeId, NodeId[]>;
   /** Ids of the generated program's nodes (for attributing compile errors). */
   nodes: NodeId[];
@@ -72,7 +70,10 @@ export function generate(input: PatchDocument, catalog: Catalog, options: Flatte
   const issues = [...validation.issues];
   const known = issues.length;
   const finish = (list: Issue[]) => [...list.slice(0, known), ...list.slice(known).map(i => mapIssue(i, flat))];
-  const mapping = { aliases: flat.aliases, origin: flat.origin, nodes: Object.keys(doc.nodes), boxes: Object.fromEntries(Object.values(doc.nodes).filter(n => n.code !== undefined && catalog.find(n.type)?.kind === 'codebox').map(n => [n.id, { code: n.code ?? '', inputs: n.ports?.inputs ?? [], outputs: n.ports?.outputs ?? [] }])) };
+  // Copies of a codebox (a part used twice, a stacked codebox) share one module: it is inlined, and checked, once.
+  const boxOf = new Map<string, NodeId>();
+  for (const n of Object.values(doc.nodes).sort((a, b) => a.id.localeCompare(b.id))) if (n.code !== undefined && catalog.find(n.type)?.kind === 'codebox' && !boxOf.has(n.code)) boxOf.set(n.code, n.id);
+  const mapping = { origin: flat.origin, nodes: Object.keys(doc.nodes), boxes: Object.fromEntries([...boxOf.values()].map(id => { const n = doc.nodes[id]!; return [id, { code: n.code ?? '', inputs: n.ports?.inputs ?? [], outputs: n.ports?.outputs ?? [] }]; })) };
   const empty = (extra: Issue[] = []): Generated => ({ source: '', hash: '', params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: finish([...issues, ...extra]), ...mapping });
   if (hasErrors(issues)) return empty();
   const node = (id: NodeId) => doc.nodes[id]!;
@@ -97,7 +98,8 @@ export function generate(input: PatchDocument, catalog: Catalog, options: Flatte
   const params: ParamInfo[] = [];
   const values: Record<string, number> = {};
   const addParam = (n: PatchNode, port: PortDef) => {
-    const name = `${n.id}_${port.id}`;
+    // A knob that is the same in every copy is one AudioParam (named as if there were one copy).
+    const name = flat.shared[n.id]?.[port.id] ?? `${n.id}_${port.id}`;
     if (!params.some(p => p.name === name)) {
       const gate = port.type === 'gate';
       const info: ParamInfo = { name, node: n.id, port: port.id, gate, min: gate ? 0 : port.min ?? -1e6, max: gate ? 1 : port.max ?? 1e6, default: Number(defaultValue(port)) };
@@ -209,7 +211,7 @@ export function generate(input: PatchDocument, catalog: Catalog, options: Flatte
 
   // Codebox modules (top level).
   const codeboxLines: Record<NodeId, number> = {};
-  const codeboxIds = [...pre, ...voiceOrder, ...post].filter(id => kind(id) === 'codebox');
+  const codeboxIds = [...new Set([...pre, ...voiceOrder, ...post].filter(id => kind(id) === 'codebox').map(id => boxOf.get(node(id).code ?? '') ?? id))];
   const top = new Writer();
   for (const id of codeboxIds) {
     const inlined = inlineCodebox(id, node(id).code ?? '');
@@ -227,7 +229,7 @@ export function generate(input: PatchDocument, catalog: Catalog, options: Flatte
   const voiceInstances: string[] = [];
   const instanceExpr = (id: NodeId, name: string): string | null => {
     const d = def(id), n = node(id);
-    if (d.kind === 'codebox') return `instantiate(${jsName(id)}Box, { sampleRate }, { name: ${name} })`;
+    if (d.kind === 'codebox') return `instantiate(${jsName(boxOf.get(n.code ?? '') ?? id)}Box, { sampleRate }, { name: ${name} })`;
     if (d.kind !== 'block' || !d.den) return null;
     need(d.den.module, d.den.export);
     const config = catalog.config(n);
@@ -496,4 +498,20 @@ export function generate(input: PatchDocument, catalog: Catalog, options: Flatte
   out.push('');
   const source = out.lines.join('\n');
   return { source, hash: hashString(source), params, values, nodeLines: declMarks, codeboxes: codeboxLines, probes: probeNodes.map((p, channel) => ({ node: p.id, channel })), voices: voiceInNode ? { node: voiceInNode.id, capacity, mode } : null, audioIn, issues: finish(issues), ...mapping };
+}
+
+/**
+ * The AudioParam values of `generated` for a patch that differs from the one it
+ * was made from only in knob values (no recompile): what the session sends when
+ * a knob turns. Parts and copies are expanded again, so a knob that stands for
+ * several AudioParams (each use of a part, each copy of a spread) reaches all of them.
+ */
+export function currentValues(doc: PatchDocument, catalog: Catalog, generated: Pick<Generated, 'params'>, options: FlattenOptions = {}): Record<string, number> {
+  const flat = flatten(doc, catalog, options).doc;
+  const values: Record<string, number> = {};
+  for (const p of generated.params) {
+    const value = flat.nodes[p.node]?.values[p.port];
+    values[p.name] = value === undefined ? p.default : Number(value);
+  }
+  return values;
 }

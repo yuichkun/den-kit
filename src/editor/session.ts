@@ -3,7 +3,7 @@
 // through commit() with an author, so humans and AI edit the same way.
 import { shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
 import { catalog } from '../blocks/index.ts';
-import { generate, type Generated } from '../core/codegen.ts';
+import { currentValues, generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
 import { applyIntents, isStructural, OpError, replaceOps, type Intent, type ResolvedOp } from '../core/ops.ts';
 import { emptyDocument, randomId, type PatchDocument } from '../core/schema.ts';
@@ -232,19 +232,15 @@ export class KitSession {
     this.keepPathsValid();
     if (!ops.length || ops.some(op => op.op === 'addAsset')) void this.syncAssets();
     // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
-    // Inside parts a knob may stand for several AudioParams (each use of a part has its own), or none (a use's parameter sets it).
+    // A knob may stand for several AudioParams (each use of a part, each copy of a spread knob) or none (a use's parameter
+    // sets it): the patch is expanded again and every AudioParam whose value moved is sent.
     if (!structural && ops.length) {
+      if (!ops.some(op => op.op === 'setValue' || (op.op === 'setField' && op.field === 'spread'))) return;
       const g = this.generated.value;
-      let values: Record<string, number> | null = null;
-      for (const op of ops) {
-        if (op.op !== 'setValue' || typeof op.to === 'undefined') continue;
-        const name = `${op.node}_${op.port}`;
-        for (const target of g.aliases[name] ?? [name]) {
-          this.engine.setParam(target, Number(op.to));
-          if (Object.hasOwn(g.values, target)) (values ??= { ...g.values })[target] = Number(op.to);
-        }
-      }
-      if (values) this.generated.value = { ...g, values };
+      const next = currentValues(this.doc.value, catalog, g, this.solo.value ? { solo: this.solo.value } : {});
+      let changed = false;
+      for (const [name, value] of Object.entries(next)) if (g.values[name] !== value) { this.engine.setParam(name, value); changed = true; }
+      if (changed) this.generated.value = { ...g, values: next };
       return;
     }
     const generated = generate(this.doc.value, catalog, this.solo.value ? { solo: this.solo.value } : {});

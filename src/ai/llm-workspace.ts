@@ -105,7 +105,7 @@ export class LlmWorkspace {
     const nodes = Object.values(doc.nodes).map(n => {
       const def = catalog.find(n.type);
       const config = Object.fromEntries(Object.entries(n.config).filter(([k, v]) => def?.config.find(c => c.id === k)?.default !== v));
-      return { id: n.id, type: n.type, title: def?.title, label: n.label, inside: n.inside, part: n.part, config: Object.keys(config).length ? config : undefined, values: Object.keys(n.values).length ? n.values : undefined, ports: n.ports, code: n.code ? clip(n.code, 4000) : undefined, text: n.text };
+      return { id: n.id, type: n.type, title: def?.title, label: n.label, inside: n.inside, part: n.part, count: n.count, spread: n.spread, config: Object.keys(config).length ? config : undefined, values: Object.keys(n.values).length ? n.values : undefined, ports: n.ports, code: n.code ? clip(n.code, 4000) : undefined, text: n.text };
     });
     const cables = Object.values(doc.edges).map(e => `${e.from.node}.${e.from.port} -> ${e.to.node}.${e.to.port}`);
     const problems = validate(doc, catalog).issues.filter(i => i.severity !== 'info').map(formatIssue);
@@ -116,7 +116,7 @@ export class LlmWorkspace {
   }
 
   private listBlocks(category?: string): ToolOutput {
-    const list = this.deps.catalog.list().filter(d => d.kind !== 'comment' && (!category || d.category === category));
+    const list = this.deps.catalog.list().filter(d => d.kind !== 'comment' && (d.palette !== 'never' || d.kind === 'part') && (!category || d.category === category));
     if (!list.length) return { success: false, text: `No module types in category "${category}". Categories: ${[...new Set(this.deps.catalog.list().map(d => d.category))].join(', ')}.` };
     return { success: true, text: list.map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n') };
   }
@@ -298,6 +298,8 @@ export function describeOps(ops: Intent[], created: string[]): string {
       case 'addParam': return `◆ ${o.node}.${o.port}`;
       case 'removeParam': return `− ◆ ${o.id}`;
       case 'updatePart': return `part ${o.name ?? o.part}`;
+      case 'setCount': return `${o.node} ×${o.count}`;
+      case 'setSpread': return `${o.node}.${o.port} ${o.spread ? `spread ${o.spread.kind}` : 'same in every copy'}`;
       default: return describeUiOp(o) ?? o.op;
     }
   });

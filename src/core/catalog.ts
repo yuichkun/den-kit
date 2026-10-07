@@ -41,6 +41,8 @@ export interface PortDef {
   hidden?: boolean;
   /** Unconnected → use this other input's signal (e.g. right falls back to left). */
   fallback?: PortId;
+  /** A gate input fed by several copies (a thick cable) is on while any copy is; `all`: only while every copy is (a voice is done when all its copies are). */
+  merge?: 'all';
 }
 
 export interface ConfigDef {
@@ -106,6 +108,10 @@ export interface NodeDef {
   face?: readonly PortId[];
   /** Where the palettes offer it: never (parts are placed by definition) or only inside a part. Default: everywhere. */
   palette?: 'never' | 'inside';
+  /** False: never runs as copies (×N), e.g. nodes that sum copies up. */
+  stack?: false;
+  /** A config key that seeds randomness: copies of the node each get their own seed. */
+  seed?: string;
 }
 
 export class Catalog {

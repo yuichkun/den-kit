@@ -9,6 +9,7 @@ import '@vue-flow/core/dist/theme-default.css';
 import { createsCycle } from '../core/scope.ts';
 import type { Intent } from '../core/ops.ts';
 import { expandedId } from '../core/parts.ts';
+import { copiesOf } from '../core/stacks.ts';
 import { useSession } from './context.ts';
 import KitNode from './KitNode.vue';
 import KitEdge from './KitEdge.vue';
@@ -44,7 +45,7 @@ const nodes = computed(() => {
   const doc = session.doc.value;
   const path = session.partPath.value;
   const v = session.validation.value;
-  const scopeOf = (id: string) => (path.length ? v.flatAnalysis.scope.get(expandedId(path, id)) : v.analysis.scope.get(id)) ?? 'global';
+  const scopeOf = (id: string) => (path.length ? v.flatAnalysis.scope.get(expandedId(doc, path, id, session.catalog)) : v.analysis.scope.get(id)) ?? 'global';
   const connected = new Map<string, string[]>();
   for (const e of Object.values(doc.edges)) (connected.get(e.to.node) ?? connected.set(e.to.node, []).get(e.to.node)!).push(e.to.port);
   return Object.values(doc.nodes).filter(here).map(node => ({
@@ -56,9 +57,11 @@ const nodes = computed(() => {
 const edges = computed(() => {
   const doc = session.doc.value;
   const colorOf = (node: string, port: string) => { const n = doc.nodes[node]; const def = n ? session.catalog.find(n.type) : undefined; const p = n ? session.catalog.output(n, port) : undefined; return p ? portColor(def, p, 'out') : '#ff3a5c'; };
+  // A cable from copies is thick (one signal per copy); into a single input it is summed there.
+  const copies = (id: string) => copiesOf(session.catalog, doc.nodes[id]);
   return Object.values(doc.edges).filter(e => doc.nodes[e.from.node] && here(doc.nodes[e.from.node]!)).map(e => ({
     id: e.id, type: 'kit', source: e.from.node, sourceHandle: e.from.port, target: e.to.node, targetHandle: e.to.port,
-    selected: selectedEdges.value.includes(e.id), data: { color: colorOf(e.from.node, e.from.port) },
+    selected: selectedEdges.value.includes(e.id), data: { color: colorOf(e.from.node, e.from.port), copies: copies(e.from.node), sums: copies(e.from.node) > 1 && copies(e.to.node) === 1 && doc.nodes[e.to.node]?.type !== 'kit.splay' },
   }));
 });
 

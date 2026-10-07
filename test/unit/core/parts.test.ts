@@ -3,7 +3,7 @@
 // ordinary nodes and say what they find in terms of the patch as drawn.
 import { describe, expect, it } from 'vitest';
 import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
+import { currentValues, generate } from '../../../src/core/codegen.ts';
 import { describePatch } from '../../../src/core/describe.ts';
 import { History } from '../../../src/core/history.ts';
 import { applyIntents, applyResolvedOps, invertAll, isStructural, OpError, type Intent, type ResolvedOp } from '../../../src/core/ops.ts';
@@ -118,13 +118,17 @@ describe('using a part in several places', () => {
     doc = apply(doc, { op: 'setConfig', node: 'osc1', key: 'waveform', value: 'sine' }, { op: 'setValue', node: 'filter1', port: 'cutoff', value: 900 }).doc;
     flat = validate(doc, catalog).flat.doc;
     expect([flat.nodes.tone1_osc1!.config.waveform, flat.nodes.tone2_osc1!.config.waveform]).toEqual(['sine', 'sine']);
-    // A knob inside that is not a parameter is shared: it reaches every use's AudioParam without recompiling.
+    // A knob inside that is not a parameter is shared: it reaches every use's AudioParam without recompiling; a use's parameter reaches only its own.
     const g = generate(doc, catalog);
-    expect(g.aliases.tone1_resonance).toEqual(['tone1_filter1_resonance']);
-    expect(g.aliases.tone2_resonance).toEqual(['tone2_filter1_resonance']);
-    expect(g.aliases.osc1_frequency).toEqual(['tone1_osc1_frequency', 'tone2_osc1_frequency']);
     expect(g.params.map(p => p.name)).toEqual(expect.arrayContaining(['tone1_filter1_resonance', 'tone2_filter1_resonance']));
     expect(g.values.tone2_filter1_resonance).toBe(4);
+    const turned = apply(doc, { op: 'setValue', node: 'tone1', port: 'resonance', value: 7 }, { op: 'setValue', node: 'osc1', port: 'frequency', value: 330 }).doc;
+    const sent = currentValues(turned, catalog, g);
+    expect(generate(turned, catalog).hash).toBe(g.hash);
+    expect([sent.tone1_filter1_resonance, sent.tone2_filter1_resonance]).toEqual([7, 4]);
+    expect(Object.entries(sent).filter(([name, v]) => v !== g.values[name]).map(([name]) => name).sort()).toEqual(['tone1_filter1_resonance', 'tone2_osc1_frequency']);
+    // tone1's oscillator is played by a cable (no AudioParam); tone2's has none, so the shared knob is its pitch.
+    expect(g.params.some(p => p.name === 'tone1_osc1_frequency')).toBe(false);
   });
   it('turning a parameter is not structural and merges into one undo step; making a part is one step', () => {
     const doc = two();
@@ -303,9 +307,9 @@ describe('parts inside parts', () => {
     const p = apply(doc, { op: 'addParam', part: 'tone', node: 'inner1', port: 'resonance', id: 'peak' }, { op: 'setValue', node: 'tone1', port: 'peak', value: 5 }).doc;
     const g = generate(p, catalog);
     expect(g.values.tone1_inner1_filter1_resonance).toBe(5);
-    expect(g.aliases.tone1_peak).toEqual(['tone1_inner1_filter1_resonance']);
+    expect(currentValues(apply(p, { op: 'setValue', node: 'tone1', port: 'peak', value: 6 }).doc, catalog, g).tone1_inner1_filter1_resonance).toBe(6);
     // The inner use's own value is overridden by the outer parameter: turning it does nothing here.
-    expect(g.aliases.inner1_resonance).toBeUndefined();
+    expect(currentValues(apply(p, { op: 'setValue', node: 'inner1', port: 'resonance', value: 9 }).doc, catalog, g)).toEqual(g.values);
   });
   it('a definition used in itself (a broken file) is reported, never expanded forever; deep nesting stops at the cap', () => {
     const doc = nested().doc;
@@ -345,16 +349,18 @@ describe('what the checks and the compiler say, in terms of the patch as drawn',
     expect(v.analysis.live.has('tone1')).toBe(true);
     expect(v.flatAnalysis.scope.get('tone1_osc1')).toBe('voice');
   });
-  it('a codebox inside a part compiles once per use, with its source carried for type checking', () => {
+  it('a codebox inside a part used twice is one module (inlined and type-checked once) with an instance per use', () => {
     const doc = apply(toned().doc, { op: 'addNode', node: { id: 'box1', type: 'kit.codebox', inside: 'tone' } }, { op: 'disconnect', id: Object.values(toned().doc.edges).find(e => e.from.node === 'vca1')!.id }, { op: 'connect', from: { node: 'vca1', port: 'out' }, to: { node: 'box1', port: 'in' } }).doc;
     const outlet = doc.parts.tone!.outputs[0]!.node;
     const fixed = apply(doc, { op: 'connect', from: { node: 'box1', port: 'out' }, to: { node: outlet, port: 'in' }, replace: true }, { op: 'addNode', node: { id: 'tone2', type: 'kit.part', part: 'tone' } }, { op: 'connect', from: { node: 'tone2', port: 'out' }, to: { node: 'out1', port: 'right' } }).doc;
     const g = generate(fixed, catalog);
     expect(g.source).not.toBe('');
-    expect(Object.keys(g.boxes).sort()).toEqual(['tone1_box1', 'tone2_box1']);
+    expect(Object.keys(g.boxes)).toEqual(['tone1_box1']);
     expect(g.boxes.tone1_box1!.code).toBe(fixed.nodes.box1!.code);
-    expect(g.nodes).toEqual(expect.arrayContaining(['tone1_box1', 'out1']));
-    expect(Object.keys(g.codeboxes).sort()).toEqual(['tone1_box1', 'tone2_box1']);
+    expect(g.nodes).toEqual(expect.arrayContaining(['tone1_box1', 'tone2_box1', 'out1']));
+    expect(Object.keys(g.codeboxes)).toEqual(['tone1_box1']);
+    expect(g.source.match(/const tone1_box1Box = /g)).toHaveLength(1);
+    expect(g.source.match(/instantiate\(tone1_box1Box, /g)).toHaveLength(2);
   });
   it('broken references in a document are reported, not thrown: a missing part, cables across parts, a dangling cable', () => {
     const doc = toned().doc;

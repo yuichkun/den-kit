@@ -2,12 +2,13 @@
 // catches what can only be judged globally (scope, missing output, duplicates
 // after import) and produces messages that both people and AI can act on.
 import { checkConfigValue, checkPortValue, type Catalog } from './catalog.ts';
+import { COST_LIMITS, estimateCost, formatCpu, type Cost } from './cost.ts';
 import type { Issue } from './issues.ts';
 import { flatten, mapAnalysis, mapIssue, type FlattenOptions, type Flattened } from './parts.ts';
 import { analyze, type Analysis } from './scope.ts';
 import type { PatchDocument } from './schema.ts';
 
-export const LIMITS = { nodes: 400, edges: 1200, voices: 16, heldNotes: 128 } as const;
+export const LIMITS = { voices: 16, heldNotes: 128 } as const;
 
 export interface Validation {
   issues: Issue[];
@@ -17,27 +18,40 @@ export interface Validation {
   flat: Flattened;
   /** The analysis of the expanded patch (what code generation uses). */
   flatAnalysis: Analysis;
+  /** What the patch costs to run (estimated from what it expands into). */
+  cost: Cost;
 }
 
 /** Check a patch. Parts are expanded first; what is found inside them is reported on the part (with the path inside). */
 export function validate(doc: PatchDocument, catalog: Catalog, options: FlattenOptions = {}): Validation {
   const flat = flatten(doc, catalog, options);
-  const { issues, analysis } = validateGraph(flat.doc, catalog, flat.expanded);
-  if (!flat.expanded) return { issues, analysis, flat, flatAnalysis: analysis };
+  const { issues, analysis } = validateGraph(flat.doc, catalog);
+  // How big a patch may be is a matter of weight (what it expands into), not of how many boxes are drawn.
+  const cost = estimateCost(flat.doc, catalog, analysis, flat.origin);
+  const weight = weightIssues(doc, cost);
+  if (!flat.expanded) return { issues: [...issues, ...weight], analysis, flat, flatAnalysis: analysis, cost };
   const seen = new Set<string>();
   const mapped = [...flat.issues, ...issues.map(i => mapIssue(i, flat))].filter(i => {
     const key = `${i.severity}|${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.message}`;
     if (seen.has(key)) return false;
     seen.add(key); return true;
   });
-  return { issues: mapped, analysis: mapAnalysis(analysis, flat), flat, flatAnalysis: analysis };
+  return { issues: [...mapped, ...weight], analysis: mapAnalysis(analysis, flat), flat, flatAnalysis: analysis, cost };
 }
 
-function validateGraph(doc: PatchDocument, catalog: Catalog, expanded: boolean): { issues: Issue[]; analysis: Analysis } {
+/** Too big to build (an error), or likely to stutter (a warning), with what weighs most. */
+function weightIssues(doc: PatchDocument, cost: Cost): Issue[] {
+  const top = Object.entries(cost.byNode).filter(([id]) => doc.nodes[id] && doc.nodes[id]!.inside === undefined).sort((a, b) => b[1] - a[1]).slice(0, 3)
+    .filter(([, cpu]) => cpu >= 0.01).map(([id, cpu]) => `${id}${(doc.nodes[id]!.count ?? 1) > 1 ? ` ×${doc.nodes[id]!.count}` : ''} ${formatCpu(cpu).replace(' CPU', '')}`);
+  const most = top.length ? ` Most of it: ${top.join(', ')}.` : '';
+  if (cost.kB > COST_LIMITS.maxKB) return [{ severity: 'error', code: 'too-big', message: `With its parts and copies expanded the program would be about ${Math.round(cost.kB)} kB; the limit in this PoC is ${COST_LIMITS.maxKB} kB (bigger takes too long to build and cannot run in time).${most} Use fewer copies, fewer voices or smaller parts.` }];
+  if (cost.cpu > COST_LIMITS.warnCpu) return [{ severity: 'warning', code: 'heavy', message: `Estimated ${formatCpu(cost.cpu)} of one core, so it may stutter.${most} (Measured on a cloud machine; a recent Mac is usually faster.) Fewer copies, fewer voices or smaller parts make it lighter.` }];
+  return [];
+}
+
+function validateGraph(doc: PatchDocument, catalog: Catalog): { issues: Issue[]; analysis: Analysis } {
   const issues: Issue[] = [];
   const nodes = Object.values(doc.nodes).sort((a, b) => a.id.localeCompare(b.id));
-  if (nodes.length > LIMITS.nodes) issues.push({ severity: 'error', code: 'too-many-nodes', message: expanded ? `With its parts expanded the patch has ${nodes.length} nodes; the limit is ${LIMITS.nodes} in this PoC.` : `Patches are limited to ${LIMITS.nodes} nodes in this PoC.` });
-  if (Object.keys(doc.edges).length > LIMITS.edges) issues.push({ severity: 'error', code: 'too-many-edges', message: `Patches are limited to ${LIMITS.edges} cables.` });
 
   const counts = new Map<string, number>();
   for (const node of nodes) {

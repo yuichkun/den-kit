@@ -9,10 +9,11 @@ import { CODEBOX_TEMPLATE } from './codebox.ts';
 import { addParam, checkPlacement, detachPart, makePart, removeParam, syncParts, syncPorts, unpackPart, updatePart } from './part-ops.ts';
 import { partInterface } from './parts.ts';
 import {
-  NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
+  MAX_COUNT, NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
   type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PartDef, type PatchDocument, type PatchEdge, type PatchNode,
-  type PortId, type PortRef, type PortSpec, type ThemeId, type Value, type XY,
+  type PortId, type PortRef, type PortSpec, type Spread, type ThemeId, type Value, type XY,
 } from './schema.ts';
+import { checkSpread, spreadable, stackable } from './stacks.ts';
 import { CONTROL_OF, type ControlKind } from './skins.ts';
 import {
   ELEMENT_FIELDS, LIMITS, UiCheckError, assetUses, checkAsset, checkElement, checkLook, checkRect, checkWidgetStyle, stackOrder,
@@ -71,9 +72,14 @@ export type Intent =
   | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null> }
   /** Show a free knob of a module inside a part on the part itself (each use gets its own value). */
   | { op: 'addParam'; part: string; node: NodeId; port: PortId; id?: PortId; label?: string }
-  | { op: 'removeParam'; part: string; id: PortId };
+  | { op: 'removeParam'; part: string; id: PortId }
+  // ---- copies (×N) ----
+  /** Run a node (or a part) as this many copies side by side (1: once). Its outputs then carry one signal per copy (a thick cable). */
+  | { op: 'setCount'; node: NodeId; count: number }
+  /** How the copies differ on one knob (null: the same in every copy). */
+  | { op: 'setSpread'; node: NodeId; port: PortId; spread: Spread | null };
 
-type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style' | 'inside' | 'part' | 'iface';
+type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style' | 'inside' | 'part' | 'iface' | 'count' | 'spread';
 type UiField = 'look' | 'order' | 'groups' | 'underlay' | 'brief';
 export interface Size { width: number; height: number }
 export type ResolvedOp =
@@ -102,11 +108,14 @@ const STRUCTURAL: ReadonlySet<ResolvedOp['op']> = new Set(['addNode', 'removeNod
 /** The shape of a part's ports (not their labels or defaults). */
 const portShape = (v: unknown) => { const f = v as { inputs?: Array<{ id: string; type: string; role?: string }>; outputs?: Array<{ id: string; type: string }> } | undefined; return JSON.stringify([f?.inputs?.map(p => [p.id, p.type, p.role]), f?.outputs?.map(p => [p.id, p.type])]); };
 const partShape = (p: PartDef) => JSON.stringify([p.inputs, p.outputs, p.params.map(q => [q.id, q.node, q.port])]);
-/** Does this op change the compiled program? (values, positions, labels, panel, names do not.) */
+/** Which knobs have a spread (a spread knob is one AudioParam per copy; changing how it spreads only changes values). */
+const spreadKeys = (v: unknown) => Object.keys((v ?? {}) as Record<string, unknown>).sort().join(',');
+/** Does this op change the compiled program? (values, positions, labels, panel, names, how copies spread do not.) */
 export function isStructural(op: ResolvedOp): boolean {
   if (op.op === 'setPart') return partShape(op.from) !== partShape(op.to);
   if (op.op === 'setField' && op.field === 'iface') return portShape(op.from) !== portShape(op.to);
-  return STRUCTURAL.has(op.op) || (op.op === 'setField' && (op.field === 'code' || op.field === 'ports' || op.field === 'inside' || op.field === 'part'));
+  if (op.op === 'setField' && op.field === 'spread') return spreadKeys(op.from) !== spreadKeys(op.to);
+  return STRUCTURAL.has(op.op) || (op.op === 'setField' && (op.field === 'code' || op.field === 'ports' || op.field === 'inside' || op.field === 'part' || op.field === 'count'));
 }
 
 const MAX_CODE = 64_000;
@@ -299,6 +308,13 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
         node.values[port.id] = port.type === 'gate' ? Boolean(given) : given;
       }
       for (const key of Object.keys(spec.values ?? {})) if (!catalog.input(node, key)) fail('unknown-port', `${def.title} has no input "${key}".`, `Inputs: ${catalog.inputs(node).map(p => p.id).join(', ')}`);
+      if (spec.count !== undefined && spec.count !== null && spec.count !== 1) node.count = checkCount(catalog, node, spec.count);
+      if (spec.spread !== undefined && spec.spread !== null) {
+        if (typeof spec.spread !== 'object' || Array.isArray(spec.spread)) fail('bad-spread', 'spread is {knob: {kind, amount?, seed?, values?}}.');
+        const spread: Record<PortId, Spread> = {};
+        for (const [port, raw] of Object.entries(spec.spread)) spread[port] = checkedSpread(catalog, node, port, raw);
+        if (Object.keys(spread).length) node.spread = spread;
+      }
       draft.apply({ op: 'addNode', node });
       created.push(id);
       return;
@@ -549,6 +565,26 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'updatePart': return updatePart(draft, intent);
     case 'addParam': return addParam(draft, intent);
     case 'removeParam': return removeParam(draft, intent);
+    case 'setCount': {
+      const node = requireNode(draft, intent.node);
+      const count = checkCount(catalog, node, intent.count);
+      const to = count === 1 ? undefined : count;
+      if (node.count === to) return;
+      draft.apply({ op: 'setField', node: node.id, field: 'count', from: node.count, to });
+      return;
+    }
+    case 'setSpread': {
+      const node = requireNode(draft, intent.node);
+      const next = { ...(node.spread ?? {}) };
+      if (intent.spread === null) {
+        if (!catalog.input(node, intent.port)) fail('unknown-port', `${node.id} has no input "${intent.port}".`, `Inputs: ${catalog.inputs(node).map(p => p.id).join(', ')}`);
+        delete next[intent.port];
+      } else next[intent.port] = checkedSpread(catalog, node, intent.port, intent.spread);
+      const to = Object.keys(next).length ? next : undefined;
+      if (JSON.stringify(to) === JSON.stringify(node.spread)) return;
+      draft.apply({ op: 'setField', node: node.id, field: 'spread', from: node.spread, to });
+      return;
+    }
     case 'setBrief': {
       if (intent.brief !== null && typeof intent.brief !== 'string') fail('bad-intent', 'brief is text (or null to remove it).');
       const text = typeof intent.brief === 'string' ? intent.brief.trim() : '';
@@ -559,8 +595,25 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, setCount, setSpread.');
   }
+}
+
+// ---- copies (×N) ------------------------------------------------------------------
+function checkCount(catalog: Catalog, node: PatchNode, count: unknown): number {
+  const def = catalog.get(node.type);
+  if (!stackable(catalog, node.type)) fail('not-stackable', `${def.title} cannot run as copies.`, 'Copies (×N) work on modules, math, codeboxes, History and parts; Voice In, Voice Mix, Out, Audio In, controls and Splay stay single.');
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > MAX_COUNT) fail('bad-value', `count must be a whole number from 1 to ${MAX_COUNT}.`);
+  return count as number;
+}
+function checkedSpread(catalog: Catalog, node: PatchNode, portId: PortId, raw: unknown): Spread {
+  if (!stackable(catalog, node.type)) fail('not-stackable', `${catalog.get(node.type).title} cannot run as copies, so its knobs cannot spread.`);
+  const port = catalog.input(node, portId);
+  if (!port) fail('unknown-port', `${node.id} has no input "${portId}".`, `Inputs: ${catalog.inputs(node).map(p => p.id).join(', ')}`);
+  if (!spreadable(port)) fail('not-spreadable', `${node.id}.${portId} cannot differ between copies.`, `Spreads work on numeric knobs: ${catalog.inputs(node).filter(spreadable).map(p => p.id).join(', ') || 'this node has none'}.`);
+  const checked = checkSpread(raw, port!);
+  if (typeof checked === 'string') fail('bad-spread', `Spread on ${node.id}.${portId}: ${checked}.`, 'A spread is {kind: "range"|"random"|"harmonic"|"each", amount?, seed?, values?}.');
+  return checked as Spread;
 }
 
 // ---- the plugin's screen ------------------------------------------------------------------
@@ -673,6 +726,17 @@ function pruneAfterPortChange(draft: Draft, id: NodeId) {
     if ((edge.to.node === id && !inputs.some(p => p.id === edge.to.port)) || (edge.from.node === id && !outputs.some(p => p.id === edge.from.port))) draft.apply({ op: 'removeEdge', edge });
   }
   for (const port of inputs) if (port.role !== 'audio' && !Object.hasOwn(node.values, port.id)) draft.apply({ op: 'setValue', node: id, port: port.id, from: undefined, to: defaultValue(port) });
+  dropStaleSpreads(draft, id);
+}
+
+/** Spreads on knobs a node no longer has go. */
+export function dropStaleSpreads(draft: { doc: PatchDocument; catalog: Catalog; apply(op: ResolvedOp): void }, id: NodeId) {
+  const node = draft.doc.nodes[id];
+  if (!node?.spread) return;
+  const inputs = draft.catalog.inputs(node);
+  const keep = Object.fromEntries(Object.entries(node.spread).filter(([port]) => spreadable(inputs.find(p => p.id === port))));
+  if (Object.keys(keep).length === Object.keys(node.spread).length) return;
+  draft.apply({ op: 'setField', node: id, field: 'spread', from: node.spread, to: Object.keys(keep).length ? keep : undefined });
 }
 
 function defaultStem(type: string): string {
