@@ -1,7 +1,9 @@
 // Linear undo/redo over author-attributed transactions. A knob drag is one
 // gesture: consecutive setValue transactions with the same gesture id merge into
 // one undo step. The fast AI path commits like a human does, so "undo" right
-// after an AI edit restores the exact pre-AI document.
+// after an AI edit restores the exact pre-AI document. An LLM request lands
+// step by step; consecutive steps of one request share a group and merge into
+// one undo step (an edit by someone else in between starts a new one).
 import { applyResolvedOps, invertAll, isStructural, type ResolvedOp } from './ops.ts';
 import type { PatchDocument } from './schema.ts';
 
@@ -18,6 +20,8 @@ export interface Transaction {
   ops: ResolvedOp[];
   at: number;
   gesture?: string;
+  /** Steps of one request (an LLM turn): consecutive ones undo together. */
+  group?: string;
   baseRevision: number;
 }
 
@@ -43,6 +47,12 @@ export class History {
     if (!tx.ops.length) return;
     this.redoStack = [];
     const last = this.undoStack.at(-1);
+    if (last && tx.group && last.group === tx.group && sameAuthor(last.author, tx.author)) {
+      last.ops = [...last.ops, ...tx.ops];
+      last.at = tx.at;
+      last.label = tx.label;
+      return;
+    }
     if (last && tx.gesture && last.gesture === tx.gesture && sameAuthor(last.author, tx.author)
       && tx.at - last.at <= this.mergeWindowMs && !tx.ops.some(isStructural) && !last.ops.some(isStructural)) {
       last.ops = mergeValueOps([...last.ops, ...tx.ops]);

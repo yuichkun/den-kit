@@ -1,20 +1,20 @@
 <script setup lang="ts">
 // Patch canvas (Vue Flow). The document is the source of truth: Vue Flow only
 // renders it; every user gesture becomes a session.commit() intent.
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { VueFlow, useVueFlow, type Connection, type NodeDragEvent, type NodeChange, type EdgeChange } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import { createsCycle } from '../core/scope.ts';
 import type { Intent } from '../core/ops.ts';
-import type { PatchDocument, PatchNode } from '../core/schema.ts';
 import { useSession } from './context.ts';
 import KitNode from './KitNode.vue';
 import KitEdge from './KitEdge.vue';
 import Palette from './Palette.vue';
 import GridPalette from './GridPalette.vue';
 import { portColor } from './grid-style.ts';
+import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -24,7 +24,6 @@ const wrapper = ref<HTMLElement | null>(null);
 const selectedEdges = ref<string[]>([]);
 /** Positions while dragging (committed as one move on drag stop). */
 const dragging = ref<Record<string, { x: number; y: number }>>({});
-let clipboard: { nodes: PatchNode[]; edges: PatchDocument['edges'][string][] } | null = null;
 
 const issuesByNode = computed(() => {
   const map = new Map<string, typeof session.issues.value>();
@@ -100,38 +99,38 @@ function deleteSelection() {
   if (filtered.length) commit(filtered, 'Delete');
   selectedEdges.value = []; session.select([]);
 }
-function copy() {
-  const doc = session.doc.value, ids = new Set(session.selection.value);
-  if (!ids.size) return;
-  clipboard = { nodes: [...ids].map(id => doc.nodes[id]!).filter(Boolean), edges: Object.values(doc.edges).filter(e => ids.has(e.from.node) && ids.has(e.to.node)) };
-}
-function paste() {
-  if (!clipboard) return;
+// Keys work wherever the focus is (except text fields), so going back from the
+// prompt (Esc) needs no click. Letters go by physical key (e.code).
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+let nudgeGesture = '';
+let nudgeAt = 0;
+function nudge(dx: number, dy: number) {
   const doc = session.doc.value;
-  const rename = new Map<string, string>();
-  const intents: Intent[] = [];
-  const taken = new Set(Object.keys(doc.nodes));
-  for (const n of clipboard.nodes) {
-    if (session.catalog.find(n.type)?.singleton) continue;
-    const stem = n.id.replace(/\d+$/, '') || 'node';
-    let k = 1; while (taken.has(`${stem}${k}`)) k++;
-    const id = `${stem}${k}`; taken.add(id); rename.set(n.id, id);
-    intents.push({ op: 'addNode', node: { ...n, id, pos: { x: n.pos.x + 40, y: n.pos.y + 40 }, panel: n.panel ? { ...n.panel, x: n.panel.x + 20, y: n.panel.y + 20 } : undefined } });
-  }
-  for (const e of clipboard.edges) if (rename.has(e.from.node) && rename.has(e.to.node)) intents.push({ op: 'connect', from: { node: rename.get(e.from.node)!, port: e.from.port }, to: { node: rename.get(e.to.node)!, port: e.to.port } });
-  const r = commit(intents, 'Paste');
-  if (r.ok) session.select([...rename.values()]);
+  const ids = session.selection.value.filter(id => doc.nodes[id]);
+  if (!ids.length) return;
+  // Repeated arrow presses are one undo step.
+  if (performance.now() - nudgeAt > 1500) nudgeGesture = `nudge-${Date.now()}`;
+  nudgeAt = performance.now();
+  const r = session.commit(ids.map(id => ({ op: 'move' as const, node: id, pos: { x: doc.nodes[id]!.pos.x + dx, y: doc.nodes[id]!.pos.y + dy } })), { label: 'Nudge', gesture: nudgeGesture });
+  if (!r.ok) session.toast('warn', r.error.message);
 }
 function onKey(e: KeyboardEvent) {
-  const t = e.target as HTMLElement;
-  if (t.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.defaultPrevented || typing(e) || palette.value) return;
   const mod = e.metaKey || e.ctrlKey;
-  if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelection(); e.preventDefault(); }
-  else if (mod && e.key === 'c') copy();
-  else if (mod && e.key === 'v') paste();
-  else if (mod && e.key === 'd') { copy(); paste(); e.preventDefault(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) { deleteSelection(); e.preventDefault(); }
+  else if (mod && !e.shiftKey && e.code === 'KeyA') { e.preventDefault(); session.select(Object.keys(session.doc.value.nodes)); selectedEdges.value = []; }
+  else if (mod && e.code === 'KeyC') copySelection(session);
+  else if (mod && e.code === 'KeyV') { e.preventDefault(); paste(session); }
+  else if (mod && e.code === 'KeyD') { e.preventDefault(); duplicate(session); }
+  else if (ARROWS[e.key] && !mod && !e.altKey) { e.preventDefault(); const [x, y] = ARROWS[e.key]!; const step = e.shiftKey ? 48 : 12; nudge(x * step, y * step); }
+  else if (e.shiftKey && !mod && e.code === 'Digit1') { e.preventDefault(); fit(); }
+  else if (e.shiftKey && !mod && e.code === 'Digit0') { e.preventDefault(); void flow.zoomTo(1, { duration: 150 }); }
+  else if (mod && (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd')) { e.preventDefault(); void flow.zoomIn({ duration: 150 }); }
+  else if (mod && (e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')) { e.preventDefault(); void flow.zoomOut({ duration: 150 }); }
+  else if (e.key === 'Escape') { session.select([]); selectedEdges.value = []; }
   else if (e.key === 'Tab' || (e.key === ' ' && e.shiftKey)) { openPalette(); e.preventDefault(); }
 }
+function fit() { void flow.fitView({ padding: 0.08, maxZoom: 1, duration: 200 }); }
 function openPalette(event?: MouseEvent) {
   const box = wrapper.value?.getBoundingClientRect();
   const x = event && box ? event.clientX - box.left : (box?.width ?? 600) / 2 - 160, y = event && box ? event.clientY - box.top : 80;
@@ -162,20 +161,24 @@ function pick(type: string) {
   if (r.ok) session.select(r.created);
 }
 watch(() => session.loadEpoch.value, async () => { await nextTick(); setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1 }), 80); }, { immediate: true });
-// An LLM edit that adds modules: show the whole patch so the new ones are in view.
+// An LLM request lands step by step: refit at most every 1.5 s.
+let lastFit = 0;
 const offLlmFit = session.onTransaction(tx => {
-  if (tx.author.kind === 'ai-llm' && tx.ops.some(op => op.op === 'addNode')) setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
+  if (tx.author.kind !== 'ai-llm' || !tx.ops.some(op => op.op === 'addNode') || performance.now() - lastFit < 1500) return;
+  lastFit = performance.now();
+  setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
 });
-onBeforeUnmount(() => { offLlmFit(); });
-defineExpose({ openPalette, fit: () => flow.fitView({ padding: 0.08, maxZoom: 1 }) });
+onMounted(() => window.addEventListener('keydown', onKey));
+onBeforeUnmount(() => { offLlmFit(); window.removeEventListener('keydown', onKey); });
+defineExpose({ openPalette, fit });
 </script>
 
 <template>
   <div class="patch-shell">
   <GridPalette @add="addAtCenter" />
-  <div ref="wrapper" class="patch-view" tabindex="0" data-testid="patch-view" @keydown="onKey" @dragover.prevent @drop="onDrop">
+  <div ref="wrapper" class="patch-view" tabindex="0" data-testid="patch-view" @dragover.prevent @drop="onDrop">
     <VueFlow id="den-kit" :nodes="nodes" :edges="edges" :apply-default="false" :delete-key-code="null" :pan-activation-key-code="null" :min-zoom="0.2" :max-zoom="2" :snap-to-grid="true" :snap-grid="[12, 12]"
-      :is-valid-connection="isValidConnection" :zoom-on-double-click="false" :connect-on-click="false"
+      :is-valid-connection="isValidConnection" :zoom-on-double-click="false" :connect-on-click="false" :disable-keyboard-a11y="true"
       @connect="onConnect" @node-drag-stop="onDragStop" @nodes-change="onNodesChange" @edges-change="onEdgesChange"
       @pane-click="palette = null" @dblclick="(e: MouseEvent) => (e.target as HTMLElement).closest('.vue-flow__pane') && openPalette(e)">
       <template #node-kit="nodeProps"><KitNode v-bind="nodeProps" @edit-code="id => emit('edit-code', id)" /></template>

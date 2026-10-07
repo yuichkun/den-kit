@@ -80,19 +80,20 @@ export class KitSession {
   }
 
   // ---- Document lifecycle ----------------------------------------------------
-  /** Load the autosave (or a starter) at startup. */
-  restore(fallback: StarterId = 'bass') {
+  /** Load the autosave (or a starter) at startup. True when an autosave was restored. */
+  restore(fallback: StarterId = 'bass'): boolean {
     const raw = this.storage?.getItem(AUTOSAVE_KEY);
     if (raw) {
       let record: unknown = null;
       try { record = JSON.parse(raw); } catch { record = null; }
       const read = readSaveRecord(record, catalog);
-      if (read.ok) { this.replace(read.doc, 'Restored autosave', false); for (const i of read.report) this.toast('warn', i.message); return; }
+      if (read.ok) { this.replace(read.doc, 'Restored autosave', false); for (const i of read.report) this.toast('warn', i.message); return true; }
       // Keep the broken record for recovery and tell the user.
       this.storage?.setItem(`${AUTOSAVE_KEY}:broken:${Date.now()}`, raw);
       this.toast('warn', `Autosave could not be read (${read.error}); a copy was kept and a starter patch was loaded.`);
     }
     this.replace(starter(fallback, catalog), 'Starter', false);
+    return false;
   }
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
@@ -114,7 +115,7 @@ export class KitSession {
   loadStarter(id: StarterId) { this.replace(starter(id, catalog), `Load ${id}`); }
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */
-  commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string; /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
+  commit(intents: Intent[], options: { author?: Author; label?: string; gesture?: string; /** Steps of one request that undo together (see History). */ group?: string; /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number } = {}): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
     const before = this.doc.value;
     if (options.expectRevision !== undefined && before.revision !== options.expectRevision) return { ok: false, error: new OpError(`The patch changed (revision ${before.revision}, expected ${options.expectRevision}).`, 0, 'stale') };
     let result;
@@ -124,7 +125,7 @@ export class KitSession {
       throw error;
     }
     if (!result.ops.length) return { ok: true, ops: [], created: result.created };
-    const tx: Transaction = { id: randomId('tx'), author: options.author ?? { kind: 'human' }, label: options.label ?? describeIntents(intents), ops: result.ops, at: Date.now(), gesture: options.gesture, baseRevision: before.revision };
+    const tx: Transaction = { id: randomId('tx'), author: options.author ?? { kind: 'human' }, label: options.label ?? describeIntents(intents), ops: result.ops, at: Date.now(), gesture: options.gesture, group: options.group, baseRevision: before.revision };
     this.history.record(tx);
     this.historyVersion.value++;
     this.doc.value = result.doc;

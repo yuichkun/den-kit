@@ -1,14 +1,15 @@
-// CP2b in the browser: the prompt → bridge → (fake) Codex → kit_* tools run in
-// this page against a draft (real compile and offline render workers) → the
-// draft lands on the live patch as one undoable step. Steer, stop, questions,
-// the user's edits winning, a codebox the LLM fixes, sign-in and crash states.
+// The LLM path in the browser: the prompt → bridge → (fake) Codex → kit_* tools
+// run in this page against the live patch (real compile and offline render
+// workers): each edit that checks out lands at once, the whole request is one
+// ⌘Z. Steer, stop, questions nobody is asked, the user's edits in between, a
+// codebox the LLM fixes, sign-in and crash states.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { openKit, outputPeak, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
-const lines = (page: Page) => kit(page, k => k.fast.history.value.map((o: any) => ({ id: o.id, text: o.text, status: o.status, route: o.route, label: o.label, message: o.message, steps: o.steps, conflicts: o.conflicts, reply: o.reply, actions: (o.actions ?? []).map((a: any) => a.label), undone: o.undone, fix: o.fix })));
+const lines = (page: Page) => kit(page, k => k.fast.history.value.map((o: any) => ({ id: o.id, text: o.text, status: o.status, route: o.route, label: o.label, message: o.message, note: o.note, steps: o.steps, reply: o.reply, undone: o.undone, fix: o.fix })));
 const lineFor = async (page: Page, text: string) => (await lines(page)).filter((l: { text: string }) => l.text === text).at(-1);
 
 async function ready(page: Page) {
@@ -32,21 +33,23 @@ before(async () => { h = await startHarness({ codex: true }); });
 after(async () => { await h?.close(); });
 
 describe('LLM path (fake Codex, real tools in the browser)', () => {
-  it('Shift+Enter: the LLM edits a draft, listens (spectrogram), and the edit lands as one step; ⌘Z undoes it', { timeout: 180000 }, async () => {
+  it('Shift+Enter: the LLM edits the live patch while it works, listens (spectrogram); one ⌘Z undoes the request', { timeout: 180000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
     assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /LLM/);
     const before = await kit(page, k => JSON.stringify(Object.keys(k.doc.value.nodes).sort()));
+    // Record, for every LLM step that lands, whether its request was still running.
+    await kit(page, k => { (window as any).__landedLive = []; k.onTransaction((tx: any) => { if (tx.author.kind === 'ai-llm') (window as any).__landedLive.push(k.fast.history.value.find((o: any) => o.id === tx.author.take)?.live); }); });
     await prompt(page, 'wobble the cutoff', true);
-    // While it works: a live line with what it is doing; the live patch is untouched.
     await page.waitForSelector('[data-route=llm] [data-testid=ai-activity]', { timeout: 15000 });
     const line = await settled(page, 'wobble the cutoff');
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.equal(line.label, 'Added an LFO that wobbles the cutoff (checked by listening).');
-    assert.ok(line.steps.some((s: string) => /compiled ✓/.test(s)), line.steps.join(' | '));
+    assert.ok(line.steps.some((s: string) => /\+ lfo2.* ✓$/.test(s)), line.steps.join(' | ')); // landed: checked and compiled
     assert.ok(line.steps.some((s: string) => /listened \(-?\d/.test(s)), line.steps.join(' | '));
     assert.equal(await kit(page, k => k.history.peek().author.kind), 'ai-llm');
     assert.ok(await kit(page, k => !!k.doc.value.nodes.lfo2 && !!k.doc.value.nodes.sum2));
+    assert.deepEqual(await page.evaluate(() => (window as any).__landedLive), [true], 'the edit landed while the request was still running');
     assert.equal((await waitCompiled(page)).status, 'ok');
     // The render ran in the browser worker: real metrics and a PNG went back to the model.
     const listen = h.codex!.replies().find(r => JSON.stringify(r).includes('peak'))!;
@@ -70,9 +73,10 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     const line = await settled(page, 'write a bitcrusher in a codebox');
     assert.equal(line.route, 'llm');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    const broken = h.codex!.replies().find(r => JSON.stringify(r).includes('does not compile'));
+    const broken = h.codex!.replies().find(r => JSON.stringify(r).includes('would not compile'));
     assert.ok(broken, 'the compile error went back to the model');
     assert.match(JSON.stringify(broken), /crush1/);
+    assert.match(JSON.stringify(broken), /Nothing was applied/);
     assert.match(await kit(page, k => k.doc.value.nodes.crush1.code), /floor\(\)/);
     assert.equal((await waitCompiled(page)).status, 'ok');
     await kit(page, k => k.noteOn(45, 100));
@@ -82,25 +86,20 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     await page.close();
   });
 
-  it('a question becomes buttons; a click continues the same conversation', { timeout: 180000 }, async () => {
+  it('a Codex question is never put to you: it is answered empty and the request goes on', { timeout: 120000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
-    const threads = sendCount(h, 'thread/start');
-    await prompt(page, 'make it different', true);
-    const asked = await settled(page, 'make it different');
-    assert.equal(asked.status, 'chips');
-    assert.equal(asked.message, 'Which direction?');
-    assert.deepEqual(asked.actions, ['Brighter', 'Darker']);
-    await page.click('[data-testid=ai-action]:has-text("Darker")');
-    const answered = await settled(page, 'Darker');
-    assert.equal(answered.status, 'applied', JSON.stringify(answered));
-    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 120);
-    assert.equal(sendCount(h, 'thread/start'), threads + 1, 'the follow-up stayed in the same conversation');
+    await prompt(page, 'ask me with codex', true);
+    const line = await settled(page, 'ask me with codex', 30000);
+    assert.equal(line.status, 'reply', JSON.stringify(line));
+    assert.match(line.reply, /You chose nothing/);
+    assert.ok(line.steps.some((s: string) => /skipped a question/.test(s)), line.steps.join(' | '));
+    assert.equal(await page.locator('[data-testid=ai-panel] button:not([data-testid=ai-drawer-toggle]):not([data-testid=ai-close]):not([data-testid=ai-mic])').count(), 0, 'nothing to pick');
     assert.deepEqual(errors, []);
     await page.close();
   });
 
-  it('Esc stops a running request and nothing changes', { timeout: 120000 }, async () => {
+  it('Esc stops a running request; nothing had landed, so nothing changed', { timeout: 120000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
     const before = await kit(page, k => k.doc.value.revision);
@@ -130,18 +129,24 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     await page.close();
   });
 
-  it('your edits made meanwhile win; the line says what was kept', { timeout: 120000 }, async () => {
+  it('your edit made while it works stays yours: ⌘Z takes back yours, then the request', { timeout: 120000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
+    const hz = await kit(page, k => k.doc.value.nodes.cut1.values.hz);
     await prompt(page, 'add delay and open the filter', true);
-    await page.waitForFunction(() => /editing|thinking/.test(document.querySelector('[data-route=llm] [data-testid=ai-activity]')?.textContent ?? ''), null, { timeout: 15000 });
+    // The LLM's step lands first (cutoff 1500, level 0.2); then the user turns the cutoff.
+    await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.cut1.values.hz === 1500, null, { timeout: 15000 });
     await kit(page, k => k.commit([{ op: 'setValue', node: 'cut1', port: 'hz', value: 444 }]));
     const line = await settled(page, 'add delay and open the filter', 30000);
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 444, 'the user’s value stays');
-    assert.equal(await kit(page, k => k.doc.value.nodes.gain1.values.gain), 0.2, 'the rest of the LLM edit landed');
-    assert.equal(line.conflicts.length, 1);
-    assert.match(await page.textContent('[data-testid=ai-conflicts]') ?? '', /kept your edits/);
+    assert.equal(await kit(page, k => k.doc.value.nodes.gain1.values.gain), 0.2, 'the LLM edit landed');
+    await page.locator('[data-testid=ai-input]').blur();
+    await page.keyboard.press('Control+z');
+    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 1500);
+    await page.keyboard.press('Control+z');
+    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), hz);
+    assert.notEqual(await kit(page, k => k.doc.value.nodes.gain1.values.gain), 0.2);
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -175,7 +180,7 @@ describe('LLM path, not signed in', () => {
     assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /sign in/);
     await prompt(page, 'write a bitcrusher in a codebox');
     const line = await settled(page, 'write a bitcrusher in a codebox', 15000);
-    assert.equal(line.status, 'escalate');
+    assert.equal(line.status, 'nothing');
     assert.match(line.message, /not signed in.*kit:codex:login/);
     s.codex!.signIn();
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });

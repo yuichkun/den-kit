@@ -29,6 +29,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
           <li><kbd>Enter</kbd> type a request</li>
           <li><kbd>A</kbd>–<kbd>K</kbd> play</li>
           <li><kbd>⌘Z</kbd> undo</li>
+          <li><kbd>⌥⌘E</kbd> patch ⇄ plugin</li>
+          <li><kbd>⌥⌘N</kbd> new</li>
         </ul>
       </template>
       <template v-else-if="state === 'suspended'">

@@ -9,7 +9,7 @@ import { titleColor, portColor } from './grid-style.ts';
 
 const emit = defineEmits<{ (e: 'add', type: string): void }>();
 const session = useSession();
-const CATEGORIES = [['voice', 'Voice'], ['source', 'Oscillator'], ['filter', 'Filter'], ['envelope', 'Envelope'], ['modulation', 'LFO / Mod'], ['fx', 'FX'], ['dynamics', 'Dynamics'], ['math', 'Math'], ['io', 'I/O'], ['ui', 'Panel UI'], ['code', 'Code']] as const;
+const CATEGORIES = [['voice', 'Voice'], ['source', 'Oscillator'], ['filter', 'Filter'], ['envelope', 'Envelope'], ['modulation', 'LFO / Mod'], ['fx', 'FX'], ['dynamics', 'Dynamics'], ['math', 'Math'], ['io', 'I/O'], ['ui', 'Plugin UI'], ['code', 'Code']] as const;
 const category = ref<string>('source');
 const query = ref('');
 const taken = computed(() => new Set(Object.values(session.doc.value.nodes).map(n => n.type)));

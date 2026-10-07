@@ -1,6 +1,7 @@
-// The LLM path in the browser against a scripted bridge: the draft lands as one
-// undoable step, the user's edits win, steer/stop/questions, broken drafts, lost
-// requests, and the hand-off from the fast path.
+// The LLM path in the browser against a scripted bridge: edits land on the live
+// patch step by step and undo together, the user's edits in between stay their
+// own, steer/stop, questions answered for nobody, edits that do not compile,
+// lost requests, and the hand-off from the fast path.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { shallowRef } from 'vue';
 import { FastPath, type Outcome } from '../../../src/ai/fast-path.ts';
@@ -83,45 +84,56 @@ const snapshot = () => { const d = clone(session.doc.value); const sort = <T,>(o
 const startId = () => String(t.last('llm.start')!.id);
 
 describe('a request', () => {
-  it('runs on a draft (live untouched) and lands as one ai-llm step; ⌘Z takes all of it back', async () => {
+  it('lands on the live patch step by step; one ⌘Z takes the whole request back', async () => {
     const before = snapshot();
+    const undoSteps = session.history.size;
     const o = llm.run('wobble the cutoff');
     expect(o).toMatchObject({ status: 'thinking', route: 'llm', live: true });
     const start = t.last('llm.start')!;
-    expect(String(start.text)).toMatch(/^\[den-kit\] Your draft is a copy of the live patch[\s\S]*wobble the cutoff$/);
+    expect(String(start.text)).toMatch(/^\[den-kit\] You edit the live patch; each edit that checks out lands at once\.[\s\S]*wobble the cutoff$/);
     expect(String(start.instructions)).toContain('kit_get_patch');
     expect(String(start.instructions)).toContain('den.lfo');
     t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
     const edit = await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
-    expect(edit.text).toMatch(/Applied 7 edits.*Compiled OK/s);
-    expect(snapshot()).toBe(before); // live untouched while the LLM works
+    expect(edit.text).toMatch(/Applied 7 edits.*live now.*Compiled OK/s);
+    // Live at once, while the request is still running.
+    expect(session.doc.value.nodes.lfo2).toBeDefined();
+    expect(line(o.id).live).toBe(true);
+    expect(session.history.peek()!.author).toMatchObject({ kind: 'ai-llm', take: o.id });
     // A call sent again after a reconnect gets the same answer and is not applied twice.
     const again = await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
     expect(again).toBe(edit);
-    expect(line(o.id).steps!.join(' ')).toMatch(/\+ lfo2.*compiled ✓/);
-    await t.call(o.id, 'c2', 'kit_finish', { summary: 'Added an LFO wobbling the cutoff' });
+    const second = await t.call(o.id, 'c2', 'kit_apply_ops', { ops: [{ op: 'setValue', node: 'lfo2', port: 'rate', value: 7 }] });
+    expect(second.success).toBe(true);
+    expect(session.history.size).toBe(undoSteps + 1); // both steps are one undo step
+    expect(line(o.id).steps!.join(' ')).toMatch(/\+ lfo2.*✓/);
+    await t.call(o.id, 'c3', 'kit_finish', { summary: 'Added an LFO wobbling the cutoff' });
     t.done(o.id);
     expect(line(o.id)).toMatchObject({ status: 'applied', label: 'Added an LFO wobbling the cutoff', live: false });
-    expect(session.history.peek()!.author).toMatchObject({ kind: 'ai-llm', take: o.id });
-    expect(session.doc.value.nodes.lfo2).toBeDefined();
     expect(llm.busy.value).toBe(false);
     session.undo();
     expect(snapshot()).toBe(before);
     expect(line(o.id).undone).toBe(true);
   });
 
-  it('the user’s edits made meanwhile win; the line says what was kept', async () => {
-    const o = llm.run('open the filter and wobble it');
-    await t.call(o.id, 'c1', 'kit_apply_ops', { ops: [...WOBBLE.ops, { op: 'setValue', node: 'cut1', port: 'hz', value: 900 }] });
-    session.commit([{ op: 'setValue', node: 'cut1', port: 'hz', value: 500 }]); // the user, meanwhile
+  it('an edit by the user in between stays their own: the request undoes in two parts around it', async () => {
+    const before = snapshot();
+    const undoSteps = session.history.size;
+    const o = llm.run('wobble and open it');
+    await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
+    session.commit([{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]); // the user, meanwhile
+    await t.call(o.id, 'c2', 'kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 900 }] });
     t.done(o.id);
     expect(line(o.id).status).toBe('applied');
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(500);
-    expect(session.doc.value.nodes.lfo2).toBeDefined();
-    expect(line(o.id).conflicts).toEqual([expect.stringMatching(/hz.*your version was kept/)]);
+    expect(session.history.size).toBe(undoSteps + 3);
+    session.undo(); // the LLM's second part
+    expect(session.doc.value.nodes.cut1!.values.hz).not.toBe(900);
+    expect(session.doc.value.nodes.filter1!.values.resonance).toBe(2);
+    session.undo(); session.undo();
+    expect(snapshot()).toBe(before);
   });
 
-  it('a reply without changes shows the words; kit_ask becomes buttons that continue the conversation', async () => {
+  it('a reply without changes shows the words; a follow-up continues the conversation', async () => {
     const o = llm.run('how does this work?');
     t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
     await t.call(o.id, 'c1', 'kit_get_patch', {});
@@ -130,18 +142,9 @@ describe('a request', () => {
     t.event(o.id, { kind: 'message', text: 'An oscillator goes through a filter.' });
     t.done(o.id);
     expect(line(o.id)).toMatchObject({ status: 'reply', reply: 'An oscillator goes through a filter.' });
-    const before = snapshot();
-    const q = llm.run('make it different');
+    llm.run('make it darker');
     expect(t.last('llm.start')!.thread).toBe('th1');
     expect(String(t.last('llm.start')!.text)).toMatch(/may have changed since your last turn/);
-    await t.call(q.id, 'c2', 'kit_ask', { question: 'Which direction?', options: ['Brighter', 'Darker'] });
-    t.done(q.id);
-    const asked = line(q.id);
-    expect(asked).toMatchObject({ status: 'chips', message: 'Which direction?' });
-    expect(asked.actions!.map(a => [a.kind, a.label])).toEqual([['send', 'Brighter'], ['send', 'Darker']]);
-    expect(snapshot()).toBe(before);
-    llm.act(asked.actions![1]!, asked);
-    expect(t.last('llm.start')).toMatchObject({ thread: 'th1', text: expect.stringMatching(/Darker$/) });
   });
 
   it('a new conversation starts when a different patch is loaded', async () => {
@@ -171,34 +174,57 @@ describe('while it works', () => {
     expect(llm.busy.value).toBe(true);
   });
 
-  it('Esc stops it and nothing is applied; if Codex never confirms, it ends anyway', async () => {
+  it('Esc stops it; what already landed stays and one ⌘Z takes it back; if Codex never confirms, it ends anyway', async () => {
     const before = snapshot();
     const o = llm.run('wobble');
     await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
     expect(llm.stop()).toBe(true);
     expect(t.last('llm.stop')).toEqual({ t: 'llm.stop', id: o.id });
     expect(line(o.id).activity).toBe('stopping…');
+    // A tool call racing the stop does not land.
+    const late = await t.call(o.id, 'c2', 'kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 50 }] });
+    expect(late.success).toBe(false);
     t.done(o.id, 'interrupted');
-    expect(line(o.id)).toMatchObject({ status: 'stopped', message: 'Stopped. Nothing was changed.' });
+    expect(line(o.id)).toMatchObject({ status: 'stopped', message: 'Stopped.', note: expect.stringMatching(/stays; ⌘Z takes it back/) });
+    expect(session.doc.value.nodes.lfo2).toBeDefined();
+    session.undo();
     expect(snapshot()).toBe(before);
 
     setup({ stopGraceMs: 30 });
     const p = llm.run('wobble');
     llm.stop();
     await new Promise(r => setTimeout(r, 60));
-    expect(line(p.id).status).toBe('stopped');
+    expect(line(p.id)).toMatchObject({ status: 'stopped', note: 'Nothing was changed.' });
     expect(llm.busy.value).toBe(false);
   });
 
-  it('Codex questions become buttons; a click answers', async () => {
+  it('⌘Z on what the running request did stops it', async () => {
+    const o = llm.run('wobble');
+    await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
+    session.undo();
+    expect(t.last('llm.stop')).toEqual({ t: 'llm.stop', id: o.id });
+    t.done(o.id, 'interrupted');
+    expect(line(o.id)).toMatchObject({ status: 'stopped', message: 'You undid its edit, so it stopped.' });
+    expect(session.doc.value.nodes.lfo2).toBeUndefined();
+  });
+
+  it('loading another patch stops it, and nothing more lands on the new patch', async () => {
+    const o = llm.run('wobble');
+    session.loadStarter('pad');
+    expect(t.last('llm.stop')).toEqual({ t: 'llm.stop', id: o.id });
+    const r = await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
+    expect(r.success).toBe(false);
+    expect(session.doc.value.nodes.lfo2).toBeUndefined();
+    t.done(o.id, 'interrupted');
+    expect(line(o.id)).toMatchObject({ status: 'stopped', message: 'A different patch was loaded, so it stopped.' });
+  });
+
+  it('Codex questions are never put to the user: answered empty at once, and it goes on', async () => {
     const o = llm.run('ask me');
     t.event(o.id, { kind: 'question', question: 'q7', blocking: true, items: [{ id: 'size', header: 'Size', question: 'How big?', options: ['Small', 'Large'], other: false }] });
-    const asked = line(o.id);
-    expect(asked.message).toBe('How big?');
-    const large = asked.actions!.find(a => a.label === 'Large')!;
-    llm.act(large, asked);
-    expect(t.last('llm.answer')).toEqual({ t: 'llm.answer', id: o.id, question: 'q7', answers: { size: ['Large'] } });
-    expect(line(o.id).actions!.map(a => a.kind)).toEqual([]);
+    expect(t.last('llm.answer')).toEqual({ t: 'llm.answer', id: o.id, question: 'q7', answers: {} });
+    expect(line(o.id).message).toBeUndefined();
+    expect(line(o.id).steps!.at(-1)).toMatch(/skipped a question/);
   });
 
   it('a tool call for a request that already ended gets no answer', async () => {
@@ -210,24 +236,25 @@ describe('while it works', () => {
   });
 });
 
-describe('when it cannot be applied', () => {
-  it('a draft that does not compile is not applied; “Apply anyway” lands it', async () => {
+describe('when something does not work', () => {
+  it('an edit that does not compile lands nothing; Codex gets the problem and can fix it', async () => {
     compileResult = { ok: false, message: 'boom', issues: [{ severity: 'error', code: 'compile', message: 'boom', node: 'lfo2' }] };
     const o = llm.run('wobble');
-    await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
-    t.done(o.id);
-    const failed = line(o.id);
-    expect(failed).toMatchObject({ status: 'failed', message: expect.stringMatching(/does not compile, so it was not applied/) });
+    const r = await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
+    expect(r).toMatchObject({ success: false, text: expect.stringMatching(/would not compile: boom[\s\S]*Nothing was applied/) });
     expect(session.doc.value.nodes.lfo2).toBeUndefined();
-    llm.act(failed.actions!.find(a => a.kind === 'apply-anyway')!, failed);
-    expect(line(o.id)).toMatchObject({ status: 'applied', note: expect.stringMatching(/did not compile/) });
+    compileResult = { ok: true, ms: 10 };
+    expect((await t.call(o.id, 'c2', 'kit_apply_ops', WOBBLE)).success).toBe(true);
+    t.done(o.id);
+    expect(line(o.id).status).toBe('applied');
     expect(session.doc.value.nodes.lfo2).toBeDefined();
   });
 
-  it('a failure says why and what to do', () => {
+  it('a failure says why and what to do (and that what landed stays)', async () => {
     const o = llm.run('wobble');
+    await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
     t.done(o.id, 'failed', { message: 'Your ChatGPT plan’s Codex usage limit is reached.', fix: 'Wait for the limit to reset.', code: 'usageLimitExceeded' });
-    expect(line(o.id)).toMatchObject({ status: 'failed', message: expect.stringMatching(/usage limit/), fix: 'Wait for the limit to reset.' });
+    expect(line(o.id)).toMatchObject({ status: 'failed', message: expect.stringMatching(/usage limit/), fix: 'Wait for the limit to reset.', note: expect.stringMatching(/stays/) });
   });
 
   it('a request the bridge lost (it restarted) fails instead of waiting forever', () => {
@@ -237,15 +264,6 @@ describe('when it cannot be applied', () => {
     const p = llm.run('wobble again');
     t.emit({ t: 'welcome', running: [p.id] });
     expect(line(p.id).status).toBe('thinking');
-  });
-
-  it('a different patch loaded meanwhile: the edit is not applied', async () => {
-    const o = llm.run('wobble');
-    await t.call(o.id, 'c1', 'kit_apply_ops', WOBBLE);
-    session.loadStarter('pad');
-    t.done(o.id);
-    expect(line(o.id)).toMatchObject({ status: 'failed', message: expect.stringMatching(/different patch/) });
-    expect(session.doc.value.nodes.lfo2).toBeUndefined();
   });
 
   it('Codex not signed in: the line says what to run', () => {
@@ -276,9 +294,10 @@ describe('hand-off from the fast path', () => {
     expect(line(busy.id).status).toBe('thinking');
   });
 
-  it('without the LLM the line says why', async () => {
+  it('without the LLM the line says why, in one line and with nothing to pick', async () => {
     t.status.value = { ...t.status.value, codex: { state: 'error', detail: 'Codex stopped unexpectedly.', fix: 'Run `npm run kit:doctor`.' } };
     const o = await fast.run('write a granular codebox');
-    expect(o).toMatchObject({ status: 'escalate', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*kit:doctor/) });
+    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*kit:doctor/) });
+    expect(Object.keys(o)).not.toContain('chips');
   });
 });

@@ -14,10 +14,12 @@ function formatValue(value: number, unit: string) {
   return unit ? `${text} ${unit}` : text;
 }
 
+/** 0..1 position of `value`; out-of-range values sit at the ends (Vue sets `value` after min/max/scale, so a log knob briefly sees 0). */
 function toUnit(value: number, min: number, max: number, log: boolean) {
-  if (max <= min) return 0;
-  if (log && min > 0) return Math.log(value / min) / Math.log(max / min);
-  return (value - min) / (max - min);
+  if (!(max > min) || !Number.isFinite(value)) return 0;
+  const v = Math.min(max, Math.max(min, value));
+  if (log && min > 0) return Math.log(v / min) / Math.log(max / min);
+  return (v - min) / (max - min);
 }
 function fromUnit(u: number, min: number, max: number, log: boolean) {
   const t = Math.min(1, Math.max(0, u));

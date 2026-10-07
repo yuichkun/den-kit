@@ -39,7 +39,7 @@ describe('AI bar (fast path)', () => {
     const compiles = await kit(page, k => k.compiler.stats.started);
     assert.equal(await ask(page, 'リリース長く'), 'applied');
     assert.equal(await kit(page, k => k.fast.outcome.value.route), 'lexicon');
-    assert.match(await page.textContent('[data-testid=ai-time]') ?? '', /^\d+ ms$/);
+    assert.match(await page.textContent('[data-testid=ai-time]') ?? '', /^instant · \d+ ms$/);
     assert.equal(await page.$('[data-testid=ai-undo], [data-testid=ai-ab]'), null, 'no undo / A-B buttons in the AI bar');
     assert.ok(await kit(page, k => k.doc.value.nodes.aenv1.values.release) > before);
     await page.waitForTimeout(200);
@@ -72,16 +72,13 @@ describe('AI bar (fast path)', () => {
     await page.close();
   });
 
-  it('an unsure Jev offers chips; clicking one applies it', async () => {
+  it('an unsure Jev offers nothing to pick: one line says so (no LLM in this run) and the patch stays', async () => {
     const { page } = await ready();
     const rev = await kit(page, k => k.doc.value.revision);
-    assert.equal(await ask(page, 'make it pop somehow'), 'chips');
+    assert.equal(await ask(page, 'make it pop somehow'), 'nothing');
     assert.equal(await kit(page, k => k.doc.value.revision), rev);
-    const chips = await page.$$('[data-testid=ai-chip]');
-    assert.ok(chips.length > 0);
-    await chips[0]!.click();
-    await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
-    assert.equal(await kit(page, k => k.history.peek().author.handler), 'chip');
+    assert.match(await page.textContent('[data-testid=ai-message]') ?? '', /Not sure what to change/);
+    assert.equal(await page.locator('[data-testid=ai-history] button').count(), 0, 'no buttons to pick from');
     await page.close();
   });
 
@@ -111,7 +108,7 @@ describe('AI bar (fast path)', () => {
     assert.match(await page.textContent('[data-testid=ai-drawer]') ?? '', /brighter/);
     await page.fill('[data-testid=ai-tau]', '0.95');
     assert.equal(await kit(page, k => k.fast.settings.tau), 0.95);
-    assert.equal(await ask(page, 'make it sound brighter and more alive'), 'chips');
+    assert.equal(await ask(page, 'make it sound brighter and more alive'), 'nothing');
     await page.close();
   });
 });

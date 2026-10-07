@@ -49,26 +49,6 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: 'ask',
-    match: /different|変えて/i,
-    async run(t) {
-      await t.call('kit_get_patch', {});
-      await t.call('kit_ask', { question: 'Which direction?', options: ['Brighter', 'Darker'] });
-      await t.say('Which direction?');
-    },
-  },
-  {
-    name: 'brighter-or-darker',
-    // den-kit puts a context line before the user's words; the answer is the last line.
-    match: /(?:^|\n)(Brighter|Darker)$/,
-    async run(t) {
-      const word = /(Brighter|Darker)$/.exec(t.text)![1]!;
-      const hz = word === 'Brighter' ? 900 : 120;
-      await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: hz }] });
-      await t.call('kit_finish', { summary: `${word}: filter base ${hz} Hz.` });
-    },
-  },
-  {
     name: 'codebox',
     match: /bitcrush|codebox|コードボックス/i,
     async run(t) {
@@ -80,7 +60,7 @@ const scenarios: Scenario[] = [
       ] });
       const ports = { inputs: [{ id: 'in', type: 'signal' }, { id: 'bits', type: 'signal' }], outputs: [{ id: 'out', type: 'signal' }] };
       const broken = await t.call('kit_write_codebox', { node: 'crush1', code: BOX_BROKEN, ...ports });
-      if (!/does not compile|error/i.test(broken.text)) { await t.say('Expected a compile error.'); return { status: 'failed', message: 'scenario: no compile error reported', info: 'other' }; }
+      if (!/not compile|error/i.test(broken.text)) { await t.say('Expected a compile error.'); return { status: 'failed', message: 'scenario: no compile error reported', info: 'other' }; }
       const fixed = await t.call('kit_write_codebox', { node: 'crush1', code: BOX_FIXED, ...ports });
       if (!/Compiled OK/.test(fixed.text)) { await t.say(`Still broken: ${fixed.text.slice(0, 300)}`); return; }
       await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'crush1', port: 'bits', value: 4 }] });

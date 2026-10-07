@@ -34,7 +34,6 @@ const canned: Answer = call => ({
   kit_apply_ops: { success: true, text: 'Applied 7 edits. Compiled OK in 0.4 s.' },
   kit_listen: { success: true, text: 'Peak −6 dB.', imageDataUrl: 'data:image/png;base64,iVBORw0KGgo=' },
   kit_finish: { success: true, text: 'OK.' },
-  kit_ask: { success: true, text: 'Asked.' },
   kit_write_codebox: { success: true, text: 'Code saved. Compiled OK in 0.2 s.' },
 } as Record<string, ToolOutput>)[call.tool] ?? { success: false, text: 'unknown' };
 
@@ -125,7 +124,7 @@ describe('a turn', () => {
     const thread = fake.sent('thread/start')[0]!.params as Record<string, unknown>;
     expect(thread).toMatchObject({ ephemeral: true, environments: [], sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: 'You edit a synth patch.', config: { web_search: 'disabled' } });
     expect((thread.config as { features: Record<string, boolean> }).features).toMatchObject({ multi_agent: false, apps: false, shell_tool: false, plugins: false });
-    expect((thread.dynamicTools as Array<{ name: string }>).map(t => t.name)).toEqual(['kit_get_patch', 'kit_list_blocks', 'kit_describe_block', 'kit_apply_ops', 'kit_write_codebox', 'kit_listen', 'kit_ask', 'kit_finish']);
+    expect((thread.dynamicTools as Array<{ name: string }>).map(t => t.name)).toEqual(['kit_get_patch', 'kit_list_blocks', 'kit_describe_block', 'kit_apply_ops', 'kit_write_codebox', 'kit_listen', 'kit_finish']);
     expect(String(thread.cwd)).toContain('work');
     // The spectrogram went back as an image because the model accepts images.
     const listen = fake.replies().find(r => JSON.stringify(r).includes('Peak'))!;

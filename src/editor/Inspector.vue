@@ -29,7 +29,7 @@ function expose(port: string) {
   const { widget } = exposeIntents(session, node.value!.id, port);
   const id = `${widget.type === 'ui.toggle' ? 'toggle' : 'knob'}${Object.keys(session.doc.value.nodes).length + 1}`;
   const r = commit([{ op: 'addNode', node: { ...widget, id } }, { op: 'connect', from: { node: id, port: 'out' }, to: { node: node.value!.id, port } }], { label: `Expose ${port} to panel` });
-  if (r.ok) session.toast('info', `Added "${widget.label}" to the panel.`);
+  if (r.ok) session.toast('info', `Added "${widget.label}" to the plugin.`);
 }
 const configDefs = computed(() => def.value?.config ?? []);
 </script>
@@ -67,7 +67,7 @@ const configDefs = computed(() => def.value?.config ?? []);
           <template v-else-if="isParamInput(p, scope)">
             <ValueField :node="node.id" :port="p" :value="node.values[p.id]" />
             <span class="muted unit">{{ p.unit }}</span>
-            <button class="small" :data-expose="p.id" title="Put a control for this on the panel" @click="expose(p.id)">→ Panel</button>
+            <button class="small" :data-expose="p.id" title="Put a control for this on the plugin" @click="expose(p.id)">→ Plugin</button>
           </template>
           <span v-else class="muted">{{ p.binding ? `follows ${p.binding}` : p.fallback ? `uses ${p.fallback}` : p.role === 'audio' ? 'silent' : String(p.default) }}</span>
         </div>

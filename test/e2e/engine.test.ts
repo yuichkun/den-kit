@@ -168,7 +168,7 @@ describe('audio engine', () => {
       const Real = AudioContext;
       (window as unknown as { AudioContext: unknown }).AudioContext = class extends Real { constructor(o?: AudioContextOptions) { super({ ...o, sampleRate: 44100 }); } };
     });
-    await page.goto(h.url);
+    await page.goto(`${h.url}?noStart`);
     await page.waitForFunction(() => (window as unknown as K).__kit, null, { timeout: 60000 });
     await waitCompiled(page);
     await page.click('[data-testid=start-overlay]');

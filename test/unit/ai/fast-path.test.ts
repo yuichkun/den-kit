@@ -1,5 +1,6 @@
 // The whole fast path against an in-process Jev (scripted fake brain): what is
-// applied, what becomes chips, and that no failure ever damages the patch.
+// applied, what it is not sure about (never offered as choices: the LLM takes
+// it, or one line says why), and that no failure ever damages the patch.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FastPath } from '../../../src/ai/fast-path.ts';
 import { testSession, stubBridge, type StubBridge } from '../../helpers/fake-bridge.ts';
@@ -103,36 +104,33 @@ describe('Jev path', () => {
   it('route "complex" needs the LLM; without one wired it says so and changes nothing (hand-off: llm.test.ts)', async () => {
     const before = snapshot();
     const o = await fast.run('write a granular codebox');
-    expect(o.status).toBe('escalate');
+    expect(o.status).toBe('nothing');
     expect(o.message).toBe('This needs the LLM.');
     expect(snapshot()).toBe(before);
   });
 
-  it('an unsure Jev (orders disagree) gives chips; a chip applies as one undo step', async () => {
+  it('an unsure Jev (orders disagree) offers nothing to pick: one line, the patch untouched, the trace keeps what it weighed', async () => {
     const before = snapshot();
     const o = await fast.run('make it pop somehow');
-    expect(o.status).toBe('chips');
+    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/Not sure what to change/) });
+    expect(Object.keys(o)).not.toContain('chips');
     expect(snapshot()).toBe(before);
-    expect(o.chips.length).toBeGreaterThan(0);
-    fast.applyChip(o.chips[0]!);
-    expect(fast.outcome.value!.status).toBe('applied');
-    expect(session.history.peek()!.author).toMatchObject({ kind: 'ai-fast', handler: 'chip' });
-    session.undo();
-    expect(snapshot()).toBe(before);
+    expect(fast.traces.value[0]).toMatchObject({ decision: 'chips', applied: false });
+    expect(fast.traces.value[0]!.alternatives!.length).toBeGreaterThan(0);
   });
 
   it('the Japanese threshold is stricter when Jev interpreted Japanese', async () => {
     expect((await fast.run('open it up a little')).status).toBe('applied');
     session.undo();
     const ja = await fast.run('もう少しだけ空間を広げて');
-    expect(ja.status).toBe('chips');
+    expect(ja.status).toBe('nothing');
     fast.settings.tauJa = 0.6;
     expect((await fast.run('もう少しだけ空間を広げて')).status).toBe('applied');
   });
 
   it('τ comes from the settings', async () => {
     fast.settings.tau = 0.9;
-    expect((await fast.run('open it up a little')).status).toBe('chips');
+    expect((await fast.run('open it up a little')).status).toBe('nothing');
   });
 
   it.each([
@@ -142,31 +140,43 @@ describe('Jev path', () => {
     ['malformed', { ok: false, error: { kind: 'malformed', message: 'Jev returned a body that is not JSON.' }, ms: 30 }],
     ['empty answers', { ok: true, response: { model: 'jev-1.13.0', answers: {} }, ms: 30 }],
     ['garbage answers', { ok: true, response: { model: 'jev-1.13.0', answers: { route: { type: 'choice', choice: 'adjust', probabilities: { adjust: NaN } }, aspect: 'x', direction: null } }, ms: 30 }],
-  ] as const)('%s never changes the patch and offers the lexicon guess when there is one', async (_name, result) => {
+  ] as const)('%s never changes the patch and offers nothing to pick', async (_name, result) => {
     const before = snapshot();
     stub.next.push(result as never);
     const o = await fast.run('brighter like a trumpet');
-    expect(['chips', 'nothing']).toContain(o.status);
+    expect(o.status).toBe('nothing');
     expect(snapshot()).toBe(before);
-    if (o.status === 'chips') expect(o.chips[0]!.label).toMatch(/brighter/);
     stub.next.push(result as never);
     const none = await fast.run('something unrecognisable');
     expect(none.status).toBe('nothing');
     expect(snapshot()).toBe(before);
   });
 
-  it('a patch edited while Jev thinks is never changed by the late answer (chips instead)', async () => {
-    stub.during = () => { session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }]); };
+  it('a patch edited while Jev thinks is never changed by the late answer: Jev is asked again about the patch as it is now', async () => {
+    let edits = 0;
+    stub.during = () => { if (edits++ === 0) session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }]); };
     const o = await fast.run('make it sound brighter and more alive');
-    expect(o.status).toBe('chips');
-    expect(o.message).toMatch(/changed while Jev/);
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(300);
-    expect(fast.traces.value[0]!.stale).toBe(true);
+    expect(o.status).toBe('applied');
+    expect(stub.requests).toHaveLength(2);
+    expect(session.doc.value.nodes.gain1!.values.gain).toBe(0.3); // the user's edit stays
+    expect(session.doc.value.nodes.cut1!.values.hz).toBeGreaterThan(300);
+    expect(fast.traces.value[1]!.stale).toBe(true);
+    expect(fast.history.value.filter(l => l.text === 'make it sound brighter and more alive')).toHaveLength(1);
   });
 
-  it('a selection change while Jev thinks also counts as stale', async () => {
-    stub.during = () => { session.select(['filter1']); };
-    expect((await fast.run('make it sound brighter and more alive')).status).toBe('chips');
+  it('a patch that keeps changing while Jev thinks is left alone, with one line (no LLM here)', async () => {
+    stub.during = () => { session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.2 + Math.random() * 0.1 }]); };
+    const o = await fast.run('make it sound brighter and more alive');
+    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/kept changing/) });
+    expect(session.doc.value.nodes.cut1!.values.hz).toBe(300);
+    expect(fast.busy.value).toBe(false);
+  });
+
+  it('a selection change while Jev thinks also counts as a change', async () => {
+    let calls = 0;
+    stub.during = () => { if (calls++ === 0) session.select(['filter1']); };
+    expect((await fast.run('make it sound brighter and more alive')).status).toBe('applied');
+    expect(stub.requests).toHaveLength(2);
   });
 
   it('a newer request supersedes the one in flight', async () => {
@@ -190,16 +200,18 @@ describe('Jev path', () => {
     expect(session.doc.value.nodes.reverb1!.values.mix).toBeGreaterThan(0.25);
   });
 
-  it('ambiguity without Jev becomes chips; Jev unsure also becomes chips', async () => {
+  it('which knob is unclear (no Jev, or Jev unsure): nothing to pick, nothing changed', async () => {
     await fast.run('add reverb');
     await fast.run('add delay');
+    const before = snapshot();
     fast.settings.useJev = false;
     const off = await fast.run('wetter');
-    expect(off.status).toBe('chips');
-    expect(off.chips.map(c => c.label).join(' ')).toMatch(/Reverb.*Delay|Delay.*Reverb/);
+    expect(off.status).toBe('nothing');
+    expect(fast.traces.value[0]!.alternatives!.join(' ')).toMatch(/Reverb.*Delay|Delay.*Reverb/);
     fast.settings.useJev = true;
     delete script.wetter;
-    expect((await fast.run('wetter')).status).toBe('chips');
+    expect((await fast.run('wetter')).status).toBe('nothing');
+    expect(snapshot()).toBe(before);
   });
 });
 
@@ -211,13 +223,15 @@ describe('without Jev', () => {
     expect(o.status).toBe('nothing');
     expect(o.message).toMatch(/AI offline/);
   });
-  it('Jev off: a partly understood request offers the lexicon part as a chip', async () => {
+  it('Jev off: a partly understood request is not half-done; the line says why', async () => {
     const off = stubBridge(scriptedAnswerer({}), 'off');
     session.bridge = off.bridge;
+    const before = snapshot();
     const o = await fast.run('brighter like a trumpet');
-    expect(o.status).toBe('chips');
+    expect(o.status).toBe('nothing');
     expect(o.message).toMatch(/TYPESAFE_API_KEY/);
     expect(off.requests).toHaveLength(0);
+    expect(snapshot()).toBe(before);
   });
 });
 
@@ -249,7 +263,7 @@ describe('fuzz: random Jev answers never break the patch', () => {
       stub.next.push(request => ({ ok: true, response: { model: 'jev-1.13.0', answers: Object.fromEntries(Object.entries(request.questions).map(([id, q]) => [id, junk(Object.keys((q as { criteria: object }).criteria ?? {}))])) }, ms: 5 }));
       const size = session.history.size;
       const o = await fast.run(texts[i % texts.length]!);
-      expect(['applied', 'chips', 'escalate', 'nothing']).toContain(o.status);
+      expect(['applied', 'nothing']).toContain(o.status);
       expect(session.history.size - size).toBe(o.status === 'applied' ? 1 : 0);
       expect(validate(session.doc.value, session.catalog).issues.filter(x => x.severity === 'error')).toEqual([]);
       if (i % 25 === 0) session.loadStarter(i % 50 ? 'pad' : 'bass');

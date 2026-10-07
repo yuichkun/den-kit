@@ -1,7 +1,9 @@
 // The fast path (layer 1, the default): lexicon → (if needed) one Jev request →
 // deterministic plan → applied at once as one `ai-fast` transaction (⌘Z undoes
-// it like any edit). Low confidence or a patch that changed while Jev was
-// thinking turns into chips instead of an edit. Every request leaves a
+// it like any edit). Nobody is ever asked to pick an interpretation: when the
+// fast path is not sure, or the request needs more than a plan, it goes to the
+// LLM; without the LLM the line says why in one sentence. A patch that changed
+// while Jev was thinking is asked about again. Every request leaves a
 // RequestTrace (shown in the dev drawer and logged as JSONL).
 import { reactive, shallowRef, ref } from 'vue';
 import type { KitSession } from '../editor/session.ts';
@@ -12,7 +14,7 @@ import { buildFullRequest, buildTargetRequest, type BuiltRequest } from './jev-q
 import { readAnswers, type ReadAnswers } from './jev-answers.ts';
 import {
   DEFAULT_ROUTER_SETTINGS, ambiguousTargets, availableAspects, decideFromJev, describeSelection, lexiconStage,
-  type Chip, type Decision, type RouteContext, type RouterSettings,
+  type Decision, type RouteContext, type RouterSettings,
 } from './router.ts';
 import type { Plan } from './intents.ts';
 import type { JevResult } from './protocol.ts';
@@ -20,10 +22,8 @@ import type { JevResult } from './protocol.ts';
 /** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 1200 ms). */
 export interface FastSettings extends RouterSettings { budgetMs: number | null; useJev: boolean }
 /** working = fast path busy; thinking = the LLM works on it; merged = added to a running LLM request. */
-export type OutcomeStatus = 'working' | 'applied' | 'chips' | 'escalate' | 'nothing' | 'thinking' | 'reply' | 'stopped' | 'failed' | 'merged';
+export type OutcomeStatus = 'working' | 'applied' | 'nothing' | 'thinking' | 'reply' | 'stopped' | 'failed' | 'merged';
 export type RouteKind = 'lexicon' | 'jev' | 'jev-target' | 'none' | 'llm';
-/** A button on a history line that is not a fast-path plan (LLM questions, follow-ups, stop, …). */
-export interface PromptAction { label: string; kind: 'send' | 'answer' | 'ask-llm' | 'apply-anyway' | 'stop'; value?: string; question?: string; item?: string }
 
 /** What the fast path needs from the LLM path (src/ai/llm.ts). */
 export interface LlmHandoff {
@@ -50,7 +50,6 @@ export interface Outcome {
   note?: string;
   message?: string;
   confidence?: number;
-  chips: Chip[];
   txId?: string;
   // ---- LLM lines ----
   /** Still running (Esc stops it). */
@@ -61,10 +60,7 @@ export interface Outcome {
   steps?: string[];
   /** What the model said. */
   reply?: string;
-  /** LLM changes not applied because the user changed the same thing. */
-  conflicts?: string[];
   fix?: string;
-  actions?: PromptAction[];
 }
 
 export interface RequestTrace {
@@ -80,6 +76,8 @@ export interface RequestTrace {
   confidence?: number;
   tau: number;
   plan?: string;
+  /** Interpretations it weighed when it was not sure (for tuning; never shown as choices). */
+  alternatives?: string[];
   stale?: boolean;
   applied: boolean;
   totalMs: number;
@@ -102,9 +100,9 @@ export class FastPath {
     this.session = session;
     session.onHistory((kind, tx) => {
       if (tx.author.kind !== 'ai-fast' && tx.author.kind !== 'ai-llm') return;
-      // ⌘Z on the AI edit: the result line no longer describes the patch.
-      if (kind === 'undo' && this.outcome.value?.txId === tx.id) this.outcome.value = null;
-      const past = this.history.value.find(o => o.txId === tx.id);
+      // ⌘Z on the AI edit: the result line no longer describes the patch. (An LLM request's line is found by its id.)
+      const past = this.history.value.find(o => o.txId === tx.id || (tx.author.kind === 'ai-llm' && o.id === tx.author.take));
+      if (kind === 'undo' && past && this.outcome.value?.id === past.id) this.outcome.value = null;
       if (past) this.remember({ ...past, undone: kind === 'undo' });
       this.session.bridge?.telemetry({ kind: kind === 'undo' ? 'undo' : 'redo', author: tx.author.kind, trace: tx.author.trace, label: tx.label });
     });
@@ -129,7 +127,7 @@ export class FastPath {
     this.history.value = i >= 0 ? [...list.slice(0, i), outcome, ...list.slice(i + 1)] : [...list, outcome].slice(-MAX_HISTORY);
   }
 
-  async run(raw: string, options: { via?: 'typed' | 'voice' } = {}): Promise<Outcome> {
+  async run(raw: string, options: { via?: 'typed' | 'voice'; /** Internal: asked again because the patch changed meanwhile. */ again?: boolean } = {}): Promise<Outcome> {
     const text = raw.trim().slice(0, 600);
     this.controller?.abort();
     const controller = new AbortController();
@@ -142,20 +140,24 @@ export class FastPath {
       let decision = given;
       if (controller.signal.aborted && this.controller !== controller) {
         this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
-        return { id, text, status: 'nothing', route, ms: 0, chips: [], message: 'Superseded by a newer request.' };
+        return { id, text, status: 'nothing', route, ms: 0, message: 'Superseded by a newer request.' };
       }
       const ms = Math.round(performance.now() - started);
-      // What the fast path cannot do goes to the LLM when it is available; otherwise say why not.
-      if (text && (decision.kind === 'escalate' || (decision.kind === 'nothing' && decision.llm))) {
-        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs, chips: decision.kind === 'escalate' ? decision.chips : [] });
-        trace.decision = 'escalate';
+      // Not sure, or more than a plan can do: the LLM takes it when it is available; otherwise say why not.
+      const unsure = decision.kind === 'chips' || decision.kind === 'escalate' || (decision.kind === 'nothing' && decision.llm);
+      if (text && unsure) {
+        if (decision.kind === 'chips') { trace.confidence = decision.confidence; trace.alternatives = decision.chips.map(c => c.label); }
+        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs });
+        trace.decision = decision.kind === 'chips' ? 'chips' : 'escalate';
         trace.totalMs = ms; trace.route = route;
         if (handed) { this.record(trace); this.busy.value = false; if (this.controller === controller) this.controller = null; return handed; }
         // Keep the fast path's own explanation; add why the LLM could not take it when that helps.
-        const why = this.llm && (decision.kind === 'escalate' || !this.llm.off) ? this.llm.reason() : '';
-        if (why) decision = { ...decision, message: `${decision.message} ${why}` };
+        const why = this.llm && (decision.kind !== 'nothing' || !this.llm.off) ? this.llm.reason() : '';
+        const message = decision.kind === 'chips' || !('message' in decision) ? 'Not sure what to change; try saying it another way (e.g. “brighter”, “longer release”, “add reverb”).' : decision.message;
+        decision = { kind: 'nothing', message: why ? `${message} ${why}` : message };
       }
-      const outcome = this.realize(decision, { id, text, via: options.via, route, ms, chips: [], ...extra }, trace);
+      const outcome = this.realize(decision, { id, text, via: options.via, route, ms, ...extra }, trace);
+      if (text && unsure) trace.decision = given.kind === 'chips' ? 'chips' : 'escalate';
       trace.totalMs = outcome.ms;
       trace.route = route;
       this.record(trace);
@@ -166,7 +168,7 @@ export class FastPath {
     };
     if (!text) return finish({ kind: 'nothing', message: 'Type what you want, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.' }, 'none');
     this.busy.value = true;
-    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, chips: [] });
+    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0 });
 
     const before = this.snapshot();
     const stage = lexiconStage(lex, this.ctx);
@@ -177,7 +179,7 @@ export class FastPath {
       const built = buildTargetRequest({ text, lang: lex.lang, selection: describeSelection(this.ctx) }, stage.candidates, stage.word);
       const { result, read } = await this.ask(built, controller.signal, trace);
       if (controller.signal.aborted) return finish({ kind: 'nothing', message: 'Cancelled.' }, 'jev-target');
-      if (!this.unchanged(before)) { trace.stale = true; return finish(asChips(stage.resolve(null), 'The patch changed while Jev was thinking; pick one:'), 'jev-target', { jevMs: result.ms }); }
+      if (!this.unchanged(before)) return this.again(raw, options, id, trace, controller);
       const t = read?.answers.target;
       const target = t && t.agree && t.confidence >= this.tau(lex.lang) && built.targetKeys[t.choice] ? built.targetKeys[t.choice]!.split('.') : null;
       return finish(stage.resolve(target ? [{ node: target[0]!, port: target[1]! }] : null), 'jev-target', { jevMs: result.ms, confidence: t?.confidence });
@@ -186,7 +188,7 @@ export class FastPath {
     // Not fully understood by the lexicon: ask Jev everything at once.
     if (!this.jevReady) {
       const why = this.jevOffReason();
-      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: `${why} Try phrases like “brighter”, “リリース長く”, “add reverb”, “ベース作って”.`, llm: true }, 'none');
+      return finish({ kind: 'nothing', message: `${why} Try phrases like “brighter”, “リリース長く”, “add reverb”, “ベース作って”.`, llm: true }, 'none');
     }
     const ctx = this.ctx;
     const built = buildFullRequest({ text, lang: lex.lang, selection: describeSelection(ctx), aspects: availableAspects(ctx), targets: ambiguousTargets(ctx) });
@@ -194,21 +196,27 @@ export class FastPath {
     if (controller.signal.aborted) return finish({ kind: 'nothing', message: 'Cancelled.' }, 'jev');
     if (!result.ok || !read) {
       const why = result.ok ? 'Jev gave no usable answer.' : `Jev: ${result.error.message}`;
-      return finish(stage.fallback.length ? { kind: 'chips', message: `${why} Did you mean:`, chips: stage.fallback } : { kind: 'nothing', message: why, llm: true }, 'jev', { jevMs: result.ms });
+      return finish({ kind: 'nothing', message: why, llm: true }, 'jev', { jevMs: result.ms });
     }
     const decision = decideFromJev(read, built, this.ctx, lex.lang, this.settings, stage.fallback);
-    if (!this.unchanged(before)) { trace.stale = true; return finish(asChips(decision, 'The patch changed while Jev was thinking; apply anyway?'), 'jev', { jevMs: result.ms }); }
+    if (!this.unchanged(before)) return this.again(raw, options, id, trace, controller);
     return finish(decision, 'jev', { jevMs: result.ms });
   }
 
-  /** Apply an interpretation the user picked. */
-  applyChip(chip: Chip, owner?: Outcome) {
-    const o = owner ?? this.outcome.value;
-    const trace = { id: o?.id ?? randomId('rq'), chip: chip.label };
-    const r = this.apply(chip.plan, { kind: 'ai-fast', handler: 'chip', trace: trace.id });
-    this.session.bridge?.telemetry({ kind: 'chip', id: trace.id, label: chip.label, ok: r.ok, error: r.ok ? undefined : r.message });
-    if (!r.ok) { this.session.toast('warn', r.message); return; }
-    this.show({ ...(o ?? { id: trace.id, text: chip.label, route: 'none', ms: 0 }), status: 'applied', label: chip.plan.label, chips: [], message: undefined, txId: r.txId });
+  /** The patch changed while Jev was thinking: ask again about the patch as it is now (once; then the LLM takes it). */
+  private again(raw: string, options: { via?: 'typed' | 'voice'; again?: boolean }, id: string, trace: RequestTrace, controller: AbortController): Promise<Outcome> {
+    trace.stale = true;
+    trace.decision = 'nothing';
+    this.record(trace);
+    this.history.value = this.history.value.filter(o => o.id !== id);
+    if (this.controller === controller) this.controller = null;
+    if (!options.again) return this.run(raw, { ...options, again: true });
+    this.busy.value = false;
+    const line = this.llm?.take({ id, text: raw.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0 });
+    if (line) return Promise.resolve(line);
+    const outcome: Outcome = { id, text: raw.trim().slice(0, 600), via: options.via, status: 'nothing', route: 'jev', ms: 0, message: 'The patch kept changing while Jev was thinking; say it again when you are ready.' };
+    this.show(outcome);
+    return Promise.resolve(outcome);
   }
 
   /** The time budget in effect (drawer override, else the bridge default). */
@@ -255,13 +263,8 @@ export class FastPath {
       trace.applied = true;
       return { ...base, status: 'applied', label: decision.plan.label, note: decision.note, confidence: decision.confidence, txId: r.txId };
     }
-    if (decision.kind === 'chips') {
-      trace.confidence = decision.confidence;
-      // None of these? The LLM can take it.
-      return { ...base, status: 'chips', message: decision.message, chips: decision.chips, confidence: decision.confidence, actions: this.llm?.ready ? [{ label: '✦ Ask the LLM', kind: 'ask-llm' }] : undefined };
-    }
-    if (decision.kind === 'escalate') return { ...base, status: 'escalate', message: decision.message, chips: decision.chips };
-    return { ...base, status: 'nothing', message: decision.message };
+    // ('chips' and 'escalate' never get here: run() turns them into an LLM request or a one-line 'nothing'.)
+    return { ...base, status: 'nothing', message: 'message' in decision ? decision.message : undefined };
   }
 
   private apply(plan: Plan, author: Author): { ok: true; txId?: string } | { ok: false; message: string } {
@@ -278,10 +281,4 @@ export class FastPath {
     this.traces.value = [trace, ...this.traces.value].slice(0, MAX_TRACES);
     this.session.bridge?.telemetry(trace as unknown as Record<string, unknown>);
   }
-}
-
-/** A decision computed on a patch that has since changed is offered, never applied. */
-function asChips(decision: Decision, message: string): Decision {
-  if (decision.kind === 'apply') return { kind: 'chips', message, chips: [{ label: decision.plan.short, plan: decision.plan }], confidence: decision.confidence };
-  return decision;
 }

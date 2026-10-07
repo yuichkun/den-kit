@@ -1,9 +1,12 @@
-// The LLM's tools run against a draft: what they report, that rejected edits
-// change nothing, and that the live patch is never touched.
+// The LLM's tools run against the live patch: an edit is tried on a copy, and
+// only one that validates and compiles lands (as one step); a failing edit
+// lands nothing and says why. What the tools report, and what lands.
 import { describe, expect, it } from 'vitest';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
-import { DraftWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
+import { applyIntents, type Intent } from '../../../src/core/ops.ts';
+import { clone, type PatchDocument } from '../../../src/core/schema.ts';
+import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, KIT_TOOL_NAMES, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import type { RenderRequest } from '../../../src/compile/protocol.ts';
 import { analyse } from '../../../src/core/analysis.ts';
@@ -11,31 +14,46 @@ import { analyse } from '../../../src/core/analysis.ts';
 function workspace(extra: Partial<WorkspaceDeps> = {}, doc = starter('bass', catalog)) {
   const renders: Array<Omit<RenderRequest, 'id' | 'kind'>> = [];
   const compiles: string[] = [];
+  const landed: Array<{ intents: Intent[]; label: string }> = [];
+  const state = { live: doc };
   const deps: WorkspaceDeps = {
     catalog, images: false,
+    read: () => state.live,
+    land: (intents, label) => {
+      try { state.live = applyIntents(state.live, intents, catalog).doc; landed.push({ intents, label }); return { ok: true }; }
+      catch (error) { return { ok: false, message: (error as Error).message }; }
+    },
     compile: async g => { compiles.push(g.hash); return { ok: true, ms: 420 }; },
     render: async r => { renders.push(r); const s = new Float32Array(48000).map((_, i) => Math.sin(i / 20) * 0.3); return { report: analyse([s, s], 48000), renderMs: 10 }; },
     ...extra,
   };
-  return { ws: new DraftWorkspace(doc, deps), renders, compiles, live: doc };
+  return { ws: new LlmWorkspace(deps), renders, compiles, landed, state };
 }
 
+const BOX = [{ op: 'addNode', node: { id: 'box1', type: 'kit.codebox' } }, { op: 'connect', from: { node: 'gain1', port: 'out' }, to: { node: 'box1', port: 'in' } }, { op: 'connect', from: { node: 'box1', port: 'out' }, to: { node: 'out1', port: 'left' }, replace: true }];
+
 describe('tool specs', () => {
-  it('every tool has a JSON schema object and the instructions mention them', () => {
+  it('every tool has a JSON schema object and the instructions mention them; nothing asks the user to choose', () => {
     for (const t of KIT_TOOLS) { expect(t.inputSchema.type).toBe('object'); expect(t.description.length).toBeGreaterThan(20); }
     const text = developerInstructions('den.lfo — LFO (modulation): …');
     for (const name of ['kit_get_patch', 'kit_apply_ops', 'kit_listen', 'kit_finish']) expect(text).toContain(name);
+    expect(text).toMatch(/Never ask the user to choose/);
+    expect(text).toMatch(/lands on the live patch at once/);
     expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length);
+    expect(KIT_TOOL_NAMES.has('kit_ask')).toBe(false);
   });
 });
 
-describe('DraftWorkspace', () => {
-  it('kit_get_patch describes modules, cables and problems', async () => {
-    const { ws } = workspace();
+describe('LlmWorkspace', () => {
+  it('kit_get_patch describes the live patch: modules, cables and problems', async () => {
+    const { ws, state } = workspace();
     const r = await ws.call('kit_get_patch', {});
     expect(r.success).toBe(true);
     expect(r.text).toContain('"id": "filter1"');
     expect(r.text).toContain('osc1.out -> filter1.input');
+    // What the user changed is what the model reads next.
+    state.live = applyIntents(state.live, [{ op: 'setLabel', node: 'filter1', label: 'Tone' }], catalog).doc;
+    expect((await ws.call('kit_get_patch', {})).text).toContain('"label": "Tone"');
   });
 
   it('lists and describes module types; unknown types get suggestions', async () => {
@@ -48,42 +66,77 @@ describe('DraftWorkspace', () => {
     expect((await ws.call('kit_list_blocks', { category: 'nope' })).success).toBe(false);
   });
 
-  it('kit_apply_ops edits the draft only, compiles it, and records a step', async () => {
-    const { ws, compiles, live } = workspace();
-    const before = JSON.stringify(live);
+  it('kit_apply_ops is checked on a copy, compiled, then lands on the live patch at once as one step', async () => {
+    const { ws, compiles, landed, state } = workspace();
     const r = await ws.call('kit_apply_ops', { ops: [
-      { op: 'addNode', node: { id: 'lfo2', type: 'den.lfo', values: { rate: 4 } } },
+      { op: 'addNode', node: { type: 'den.lfo', values: { rate: 4 } } },
+      { op: 'connect', from: { node: 'lfo1', port: 'out' }, to: { node: 'cut1', port: 'octaves' }, replace: true },
       { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
     ] });
     expect(r.success).toBe(true);
-    expect(r.text).toMatch(/Applied 2 edits.*Compiled OK/s);
-    expect(ws.draft.nodes.lfo2).toBeDefined();
-    expect(JSON.stringify(live)).toBe(before);
+    expect(r.text).toMatch(/Applied 3 edits \(new ids: lfo1\); it is live now\. Compiled OK/);
     expect(compiles).toHaveLength(1);
-    expect(ws.steps.join(' ')).toMatch(/\+ lfo2/);
-    expect(ws.changed).toBe(true);
+    expect(landed).toHaveLength(1);
+    expect(ws.landed).toBe(1);
+    // The new module lands with the id it was checked with, placed next to what it feeds (not at 0,0).
+    const added = landed[0]!.intents.find((i): i is Extract<Intent, { op: 'addNode' }> => i.op === 'addNode')!;
+    expect(added.node.id).toBe('lfo1');
+    expect(state.live.nodes.lfo1).toBeDefined();
+    expect(state.live.nodes.lfo1!.pos).not.toEqual({ x: 0, y: 0 });
+    expect(state.live.nodes.filter1!.values.resonance).toBe(3);
+    expect(ws.steps.join(' ')).toMatch(/\+ lfo1.*✓/);
   });
 
-  it('a rejected edit applies nothing and says which one and why', async () => {
-    const { ws } = workspace();
+  it('a rejected edit lands nothing and says which one and why', async () => {
+    const { ws, landed, state } = workspace();
+    const before = JSON.stringify(state.live);
     const r = await ws.call('kit_apply_ops', { ops: [
       { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
       { op: 'connect', from: { node: 'nope', port: 'out' }, to: { node: 'filter1', port: 'input' } },
     ] });
     expect(r.success).toBe(false);
     expect(r.text).toMatch(/Edit #2/);
-    expect(ws.draft.nodes.filter1!.values.resonance).toBe(0.707);
     expect((await ws.call('kit_apply_ops', { ops: 'x' })).success).toBe(false);
-    expect(ws.changed).toBe(false);
+    expect(JSON.stringify(state.live)).toBe(before);
+    expect(landed).toEqual([]);
+    expect(ws.landed).toBe(0);
   });
 
-  it('compile problems come back as text (the edit stays so the LLM can fix it)', async () => {
-    const { ws } = workspace({ compile: async () => ({ ok: false, message: 'Fix the codebox errors.', issues: [{ severity: 'error', code: 'ts', message: "Property 'tanhh' does not exist", node: 'box1', line: 2 }] }) });
-    await ws.call('kit_apply_ops', { ops: [{ op: 'addNode', node: { id: 'box1', type: 'kit.codebox' } }, { op: 'connect', from: { node: 'gain1', port: 'out' }, to: { node: 'box1', port: 'in' } }, { op: 'connect', from: { node: 'box1', port: 'out' }, to: { node: 'out1', port: 'left' }, replace: true }] });
+  it('an edit that does not compile lands nothing; the problems (with codebox lines) go back', async () => {
+    let fail = false;
+    const { ws, state } = workspace({ compile: async () => fail ? { ok: false, message: 'Fix the codebox errors.', issues: [{ severity: 'error', code: 'ts', message: "Property 'tanhh' does not exist", node: 'box1', line: 2 }] } : { ok: true, ms: 1 } });
+    expect((await ws.call('kit_apply_ops', { ops: BOX })).success).toBe(true);
+    fail = true;
     const code = "import { defineSubgraph, type Node } from '@unworklet/core';\nexport default defineSubgraph(() => ({ tick(i: { in: Node<'f32'> }) { return { out: i.in.tanhh() }; } }));";
     const r = await ws.call('kit_write_codebox', { node: 'box1', code, inputs: [{ id: 'in', type: 'signal' }], outputs: [{ id: 'out', type: 'signal' }] });
-    expect(r.success).toBe(true);
-    expect(r.text).toMatch(/does not compile.*@box1:2/s);
+    expect(r.success).toBe(false);
+    expect(r.text).toMatch(/would not compile.*@box1:2.*Nothing was applied/s);
+    expect(state.live.nodes.box1!.code ?? '').not.toContain('tanhh');
+    expect(ws.steps.at(-1)).toMatch(/not applied$/);
+  });
+
+  it('a new validation error blocks the edit; problems the patch already had do not', async () => {
+    const { ws, state } = workspace();
+    // An edit that creates an error (a voice signal straight into the global output) is refused.
+    const bad = await ws.call('kit_apply_ops', { ops: [{ op: 'connect', from: { node: 'osc1', port: 'out' }, to: { node: 'out1', port: 'right' } }] });
+    expect(bad.success).toBe(false);
+    expect(bad.text).toMatch(/would not validate/);
+    // A patch that is already broken (an unknown module) still takes unrelated edits.
+    const broken: PatchDocument = clone(state.live);
+    broken.nodes.ghost1 = { id: 'ghost1', type: 'den.gone', pos: { x: 0, y: 0 }, config: {}, values: {} };
+    state.live = broken;
+    const ok = await ws.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }] });
+    expect(ok.success).toBe(true);
+    expect(ok.text).toMatch(/still has problems from before/);
+    expect(state.live.nodes.filter1!.values.resonance).toBe(2);
+  });
+
+  it('when the live patch changed so the edit no longer fits, nothing lands and it is told to read again', async () => {
+    const { ws } = workspace({ land: () => ({ ok: false, message: 'Node "cut1" does not exist.' }) });
+    const r = await ws.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 500 }] });
+    expect(r.success).toBe(false);
+    expect(r.text).toMatch(/Not applied: Node "cut1" does not exist\..*kit_get_patch/);
+    expect(ws.landed).toBe(0);
   });
 
   it('kit_write_codebox needs an existing codebox', async () => {
@@ -92,7 +145,7 @@ describe('DraftWorkspace', () => {
     expect((await ws.call('kit_write_codebox', { node: 'filter1', code: '', inputs: [], outputs: [] })).text).toMatch(/not a codebox/);
   });
 
-  it('kit_listen renders the right phrase (or test input for effects) and reports metrics', async () => {
+  it('kit_listen renders the live patch with the right phrase (or test input for effects)', async () => {
     const { ws, renders } = workspace();
     const r = await ws.call('kit_listen', { phrase: 'chord', seconds: 3 });
     expect(r.success).toBe(true);
@@ -112,10 +165,11 @@ describe('DraftWorkspace', () => {
     expect((await ws.call('kit_listen', {})).imageDataUrl).toMatch(/^data:image\/png;base64,/);
   });
 
-  it('kit_finish keeps the summary; unknown tools and thrown errors become failures', async () => {
+  it('kit_finish keeps the summary; asking the user is not a tool; unknown tools and thrown errors become failures', async () => {
     const { ws } = workspace({ render: async () => { throw new Error('worker died'); } });
     expect((await ws.call('kit_finish', { summary: 'LFOでフィルターを揺らしました' })).success).toBe(true);
     expect(ws.summary).toBe('LFOでフィルターを揺らしました');
+    expect((await ws.call('kit_ask', { question: 'Which?', options: ['A', 'B'] })).success).toBe(false);
     expect((await ws.call('kit_rm_rf', {})).success).toBe(false);
     const failed = await ws.call('kit_listen', {});
     expect(failed.success).toBe(false);

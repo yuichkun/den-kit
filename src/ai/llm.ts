@@ -1,25 +1,24 @@
 // The LLM path (layer 2). A request goes to Codex through the bridge; Codex
-// edits a draft copy of the patch with the kit_* tools, which run here in the
-// browser (src/ai/llm-workspace.ts). When its turn ends the draft lands on the
-// live patch as one `ai-llm` transaction, so ⌘Z takes the whole LLM edit back.
-// The user keeps playing and editing meanwhile; where both changed the same
-// thing, the user's version wins and the history line says so.
+// works on the live patch with the kit_* tools, which run here in the browser
+// (src/ai/llm-workspace.ts). Each edit is tried on a copy first; one that
+// validates and compiles lands at once, so the user sees and hears the request
+// being built. The steps of one request undo together (one ⌘Z). The user keeps
+// playing and editing meanwhile; an edit that no longer fits goes back to Codex.
 //
 // One turn runs at a time. Another request that needs the LLM while it works
 // is steered into the running turn; follow-ups continue the same conversation.
-// Esc stops it (nothing is applied). Progress, the model's words, questions
-// (buttons) and the result all live on the request's line in the prompt history.
-import { ref } from 'vue';
+// Esc stops it (what already landed stays, ⌘Z takes it back). Loading another
+// patch, or undoing the request's edit while it runs, stops it too. Codex never
+// gets to ask the user: questions are answered empty and it decides itself.
+import { ref, watch } from 'vue';
 import type { KitSession } from '../editor/session.ts';
-import type { Author } from '../core/history.ts';
-import { rebase } from '../core/rebase.ts';
 import { randomId } from '../core/schema.ts';
 import { CompileClient, CompileFailure, compileInputs, type WorkerLike } from '../compile/compile-client.ts';
 import { RenderClient, type RenderWorkerLike } from '../compile/render-client.ts';
 import type { BridgeClient, LlmInbound } from './bridge-client.ts';
-import type { FastPath, Outcome, PromptAction } from './fast-path.ts';
+import type { FastPath, Outcome } from './fast-path.ts';
 import { developerInstructions } from './llm-spec.ts';
-import { DraftWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
+import { LlmWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
 import type { LlmEvent, ToolOutput } from './protocol.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 
@@ -37,7 +36,7 @@ export interface LlmOptions {
 interface Turn {
   id: string;
   line: Outcome;
-  ws: DraftWorkspace;
+  ws: LlmWorkspace;
   started: number;
   epoch: number;
   calls: Map<string, Promise<ToolOutput>>;
@@ -45,14 +44,17 @@ interface Turn {
   tools: number;
   stopping: boolean;
   stopTimer: ReturnType<typeof setTimeout> | null;
+  /** Why it was stopped by something other than Esc. */
+  stopNote?: string;
 }
 
 const MAX_STEPS = 12;
 const TOOL_ACTIVITY: Record<string, string> = {
   kit_get_patch: 'reading the patch…', kit_list_blocks: 'looking up modules…', kit_describe_block: 'looking up a module…',
-  kit_apply_ops: 'editing the draft…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_ask: 'asking…', kit_finish: 'finishing…',
+  kit_apply_ops: 'editing…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_finish: 'finishing…',
 };
 const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module' };
+const KEPT = 'What it already changed stays; ⌘Z takes it back.';
 
 export class LlmController {
   /** A turn is running (Esc stops it). */
@@ -61,8 +63,6 @@ export class LlmController {
   /** Requests waiting for the running turn to end (a steer that came too late). */
   private queue: Outcome[] = [];
   private steering = new Map<string, Outcome>();
-  /** A finished turn whose draft was not applied (it did not compile): "Apply anyway". */
-  private parked: Turn | null = null;
   private thread: string | null = null;
   /** The loaded patch the conversation is about (session.loadEpoch); a new patch starts a new conversation. */
   private threadEpoch: number | null = null;
@@ -72,6 +72,7 @@ export class LlmController {
   private readonly fast: FastPath;
   private readonly bridge: LlmTransport;
   private readonly options: LlmOptions;
+  private readonly stopWatching: Array<() => void> = [];
 
   constructor(session: KitSession, fast: FastPath, bridge: LlmTransport, options: LlmOptions = {}) {
     this.session = session;
@@ -79,6 +80,12 @@ export class LlmController {
     this.bridge = bridge;
     this.options = options;
     bridge.onLlm(m => this.inbound(m));
+    // Another patch was loaded: the request was about the old one.
+    this.stopWatching.push(watch(() => session.loadEpoch.value, () => { if (this.turn) this.stop('A different patch was loaded, so it stopped.'); }, { flush: 'sync' }));
+    // ⌘Z on what the running request just did: the user does not want it to go on.
+    this.stopWatching.push(session.onHistory((kind, tx) => {
+      if (kind === 'undo' && tx.author.kind === 'ai-llm' && this.turn && tx.author.take === this.turn.id) this.stop('You undid its edit, so it stopped.');
+    }));
   }
 
   get ready() { return this.bridge.codexReady; }
@@ -95,9 +102,9 @@ export class LlmController {
     return `The LLM is not available: ${c.detail ?? 'Codex reported an error'}.${c.fix ? ` ${c.fix}` : ''}`;
   }
 
-  /** Send a request straight to the LLM (Shift+Enter, a follow-up button). Always returns its history line. */
+  /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
   run(text: string, options: { via?: 'typed' | 'voice' } = {}): Outcome {
-    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, chips: [] };
+    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0 };
     const taken = this.take(line);
     if (taken) return taken;
     const failed: Outcome = { ...line, status: 'failed', message: this.reason() };
@@ -113,37 +120,16 @@ export class LlmController {
     return this.start(line);
   }
 
-  /** Esc: stop the running turn; nothing of it is applied. */
-  stop(): boolean {
+  /** Esc: stop the running turn; what already landed stays (⌘Z takes it back). */
+  stop(note?: string): boolean {
     const turn = this.turn;
     if (!turn || turn.stopping) return false;
     turn.stopping = true;
+    turn.stopNote = note;
     this.update(turn, { activity: 'stopping…' });
     if (!this.bridge.online || !this.bridge.llmStop(turn.id)) { this.finish(turn, { kind: 'done', status: 'interrupted', ms: 0 }); return true; }
     turn.stopTimer = setTimeout(() => { if (this.turn === turn) this.finish(turn, { kind: 'done', status: 'interrupted', ms: 0 }); }, this.options.stopGraceMs ?? 15000);
     return true;
-  }
-
-  /** A button on an LLM line. */
-  act(action: PromptAction, line: Outcome) {
-    switch (action.kind) {
-      case 'send': this.run(action.value ?? '', { via: 'typed' }); return;
-      case 'ask-llm': this.run(line.text, { via: line.via }); return;
-      case 'stop': this.stop(); return;
-      case 'answer': {
-        if (!this.turn || !action.question || !action.item) return;
-        this.bridge.llmAnswer(this.turn.id, action.question, { [action.item]: [action.value ?? ''] });
-        this.update(this.turn, { actions: [], message: undefined });
-        return;
-      }
-      case 'apply-anyway': {
-        const parked = this.parked;
-        if (!parked || parked.id !== line.id) { this.session.toast('warn', 'That draft is no longer available.'); return; }
-        this.parked = null;
-        this.land(parked, Math.round(performance.now() - parked.started), true);
-        return;
-      }
-    }
   }
 
   /** Forget the conversation (the next request starts a new one). */
@@ -152,15 +138,18 @@ export class LlmController {
     this.thread = null; this.threadEpoch = null;
   }
 
-  dispose() { this.compiler?.dispose(); this.renderer?.dispose(); this.compiler = null; this.renderer = null; }
+  dispose() {
+    for (const stop of this.stopWatching) stop();
+    this.compiler?.dispose(); this.renderer?.dispose(); this.compiler = null; this.renderer = null;
+  }
 
   // ---- turns ----------------------------------------------------------------------------
   private start(line: Outcome): Outcome {
-    const doc = this.session.doc.value;
     if (this.threadEpoch !== null && this.threadEpoch !== this.session.loadEpoch.value) this.reset();
+    const epoch = this.session.loadEpoch.value;
     const turn: Turn = {
-      id: line.id, ws: new DraftWorkspace(doc, this.deps()), started: performance.now(), epoch: this.session.loadEpoch.value,
-      line: { ...line, status: 'thinking', route: 'llm', live: true, steps: [], activity: 'starting…', message: undefined, actions: [{ label: 'Stop', kind: 'stop' }] },
+      id: line.id, ws: new LlmWorkspace(this.deps(line.id, epoch)), started: performance.now(), epoch,
+      line: { ...line, status: 'thinking', route: 'llm', live: true, steps: [], activity: 'starting…', message: undefined },
       calls: new Map(), message: '', tools: 0, stopping: false, stopTimer: null,
     };
     this.turn = turn;
@@ -202,7 +191,7 @@ export class LlmController {
   private compose(text: string, steering = false): string {
     const doc = this.session.doc.value;
     const selected = this.session.selection.value.map(id => doc.nodes[id]).filter(Boolean).map(n => `${n!.id} (${this.session.catalog.find(n!.type)?.title ?? n!.type}${n!.label ? ` "${n!.label}"` : ''})`);
-    const context = steering ? '[den-kit] The user adds, while you work:' : `[den-kit] Your draft is a copy of the live patch as it is now${this.thread ? '; it may have changed since your last turn, so read it again' : ''}.${selected.length ? ` Selected: ${selected.join(', ')}.` : ''}`;
+    const context = steering ? '[den-kit] The user adds, while you work:' : `[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.${selected.length ? ` Selected: ${selected.join(', ')}.` : ''}`;
     return `${context}\n\n${text}`;
   }
 
@@ -210,31 +199,42 @@ export class LlmController {
     return this.session.catalog.list().filter(d => d.kind !== 'comment').map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n');
   }
 
-  private deps(): WorkspaceDeps {
+  /** What the workspace of turn `id` may do; landing works only while that turn runs, on the patch it started on. */
+  private deps(id: string, epoch: number): WorkspaceDeps {
     return {
       catalog: this.session.catalog,
       images: !!this.bridge.status.value?.codex.images,
+      read: () => this.session.doc.value,
+      land: (intents, label) => {
+        const turn = this.turn;
+        if (!turn || turn.id !== id || turn.stopping) return { ok: false, message: 'This request was stopped.' };
+        if (this.session.loadEpoch.value !== epoch) return { ok: false, message: 'A different patch was loaded.' };
+        const r = this.session.commit(intents, { author: { kind: 'ai-llm', take: id, trace: id }, label: `AI: ${label}`, group: id });
+        if (!r.ok) return { ok: false, message: `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ''} (the user may have changed the patch meanwhile).` };
+        if (!turn.line.txId && r.ops.length) this.update(turn, { txId: this.session.history.peek()?.id });
+        return { ok: true };
+      },
       compile: async (generated, doc) => {
         try {
-          const artifact = await this.draftCompiler().compile(generated, compileInputs(doc, generated));
-          this.session.compiler.prime(artifact); // landing this draft then swaps in without compiling again
+          const artifact = await this.checkCompiler().compile(generated, compileInputs(doc, generated));
+          this.session.compiler.prime(artifact); // the live patch then swaps it in without compiling again
           return { ok: true, ms: artifact.compileMs };
         } catch (error) {
           if (error instanceof CompileFailure) return { ok: false, message: error.message, issues: error.issues };
           return { ok: false, message: error instanceof Error ? error.message : String(error), issues: [] };
         }
       },
-      render: request => this.draftRenderer().render(request),
+      render: request => this.checkRenderer().render(request),
       ...this.options.deps,
     };
   }
 
-  // Drafts compile and render on their own workers, so the live patch never waits for them.
-  private draftCompiler(): CompileClient {
+  // Edits are checked and rendered on their own workers, so the live patch never waits for them.
+  private checkCompiler(): CompileClient {
     this.compiler ??= new CompileClient({ createWorker: this.options.createCompileWorker ?? (() => new CompilerWorker() as unknown as WorkerLike) });
     return this.compiler;
   }
-  private draftRenderer(): RenderClient {
+  private checkRenderer(): RenderClient {
     this.renderer ??= new RenderClient({ createWorker: this.options.createRenderWorker ?? (() => new CompilerWorker() as unknown as RenderWorkerLike) });
     return this.renderer;
   }
@@ -303,14 +303,12 @@ export class LlmController {
         else this.step(turn, event.what === 'blocked' ? `blocked ${event.detail ?? 'a request'} (den-kit allows only its own tools)` : `${event.what}${event.detail ? `: ${event.detail}` : ''}`);
         return;
       case 'retrying': this.update(turn, { activity: `reconnecting to the model… (${event.message})` }); return;
-      case 'question': {
-        const item = event.items[0];
-        if (!item) return;
-        const actions: PromptAction[] = item.options.map(o => ({ label: o, kind: 'answer', question: event.question, item: item.id, value: o }));
-        this.update(turn, { message: item.question || item.header, actions: [...actions, { label: 'Stop', kind: 'stop' }] });
+      case 'question':
+        // Nobody is asked to choose: an empty answer, and Codex decides itself.
+        this.bridge.llmAnswer(turn.id, event.question, {});
+        this.step(turn, 'skipped a question (it decides itself)');
         return;
-      }
-      case 'question.resolved': this.update(turn, { message: undefined, actions: [{ label: 'Stop', kind: 'stop' }] }); return;
+      case 'question.resolved': return;
       case 'steered': return;
       case 'done': this.finish(turn, event); return;
     }
@@ -323,39 +321,19 @@ export class LlmController {
     if (turn.stopTimer) clearTimeout(turn.stopTimer);
     const ms = Math.round(performance.now() - turn.started);
     const ws = turn.ws;
-    if (done.status === 'completed') {
-      if (this.session.loadEpoch.value !== turn.epoch && ws.changed) this.close(turn, { status: 'failed', ms, message: 'A different patch was loaded meanwhile, so the LLM’s edit was not applied.' });
-      else if (!ws.changed) {
-        const question = ws.question;
-        this.close(turn, { status: question ? 'chips' : 'reply', ms, label: ws.summary ?? undefined, message: question?.text, actions: question ? question.options.map(o => ({ label: o, kind: 'send' as const, value: o })) : [] });
-      } else if (ws.health !== 'ok') {
-        this.parked = turn;
-        this.close(turn, { status: 'failed', ms, message: `The LLM’s draft ${ws.health === 'silent' ? 'makes no sound' : 'does not compile'}, so it was not applied.`, note: ws.problem.split('\n').slice(0, 3).join(' '), actions: [{ label: 'Apply anyway', kind: 'apply-anyway' }] });
-      } else this.land(turn, ms);
-    } else if (done.status === 'interrupted') this.close(turn, { status: 'stopped', ms, message: done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped. Nothing was changed.' });
-    else this.close(turn, { status: 'failed', ms, message: done.error?.message ?? 'The LLM request failed.', fix: done.error?.fix });
+    const landed = ws.landed > 0;
+    const label = ws.summary ?? (landed ? describeSteps(ws.steps) : undefined);
+    if (done.status === 'completed') this.close(turn, { status: landed ? 'applied' : 'reply', ms, label });
+    else if (done.status === 'interrupted') this.close(turn, { status: 'stopped', ms, label: landed ? label : undefined, message: turn.stopNote ?? (done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped.'), note: landed ? KEPT : 'Nothing was changed.' });
+    else this.close(turn, { status: 'failed', ms, label: landed ? label : undefined, message: done.error?.message ?? 'The LLM request failed.', fix: done.error?.fix, note: landed ? KEPT : undefined });
     this.next();
   }
 
-  /** Carry the draft over to the live patch as one undoable step. */
-  private land(turn: Turn, ms: number, anyway = false) {
-    const ws = turn.ws;
-    const r = rebase(ws.base, ws.draft, this.session.doc.value, this.session.catalog);
-    const conflicts = r.conflicts.map(c => `${c.what} — ${c.reason}`);
-    if (!r.intents.length) { this.close(turn, { status: 'reply', ms, label: ws.summary ?? undefined, message: conflicts.length ? 'Nothing was applied: you changed the same things meanwhile.' : 'Nothing to change.', conflicts }); return; }
-    const author: Author = { kind: 'ai-llm', take: turn.id, trace: turn.id };
-    const label = ws.summary ?? describeSteps(ws.steps);
-    const result = this.session.commit(r.intents, { author, label: `AI: ${label}` });
-    if (!result.ok) { this.close(turn, { status: 'failed', ms, message: `Could not apply the LLM’s edit: ${result.error.message}` }); return; }
-    const txId = result.ops.length ? this.session.history.peek()?.id : undefined;
-    this.close(turn, { status: 'applied', ms, label, txId, conflicts, note: anyway ? 'applied although the draft did not compile' : undefined });
-  }
-
   private close(turn: Turn, patch: Partial<Outcome>) {
-    const line: Outcome = { ...turn.line, live: false, activity: undefined, actions: [], ...patch };
+    const line: Outcome = { ...turn.line, live: false, activity: undefined, ...patch };
     turn.line = line;
     this.fast.upsert(line);
-    this.bridge.telemetry({ kind: 'llm', id: turn.id, text: line.text, status: line.status, ms: line.ms, tools: turn.tools, steps: line.steps, conflicts: line.conflicts?.length ?? 0, message: line.message });
+    this.bridge.telemetry({ kind: 'llm', id: turn.id, text: line.text, status: line.status, ms: line.ms, tools: turn.tools, landed: turn.ws.landed, steps: line.steps, message: line.message });
   }
 
   private step(turn: Turn, text: string) { this.update(turn, { steps: [...(turn.line.steps ?? []), text].slice(-MAX_STEPS) }); }
@@ -369,6 +347,6 @@ export class LlmController {
 
 const tail = (text: string) => text.length > 700 ? `…${text.slice(-700)}` : text;
 function describeSteps(steps: string[]): string {
-  const edits = steps.filter(s => !/^(compiled|compile error|listened|asked)/.test(s));
-  return edits.length ? edits.slice(-2).join(' · ').slice(0, 120) : 'LLM edit';
+  const edits = steps.filter(s => !/^(read|looked|listened|skipped|you added|started)/.test(s) && !/not applied$/.test(s));
+  return edits.length ? edits.slice(-2).join(' · ').replace(/ ✓/g, '').slice(0, 120) : 'LLM edit';
 }

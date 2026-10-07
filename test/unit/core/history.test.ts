@@ -6,9 +6,9 @@ import { starter } from '../../../src/core/starters.ts';
 import type { PatchDocument } from '../../../src/core/schema.ts';
 
 const human: Author = { kind: 'human' };
-function commit(history: History, doc: PatchDocument, intents: Intent[], author: Author = human, extra: { gesture?: string; at?: number } = {}) {
+function commit(history: History, doc: PatchDocument, intents: Intent[], author: Author = human, extra: { gesture?: string; group?: string; at?: number } = {}) {
   const r = applyIntents(doc, intents, catalog);
-  history.record({ id: String(Math.random()), author, label: 'x', ops: r.ops, at: extra.at ?? 0, gesture: extra.gesture, baseRevision: doc.revision });
+  history.record({ id: String(Math.random()), author, label: 'x', ops: r.ops, at: extra.at ?? 0, gesture: extra.gesture, group: extra.group, baseRevision: doc.revision });
   return r.doc;
 }
 
@@ -47,5 +47,19 @@ describe('history', () => {
     expect(r.doc.nodes.osc1!.pos).toEqual({ x: 4, y: 0 });
     expect(h.redo(r.doc)).toBeNull();
     expect(new History().undo(doc)).toBeNull();
+  });
+  it('the steps of one LLM request undo together, structural or not; an edit by someone else splits them', () => {
+    const h = new History(); const start = starter('bass', catalog); let doc = start;
+    const llm: Author = { kind: 'ai-llm', take: 'rq1' };
+    doc = commit(h, doc, [{ op: 'addNode', node: { id: 'lfo2', type: 'den.lfo' } }], llm, { group: 'rq1', at: 0 });
+    doc = commit(h, doc, [{ op: 'connect', from: { node: 'lfo2', port: 'out' }, to: { node: 'cut1', port: 'octaves' }, replace: true }], llm, { group: 'rq1', at: 60000 });
+    expect(h.size).toBe(1);
+    const once = h.undo(doc)!;
+    expect({ ...once.doc, revision: 0 }).toEqual({ ...start, revision: 0 });
+    doc = h.redo(once.doc)!.doc;
+    doc = commit(h, doc, [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]);
+    doc = commit(h, doc, [{ op: 'setValue', node: 'lfo2', port: 'rate', value: 3 }], llm, { group: 'rq1', at: 60001 });
+    doc = commit(h, doc, [{ op: 'setValue', node: 'lfo2', port: 'rate', value: 4 }], { kind: 'ai-llm', take: 'rq2' }, { group: 'rq2', at: 60002 });
+    expect(h.size).toBe(4);
   });
 });

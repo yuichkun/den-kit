@@ -1,14 +1,15 @@
-// The LLM's workbench: a draft copy of the patch taken when its turn starts.
-// Every kit_* tool call runs here, in the browser, against the draft only; the
-// live patch is not touched until the turn ends (then src/core/rebase.ts lands
-// the draft as one undoable step).
+// The LLM's workbench. Every kit_* tool call runs here, in the browser, against
+// the live patch: an edit is tried on a copy first (validated and compiled), and
+// only an edit that passes lands on the live patch, at once, as one step of the
+// request. A failing edit never lands; its problems go back to the model. The
+// controller (src/ai/llm.ts) makes the steps of one request one undo step.
 import type { Catalog, PortDef } from '../core/catalog.ts';
 import { generate, type Generated } from '../core/codegen.ts';
 import { describePatch } from '../core/describe.ts';
 import { formatIssue, type Issue } from '../core/issues.ts';
-import { applyIntents, diffDocuments, OpError, type Intent } from '../core/ops.ts';
+import { applyIntents, OpError, type Intent } from '../core/ops.ts';
 import { PHRASES, phraseEvents, type Phrase } from '../core/phrases.ts';
-import { clone, type PatchDocument, type PortSpec } from '../core/schema.ts';
+import type { PatchDocument, PortSpec } from '../core/schema.ts';
 import { validate } from '../core/validate.ts';
 import { placeNewNodes } from '../core/layout.ts';
 import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
@@ -26,32 +27,26 @@ export interface WorkspaceDeps {
   render(request: Omit<RenderRequest, 'id' | 'kind'>): Promise<Rendered>;
   /** The model accepts images (spectrograms). */
   images: boolean;
+  /** The live patch as it is now. */
+  read(): PatchDocument;
+  /** Put checked edits on the live patch as one step of this request. */
+  land(intents: Intent[], label: string): { ok: true } | { ok: false; message: string };
 }
 
 const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
+const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
+const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_finish';
 
-export class DraftWorkspace {
-  readonly base: PatchDocument;
-  draft: PatchDocument;
+export class LlmWorkspace {
   summary: string | null = null;
-  /** A question for the user (kit_ask), shown as buttons when the turn ends. */
-  question: { text: string; options: string[] } | null = null;
-  /** The draft after the last edit: `ok` = validates and compiles (or nothing changed yet). */
-  health: 'ok' | 'invalid' | 'compile-error' | 'silent' = 'ok';
-  /** The last problem report (for the user when the draft cannot be applied). */
-  problem = '';
+  /** How many steps landed on the live patch. */
+  landed = 0;
   /** Short human-readable steps for the request's line in the history. */
   readonly steps: string[] = [];
   private readonly deps: WorkspaceDeps;
 
-  constructor(base: PatchDocument, deps: WorkspaceDeps) {
-    this.base = clone(base);
-    this.draft = clone(base);
-    this.deps = deps;
-  }
-
-  get changed() { return diffDocuments(this.base, this.draft).length > 0; }
+  constructor(deps: WorkspaceDeps) { this.deps = deps; }
 
   async call(tool: string, args: unknown): Promise<ToolOutput> {
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
@@ -63,9 +58,10 @@ export class DraftWorkspace {
         case 'kit_apply_ops': return await this.applyOps(a.ops);
         case 'kit_write_codebox': return await this.writeCodebox(a);
         case 'kit_listen': return await this.listen(typeof a.phrase === 'string' ? a.phrase : undefined, typeof a.seconds === 'number' ? a.seconds : undefined);
-        case 'kit_ask': return this.ask(a);
-        case 'kit_finish': this.summary = String(a.summary ?? '').slice(0, 400) || null; return { success: true, text: 'OK. Your draft will be applied to the live patch when your turn ends.' };
-        default: return { success: false, text: `Unknown tool "${tool}". Available: kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_ask, kit_finish.` };
+        case 'kit_finish':
+          this.summary = String(a.summary ?? '').slice(0, 400) || null;
+          return { success: true, text: 'OK. Your edits are already on the live patch; the user can undo the whole request with one ⌘Z.' };
+        default: return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
       }
     } catch (error) {
       return { success: false, text: `Tool failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -75,7 +71,7 @@ export class DraftWorkspace {
   // ---- reading -----------------------------------------------------------------
   private getPatch(): ToolOutput {
     const { catalog } = this.deps;
-    const doc = this.draft;
+    const doc = this.deps.read();
     const nodes = Object.values(doc.nodes).map(n => {
       const def = catalog.find(n.type);
       const config = Object.fromEntries(Object.entries(n.config).filter(([k, v]) => def?.config.find(c => c.id === k)?.default !== v));
@@ -112,78 +108,92 @@ export class DraftWorkspace {
     return { success: true, text };
   }
 
-  private ask(a: Record<string, unknown>): ToolOutput {
-    const text = String(a.question ?? '').trim().slice(0, 300);
-    const options = Array.isArray(a.options) ? [...new Set(a.options.map(o => String(o).trim().slice(0, 80)).filter(Boolean))].slice(0, 5) : [];
-    if (!text || options.length < 2) return { success: false, text: 'kit_ask needs a question and 2–5 short options.' };
-    this.question = { text, options };
-    this.steps.push('asked a question');
-    return { success: true, text: 'The question is shown to the user with your options as buttons. End your turn now (one short sentence at most); the answer arrives as the next message.' };
-  }
-
   // ---- editing ---------------------------------------------------------------------
   private async applyOps(ops: unknown): Promise<ToolOutput> {
     if (!Array.isArray(ops) || !ops.length) return { success: false, text: 'ops must be a non-empty array of edit objects.' };
-    let result;
-    try { result = applyIntents(this.draft, ops as Intent[], this.deps.catalog); }
+    const { catalog } = this.deps;
+    const before = this.deps.read();
+    let trial;
+    try { trial = applyIntents(before, ops as Intent[], catalog); }
     catch (error) {
       if (error instanceof OpError) return { success: false, text: `Edit #${error.index + 1} (${JSON.stringify(ops[error.index]).slice(0, 200)}) was rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}\nNothing was applied; fix it and send the whole list again.` };
       throw error;
     }
+    // New modules get their ids now, so the edit lands on the live patch exactly as tried here.
+    let k = 0;
+    const intents = (ops as Intent[]).map(o => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } } : o);
     // Modules added without a position go next to what they connect to (never on top of others).
-    const unplaced = (ops as Intent[]).flatMap((o, i) => o.op === 'addNode' && !o.node.pos ? [i] : []);
-    const addIndexes = (ops as Intent[]).flatMap((o, i) => o.op === 'addNode' ? [i] : []);
-    const toPlace = unplaced.map(i => result.created[addIndexes.indexOf(i)]).filter((id): id is string => !!id);
-    this.draft = toPlace.length ? applyIntents(result.doc, placeNewNodes(result.doc, this.deps.catalog, toPlace), this.deps.catalog).doc : result.doc;
-    this.steps.push(describeOps(ops as Intent[], result.created));
-    const check = await this.check();
-    return { success: true, text: `Applied ${ops.length} edit${ops.length === 1 ? '' : 's'}${result.created.length ? ` (new ids: ${result.created.join(', ')})` : ''}. ${check}` };
+    const toPlace = intents.flatMap(o => o.op === 'addNode' && !o.node.pos ? [o.node.id!] : []);
+    const moves = toPlace.length ? placeNewNodes(trial.doc, catalog, toPlace) : [];
+    const doc = moves.length ? applyIntents(trial.doc, moves, catalog).doc : trial.doc;
+    const what = describeOps(intents, trial.created);
+    return this.landChecked(before, doc, [...intents, ...moves], what, `${ops.length} edit${ops.length === 1 ? '' : 's'}${trial.created.length ? ` (new ids: ${trial.created.join(', ')})` : ''}`);
   }
 
   private async writeCodebox(a: Record<string, unknown>): Promise<ToolOutput> {
     const node = String(a.node ?? '');
-    const target = this.draft.nodes[node];
+    const before = this.deps.read();
+    const target = before.nodes[node];
     if (!target) return { success: false, text: `No module "${node}". Add one first: kit_apply_ops [{"op":"addNode","node":{"id":"${node || 'box1'}","type":"kit.codebox"}}].` };
     if (target.type !== 'kit.codebox') return { success: false, text: `"${node}" is a ${target.type}, not a codebox.` };
     const ports = (list: unknown): PortSpec[] => Array.isArray(list) ? list.map(p => ({ id: String((p as PortSpec).id), type: (p as PortSpec).type === 'gate' ? 'gate' : 'signal' })) : [];
-    let result;
-    try { result = applyIntents(this.draft, [{ op: 'setCode', node, code: String(a.code ?? ''), ports: { inputs: ports(a.inputs), outputs: ports(a.outputs) } }], this.deps.catalog); }
+    const intents: Intent[] = [{ op: 'setCode', node, code: String(a.code ?? ''), ports: { inputs: ports(a.inputs), outputs: ports(a.outputs) } }];
+    let trial;
+    try { trial = applyIntents(before, intents, this.deps.catalog); }
     catch (error) { if (error instanceof OpError) return { success: false, text: `Rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}` }; throw error; }
-    this.draft = result.doc;
-    this.steps.push(`wrote codebox ${node}`);
-    return { success: true, text: `Code saved. ${await this.check()}` };
+    return this.landChecked(before, trial.doc, intents, `wrote codebox ${node}`, 'the code');
   }
 
-  /** Validate and compile the draft; a short report for the LLM. */
-  private async check(): Promise<string> {
+  /**
+   * Check `doc` (the live patch with the edit tried on it): no new validation
+   * errors, and it compiles. Then land the edit; otherwise report and land nothing.
+   */
+  private async landChecked(before: PatchDocument, doc: PatchDocument, intents: Intent[], step: string, what: string): Promise<ToolOutput> {
     const { catalog } = this.deps;
-    const fail = (health: DraftWorkspace['health'], text: string) => { this.health = health; this.problem = text; return text; };
-    const problems = validate(this.draft, catalog).issues.filter(i => i.severity === 'error');
-    if (problems.length) return fail('invalid', `It does not validate yet:\n${problems.slice(0, 12).map(formatIssue).join('\n')}`);
-    const generated = generate(this.draft, catalog);
+    const reject = (problem: string): ToolOutput => {
+      this.steps.push(`${step} — not applied`);
+      return { success: false, text: `${problem}\nNothing was applied (the live patch is unchanged). Fix it and send the whole edit again.` };
+    };
+    const existing = new Set(validate(before, catalog).issues.filter(i => i.severity === 'error').map(issueKey));
+    const problems = validate(doc, catalog).issues.filter(i => i.severity === 'error' && !existing.has(issueKey(i)));
+    if (problems.length) return reject(`It would not validate:\n${problems.slice(0, 12).map(formatIssue).join('\n')}`);
+    const generated = generate(doc, catalog);
+    let report: string;
     if (!generated.source) {
-      const blocking = generated.issues.filter(i => i.severity !== 'info');
-      return blocking.length ? fail('invalid', `It does not compile yet:\n${blocking.map(formatIssue).join('\n')}`) : fail('silent', 'Nothing reaches Out yet, so there is nothing to compile.');
+      const blocking = generated.issues.filter(i => i.severity === 'error');
+      const before_ = new Set(generate(before, catalog).issues.filter(i => i.severity === 'error').map(issueKey));
+      const fresh = blocking.filter(i => !before_.has(issueKey(i)));
+      if (fresh.length) return reject(`It would not compile:\n${fresh.map(formatIssue).join('\n')}`);
+      report = blocking.length ? `The patch still has problems from before:\n${blocking.slice(0, 6).map(formatIssue).join('\n')}` : 'Nothing reaches Out yet, so it is silent.';
+    } else {
+      const compiled = await this.deps.compile(generated, doc);
+      if (!compiled.ok) return reject(`It would not compile: ${compiled.message}\n${compiled.issues.slice(0, 12).map(formatIssue).join('\n')}`);
+      report = `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`;
     }
-    const compiled = await this.deps.compile(generated, this.draft);
-    if (compiled.ok) { this.health = 'ok'; this.problem = ''; this.steps.push(`compiled ✓`); return `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`; }
-    this.steps.push('compile error');
-    return fail('compile-error', `It does not compile: ${compiled.message}\n${compiled.issues.slice(0, 12).map(formatIssue).join('\n')}`);
+    const landed = this.deps.land(intents, step);
+    if (!landed.ok) {
+      this.steps.push(`${step} — not applied`);
+      return { success: false, text: `Not applied: ${landed.message} Call kit_get_patch to see the patch as it is now, then try again.` };
+    }
+    this.landed++;
+    this.steps.push(generated.source ? `${step} ✓` : step);
+    return { success: true, text: `Applied ${what}; it is live now. ${report}` };
   }
 
   // ---- listening ---------------------------------------------------------------------
   private async listen(phrase?: string, seconds?: number): Promise<ToolOutput> {
     const { catalog } = this.deps;
-    const generated = generate(this.draft, catalog);
+    const doc = this.deps.read();
+    const generated = generate(doc, catalog);
     if (!generated.source) return { success: false, text: 'There is nothing to play: the patch does not compile or nothing reaches Out. Fix that first (kit_get_patch shows the problems).' };
     const effect = generated.audioIn;
     let request: Omit<RenderRequest, 'id' | 'kind'>;
-    const base = { source: generated.source, nodes: Object.keys(this.draft.nodes), codeboxes: Object.entries(generated.codeboxes).map(([node, line]) => ({ node, line, code: this.draft.nodes[node]?.code ?? '', inputs: this.draft.nodes[node]?.ports?.inputs ?? [], outputs: this.draft.nodes[node]?.ports?.outputs ?? [] })), params: { ...generated.values }, image: this.deps.images };
+    const base = { source: generated.source, nodes: Object.keys(doc.nodes), codeboxes: Object.entries(generated.codeboxes).map(([node, line]) => ({ node, line, code: doc.nodes[node]?.code ?? '', inputs: doc.nodes[node]?.ports?.inputs ?? [], outputs: doc.nodes[node]?.ports?.outputs ?? [] })), params: { ...generated.values }, image: this.deps.images };
     if (effect) {
       const input: TestSignal = phrase === 'drums' || phrase === 'noise' ? phrase : 'chords';
       request = { ...base, seconds: Math.min(8, seconds ?? 4), events: [], notes: { onSamples: [], offSamples: [] }, input };
     } else {
-      const chosen: Phrase = phrase === 'chord' || phrase === 'chords' ? PHRASES.pad : phrase === 'hits' || phrase === 'drums' ? PHRASES.percussion : phrase === 'bass' ? PHRASES.bass : (generated.voices && (this.draft.nodes[Object.keys(this.draft.nodes).find(id => this.draft.nodes[id]!.type === 'kit.voiceIn') ?? '']?.config.mode === 'poly') ? PHRASES.pad : PHRASES.bass);
+      const chosen: Phrase = phrase === 'chord' || phrase === 'chords' ? PHRASES.pad : phrase === 'hits' || phrase === 'drums' ? PHRASES.percussion : phrase === 'bass' ? PHRASES.bass : (generated.voices && (doc.nodes[Object.keys(doc.nodes).find(id => doc.nodes[id]!.type === 'kit.voiceIn') ?? '']?.config.mode === 'poly') ? PHRASES.pad : PHRASES.bass);
       const length = chosen.quanta * 128 / 48000 + 1;
       const s = Math.min(8, seconds ?? length);
       const events = phraseEvents(chosen, Math.floor(s * 48000 / 128));

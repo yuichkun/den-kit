@@ -63,9 +63,9 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   return h;
 }
 
-export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string; /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean } = {}): Promise<{ page: Page; errors: string[] }> {
+export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string; /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean; /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean; viewport?: { width: number; height: number } } = {}): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
-  const context = await h.browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await h.browser.newContext({ viewport: options.viewport ?? { width: 1440, height: 900 } });
   const page = await context.newPage();
   page.on('close', () => { void context.close(); });
   const errors: string[] = [];
@@ -73,7 +73,8 @@ export async function openKit(h: Harness, options: { clearStorage?: boolean; que
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
   if (options.clearStorage !== false) await page.addInitScript(() => { try { if (!sessionStorage.getItem('kit-e2e-keep')) localStorage.clear(); } catch { /* ignore */ } });
   if (options.initScript) await page.addInitScript({ content: options.initScript });
-  await page.goto(h.url + (options.query ?? ''));
+  const query = options.startScreen ? options.query ?? '' : `${options.query ? `${options.query}&` : '?'}noStart`;
+  await page.goto(h.url + query);
   await page.waitForFunction(() => (window as unknown as { __kit?: unknown }).__kit !== undefined, null, { timeout: 60000 });
   if (options.start !== false) await startAudio(page);
   return { page, errors };

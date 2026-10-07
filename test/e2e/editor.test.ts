@@ -120,7 +120,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K7 exposes an input to the panel and plays it from there; theme and layout edits are undoable', async () => {
+  it('K7 exposes an input to the plugin and plays it from there; theme and layout edits are undoable', async () => {
     const { page } = await fresh();
     await page.locator('.vue-flow__node[data-id="cut1"] header').click();
     await page.click('[data-expose="hz"]');
@@ -128,7 +128,7 @@ describe('patch editor', () => {
     assert.ok(knobId);
     assert.ok(await kit(page, k => Object.values<any>(k.doc.value.edges).some((e: any) => e.to.node === 'cut1' && e.to.port === 'hz')));
     assert.equal((await waitCompiled(page)).status, 'ok');
-    await page.click('[data-testid=view-panel]');
+    await page.click('[data-testid=view-plugin]');
     const widget = page.locator(`[data-widget="${knobId}"] dk-knob`);
     await widget.waitFor();
     const before = await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').values.value);
@@ -136,10 +136,10 @@ describe('patch editor', () => {
     await dragBetween(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, { x: box.x + box.width / 2, y: box.y - 40 });
     const after = await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').values.value);
     assert.ok(after > before, `${before} → ${after}`);
-    await page.selectOption('[data-testid=panel-theme]', 'neon');
+    await page.selectOption('[data-testid=plugin-theme]', 'neon');
     assert.equal(await kit(page, k => k.doc.value.panel.theme), 'neon');
     // Edit layout: drag the widget.
-    await page.check('[data-testid=panel-edit]');
+    await page.click('[data-testid=plugin-edit]');
     const cell = page.locator(`[data-widget="${knobId}"]`);
     const cb = (await cell.boundingBox())!;
     await dragBetween(page, { x: cb.x + 10, y: cb.y + 10 }, { x: cb.x + 130, y: cb.y + 50 });

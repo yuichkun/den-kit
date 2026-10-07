@@ -1,6 +1,6 @@
 // What the LLM is told and which tools it gets. Dependency-free: the Node bridge
 // registers these tools with Codex (dynamicTools) and the browser executes them
-// against a draft copy of the patch (src/ai/llm-workspace.ts).
+// against the live patch (src/ai/llm-workspace.ts).
 
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
 
@@ -9,7 +9,7 @@ const portRef = { type: 'object', properties: { node: { type: 'string' }, port: 
 export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_get_patch',
-    description: 'Read the current draft patch: every module (id, type, label, settings, knob values, codebox code) and every cable, plus a readable summary and any problems. Call this first, and again whenever you are unsure of ids.',
+    description: 'Read the patch as it is now: every module (id, type, label, settings, knob values, codebox code) and every cable, plus a readable summary and any problems. Call this first, and again whenever you are unsure of ids or an edit was refused (the user edits too).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -25,7 +25,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_apply_ops',
     description: [
-      'Apply a list of edits to the draft, all or nothing, then validate and compile it. Returns problems (with module ids and codebox line numbers) or OK.',
+      'Apply a list of edits, all or nothing. They are tried on a copy first; if the result validates and compiles they land on the live patch at once (the user hears and sees them), otherwise nothing lands and you get the problems (with module ids and codebox line numbers). Put edits that depend on each other in one call (add a module and wire it).',
       'Edits (objects with "op"):',
       '  {"op":"addNode","node":{"id":"lfo2","type":"den.lfo","label":"Wobble","config":{...},"values":{"rate":3}}}  (id optional: lowercase letters and digits; leave out "pos": den-kit places new modules next to what they connect to)',
       '  {"op":"removeNode","id":"lfo2"}',
@@ -46,7 +46,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_write_codebox',
-    description: 'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Type errors and compile errors come back with line numbers in your code.',
+    description: 'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -61,17 +61,12 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_listen',
-    description: 'Render the draft offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
+    description: 'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
     inputSchema: { type: 'object', properties: { phrase: { type: 'string', enum: ['bass', 'chord', 'hits', 'chords', 'drums', 'noise'] }, seconds: { type: 'number', minimum: 0.5, maximum: 8 } }, additionalProperties: false },
   },
   {
-    name: 'kit_ask',
-    description: 'Ask the user one short question when the request is ambiguous in a way that matters (which sound, which of two very different directions). Give 2–5 short options in the user’s language; they appear as buttons. Then end your turn; the answer arrives as the next message. Do not ask about things you can decide yourself.',
-    inputSchema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 5 } }, required: ['question', 'options'], additionalProperties: false },
-  },
-  {
     name: 'kit_finish',
-    description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your draft is applied to the live patch when your turn ends (the user can undo it with ⌘Z).',
+    description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z.',
     inputSchema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'], additionalProperties: false },
   },
 ];
@@ -84,13 +79,13 @@ export function developerInstructions(blocks: string): string {
 
 How to work
 - Use only the kit_* tools. You cannot run shell commands or read files; you do not need to.
-- Start with kit_get_patch. Make small, deliberate edits with kit_apply_ops; it validates and compiles every time, so fix every problem it reports before going on.
+- Start with kit_get_patch. Edit with kit_apply_ops: every call is checked (validated and compiled) and, if it passes, lands on the live patch at once, so the user hears and sees each step. A call that fails lands nothing: fix the problems it reports and send it again. Keep each call a complete, working step (add a module and wire it in the same call).
 - Prefer existing modules and knob values over new structure; keep the user's sound unless asked to replace it.
 - When the sound matters (most requests), check it with kit_listen before you finish, and adjust if it is silent, clipping or obviously off.
 - End with kit_finish and a one-sentence summary in the user's language. Keep any chat text short; the user mostly looks at the patch.
-- Only if the request is ambiguous in a way that matters, call kit_ask with 2–5 short options and end your turn; otherwise decide yourself.
+- Never ask the user to choose. If the request is ambiguous, take the most plausible reading, say it in one short sentence, and go on; the user will tell you if they meant something else.
 - Questions about how something works: answer in a few sentences in the user's language (read the patch first); change nothing unless asked.
-- Your edits go to a draft. When your turn ends the draft is applied to the live patch as one step (the user can undo it); if the user changed the same thing meanwhile, their change wins.
+- The user may play and edit while you work. If an edit is refused because the patch changed, read it again. The whole request is one undo step for the user.
 
 The patch model
 - Cables carry a signal (one f32 per sample) or a gate (on/off). An input takes at most one cable; an unconnected input is a knob (its value in "values") or follows its default/binding.

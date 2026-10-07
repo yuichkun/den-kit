@@ -37,7 +37,8 @@ and a dead proxy, so no model was ever called. The fake copies them.
 - `codex --version` → `codex-cli 0.160.1`; `codex login status` → "Not logged in", exit 1.
 - A `CODEX_HOME` that does not exist is an error ("CODEX_HOME points to …, but that path does not exist").
 - `features list`: `default_mode_request_user_input` is off, so the model cannot
-  ask questions through Codex in the default mode; den-kit offers `kit_ask`.
+  ask questions through Codex in the default mode. den-kit never asks the user
+  to choose either: if a question still comes, it is answered empty at once.
 
 Tool calls, questions and approvals need a signed-in model, so they follow the
 generated protocol types and the app-server documentation; `npm run kit:doctor
