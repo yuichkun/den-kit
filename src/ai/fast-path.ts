@@ -5,7 +5,13 @@
 // LLM; without the LLM the line says why in one sentence. A patch that changed
 // while Jev was thinking is asked about again. Every request leaves a
 // RequestTrace (shown in the dev drawer and logged as JSONL).
-import { reactive, shallowRef, ref } from 'vue';
+//
+// The lines belong to the conversation about the patch (session.conversation):
+// they are saved with it, and a patch someone opens starts a new one (the old
+// lines fold away as "earlier"). "もっと" / "more" repeats the last change the
+// fast path made; "戻して" / "undo" takes the last AI change back. What the
+// person attached (the selection) is what the request is aimed at.
+import { reactive, shallowRef, ref, watch } from 'vue';
 import type { KitSession } from '../editor/session.ts';
 import type { Author } from '../core/history.ts';
 import { randomId } from '../core/schema.ts';
@@ -18,6 +24,8 @@ import {
 } from './router.ts';
 import type { Plan } from './intents.ts';
 import type { JevResult } from './protocol.ts';
+import type { Attachment } from './attachments.ts';
+import { SAVED_LINES, followUp, readSavedLines, savedLine } from './conversation.ts';
 
 /** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 1200 ms). */
 export interface FastSettings extends RouterSettings { budgetMs: number | null; useJev: boolean }
@@ -63,6 +71,10 @@ export interface Outcome {
   fix?: string;
   /** It changed the plugin screen (the panel offers to show it). */
   screen?: boolean;
+  /** What the person pointed at (the selection when they asked). */
+  attached?: Attachment[];
+  /** "もっと" / "more": the request this line did again. */
+  repeats?: string;
 }
 
 export interface RequestTrace {
@@ -91,15 +103,33 @@ const MAX_HISTORY = 30;
 export class FastPath {
   readonly settings = reactive<FastSettings>({ ...DEFAULT_ROUTER_SETTINGS, budgetMs: null, useJev: true });
   readonly outcome = shallowRef<Outcome | null>(null);
-  /** Every request in order (oldest first), as shown above the prompt. */
+  /** Every request of this conversation in order (oldest first), as shown above the prompt. */
   readonly history = shallowRef<Outcome[]>([]);
+  /** Lines of earlier conversations (other patches opened before), oldest first: shown folded; the AI does not see them. */
+  readonly earlier = shallowRef<Outcome[]>([]);
   readonly traces = shallowRef<RequestTrace[]>([]);
   readonly busy = ref(false);
   private controller: AbortController | null = null;
   readonly session: KitSession;
 
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(session: KitSession) {
     this.session = session;
+    // The conversation about this patch goes on after a reload.
+    const saved = session.loadConversation();
+    if (saved && saved.id === session.conversation.value) this.history.value = readSavedLines(saved.lines);
+    // A patch someone opens starts a new conversation; the old lines fold away.
+    watch(() => session.conversation.value, () => {
+      this.earlier.value = [...this.earlier.value, ...this.history.value.map(savedLine)].slice(-60);
+      this.history.value = [];
+      this.outcome.value = null;
+      this.persist();
+    }, { flush: 'sync' });
+    watch(this.history, () => {
+      if (this.persistTimer) return;
+      this.persistTimer = setTimeout(() => { this.persistTimer = null; this.persist(); }, 250);
+    });
     session.onHistory((kind, tx) => {
       if (tx.author.kind !== 'ai-fast' && tx.author.kind !== 'ai-llm') return;
       // ⌘Z on the AI edit: the result line no longer describes the patch. (An LLM request's line is found by its id.)
@@ -110,7 +140,17 @@ export class FastPath {
     });
   }
 
-  private get ctx(): RouteContext { return { doc: this.session.doc.value, catalog: this.session.catalog, selection: [...this.session.selection.value] }; }
+  /** What a request is aimed at: its attachments (modules and controls), else the selection. */
+  private aimed(attached?: readonly Attachment[]): string[] {
+    const doc = this.session.doc.value;
+    return attached ? attached.filter(a => a.kind !== 'cable' && doc.nodes[a.id]).map(a => a.id) : [...this.session.selection.value];
+  }
+  private ctxFor(aim: readonly string[]): RouteContext { return { doc: this.session.doc.value, catalog: this.session.catalog, selection: [...aim] }; }
+  /** Save the conversation now (it is also saved shortly after every change). */
+  persist() {
+    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
+    this.session.saveConversation(this.history.value.slice(-SAVED_LINES).map(savedLine));
+  }
   private get jevReady() { return this.settings.useJev && !!this.session.bridge?.jevReady; }
 
   private get llm(): LlmHandoff | null { return this.session.llm ?? null; }
@@ -129,16 +169,31 @@ export class FastPath {
     this.history.value = i >= 0 ? [...list.slice(0, i), outcome, ...list.slice(i + 1)] : [...list, outcome].slice(-MAX_HISTORY);
   }
 
-  async run(raw: string, options: { via?: 'typed' | 'voice'; /** Internal: asked again because the patch changed meanwhile. */ again?: boolean } = {}): Promise<Outcome> {
+  async run(raw: string, options: { via?: 'typed' | 'voice'; /** What the person pointed at (default: the selection). */ attached?: Attachment[]; /** Internal: asked again because the patch changed meanwhile. */ again?: boolean } = {}): Promise<Outcome> {
     const text = raw.trim().slice(0, 600);
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
     const started = performance.now();
     const id = randomId('rq');
-    const lex = parseRequest(text, { screen: this.session.screenFocus.value });
+    const attached = options.attached?.length ? options.attached : undefined;
+    const aim = this.aimed(options.attached);
+    const ctx = () => this.ctxFor(aim);
+    // "戻して" takes the last AI change back; "もっと" does the last fast change again.
+    const follow = text ? followUp(text) : null;
+    if (follow?.kind === 'undo') return this.undoLast(id, text, options.via, attached);
+    let query = text, repeats: string | undefined;
+    if (follow?.kind === 'more') {
+      const last = [...this.history.value].reverse().find(o => o.status === 'applied' && o.route !== 'llm' && !o.undone);
+      if (last) {
+        repeats = last.repeats ?? last.text;
+        query = follow.prefix && !/^(?:もっと|もう少し|少し|ちょっと|かなり|さらに)/.test(repeats) ? `${follow.prefix}${repeats}` : repeats;
+      }
+    }
+    const lex = parseRequest(query, { screen: this.session.screenFocus.value });
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
     const finish = (given: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
+      extra = { attached, repeats, ...extra };
       let decision = given;
       if (controller.signal.aborted && this.controller !== controller) {
         this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
@@ -149,7 +204,7 @@ export class FastPath {
       const unsure = decision.kind === 'chips' || decision.kind === 'escalate' || (decision.kind === 'nothing' && decision.llm);
       if (text && unsure) {
         if (decision.kind === 'chips') { trace.confidence = decision.confidence; trace.alternatives = decision.chips.map(c => c.label); }
-        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs });
+        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs, attached });
         trace.decision = decision.kind === 'chips' ? 'chips' : 'escalate';
         trace.totalMs = ms; trace.route = route;
         if (handed) { this.record(trace); this.busy.value = false; if (this.controller === controller) this.controller = null; return handed; }
@@ -170,15 +225,15 @@ export class FastPath {
     };
     if (!text) return finish({ kind: 'nothing', message: 'Type what you want, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.' }, 'none');
     this.busy.value = true;
-    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0 });
+    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, attached, repeats });
 
     const before = this.snapshot();
-    const stage = lexiconStage(lex, this.ctx);
+    const stage = lexiconStage(lex, ctx());
     if (stage.kind === 'decided') return finish(stage.decision, 'lexicon');
 
     if (stage.kind === 'target') {
       if (!this.jevReady) return finish(stage.resolve(null), 'lexicon');
-      const built = buildTargetRequest({ text, lang: lex.lang, selection: describeSelection(this.ctx) }, stage.candidates, stage.word);
+      const built = buildTargetRequest({ text: query, lang: lex.lang, selection: describeSelection(ctx()) }, stage.candidates, stage.word);
       const { result, read } = await this.ask(built, controller.signal, trace);
       if (controller.signal.aborted) return finish({ kind: 'nothing', message: 'Cancelled.' }, 'jev-target');
       if (!this.unchanged(before)) return this.again(raw, options, id, trace, controller);
@@ -192,21 +247,38 @@ export class FastPath {
       const why = this.jevOffReason();
       return finish({ kind: 'nothing', message: `${why} Try phrases like “brighter”, “リリース長く”, “add reverb”, “ベース作って”.`, llm: true }, 'none');
     }
-    const ctx = this.ctx;
-    const built = buildFullRequest({ text, lang: lex.lang, selection: describeSelection(ctx), aspects: availableAspects(ctx), targets: ambiguousTargets(ctx) });
+    const askCtx = ctx();
+    const built = buildFullRequest({ text: query, lang: lex.lang, selection: describeSelection(askCtx), aspects: availableAspects(askCtx), targets: ambiguousTargets(askCtx) });
     const { result, read } = await this.ask(built, controller.signal, trace);
     if (controller.signal.aborted) return finish({ kind: 'nothing', message: 'Cancelled.' }, 'jev');
     if (!result.ok || !read) {
       const why = result.ok ? 'Jev gave no usable answer.' : `Jev: ${result.error.message}`;
       return finish({ kind: 'nothing', message: why, llm: true }, 'jev', { jevMs: result.ms });
     }
-    const decision = decideFromJev(read, built, this.ctx, lex.lang, this.settings, stage.fallback);
+    const decision = decideFromJev(read, built, ctx(), lex.lang, this.settings, stage.fallback);
     if (!this.unchanged(before)) return this.again(raw, options, id, trace, controller);
     return finish(decision, 'jev', { jevMs: result.ms });
   }
 
+  /** "戻して" / "undo": take the last change back when the AI made it (the person's own edits are theirs to undo). */
+  private undoLast(id: string, text: string, via: 'typed' | 'voice' | undefined, attached: Attachment[] | undefined): Outcome {
+    const base = { id, text, via, route: 'lexicon' as const, ms: 0, attached };
+    const last = this.session.history.peek();
+    let outcome: Outcome;
+    if (!last) outcome = { ...base, status: 'nothing', message: 'There is nothing to take back yet.' };
+    else if (last.author.kind !== 'ai-fast' && last.author.kind !== 'ai-llm') outcome = { ...base, status: 'nothing', message: `The last change was your own (${last.label}); ⌘Z takes it back.` };
+    else {
+      const tx = this.session.undo();
+      outcome = { ...base, status: 'applied', label: `took back: ${(tx?.label ?? last.label).replace(/^AI: /, '')}` };
+    }
+    this.controller = null;
+    this.busy.value = false;
+    this.show(outcome);
+    return outcome;
+  }
+
   /** The patch changed while Jev was thinking: ask again about the patch as it is now (once; then the LLM takes it). */
-  private again(raw: string, options: { via?: 'typed' | 'voice'; again?: boolean }, id: string, trace: RequestTrace, controller: AbortController): Promise<Outcome> {
+  private again(raw: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; again?: boolean }, id: string, trace: RequestTrace, controller: AbortController): Promise<Outcome> {
     trace.stale = true;
     trace.decision = 'nothing';
     this.record(trace);
@@ -214,7 +286,7 @@ export class FastPath {
     if (this.controller === controller) this.controller = null;
     if (!options.again) return this.run(raw, { ...options, again: true });
     this.busy.value = false;
-    const line = this.llm?.take({ id, text: raw.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0 });
+    const line = this.llm?.take({ id, text: raw.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined });
     if (line) return Promise.resolve(line);
     const outcome: Outcome = { id, text: raw.trim().slice(0, 600), via: options.via, status: 'nothing', route: 'jev', ms: 0, message: 'The patch kept changing while Jev was thinking; say it again when you are ready.' };
     this.show(outcome);

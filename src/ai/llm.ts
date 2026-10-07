@@ -6,7 +6,10 @@
 // playing and editing meanwhile; an edit that no longer fits goes back to Codex.
 //
 // One turn runs at a time. Another request that needs the LLM while it works
-// is steered into the running turn; follow-ups continue the same conversation.
+// is steered into the running turn; follow-ups continue the same conversation
+// (one per opened patch, shared with the fast path: each request tells Codex
+// what happened since its last turn, and a new Codex conversation is told what
+// came before). What the person attached (the selection) comes along by id.
 // Esc stops it (what already landed stays, ⌘Z takes it back). Loading another
 // patch, or undoing the request's edit while it runs, stops it too. Codex never
 // gets to ask the user: questions are answered empty and it decides itself.
@@ -20,6 +23,8 @@ import type { FastPath, Outcome } from './fast-path.ts';
 import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
 import { handEdits } from './plugin-tools.ts';
+import { describeAttachments, type Attachment } from './attachments.ts';
+import { RECAP_LINES, handEditsSince, lineForAi } from './conversation.ts';
 import { viewPicture } from '../plugin/picture.ts';
 import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import type { LlmEvent, ToolOutput } from './protocol.ts';
@@ -42,6 +47,8 @@ interface Turn {
   ws: LlmWorkspace;
   started: number;
   epoch: number;
+  /** The conversation it belongs to (session.conversation). */
+  conversation: string;
   calls: Map<string, Promise<ToolOutput>>;
   message: string;
   tools: number;
@@ -68,8 +75,11 @@ export class LlmController {
   private queue: Outcome[] = [];
   private steering = new Map<string, Outcome>();
   private thread: string | null = null;
-  /** The loaded patch the conversation is about (session.loadEpoch); a new patch starts a new conversation. */
-  private threadEpoch: number | null = null;
+  /** The conversation (session.conversation) the Codex thread belongs to; a patch someone opens starts a new one. */
+  private threadConversation: string | null = null;
+  /** The last request the LLM itself took in this conversation, and when its turn started (for "since your last turn"). */
+  private lastLine: string | null = null;
+  private lastStarted = 0;
   private compiler: CompileClient | null = null;
   private renderer: RenderClient | null = null;
   readonly session: KitSession;
@@ -107,8 +117,8 @@ export class LlmController {
   }
 
   /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
-  run(text: string, options: { via?: 'typed' | 'voice' } = {}): Outcome {
-    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0 };
+  run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[] } = {}): Outcome {
+    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined };
     const taken = this.take(line);
     if (taken) return taken;
     const failed: Outcome = { ...line, status: 'failed', message: this.reason() };
@@ -139,7 +149,8 @@ export class LlmController {
   /** Forget the conversation (the next request starts a new one). */
   reset() {
     if (this.thread) this.bridge.llmForget(this.thread);
-    this.thread = null; this.threadEpoch = null;
+    this.thread = null; this.threadConversation = null;
+    this.lastLine = null; this.lastStarted = 0;
   }
 
   dispose() {
@@ -149,10 +160,10 @@ export class LlmController {
 
   // ---- turns ----------------------------------------------------------------------------
   private start(line: Outcome): Outcome {
-    if (this.threadEpoch !== null && this.threadEpoch !== this.session.loadEpoch.value) this.reset();
+    if (this.threadConversation !== null && this.threadConversation !== this.session.conversation.value) this.reset();
     const epoch = this.session.loadEpoch.value;
     const turn: Turn = {
-      id: line.id, ws: new LlmWorkspace(this.deps(line.id, epoch)), started: performance.now(), epoch,
+      id: line.id, ws: new LlmWorkspace(this.deps(line.id, epoch)), started: performance.now(), epoch, conversation: this.session.conversation.value,
       line: { ...line, status: 'thinking', route: 'llm', live: true, steps: [], activity: 'starting…', message: undefined },
       calls: new Map(), message: '', tools: 0, stopping: false, stopTimer: null,
     };
@@ -160,7 +171,10 @@ export class LlmController {
     this.busy.value = true;
     this.fast.upsert(turn.line);
     // Instructions are sent every time: a bridge that lost the conversation starts a new one with them.
-    if (!this.bridge.llmStart(turn.id, this.compose(line.text), developerInstructions(this.blocks()), this.thread ?? undefined)) {
+    const text = this.compose(line.text, false, line);
+    this.lastLine = line.id;
+    this.lastStarted = Date.now();
+    if (!this.bridge.llmStart(turn.id, text, developerInstructions(this.blocks()), this.thread ?? undefined)) {
       this.finish(turn, { kind: 'done', status: 'failed', error: { message: 'The AI bridge is not connected.' }, ms: 0 });
     }
     return turn.line;
@@ -171,7 +185,7 @@ export class LlmController {
     const steer: Outcome = { ...line, status: 'thinking', route: 'llm', live: true, message: 'adding this to the running request…' };
     this.steering.set(steer.id, steer);
     this.fast.upsert(steer);
-    if (!this.bridge.llmSteer(steer.id, target.id, this.compose(line.text, true))) this.later(steer);
+    if (!this.bridge.llmSteer(steer.id, target.id, this.compose(line.text, true, line))) this.later(steer);
     return steer;
   }
 
@@ -192,11 +206,21 @@ export class LlmController {
   }
 
   /** The request text with what Codex should know about the moment it was made. */
-  private compose(text: string, steering = false): string {
-    const doc = this.session.doc.value;
-    const selected = this.session.selection.value.map(id => doc.nodes[id]).filter(Boolean).map(n => `${n!.id} (${this.session.catalog.find(n!.type)?.title ?? n!.type}${n!.label ? ` "${n!.label}"` : ''})`);
-    const context = steering ? '[den-kit] The user adds, while you work:' : `[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.${selected.length ? ` Selected: ${selected.join(', ')}.` : ''}`;
-    return `${context}\n\n${text}`;
+  private compose(text: string, steering: boolean, line: Outcome): string {
+    const attached = line.attached?.length ? `\n[den-kit] The person attached (points at) these: ${describeAttachments(line.attached)}. The request is about them: change these unless they clearly ask for something new.` : '';
+    if (steering) return `[den-kit] The user adds, while you work:${attached}\n\n${text}`;
+    const parts = [`[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.`];
+    // What happened that this conversation's LLM has not seen: the whole recent story for a new conversation,
+    // otherwise the requests after its last one (the fast path handled them) and the person's own edits.
+    // (Lines added to a running request were seen by it; a line still working has no result yet.)
+    const lines = this.fast.history.value.filter(o => o.id !== line.id);
+    const at = this.thread && this.lastLine ? lines.findIndex(o => o.id === this.lastLine) : -1;
+    const unseen = (at >= 0 ? lines.slice(at + 1) : lines.slice(-RECAP_LINES)).filter(o => o.status !== 'working' && o.status !== 'merged');
+    if (unseen.length) parts.push(`[den-kit] ${this.thread ? 'Since your last turn' : 'Earlier in this conversation (you were not there; this is what happened)'}:\n${unseen.map(lineForAi).join('\n')}`);
+    // Edits made while it worked count too: it may not have looked at them.
+    const hand = handEditsSince(this.session.history.entries(), this.thread ? this.lastStarted : 0);
+    if (hand) parts.push(`[den-kit] The person edited by hand${this.thread ? ' since your last turn' : ''}: ${hand}.`);
+    return `${parts.join('\n')}${attached}\n\n${text}`;
   }
 
   private blocks(): string {
@@ -305,7 +329,7 @@ export class LlmController {
   private event(turn: Turn, event: LlmEvent) {
     switch (event.kind) {
       case 'thread':
-        this.thread = event.thread; this.threadEpoch = turn.epoch;
+        this.thread = event.thread; this.threadConversation = turn.conversation;
         if (event.fresh) this.step(turn, 'started a new conversation (the earlier one was lost)');
         return;
       case 'started': this.update(turn, { activity: 'thinking…' }); return;

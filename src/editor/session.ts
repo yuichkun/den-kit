@@ -29,6 +29,8 @@ export interface TransactionListener { (tx: Transaction, doc: PatchDocument): vo
 export interface HistoryListener { (kind: 'undo' | 'redo', tx: Transaction): void }
 
 const AUTOSAVE_KEY = 'den-kit:autosave';
+/** The AI conversation about the patch being worked on (kept with the autosave). */
+const CONVERSATION_KEY = 'den-kit:conversation';
 
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 
@@ -38,6 +40,14 @@ export class KitSession {
   readonly history = markRaw(new History());
   readonly historyVersion = ref(0);
   readonly selection = ref<string[]>([]);
+  /** Cables selected in the patch view (they can be attached to an AI request too). */
+  readonly edgeSelection = ref<string[]>([]);
+  /**
+   * The AI conversation the requests belong to. A patch someone opens (a starter, a work,
+   * an import, a new patch) starts a new one; what the AI itself puts in place (a template)
+   * stays in the conversation that asked for it.
+   */
+  readonly conversation = ref(randomId('conv'));
   /** The person is editing the plugin screen (so "darker" means the screen, not the sound). */
   readonly screenFocus = ref(false);
   readonly compileStatus = ref<CompileStatus>('idle');
@@ -100,7 +110,14 @@ export class KitSession {
       let record: unknown = null;
       try { record = JSON.parse(raw); } catch { record = null; }
       const read = readSaveRecord(record, catalog);
-      if (read.ok) { this.replace(read.doc, 'Restored autosave', false); for (const i of read.report) this.toast('warn', i.message); return true; }
+      if (read.ok) {
+        this.replace(read.doc, 'Restored autosave', false);
+        // The conversation about this patch goes on after a reload.
+        const saved = this.loadConversation();
+        if (saved && saved.docId === read.doc.id) this.conversation.value = saved.id;
+        for (const i of read.report) this.toast('warn', i.message);
+        return true;
+      }
       // Keep the broken record for recovery and tell the user.
       this.storage?.setItem(`${AUTOSAVE_KEY}:broken:${Date.now()}`, raw);
       this.toast('warn', `Autosave could not be read (${read.error}); a copy was kept and a starter patch was loaded.`);
@@ -116,6 +133,8 @@ export class KitSession {
     this.historyVersion.value++;
     this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };
     this.selection.value = [];
+    this.edgeSelection.value = [];
+    if (author.kind === 'human') this.conversation.value = randomId('conv');
     this.loadEpoch.value++;
     this.afterChange(true);
   }
@@ -320,6 +339,19 @@ export class KitSession {
     try { this.storage.setItem(AUTOSAVE_KEY, JSON.stringify(makeSaveRecord(this.doc.value))); }
     catch (error) { this.toast('warn', `Autosave failed (${error instanceof Error ? error.message : String(error)}); export the patch to keep it.`); }
   }
+  /** The saved AI conversation (null when there is none or it cannot be read). */
+  loadConversation(): { id: string; docId: string; lines: unknown[] } | null {
+    try {
+      const raw = this.storage?.getItem(CONVERSATION_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw) as { id?: unknown; docId?: unknown; lines?: unknown };
+      return typeof data.id === 'string' && typeof data.docId === 'string' && Array.isArray(data.lines) ? { id: data.id, docId: data.docId, lines: data.lines } : null;
+    } catch { return null; }
+  }
+  saveConversation(lines: unknown[]) {
+    try { this.storage?.setItem(CONVERSATION_KEY, JSON.stringify({ id: this.conversation.value, docId: this.doc.value.id, lines })); }
+    catch { /* a full storage loses the conversation, never the patch */ }
+  }
   exportText() { return serializeDocument(this.doc.value); }
   /** The patch with its pictures and fonts inside (a file that opens anywhere). */
   async exportWithAssets(): Promise<string> {
@@ -348,6 +380,7 @@ export class KitSession {
     setTimeout(() => { this.toasts.value = this.toasts.value.filter(t => t.id !== id); }, kind === 'error' ? 9000 : 5000);
   }
   select(ids: string[]) { this.selection.value = ids; }
+  selectEdges(ids: string[]) { this.edgeSelection.value = ids; }
   touch() { triggerRef(this.doc); }
 }
 

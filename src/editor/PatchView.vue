@@ -2,7 +2,7 @@
 // Patch canvas (Vue Flow). The document is the source of truth: Vue Flow only
 // renders it; every user gesture becomes a session.commit() intent.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { VueFlow, useVueFlow, type Connection, type NodeDragEvent, type NodeChange, type EdgeChange } from '@vue-flow/core';
+import { SelectionMode, VueFlow, useVueFlow, type Connection, type NodeDragEvent, type NodeChange, type EdgeChange } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
@@ -21,7 +21,7 @@ const session = useSession();
 const flow = useVueFlow('den-kit');
 const palette = ref<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
 const wrapper = ref<HTMLElement | null>(null);
-const selectedEdges = ref<string[]>([]);
+const selectedEdges = computed({ get: () => session.edgeSelection.value, set: ids => session.selectEdges(ids) });
 /** Positions while dragging (committed as one move on drag stop). */
 const dragging = ref<Record<string, { x: number; y: number }>>({});
 
@@ -177,10 +177,13 @@ defineExpose({ openPalette, fit });
   <div class="patch-shell">
   <GridPalette @add="addAtCenter" />
   <div ref="wrapper" class="patch-view" tabindex="0" data-testid="patch-view" @dragover.prevent @drop="onDrop">
+    <!-- Like a drawing app: dragging on empty canvas selects; two fingers (or the wheel) pan, a pinch (or ⌘ + wheel) zooms,
+         the middle button drags the view. Space is the voice key, so it never pans. -->
     <VueFlow id="den-kit" :nodes="nodes" :edges="edges" :apply-default="false" :delete-key-code="null" :pan-activation-key-code="null" :min-zoom="0.2" :max-zoom="2" :snap-to-grid="true" :snap-grid="[12, 12]"
+      :selection-key-code="true" :pan-on-drag="[1, 2]" :pan-on-scroll="true" :zoom-on-pinch="true" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="['Shift', 'Meta', 'Control']"
       :is-valid-connection="isValidConnection" :zoom-on-double-click="false" :connect-on-click="false" :disable-keyboard-a11y="true"
       @connect="onConnect" @node-drag-stop="onDragStop" @nodes-change="onNodesChange" @edges-change="onEdgesChange"
-      @pane-click="palette = null" @dblclick="(e: MouseEvent) => (e.target as HTMLElement).closest('.vue-flow__pane') && openPalette(e)">
+      @pane-click="palette = null" @pane-context-menu="(e: MouseEvent) => e.preventDefault()" @dblclick="(e: MouseEvent) => (e.target as HTMLElement).closest('.vue-flow__pane') && openPalette(e)">
       <template #node-kit="nodeProps"><KitNode v-bind="nodeProps" @edit-code="id => emit('edit-code', id)" /></template>
       <template #edge-kit="edgeProps"><KitEdge v-bind="edgeProps" /></template>
       <Background variant="lines" :gap="120" :line-width="1" pattern-color="#1c1c1c" />
@@ -197,4 +200,6 @@ defineExpose({ openPalette, fit });
 .patch-view .vue-flow__node-kit.selected, .patch-view .vue-flow__node-kit:focus { box-shadow: none; outline: none; }
 .patch-view .vue-flow__connection-path { stroke: #e0e0e0; stroke-width: 3; }
 .patch-view .vue-flow__edge.selected .vue-flow__edge-path { stroke: none; }
+.patch-view .vue-flow__selection { border: 1px solid #5ec4ff; background: #5ec4ff1f; }
+.patch-view .vue-flow__nodesselection-rect { border: 1px dashed #5ec4ff99; background: transparent; }
 </style>

@@ -3,9 +3,13 @@
 // patch or the plugin. Type (or hold Space and talk), press Enter: the fast path
 // applies at once, anything it is not sure about goes to the LLM, which edits
 // the patch step by step while the line below shows what it does. Nothing here
-// asks you to choose; ⌘Z takes a request back, Esc stops the LLM.
+// asks you to choose; ⌘Z takes a request back, Esc stops the LLM. What is
+// selected rides along with the request (the chips above the prompt; × or
+// Backspace in an empty prompt leaves one out). The lines are the conversation
+// about this patch; a patch opened before keeps its own, folded.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { FastPath, Outcome } from '../ai/fast-path.ts';
+import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
 import type { LlmController } from '../ai/llm.ts';
 import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
 import AiStatus from './AiStatus.vue';
@@ -25,6 +29,18 @@ watch(voiceLang, lang => { voice.lang = lang; saveVoiceLang(lang); });
 const listening = computed(() => voice.state.value !== 'idle');
 const turns = computed(() => fast.history.value);
 const latestId = computed(() => turns.value.at(-1)?.id);
+const showEarlier = ref(false);
+// ---- attachments: the selection, minus what was left out for this request ----
+const session = fast.session;
+const leftOut = ref<string[]>([]);
+watch(() => [session.selection.value, session.edgeSelection.value], () => { leftOut.value = []; });
+const attachments = computed<Attachment[]>(() => attachmentsOf(session.doc.value, session.catalog, session.selection.value, session.edgeSelection.value).filter(a => !leftOut.value.includes(a.id)));
+function leaveOut(id: string) { leftOut.value = [...leftOut.value, id]; }
+const CHIPS = 6;
+const allChips = ref(false);
+watch(() => attachments.value.length <= CHIPS, few => { if (few) allChips.value = false; });
+const shownChips = computed(() => allChips.value ? attachments.value : attachments.value.slice(0, CHIPS));
+const KIND_ICON: Record<Attachment['kind'], string> = { module: '▣', control: '◉', element: '◇', cable: '⌇' };
 const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : 'Ask anything — or hold Space and talk');
 const llmReady = computed(() => !!llm && !!fast.session.bridge?.status.value && fast.session.bridge.codexReady);
 
@@ -35,8 +51,10 @@ async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
   resize();
   if (!request) return;
   emit('request');
-  if (toLlm && llm) llm.run(request, { via });
-  else await fast.run(request, { via });
+  const attached = attachments.value.length ? attachments.value.map(a => ({ ...a })) : undefined;
+  leftOut.value = []; // left out of that request only
+  if (toLlm && llm) llm.run(request, { via, attached });
+  else await fast.run(request, { via, attached: attached ?? [] });
 }
 
 // Keep the newest line in view while it changes (unless the user scrolled up to read).
@@ -110,6 +128,7 @@ function insertSpace() {
 function promptKey(e: KeyboardEvent) {
   // Enter: the fast path first (it hands over to the LLM when needed); Shift+Enter: straight to the LLM.
   if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed', e.shiftKey); }
+  else if (e.key === 'Backspace' && !e.isComposing && !text.value && attachments.value.length) { e.preventDefault(); leaveOut(attachments.value.at(-1)!.id); }
   else if (e.key === 'Escape' && !e.isComposing) {
     if (fast.busy.value) { fast.cancel(); return; }
     if (llm?.busy.value) return; // the window handler stops it
@@ -170,8 +189,13 @@ defineExpose({ focus });
           <dt><kbd>⌥⌘E</kbd></dt><dd>patch ⇄ plugin</dd>
         </dl>
       </li>
+      <li v-if="fast.earlier.value.length" class="earlier" data-testid="ai-earlier">
+        <button type="button" class="link" @click="showEarlier = !showEarlier">{{ showEarlier ? '▾' : '▸' }} Earlier, about another patch: {{ fast.earlier.value.length }} request{{ fast.earlier.value.length === 1 ? '' : 's' }} (the AI does not see these)</button>
+        <ol v-if="showEarlier" class="earlier-lines"><li v-for="o in fast.earlier.value" :key="o.id"><span class="ask-old">{{ o.text }}</span> → {{ o.label ?? o.message ?? o.status }}</li></ol>
+      </li>
       <li v-for="o in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: o.id === latestId, undone: o.undone, llm: o.route === 'llm', live: o.live }]" :data-status="o.status" :data-route="o.route" :data-testid="o.id === latestId ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined">
-        <div class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}</div>
+        <div class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}<span v-if="o.repeats" class="again" title="Did the last change again"> · again: “{{ o.repeats }}”</span></div>
+        <div v-if="o.attached?.length" class="attached" data-testid="ai-attached"><span v-for="a in o.attached" :key="a.id" class="chip small" :title="a.id">{{ KIND_ICON[a.kind] ?? '▣' }} {{ a.label }}</span></div>
         <div class="answer">
           <div v-if="o.status === 'working'" class="activity"><span class="spin" /> thinking…</div>
           <template v-else>
@@ -193,6 +217,10 @@ defineExpose({ focus });
     </ol>
     <div v-if="voice.error.value && !listening" class="voice-error" data-testid="ai-voice-message">{{ voice.error.value }}</div>
     <form class="prompt" :class="{ listening }" @submit.prevent>
+      <div v-if="attachments.length" class="chips" data-testid="ai-attachments" title="What you selected comes with the request">
+        <span v-for="a in shownChips" :key="a.id" class="chip" :data-attachment="a.id">{{ KIND_ICON[a.kind] }} {{ a.label }}<button type="button" class="x" :title="`Leave ${a.id} out of this request`" @click="leaveOut(a.id)">×</button></span>
+        <button v-if="attachments.length > CHIPS && !allChips" type="button" class="chip more" data-testid="ai-attachments-more" @click="allChips = true">+{{ attachments.length - CHIPS }} more</button>
+      </div>
       <textarea ref="input" :value="listening ? voice.heard.value : text" rows="1" data-testid="ai-input" :placeholder="placeholder" :readonly="listening" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLTextAreaElement).value; resize()" @keydown="promptKey" />
       <div class="prompt-foot">
         <span v-if="fast.busy.value" class="spin" />
@@ -254,6 +282,19 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .prompt textarea::placeholder { color: #7a7a7a; }
 .prompt-foot { display: flex; align-items: center; gap: 8px; }
 .hint { color: #7c7c7c; font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 1px 4px 1px 8px; border-radius: 10px; background: #2b3b45; color: #cde8f6; font-size: 12.5px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.small { padding: 0 8px; background: #263038; color: #a9c6d6; font-size: 12px; }
+.chip.more { border: 0; padding: 1px 8px; box-shadow: none; cursor: pointer; }
+.chip .x { border: 0; background: transparent; color: #9db7c4; padding: 0 4px; font-size: 14px; line-height: 1; box-shadow: none; }
+.chip .x:hover { color: #fff; background: transparent !important; }
+.attached { display: flex; flex-wrap: wrap; gap: 4px; }
+.again { color: #9a9a9a; font-size: 13px; }
+.earlier { color: #8a8a8a; font-size: 13px; }
+.earlier .link { border: 0; background: transparent; color: #8a8a8a; padding: 0; box-shadow: none; text-align: left; font-size: 13px; }
+.earlier .link:hover { color: #cfcfcf; background: transparent !important; }
+.earlier-lines { list-style: none; margin: 6px 0 0; padding: 0 0 0 12px; border-left: 1px solid #333; display: flex; flex-direction: column; gap: 3px; }
+.ask-old { color: #b0b0b0; }
 .mic.on { color: var(--error); animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: none; }
