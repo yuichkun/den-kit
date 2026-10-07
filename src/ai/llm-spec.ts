@@ -5,6 +5,7 @@
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
 
 const portRef = { type: 'object', properties: { node: { type: 'string' }, port: { type: 'string' } }, required: ['node', 'port'], additionalProperties: false };
+const rect = { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'], additionalProperties: false };
 
 export const KIT_TOOLS: ToolSpec[] = [
   {
@@ -34,11 +35,23 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"setValue","node":"filter1","port":"resonance","value":2,"clamp":true}  (knob value of an unconnected input)',
       '  {"op":"setConfig","node":"osc1","key":"waveform","value":"sine"}  (construction setting; recompiles)',
       '  {"op":"setLabel","node":"lfo2","label":"Wobble"} · {"op":"move","node":"lfo2","pos":{"x":400,"y":200}} · {"op":"setName","name":"Acid bass"}',
+      'Screen edits (the plugin the user plays; kit_get_plugin shows it, kit_ui_reference explains every field):',
+      '  {"op":"addControl","for":{"node":"filter1","port":"cutoff"},"label":"Cutoff","panel":{"x":24,"y":96,"w":84,"h":96}}  (a knob for a module input, wired, with the input\'s range and unit; "type":"ui.slider"|"ui.toggle"|"ui.button"; leave out "panel" to use the first free space)',
+      '  {"op":"setPanel","node":"knob1","panel":{"x":24,"y":96,"w":84,"h":96}}  (put an existing control on the plugin; null takes it off) · {"op":"setRect","id":"knob1","rect":{...}}  (move or resize a control or an element)',
+      '  {"op":"setStyle","node":"knob1","style":{"skin":{"name":"cap","params":{"shape":"chicken"}},"textStyle":{"font":"oswald","size":12,"color":"fg"}}}  (replaces the control\'s whole style)',
+      '  {"op":"setLook","look":{"tokens":{"accent":"#ff7a59"},"background":[{"kind":"image","asset":"sc-wood","fit":"cover"}],"skins":{"knob":{"name":"ring"}}}}  (merges)',
+      '  {"op":"addElement","element":{"kind":"text","text":"ACID","rect":{"x":24,"y":16,"w":300,"h":48},"textStyle":{"font":"oswald","size":40,"color":"fg"}}} · {"op":"updateElement","id":"text1","set":{"text":"ACID 303"}} · {"op":"removeElement","id":"text1"}',
+      '  {"op":"arrange","ids":["shape1"],"to":"back"} · {"op":"group","ids":["text1","shape1"]} · {"op":"setPanelSize","width":720,"height":440}',
+      '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
     ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: {
-        ops: { type: 'array', minItems: 1, maxItems: 64, items: { type: 'object', properties: { op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme'] }, node: {}, id: { type: 'string' }, from: portRef, to: portRef, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' } }, required: ['op'] } },
+        ops: { type: 'array', minItems: 1, maxItems: 96, items: { type: 'object', properties: {
+          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset'] },
+          node: {}, id: { type: 'string' }, from: portRef, to: {}, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' },
+          for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' },
+        }, required: ['op'] } },
       },
       required: ['ops'],
       additionalProperties: false,
@@ -63,6 +76,21 @@ export const KIT_TOOLS: ToolSpec[] = [
     name: 'kit_listen',
     description: 'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
     inputSchema: { type: 'object', properties: { phrase: { type: 'string', enum: ['bass', 'chord', 'hits', 'chords', 'drums', 'noise'] }, seconds: { type: 'number', minimum: 0.5, maximum: 8 } }, additionalProperties: false },
+  },
+  {
+    name: 'kit_get_plugin',
+    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations with their exact fields), controls kept off it, groups and assets. With "part": one custom part\'s whole code.',
+    inputSchema: { type: 'object', properties: { part: { type: 'string' } }, additionalProperties: false },
+  },
+  {
+    name: 'kit_ui_reference',
+    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, part; style and textStyle fields), "parts" (custom canvas code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "layout" (what reads well). No topic: an overview.',
+    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+  },
+  {
+    name: 'kit_look',
+    description: 'Look at the plugin screen as it is drawn now: checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures and failing custom parts; with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'kit_finish',
@@ -98,6 +126,15 @@ The patch model
   import { defineSubgraph, type Node } from '@unworklet/core';
   export default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; drive: Node<'f32'> }) { return { out: i.in.mul(i.drive).tanh() }; } }));
   Declare its ports with kit_write_codebox; inputs become knobs when unconnected.
+
+The plugin screen (what the user plays)
+- The plugin is a window of fixed design size that scales to fit. Its controls are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, custom part); the look holds the colour and font tokens, the background and the default skin of each control kind.
+- Read it with kit_get_plugin; edit it with kit_apply_ops (screen edits are checked like any edit and land at once; they never recompile the sound). kit_ui_reference has the skins, fonts, element fields, custom parts and bundled pictures.
+- After screen edits, look with kit_look and fix what it finds before you finish.
+- A control for a module input: addControl (wired, ranged and placed for you). Label every control; keep text at 11 px or more and readable against what is behind it; leave 16-24 px margins; line things up; nothing opaque over a control.
+- Colours: use the tokens (bg, fg, accent, track, knob, pointer, muted, glow) so the screen survives a change of look; fixed colours only for things printed on a picture or a plate.
+- Custom parts draw with canvas code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.
+- Keep what the user built unless asked to change it; change the screen only when the request is about it (or a new sound needs controls).
 
 Module types
 ${blocks}`;

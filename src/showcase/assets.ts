@@ -21,3 +21,20 @@ export const SHOWCASE_ASSETS: Record<string, AssetMeta> = {
   'sc-starfield': photo('sc-starfield', 'starfield.jpg', 252210, 1600, 1067, { title: 'Night sky over the Chisos Mountains', author: 'NPS Photo (Big Bend National Park)', license: 'Public domain', url: 'https://commons.wikimedia.org/wiki/File:Night_Sky_Over_Chisos_Mountains_(de3b5b2d-7015-4ca5-871b-4da5a8858774).jpg' }),
   'sc-neon': photo('sc-neon', 'neon.jpg', 172389, 1600, 1207, { title: 'A neon "OPEN" sign', author: 'Wilfredor', license: 'CC0', url: 'https://commons.wikimedia.org/wiki/File:Is_Open.jpg' }),
 };
+
+/** What each bundled picture shows, for the AI choosing one (it cannot see the files). */
+export const PICTURE_DOC: Readonly<Record<string, string>> = {
+  'sc-brass-knob': 'A brass knob seen from above, pointer at 12 o\'clock, transparent around it (for the image knob skin).',
+  'sc-screw': 'A slotted steel screw head, transparent around it (for the corners of plates).',
+  'sc-sketch-pads': 'A pencil layout sketch of a pad grid on paper (an example of a reference picture).',
+  'sc-sketch-pedal': 'A pencil layout sketch of a guitar pedal on paper (an example of a reference picture).',
+  'sc-sunset': 'Blue evening sky with orange and pink clouds, a darker band at the bottom (photo, 3:2).',
+  'sc-wood': 'Warm mid-brown wood grain running sideways (texture, square, tiles).',
+  'sc-brass': 'Brushed brass, olive gold (texture, square).',
+  'sc-tape-machine': 'An old reel-to-reel tape machine: two clear reels on a grey crackle deck, dark surroundings (photo, wide).',
+  'sc-brushed-metal': 'Grey brushed steel, brushed sideways (texture, square, tiles).',
+  'sc-cassette': 'A clear compact cassette on a light grey background (photo, 3:2).',
+  'sc-paper': 'Plain off-white paper (texture, square).',
+  'sc-starfield': 'Night sky full of stars and the Milky Way over dark mountain outlines (photo, 3:2).',
+  'sc-neon': 'A red neon "OPEN" sign with a green line under it, on a dark wall (photo, 4:3).',
+};

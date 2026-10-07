@@ -25,6 +25,7 @@ function realWorkspace(doc = starter('bass', catalog)) {
     catalog, images: false,
     read: () => state.live,
     land: intents => { state.live = applyIntents(state.live, intents, catalog).doc; return { ok: true }; },
+    look: async () => ({ issues: [], png: null, width: 0, height: 0, ms: 0 }),
     compile: async (g, doc) => {
       const started = performance.now();
       try { await compile(evaluate(g.source, registry).processor, { sampleRate: 48000 }); return { ok: true, ms: performance.now() - started }; }

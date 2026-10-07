@@ -10,6 +10,8 @@ export const PART_TEMPLATE = `// A custom part: draw(ctx, f) runs every frame (i
 // f.wave, f.spectrum: the waveform and a 0..1 spectrum (Float32Array)
 // f.value('knob1'), f.norm('knob1'): a control's value (raw, or 0..1)
 // f.color('accent'): the look's colours · f.props: your settings · f.state: kept between frames
+// To play it with the mouse, export { draw, pointer(e, f) } instead: e.type is down, move,
+// up, wheel, double or leave at e.x, e.y; f.setNorm('knob1', 0..1) moves a control.
 export default function draw(ctx, f) {
   ctx.clearRect(0, 0, f.w, f.h);
   const r = Math.min(f.w, f.h) * (0.12 + 0.38 * Math.min(1, f.level * 4));

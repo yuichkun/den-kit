@@ -40,7 +40,7 @@ export function toy(catalog: Catalog) {
     // ---- the plugin: big pads, drawn decorations ----
     asset('sc-sketch-pads'),
     { op: 'setLook', look: {
-      tokens: { bg: '#fff3f8', fg: '#4a3a7a', accent: '#ff5a8a', track: '#ffe1ec', knob: '#ffffff', pointer: '#4a3a7a', muted: '#76669f', glow: '#ff9ec0', font: 'fredoka', labelFont: 'fredoka', valueFont: 'baloo-2' },
+      tokens: { bg: '#fff3f8', fg: '#4a3a7a', accent: '#f0457a', track: '#ffe1ec', knob: '#ffffff', pointer: '#4a3a7a', muted: '#76669f', glow: '#ff9ec0', font: 'fredoka', labelFont: 'fredoka', valueFont: 'baloo-2' },
       background: [{ kind: 'linear', angle: 160, stops: [{ color: '#fff0f6', at: 0 }, { color: '#e6f4ff', at: 0.55 }, { color: '#fff7d6', at: 1 }] }],
       skins: { knob: { name: 'dot' } },
     } },

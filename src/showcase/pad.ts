@@ -7,7 +7,7 @@ import type { Catalog } from '../core/catalog.ts';
 import { add, asset, control, el, r, wire, work } from './build.ts';
 
 export function pad(catalog: Catalog) {
-  const knob = { skin: { name: 'dot', params: { cap: 'knob', dot: 'pointer', soft: 0.9, ring: true } }, textStyle: { font: 'playfair-display', size: 14, italic: true, color: 'fg', shadows: [{ x: 0, y: 1, blur: 3, color: '#3a1d3a99' }] } };
+  const knob = { skin: { name: 'dot', params: { cap: 'knob', dot: 'pointer', soft: 0.9, ring: true } }, textStyle: { font: 'playfair-display', size: 14, italic: true, color: 'fg', shadows: [{ x: 0, y: 1, blur: 4, color: '#2b1a3add' }] } };
   return work('pad', 'Afterglow', catalog, [720, 460], [
     // ---- sound ----
     add('voice1', 'kit.voiceIn', { config: { mode: 'poly', capacity: 4, heldCapacity: 16 } }),
@@ -50,8 +50,10 @@ export function pad(catalog: Catalog) {
       skins: { knob: { name: 'dot' } },
     } },
     el({ kind: 'text', name: 'Title', text: 'Afterglow', rect: r(34, 22, 380, 70), textStyle: { font: 'playfair-display', size: 54, italic: true, color: 'fg', align: 'left', shadows: [{ x: 0, y: 2, blur: 18, color: '#7a2d4a99' }] } }),
-    el({ kind: 'text', name: 'Subtitle', text: 'a slow pad that sways and spreads', rect: r(38, 88, 380, 22), textStyle: { font: 'lato', size: 14, color: 'muted', align: 'left', spacing: 0.04, shadows: [{ x: 0, y: 1, blur: 6, color: '#5a234099' }] } }),
+    el({ kind: 'text', name: 'Subtitle', text: 'a slow pad that sways and spreads', rect: r(38, 88, 380, 22), textStyle: { font: 'lato', size: 14, color: 'muted', align: 'left', spacing: 0.04, shadows: [{ x: 0, y: 1, blur: 3, color: '#3a1d3add' }, { x: 0, y: 0, blur: 10, color: '#3a1d3a99' }] } }),
     el({ kind: 'shape', shape: 'rect', name: 'Glass', rect: r(34, 124, 420, 300), locked: true, style: { radius: 22, fill: [{ kind: 'color', color: '#ffffff1f' }], stroke: { color: '#ffffff55', width: 1, style: 'solid' }, shadows: [{ x: 0, y: 12, blur: 30, spread: 0, color: '#2b1a3a55', inset: false }] } }),
+    // The knobs sit on a smoked glass, so their names read over the bright clouds.
+    el({ kind: 'shape', shape: 'rect', name: 'Smoked glass', rect: r(476, 124, 236, 316), locked: true, style: { radius: 22, fill: [{ kind: 'color', color: '#2b1a3a73' }], stroke: { color: '#ffffff40', width: 1, style: 'solid' }, shadows: [{ x: 0, y: 12, blur: 30, spread: 0, color: '#2b1a3a55', inset: false }] } }),
     ...control('xy1', 'ui.xy', 'Brightness × Sway', null, r(34, 124, 420, 300), { values: { x: 0.55, y: 0.35 }, style: { skin: { name: 'glow', params: { dot: 'glow', size: 26, trail: 46, glow: 30, crosshair: false, grid: false, label: 'none' } } } }),
     wire('xy1.x', 'xoct1.in'), wire('xy1.y', 'ydepth1.in'), wire('xy1.y', 'ydepth2.in'),
     el({ kind: 'text', name: 'X label', text: 'brighter →', rect: r(300, 428, 154, 22), textStyle: { font: 'playfair-display', italic: true, size: 15, color: 'fg', align: 'right' } }),

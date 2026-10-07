@@ -28,8 +28,8 @@ const props = defineProps<{
   preview?: boolean;
 }>();
 const emit = defineEmits<{
-  /** A control moved; `done` when the gesture ends (release, or a click that sets it at once). */
-  (e: 'change', widget: string, values: Record<string, number | boolean>, done: boolean): void;
+  /** A control moved; `done` when the gesture ends (release, or a click that sets it at once). A custom part names its gesture (one press can move several controls). */
+  (e: 'change', widget: string, values: Record<string, number | boolean>, done: boolean, gesture?: string): void;
   (e: 'note', note: number, on: boolean): void;
 }>();
 
@@ -103,7 +103,7 @@ onBeforeUnmount(() => { observer?.disconnect(); cancelAnimationFrame(raf); });
           <slot name="cell" :item="item" :scale="scale" />
         </div>
         <div v-else class="cell" :data-item="item.id" :data-element="item.id" :style="cellStyle(item.element.rect)">
-          <PluginElement :element="item.element" :url="url" :controls="spec.controls" :editing="editing" />
+          <PluginElement :element="item.element" :url="url" :controls="spec.controls" :editing="editing" :play="!editing && !preview" @set="(id, values, gesture) => emit('change', id, values, false, gesture)" />
           <slot name="cell" :item="item" :scale="scale" />
         </div>
       </template>
@@ -121,7 +121,7 @@ onBeforeUnmount(() => { observer?.disconnect(); cancelAnimationFrame(raf); });
 .fill { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
 .underlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .cell { position: absolute; box-sizing: border-box; }
-/* Decorations never catch the mouse: the controls under them still play. */
+/* Decorations never catch the mouse: the controls under them still play (a custom part that handles the mouse takes it while playing). */
 .cell[data-element] { pointer-events: none; }
 .panel.clip { overflow: hidden; }
 </style>

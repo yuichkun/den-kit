@@ -6,7 +6,7 @@ import type { Catalog } from '../core/catalog.ts';
 import { add, asset, control, el, r, wire, work } from './build.ts';
 
 export function fuzz(catalog: Catalog) {
-  const knob = { skin: { name: 'cap', params: { cap: '#151515', pointer: '#f4efe6', scale: '#fff6e8', ticks: 11, shape: 'line', label: 'bottom', value: 'none' } }, textStyle: { font: 'oswald', size: 14, weight: 600, color: '#fff6e8', case: 'upper' as const, spacing: 0.14 } };
+  const knob = { skin: { name: 'cap', params: { cap: '#151515', pointer: '#f4efe6', scale: '#fff6e8', ticks: 11, shape: 'line', label: 'bottom', value: 'none' } }, textStyle: { font: 'oswald', size: 14, weight: 600, color: '#2b0d03', case: 'upper' as const, spacing: 0.14 } };
   return work('fuzz', 'Ember Fuzz', catalog, [360, 560], [
     // ---- sound ----
     add('in1', 'kit.audioIn'),

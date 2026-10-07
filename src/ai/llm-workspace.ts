@@ -15,6 +15,9 @@ import { placeNewNodes } from '../core/layout.ts';
 import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
 import type { Rendered } from '../compile/render-client.ts';
+import { describePlugin, describeUiOp, expandOps, screenChanged, uiReference } from './plugin-tools.ts';
+import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
+import type { LookResult } from '../plugin/look.ts';
 
 import type { ToolOutput } from './protocol.ts';
 
@@ -31,12 +34,14 @@ export interface WorkspaceDeps {
   read(): PatchDocument;
   /** Put checked edits on the live patch as one step of this request. */
   land(intents: Intent[], label: string): { ok: true } | { ok: false; message: string };
+  /** Draw the plugin and look it over (and take a picture when `picture`). */
+  look(doc: PatchDocument, picture: boolean): Promise<LookResult>;
 }
 
 const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
-const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_finish';
+const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_look, kit_finish';
 
 export class LlmWorkspace {
   summary: string | null = null;
@@ -44,6 +49,9 @@ export class LlmWorkspace {
   landed = 0;
   /** Short human-readable steps for the request's line in the history. */
   readonly steps: string[] = [];
+  /** The screen changed since the model last looked at it (kit_finish asks it to look first, once). */
+  private unseen = false;
+  private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
   constructor(deps: WorkspaceDeps) { this.deps = deps; }
@@ -58,7 +66,18 @@ export class LlmWorkspace {
         case 'kit_apply_ops': return await this.applyOps(a.ops);
         case 'kit_write_codebox': return await this.writeCodebox(a);
         case 'kit_listen': return await this.listen(typeof a.phrase === 'string' ? a.phrase : undefined, typeof a.seconds === 'number' ? a.seconds : undefined);
+        case 'kit_get_plugin': {
+          const doc = this.deps.read();
+          const part = typeof a.part === 'string' && a.part ? a.part : undefined;
+          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { part, problems: part ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue) })) };
+        }
+        case 'kit_look': return await this.look();
+        case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined) };
         case 'kit_finish':
+          if (this.unseen && !this.remindedToLook) {
+            this.remindedToLook = true;
+            return { success: false, text: 'You changed the plugin screen but have not looked at it since. Call kit_look (it checks overlaps, text that does not fit, contrast and more), fix what it finds, then call kit_finish again.' };
+          }
           this.summary = String(a.summary ?? '').slice(0, 400) || null;
           return { success: true, text: 'OK. Your edits are already on the live patch; the user can undo the whole request with one ⌘Z.' };
         default: return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
@@ -80,7 +99,9 @@ export class LlmWorkspace {
     const cables = Object.values(doc.edges).map(e => `${e.from.node}.${e.from.port} -> ${e.to.node}.${e.to.port}`);
     const problems = validate(doc, catalog).issues.filter(i => i.severity !== 'info').map(formatIssue);
     const text = JSON.stringify({ name: doc.name, nodes, cables, problems }, null, 1);
-    return { success: true, text: clip(`${describePatch(doc, catalog, { maxChars: 6000, includeIssues: false })}\n\n${text}`) };
+    const onPlugin = Object.values(doc.nodes).filter(n => n.panel && catalog.find(n.type)?.kind === 'widget').length;
+    const screen = `The plugin screen (${doc.panel.width}×${doc.panel.height}): ${onPlugin} control${onPlugin === 1 ? '' : 's'} and ${Object.keys(doc.ui.elements).length} decoration${Object.keys(doc.ui.elements).length === 1 ? '' : 's'} — kit_get_plugin shows it.`;
+    return { success: true, text: clip(`${describePatch(doc, catalog, { maxChars: 6000, includeIssues: false })}\n${screen}\n\n${text}`) };
   }
 
   private listBlocks(category?: string): ToolOutput {
@@ -113,21 +134,25 @@ export class LlmWorkspace {
     if (!Array.isArray(ops) || !ops.length) return { success: false, text: 'ops must be a non-empty array of edit objects.' };
     const { catalog } = this.deps;
     const before = this.deps.read();
-    let trial;
-    try { trial = applyIntents(before, ops as Intent[], catalog); }
-    catch (error) {
-      if (error instanceof OpError) return { success: false, text: `Edit #${error.index + 1} (${JSON.stringify(ops[error.index]).slice(0, 200)}) was rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}\nNothing was applied; fix it and send the whole list again.` };
+    const refuse = (error: OpError, at: number) => ({ success: false, text: `Edit #${at + 1} (${JSON.stringify(ops[at]).slice(0, 200)}) was rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}\nNothing was applied; fix it and send the whole list again.` });
+    let expanded, trial;
+    try {
+      expanded = expandOps(before, catalog, ops);
+      trial = applyIntents(before, expanded.intents, catalog);
+    } catch (error) {
+      if (error instanceof OpError) return refuse(error, expanded ? expanded.origin[error.index] ?? error.index : error.index);
       throw error;
     }
     // New modules get their ids now, so the edit lands on the live patch exactly as tried here.
     let k = 0;
-    const intents = (ops as Intent[]).map(o => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } } : o);
+    const intents = expanded.intents.map(o => o.op === 'addNode' ? { ...o, node: { ...o.node, id: trial.created[k++]! } } : o);
     // Modules added without a position go next to what they connect to (never on top of others).
     const toPlace = intents.flatMap(o => o.op === 'addNode' && !o.node.pos ? [o.node.id!] : []);
     const moves = toPlace.length ? placeNewNodes(trial.doc, catalog, toPlace) : [];
     const doc = moves.length ? applyIntents(trial.doc, moves, catalog).doc : trial.doc;
     const what = describeOps(intents, trial.created);
-    return this.landChecked(before, doc, [...intents, ...moves], what, `${ops.length} edit${ops.length === 1 ? '' : 's'}${trial.created.length ? ` (new ids: ${trial.created.join(', ')})` : ''}`);
+    const notes = expanded.notes.length ? ` ${expanded.notes.join(' ')}` : '';
+    return this.landChecked(before, doc, [...intents, ...moves], what, `${ops.length} edit${ops.length === 1 ? '' : 's'}${trial.created.length ? ` (new ids: ${trial.created.join(', ')})` : ''}${notes}`);
   }
 
   private async writeCodebox(a: Record<string, unknown>): Promise<ToolOutput> {
@@ -165,6 +190,8 @@ export class LlmWorkspace {
       const fresh = blocking.filter(i => !before_.has(issueKey(i)));
       if (fresh.length) return reject(`It would not compile:\n${fresh.map(formatIssue).join('\n')}`);
       report = blocking.length ? `The patch still has problems from before:\n${blocking.slice(0, 6).map(formatIssue).join('\n')}` : 'Nothing reaches Out yet, so it is silent.';
+    } else if (generated.hash && generated.hash === generate(before, catalog).hash) {
+      report = 'The sound is unchanged.'; // screen-only edits (and knob values) need no compile
     } else {
       const compiled = await this.deps.compile(generated, doc);
       if (!compiled.ok) return reject(`It would not compile: ${compiled.message}\n${compiled.issues.slice(0, 12).map(formatIssue).join('\n')}`);
@@ -176,8 +203,21 @@ export class LlmWorkspace {
       return { success: false, text: `Not applied: ${landed.message} Call kit_get_patch to see the patch as it is now, then try again.` };
     }
     this.landed++;
+    if (screenChanged(before, doc, catalog)) this.unseen = true;
     this.steps.push(generated.source ? `${step} ✓` : step);
     return { success: true, text: `Applied ${what}; it is live now. ${report}` };
+  }
+
+  // ---- looking ---------------------------------------------------------------------------
+  private async look(): Promise<ToolOutput> {
+    const doc = this.deps.read();
+    const seen = await this.deps.look(doc, this.deps.images);
+    this.unseen = false;
+    const errors = seen.issues.filter(i => i.severity === 'error').length;
+    this.steps.push(`looked at the screen (${seen.issues.length ? `${seen.issues.length} to fix` : 'fine'})`);
+    const head = `Looked at the plugin (${doc.panel.width}×${doc.panel.height}).${this.deps.images && seen.png ? ' The picture is attached.' : ''}`;
+    const body = seen.issues.length ? `${seen.issues.length} thing${seen.issues.length === 1 ? '' : 's'} to fix${errors ? ` (${errors} serious)` : ''}:\n${seen.issues.map(i => `- ${formatPluginIssue(i)}`).join('\n')}` : 'The checks found nothing to fix (overlaps, edges, text that does not fit, contrast, labels, wiring, pictures, custom parts).';
+    return { success: true, text: `${head}\n${body}`, imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined };
   }
 
   // ---- listening ---------------------------------------------------------------------
@@ -218,7 +258,7 @@ export function describeOps(ops: Intent[], created: string[]): string {
       case 'setValue': return `${o.node}.${o.port} = ${typeof o.value === 'number' ? +o.value.toFixed(3) : o.value}`;
       case 'setConfig': return `${o.node} ${o.key} = ${o.value}`;
       case 'setCode': return `code ${o.node}`;
-      default: return o.op;
+      default: return describeUiOp(o) ?? o.op;
     }
   });
   return parts.join(', ') + (ops.length > 6 ? ` … (+${ops.length - 6})` : '');

@@ -8,6 +8,7 @@ import { PART_TEMPLATE } from '../../plugin/inserts.ts';
 import PluginWindow from '../../plugin/PluginWindow.vue';
 import type { PluginSpec } from '../../plugin/spec.ts';
 import { useSession } from '../context.ts';
+import { controlWriter } from '../play.ts';
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -38,6 +39,8 @@ function key(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); apply(); }
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); emit('close'); }
 }
+// The preview plays: a part that handles the mouse moves the real controls (one ⌘Z each press).
+const onChange = controlWriter(session);
 const analyser = (probe: number) => probe >= 0 ? session.engine.probeAnalysers[probe] ?? null : session.engine.outAnalyser;
 // Opened from the keyboard (Enter on the part): the code takes the keys at once, and gives them back to the plugin view on close.
 const source = ref<HTMLTextAreaElement | null>(null);
@@ -53,12 +56,12 @@ onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-v
         <textarea ref="source" v-model="code" spellcheck="false" data-testid="part-source" @keydown="key" />
         <aside>
           <h4>Preview</h4>
-          <div class="preview"><PluginWindow v-if="spec" :spec="spec" :analyser="analyser" :asset-urls="session.assetUrls.value" /></div>
+          <div class="preview"><PluginWindow v-if="spec" :spec="spec" :analyser="analyser" :asset-urls="session.assetUrls.value" @change="onChange" /></div>
           <div v-if="status" class="issue error" data-testid="part-status">{{ status }}</div>
           <h4>Settings (f.props)</h4>
           <textarea v-model="propsText" class="props" :class="{ bad: !parsedProps }" spellcheck="false" rows="4" />
           <h4>What f has</h4>
-          <div class="help">f.w, f.h · f.t, f.dt · f.level, f.peak · f.wave, f.spectrum · f.value(id), f.norm(id), f.xy(id), f.on(id) · f.color('accent') · f.props · f.state</div>
+          <div class="help">f.w, f.h · f.t, f.dt · f.level, f.peak · f.wave, f.spectrum · f.value(id), f.norm(id), f.xy(id), f.on(id), f.range(id) · f.color('accent') · f.props · f.state<br>With pointer(e, f): e.type (down, move, up, wheel, double, leave), e.x, e.y, e.dx, e.dy · f.pointer · f.set(id, value), f.setNorm(id, 0..1) · f.cursor('grab')</div>
         </aside>
       </div>
     </div>

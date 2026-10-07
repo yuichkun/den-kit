@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { isParamInput, type ConfigDef } from '../core/catalog.ts';
 import type { ConfigValue } from '../core/schema.ts';
-import { exposeIntents, useSession } from './context.ts';
+import { useSession } from './context.ts';
+import { ControlError, controlFor } from '../plugin/controls.ts';
 import ValueField from './ValueField.vue';
 import InputSelect from './InputSelect.vue';
 
@@ -24,10 +25,11 @@ function setConfig(c: ConfigDef, raw: string | boolean) {
   commit([{ op: 'setConfig', node: node.value!.id, key: c.id, value }]);
 }
 function expose(port: string) {
-  const { widget } = exposeIntents(session, node.value!.id, port);
-  const id = `${widget.type === 'ui.toggle' ? 'toggle' : 'knob'}${Object.keys(session.doc.value.nodes).length + 1}`;
-  const r = commit([{ op: 'addNode', node: { ...widget, id } }, { op: 'connect', from: { node: id, port: 'out' }, to: { node: node.value!.id, port } }], { label: `Expose ${port} to panel` });
-  if (r.ok) session.toast('info', `Added "${widget.label}" to the plugin.`);
+  let made;
+  try { made = controlFor(session.doc.value, session.catalog, { node: node.value!.id, port }); }
+  catch (error) { if (error instanceof ControlError) { session.toast('warn', error.message); return; } throw error; }
+  const r = commit(made.intents, { label: `Expose ${port} to panel` });
+  if (r.ok) session.toast('info', made.placed ? `Added "${session.doc.value.nodes[made.id]?.label}" to the plugin.` : `Added "${session.doc.value.nodes[made.id]?.label}" in the corner: the plugin has no free space (make it bigger, or move things).`);
 }
 const configDefs = computed(() => def.value?.config ?? []);
 </script>

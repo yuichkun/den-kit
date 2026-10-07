@@ -17,6 +17,7 @@ import { AudioEngine, type EngineState, type TestSignal } from '../engine/audio-
 import { makeSaveRecord, readSaveRecord, parseDocument, serializeDocument } from '../core/persistence.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 import { AssetStore } from '../plugin/asset-store.ts';
+import { lookAt, type LookResult } from '../plugin/look.ts';
 import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
 import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
@@ -123,6 +124,11 @@ export class KitSession {
     let doc = work.build(catalog);
     if (look && look.id !== work.id) doc = applyIntents(doc, lookIntents(doc, look.build(catalog)), catalog).doc;
     this.replace({ ...doc, name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name }, `Start from ${work.title}`);
+  }
+
+  /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
+  look(options: { picture?: boolean; doc?: PatchDocument } = {}): Promise<LookResult> {
+    return lookAt(options.doc ?? this.doc.value, catalog, { generated: this.generated.value, assetUrls: this.assetUrls.value, analyser: probe => probe >= 0 ? this.engine.probeAnalysers[probe] ?? null : this.engine.outAnalyser, picture: options.picture });
   }
 
   /** Apply intents as one transaction. Returns the resolved ops, or the error. */

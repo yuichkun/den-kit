@@ -75,5 +75,8 @@ export function widgetVars(style: WidgetStyle | undefined): Css {
   if (t?.weight) css['--dk-label-weight'] = String(t.weight);
   if (t?.spacing !== undefined) css['--dk-label-spacing'] = `${t.spacing}em`;
   if (t?.case && t.case !== 'none') css['--dk-label-case'] = t.case === 'upper' ? 'uppercase' : 'lowercase';
+  if (t?.italic) css['--dk-label-style'] = 'italic';
+  if (t?.shadows?.length) css['--dk-label-shadow'] = t.shadows.map(s => `${s.x}px ${s.y}px ${s.blur}px ${cssColor(s.color)}`).join(', ');
+  if (t?.stroke && t.stroke.width > 0) css['--dk-label-stroke'] = `${t.stroke.width}px ${cssColor(t.stroke.color)}`;
   return css;
 }

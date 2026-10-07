@@ -2,7 +2,8 @@
 // keyboard, editing text in place, aligning, grouping, stacking, undo; pictures
 // dropped onto the plugin become assets and travel inside an export; custom
 // parts draw, and a broken or endless one is stopped without taking the page
-// down; decorations never block the controls under them; the look and skins
+// down; a part that handles the mouse moves controls in one undo step per
+// press; decorations never block the controls under them; the look and skins
 // change from the inspector; the start screen starts a work in another work's look.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -186,6 +187,63 @@ describe('building the plugin screen by hand', () => {
     assert.equal(await page.locator('[data-element=led1] .led.lit').count(), 0);
     await page.click('[data-widget=sw1] dk-toggle');
     await page.waitForSelector('[data-element=led1] .led.lit');
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it('a custom part that handles the mouse moves controls: one press is one undo step; the wheel too; editing still selects it', async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    const PART = `export default {
+  draw(ctx, f) {
+    ctx.clearRect(0, 0, f.w, f.h);
+    ctx.fillStyle = f.color('accent');
+    ctx.fillRect(0, 0, f.w * f.norm('kq'), 10);
+    if (f.pointer.over) f.cursor(f.pointer.down ? 'grabbing' : 'grab');
+  },
+  pointer(e, f) {
+    if (e.type === 'down' || (e.type === 'move' && f.pointer.down)) { f.setNorm('kq', e.x / f.w); f.setNorm('kg', 1 - e.y / f.h); }
+    if (e.type === 'wheel') f.set('kq', f.value('kq') - e.dy * 0.002);
+  },
+};`;
+    // Two knobs that are in the patch but not on the plugin: the part is their face.
+    await kit(page, (k: any) => k.commit([
+      { op: 'addNode', node: { id: 'kq', type: 'ui.knob', label: 'Q', pos: { x: -300, y: 0 }, config: { min: 0.5, max: 8, scale: 'linear', unit: '' }, values: { value: 1 } } },
+      { op: 'connect', from: { node: 'kq', port: 'out' }, to: { node: 'filter1', port: 'resonance' } },
+      { op: 'addNode', node: { id: 'kg', type: 'ui.knob', label: 'G', pos: { x: -300, y: 200 }, config: { min: 0, max: 1, scale: 'linear', unit: '' }, values: { value: 0.5 } } },
+    ]));
+    await page.evaluate(code => (window as any).__kit.commit([{ op: 'addElement', element: { kind: 'part', code, rect: { x: 40, y: 40, w: 300, h: 200 } } }]), PART);
+    await page.keyboard.press('Control+Alt+KeyE');
+    await page.waitForSelector('[data-element=part1] .part-box[data-interactive]');
+    const values = () => kit(page, (k: any) => [k.doc.value.nodes.kq.values.value, k.doc.value.nodes.kg.values.value]);
+    const b = (await page.locator('[data-element=part1] .part-box').boundingBox())!;
+    // Hovering: the part chose its own cursor.
+    await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.5);
+    await page.waitForFunction(() => (document.querySelector('[data-element=part1] .part-box') as HTMLElement).style.cursor === 'grab');
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width * 0.75, b.y + b.height * 0.25, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(() => Math.abs((window as any).__kit.doc.value.nodes.kg.values.value - 0.75) < 0.03);
+    const [q, g] = await values();
+    assert.ok(Math.abs(q - (0.5 + 0.75 * 7.5)) < 0.15, `Q follows across (${q})`);
+    assert.ok(Math.abs(g - 0.75) < 0.03, `G follows up (${g})`);
+    // The press moved two knobs, eight times: one ⌘Z takes it all back, ⇧⌘Z brings it again.
+    await page.keyboard.press('Control+KeyZ');
+    assert.deepEqual(await values(), [1, 0.5]);
+    await page.keyboard.press('Control+Shift+KeyZ');
+    assert.deepEqual(await values(), [q, g]);
+    // Three wheel notches in a row are one step too.
+    for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 100);
+    await page.waitForFunction(q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6, q);
+    await page.waitForTimeout(600);
+    await page.keyboard.press('Control+KeyZ');
+    assert.deepEqual(await values(), [q, g]);
+    // Editing: the part is a box to select and move, not a control.
+    await page.keyboard.press('Control+KeyE');
+    await page.waitForSelector('[data-testid=plugin-edit].active');
+    await page.mouse.click(b.x + b.width * 0.5, b.y + b.height * 0.5);
+    assert.deepEqual(await kit(page, (k: any) => k.selection.value), ['part1']);
+    assert.deepEqual(await values(), [q, g]);
     assert.deepEqual(errors, []);
     await page.close();
   });

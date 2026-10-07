@@ -52,8 +52,9 @@ const MAX_STEPS = 12;
 const TOOL_ACTIVITY: Record<string, string> = {
   kit_get_patch: 'reading the patch…', kit_list_blocks: 'looking up modules…', kit_describe_block: 'looking up a module…',
   kit_apply_ops: 'editing…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_finish: 'finishing…',
+  kit_get_plugin: 'reading the plugin screen…', kit_ui_reference: 'looking up how screens are built…', kit_look: 'looking at the screen…',
 };
-const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module' };
+const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module', kit_get_plugin: 'read the plugin screen', kit_ui_reference: 'looked up the screen reference' };
 const KEPT = 'What it already changed stays; ⌘Z takes it back.';
 
 export class LlmController {
@@ -225,6 +226,7 @@ export class LlmController {
         }
       },
       render: request => this.checkRenderer().render(request),
+      look: (doc, picture) => this.session.look({ doc, picture }),
       ...this.options.deps,
     };
   }

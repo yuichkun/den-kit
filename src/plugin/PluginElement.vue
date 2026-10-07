@@ -10,7 +10,8 @@ import type { WidgetSpec } from './spec.ts';
 import PluginPart from './PluginPart.vue';
 import { LEVEL, type Meters } from './meters.ts';
 
-const props = defineProps<{ element: UiElement; url: AssetUrl; controls: Record<string, WidgetSpec>; editing?: boolean }>();
+const props = defineProps<{ element: UiElement; url: AssetUrl; controls: Record<string, WidgetSpec>; editing?: boolean; /** The plugin plays: a custom part may take the mouse. */ play?: boolean }>();
+const emit = defineEmits<{ (e: 'set', id: string, values: Record<string, number | boolean>, gesture: string): void }>();
 const meters = inject<Ref<Meters> | null>(LEVEL, null);
 const el = computed(() => props.element);
 const box = computed(() => boxCss(el.value.style, el.value.kind === 'shape' && el.value.shape === 'ellipse'));
@@ -53,7 +54,7 @@ const stroke = computed(() => el.value.style?.stroke ? { color: cssColor(el.valu
     <div v-else-if="el.kind === 'image'" class="missing">picture missing</div>
     <img v-else-if="el.kind === 'svg'" class="pic" :src="svgSrc" alt="" draggable="false" />
     <div v-else-if="el.kind === 'led'" class="led" :class="{ lit }" :style="{ '--led': ledColor }" />
-    <PluginPart v-else-if="el.kind === 'part'" :element="el" :controls="controls" />
+    <PluginPart v-else-if="el.kind === 'part'" :element="el" :controls="controls" :play="play" @set="(id, values, gesture) => emit('set', id, values, gesture)" />
   </div>
 </template>
 

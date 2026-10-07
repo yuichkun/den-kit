@@ -10,6 +10,7 @@ import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.
 import { KIT_TOOLS, KIT_TOOL_NAMES, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import type { RenderRequest } from '../../../src/compile/protocol.ts';
 import { analyse } from '../../../src/core/analysis.ts';
+import { checkPlugin } from '../../../src/plugin/checks.ts';
 
 function workspace(extra: Partial<WorkspaceDeps> = {}, doc = starter('bass', catalog)) {
   const renders: Array<Omit<RenderRequest, 'id' | 'kind'>> = [];
@@ -25,6 +26,7 @@ function workspace(extra: Partial<WorkspaceDeps> = {}, doc = starter('bass', cat
     },
     compile: async g => { compiles.push(g.hash); return { ok: true, ms: 420 }; },
     render: async r => { renders.push(r); const s = new Float32Array(48000).map((_, i) => Math.sin(i / 20) * 0.3); return { report: analyse([s, s], 48000), renderMs: 10 }; },
+    look: async doc => ({ issues: checkPlugin(doc, catalog), png: new Uint8Array([137, 80, 78, 71]), width: doc.panel.width, height: doc.panel.height, ms: 5 }),
     ...extra,
   };
   return { ws: new LlmWorkspace(deps), renders, compiles, landed, state };
@@ -175,4 +177,64 @@ describe('LlmWorkspace', () => {
     expect(failed.success).toBe(false);
     expect(failed.text).toMatch(/worker died/);
   });
+
+  it('screen edits: read the plugin, look things up, build it; only the sound recompiles (the screen never does)', async () => {
+    const { ws, compiles, landed, state } = workspace();
+    expect((await ws.call('kit_get_plugin', {})).text).toMatch(/Problems found by the checks:\n - Check: The plugin is empty/);
+    expect((await ws.call('kit_get_patch', {})).text).toMatch(/The plugin screen \(640×360\): 0 controls and 0 decorations — kit_get_plugin shows it\./);
+    expect((await ws.call('kit_get_plugin', {})).text).toContain('(nothing yet)');
+    expect((await ws.call('kit_ui_reference', { topic: 'skins', control: 'knob' })).text).toContain('chicken');
+    // A control for an input compiles (it drives the sound); a look and a title do not.
+    const control = await ws.call('kit_apply_ops', { ops: [{ op: 'addControl', for: { node: 'filter1', port: 'resonance' }, label: 'Res' }] });
+    expect(control.success).toBe(true);
+    expect(control.text).toMatch(/new ids: knob1.*Compiled OK/);
+    expect(compiles).toHaveLength(1);
+    const look = await ws.call('kit_apply_ops', { ops: [
+      { op: 'setLook', look: { tokens: { accent: '#39ff14' }, background: [{ kind: 'image', asset: 'sc-brushed-metal', fit: 'tile', size: 256 }] } },
+      { op: 'addElement', element: { kind: 'text', text: 'ACID', rect: { x: 24, y: 16, w: 300, h: 48 }, textStyle: { font: 'oswald', size: 40, color: 'fg' } } },
+      { op: 'setStyle', node: 'knob1', style: { skin: { name: 'cap', params: { shape: 'chicken' } } } },
+    ] });
+    expect(look.success).toBe(true);
+    expect(look.text).toMatch(/The sound is unchanged/);
+    expect(compiles).toHaveLength(1);
+    expect(state.live.assets['sc-brushed-metal']).toBeDefined();
+    expect(state.live.ui.elements.text1).toMatchObject({ kind: 'text', text: 'ACID' });
+    expect(landed.at(-1)!.label).toMatch(/look: tokens, background, \+ text “ACID”, style knob1/);
+    expect((await ws.call('kit_get_plugin', {})).text).toMatch(/"id":"knob1","control":"knob","label":"Res".*"skin":"cap \(own: shape \\"chicken\\"\)"/);
+  });
+
+  it('a refused screen edit names the model\'s own edit, even when pictures were added before it', async () => {
+    const { ws, landed } = workspace();
+    const r = await ws.call('kit_apply_ops', { ops: [
+      { op: 'setLook', look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'cover' }] } },
+      { op: 'addElement', element: { kind: 'text', text: 'x', rect: { x: 0, y: 0, w: 0, h: 10 } } },
+    ] });
+    expect(r.success).toBe(false);
+    expect(r.text).toMatch(/^Edit #2 \(\{"op":"addElement"/);
+    expect(r.text).toMatch(/positive width and height/);
+    expect(landed).toHaveLength(0);
+  });
+
+  it('kit_look reports what to fix (with the picture for image models); after screen edits kit_finish asks once to look first', async () => {
+    const { ws } = workspace({ images: true });
+    await ws.call('kit_apply_ops', { ops: [
+      { op: 'addControl', for: { node: 'filter1', port: 'resonance' }, label: 'Res', panel: { x: 20, y: 20, w: 84, h: 96 } },
+      { op: 'addControl', for: { node: 'aenv1', port: 'release' }, label: 'Release', panel: { x: 60, y: 30, w: 84, h: 96 } },
+    ] });
+    const nudge = await ws.call('kit_finish', { summary: 'done' });
+    expect(nudge.success).toBe(false);
+    expect(nudge.text).toMatch(/Call kit_look/);
+    const seen = await ws.call('kit_look', {});
+    expect(seen.text).toMatch(/1 thing to fix \(1 serious\):\n- Problem: knob1 \("Res"\) and knob2 \("Release"\) overlap/);
+    expect(seen.imageDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(ws.steps.at(-1)).toBe('looked at the screen (1 to fix)');
+    expect((await ws.call('kit_finish', { summary: 'done' })).success).toBe(true);
+    // Without image support no picture goes back; the reminder comes only once per request.
+    const plain = workspace({ images: false });
+    await plain.ws.call('kit_apply_ops', { ops: [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }] });
+    expect((await plain.ws.call('kit_finish', { summary: 'x' })).success).toBe(false);
+    expect((await plain.ws.call('kit_finish', { summary: 'x' })).success).toBe(true);
+    expect((await plain.ws.call('kit_look', {})).imageDataUrl).toBeUndefined();
+  });
 });
+

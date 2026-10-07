@@ -10,7 +10,7 @@
 // ⌥A ⌥D ⌥W ⌥S ⌥H ⌥V align, ⌃⌥H ⌃⌥V spread, ⇧⌘L lock, ⇧⌘H hide, Delete removes,
 // ⌘C ⌘V ⌘D copy. Files dropped on it become pictures. Every change is a commit
 // like in the patch, so ⌘Z undoes it.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Intent } from '../core/ops.ts';
 import { THEMES } from '../core/schema.ts';
 import { CONTROL_OF } from '../core/skins.ts';
@@ -18,6 +18,7 @@ import { stackOrder, withGroups } from '../core/ui.ts';
 import { pluginSpec } from '../plugin/build.ts';
 import { align, distribute, grow, intersects, nudge, resizeBy, type Align, type Handle } from '../plugin/edit.ts';
 import { insertIntents } from '../plugin/inserts.ts';
+import type { PluginIssue } from '../plugin/checks.ts';
 import type { PluginItem, PluginSpec, Rect } from '../plugin/spec.ts';
 import PluginWindow from '../plugin/PluginWindow.vue';
 import InsertMenu from './plugin/InsertMenu.vue';
@@ -25,6 +26,7 @@ import InputSelect from './InputSelect.vue';
 import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 import { claimEnter } from './keys.ts';
+import { controlWriter } from './play.ts';
 
 const props = defineProps<{ edit: boolean; focus?: boolean }>();
 const emit = defineEmits<{ (e: 'update:edit', value: boolean): void; (e: 'fullscreen'): void; (e: 'edit-part', id: string): void }>();
@@ -48,7 +50,6 @@ const stack = computed(() => stackOrder(doc.value.ui, placed.value));
 const rectOf = (id: string): Rect | undefined => drag.value?.rects[id] ?? doc.value.ui.elements[id]?.rect ?? doc.value.nodes[id]?.panel;
 const selectable = (id: string) => { const el = doc.value.ui.elements[id]; return !el || (!el.locked && !el.hidden); };
 const selected = computed(() => new Set(session.selection.value.filter(id => stack.value.includes(id))));
-const gestures = new Map<string, string>();
 // What the plugin window shows, built from the patch (a drag in progress moves things live).
 const spec = computed<PluginSpec>(() => {
   const base = pluginSpec(doc.value, session.catalog, session.generated.value);
@@ -74,15 +75,22 @@ function commit(intents: Intent[], label: string, gesture?: string) {
 }
 
 // ---- playing ------------------------------------------------------------------------
-function onChange(id: string, values: Record<string, number | boolean>, end: boolean) {
-  const n = doc.value.nodes[id];
-  if (!n) return;
-  const gesture = gestures.get(id) ?? `panel-${id}-${Date.now()}`;
-  gestures.set(id, gesture);
-  const r = session.commit(Object.entries(values).map(([port, value]) => ({ op: 'setValue' as const, node: id, port, value, clamp: true })), { gesture, label: `Panel ${n.label ?? n.id}` });
-  if (!r.ok) session.toast('warn', r.error.message);
-  if (end) gestures.delete(id);
+const onChange = controlWriter(session);
+
+// ---- checking (the same look-over the AI gets: overlaps, edges, fit, contrast, labels, wiring) ----
+const checks = ref<{ running: boolean; issues: PluginIssue[]; stale: boolean } | null>(null);
+async function runCheck() {
+  checks.value = { running: true, issues: checks.value?.issues ?? [], stale: false };
+  try {
+    const seen = await session.look();
+    if (checks.value) checks.value = { running: false, issues: seen.issues, stale: false };
+  } catch (error) {
+    session.toast('warn', `Could not check the plugin: ${error instanceof Error ? error.message : String(error)}`);
+    checks.value = null;
+  }
 }
+function pickIssue(i: PluginIssue) { const ids = i.ids.filter(id => stack.value.includes(id) && selectable(id)); if (ids.length) session.select(ids); }
+watch(() => session.doc.value, () => { if (checks.value && !checks.value.running) checks.value = { ...checks.value, stale: true }; });
 function onNote(note: number, on: boolean) { if (on) session.noteOn(note, 100); else session.noteOff(note); }
 
 // ---- selecting -------------------------------------------------------------------------
@@ -274,7 +282,8 @@ function onKey(e: KeyboardEvent) {
     setRects(e.altKey ? grow(rects, x * s, y * s) : nudge(rects, x * s, y * s, frame.value), e.altKey ? 'Resize' : 'Nudge', repeatGesture(e.altKey ? 'grow' : 'nudge'));
   }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) { e.preventDefault(); removeSelection(); }
-  else if (e.key === 'Escape') { session.select([]); }
+  else if (e.key === 'Escape') { if (checks.value) checks.value = null; else session.select([]); }
+  else if (mod && e.altKey && e.code === 'KeyK') { e.preventDefault(); void runCheck(); }
   else if (mod && e.code === 'KeyC') copySelection(session);
   else if (mod && e.code === 'KeyV') { e.preventDefault(); paste(session); }
   else if (mod && e.code === 'KeyD') { e.preventDefault(); duplicate(session); }
@@ -312,6 +321,7 @@ const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.l
       <select :value="doc.panel.theme" data-testid="plugin-theme" title="Base theme (the look's own colours stay on top)" @change="commit([{ op: 'setTheme', theme: ($event.target as HTMLSelectElement).value as never }], 'Theme')"><option v-for="t in THEMES" :key="t" :value="t">{{ t }}</option></select>
       <label v-if="hasInput" class="input">Input <InputSelect /></label>
       <button v-if="edit" class="small" data-testid="plugin-add" title="Add text, shapes, pictures, lamps, custom parts or controls (Shift+Space)" @click="openMenu({ x: W / 2, y: H / 2 })">+ Add <kbd>⇧Space</kbd></button>
+      <button v-if="edit" class="small" data-testid="plugin-check" title="Look the plugin over: overlaps, things cut by the edge, text that does not fit or is hard to read, unlabelled or unwired controls (⌥⌘K)" @click="runCheck">✓ Check <kbd>⌥⌘K</kbd></button>
       <span class="muted hint">{{ edit ? 'drag · handles resize · ⌥A/D/W/S align · ⌘G group · ⌘]/[ stack · Tab next · Enter text' : `${W} × ${H} · scales to the window` }}</span>
       <span style="flex:1" />
       <template v-if="edit && hiddenWidgets.length">
@@ -341,6 +351,16 @@ const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.l
         </template>
       </PluginWindow>
       <InsertMenu v-if="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @pick="insert" @close="menu = null" />
+      <div v-if="checks && edit" class="checks" data-testid="plugin-checks" @pointerdown.stop>
+        <header>
+          <b>{{ checks.running ? 'Looking…' : checks.issues.length ? `${checks.issues.length} to look at` : 'Nothing to fix' }}</b>
+          <span v-if="checks.stale" class="muted">· the plugin changed</span>
+          <span style="flex:1" />
+          <button class="small" :disabled="checks.running" @click="runCheck">Again</button>
+          <button class="small" title="Close (Esc)" @click="checks = null">✕</button>
+        </header>
+        <button v-for="(i, k) in checks.issues" :key="k" class="issue" :class="i.severity" :data-code="i.code" @click="pickIssue(i)">{{ i.message }}</button>
+      </div>
     </div>
   </div>
 </template>
@@ -368,4 +388,10 @@ kbd { font-size: 10.5px; margin-left: 4px; padding: 0 4px; border: 1px solid #55
 .sel-box { position: absolute; outline: 1px solid #5ec4ff; pointer-events: none; }
 .marquee { position: absolute; border: 1px solid #5ec4ff; background: #5ec4ff22; pointer-events: none; }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 40px; text-align: center; opacity: .75; font-size: 15px; line-height: 1.6; }
+.checks { position: absolute; top: 10px; right: 10px; width: min(380px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow: auto; z-index: 6; background: #1d1f23f2; border: 1px solid #000; border-radius: 6px; box-shadow: 0 8px 30px #0008; font-size: 12.5px; }
+.checks header { position: sticky; top: 0; display: flex; gap: 6px; align-items: center; padding: 7px 10px; background: #1d1f23; border-bottom: 1px solid #000; }
+.checks .issue { display: block; width: 100%; text-align: left; padding: 7px 10px 7px 26px; border: 0; border-bottom: 1px solid #2c2f35; border-radius: 0; background: transparent; box-shadow: none; color: #d8dadf; line-height: 1.4; position: relative; white-space: normal; }
+.checks .issue:hover { background: #2a2d33; }
+.checks .issue::before { content: ''; position: absolute; left: 10px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f2c14e; }
+.checks .issue.error::before { background: #ff6b5b; }
 </style>

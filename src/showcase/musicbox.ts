@@ -46,7 +46,7 @@ export function musicbox(catalog: Catalog) {
     } }),
     ...[[52, 44], [650, 44], [52, 234], [650, 234]].map(([x, y], i) => el({ kind: 'image', name: `Screw ${i + 1}`, asset: 'sc-screw', fit: 'contain', rect: r(x!, y!, 18, 18), style: { rotate: 20 + i * 41 } })),
     el({ kind: 'text', name: 'Title', text: 'Lullaby', rect: r(40, 42, 640, 52), textStyle: { font: 'cinzel', size: 38, weight: 700, color: '#4a2e08', spacing: 0.12, shadows: engraved('#2a180466') } }),
-    el({ kind: 'text', name: 'Subtitle', text: 'Music Box · No. 3', rect: r(40, 94, 640, 18), textStyle: { font: 'cinzel', size: 12, weight: 700, color: '#6b4a1c', spacing: 0.32, case: 'upper', shadows: engraved('#2a180444') } }),
+    el({ kind: 'text', name: 'Subtitle', text: 'Music Box · No. 3', rect: r(40, 94, 640, 18), textStyle: { font: 'cinzel', size: 12, weight: 700, color: '#3e2608', spacing: 0.32, case: 'upper', shadows: engraved('#2a180444') } }),
     ...control('kmetal', 'ui.knob', 'Metal', 'ratio1.b', r(92, 124, 104, 124), { min: 1, max: 7, value: 3.5, style: knob }),
     ...control('kshine', 'ui.knob', 'Shine', 'index1.b', r(236, 124, 104, 124), { min: 0, max: 10, value: 5, style: knob }),
     ...control('kring', 'ui.knob', 'Ring', ['aenv1.decay', 'aenv1.release'], r(380, 124, 104, 124), { min: 0.2, max: 6, scale: 'log', unit: 's', value: 1.8, style: knob }),
