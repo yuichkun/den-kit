@@ -4,7 +4,8 @@
 import type { ConfigValue, PatchNode, PortId, SignalType, Value } from './schema.ts';
 
 export type NodeKind = 'block' | 'prim' | 'voiceIn' | 'voiceMix' | 'audioIn' | 'out' | 'history' | 'codebox' | 'widget' | 'comment' | 'part' | 'partIn' | 'partOut';
-export type Category = 'voice' | 'source' | 'filter' | 'envelope' | 'modulation' | 'fx' | 'dynamics' | 'math' | 'io' | 'ui' | 'code' | 'part';
+/** 'mine' is not a node category: the palettes list My parts under it. */
+export type Category = 'voice' | 'source' | 'filter' | 'envelope' | 'modulation' | 'fx' | 'dynamics' | 'math' | 'io' | 'ui' | 'code' | 'part' | 'mine';
 export type Unit = 'Hz' | 's' | 'dB' | 'oct' | 'st' | 'ratio' | 'gain' | 'mix' | 'cycles' | 'beats' | 'note' | 'q' | 'level' | 'bpm';
 /**
  * What an unconnected gate input means. In a voice: `gate`/`retrigger` follow the

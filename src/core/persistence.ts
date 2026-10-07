@@ -211,7 +211,7 @@ function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Ma
     taken.clear();
     const def: PartDef = { id: key, name: typeof value.name === 'string' && value.name.trim() ? value.name.trim().slice(0, 60) : key, inputs, outputs: ports(value.outputs), params };
     if (typeof value.doc === 'string' && value.doc.trim()) def.doc = value.doc.trim().slice(0, 600);
-    if (isObject(value.from) && typeof value.from.id === 'string' && Number.isInteger(value.from.version)) def.from = { id: value.from.id.slice(0, 80), version: value.from.version as number };
+    if (isObject(value.from) && typeof value.from.id === 'string' && Number.isInteger(value.from.version)) def.from = { id: value.from.id.slice(0, 80), version: value.from.version as number, ...(typeof value.from.hash === 'string' ? { hash: value.from.hash.slice(0, 64) } : {}) };
     doc.parts[key] = def;
   }
 }

@@ -91,8 +91,8 @@ export interface PartDef {
   inputs: PartPort[];
   outputs: PartPort[];
   params: PartParam[];
-  /** Placed from My parts: which one, and its version then. */
-  from?: { id: string; version: number };
+  /** Placed from (or saved to) My parts: which one, its version then, and what it was then (to tell whether it was changed here since). */
+  from?: { id: string; version: number; hash?: string };
 }
 
 export interface PortRef { node: NodeId; port: PortId }

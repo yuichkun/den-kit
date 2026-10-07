@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { isParamInput, type ConfigDef, type PortDef } from '../core/catalog.ts';
 import type { ConfigValue } from '../core/schema.ts';
 import { membersOf, usesOf } from '../core/parts.ts';
+import { describeDiff } from '../core/library.ts';
 import { useSession } from './context.ts';
 import { ControlError, controlFor } from '../plugin/controls.ts';
 import ValueField from './ValueField.vue';
@@ -74,6 +75,11 @@ function sourceName(from: { node: string; port: string }) {
   return `${from.node}.${from.port}`;
 }
 function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam', part: shown.value.id, id }], { label: 'Hide a parameter' }); }
+// ---- My parts ----
+/** Where the shown part stands with My parts (read again when the patch or My parts change). */
+const mine = computed(() => { void session.doc.value; void session.myParts.value; return shown.value ? session.myPartStatus(shown.value.id) : null; });
+function saveMine() { const r = session.saveToMyParts(shown.value!.id); session.toast(r.ok ? 'info' : 'warn', r.message); }
+function updateMine() { const r = session.updateFromMyParts(shown.value!.id); session.toast(r.ok ? 'info' : 'warn', r.message); }
 </script>
 
 <template>
@@ -91,6 +97,15 @@ function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam',
           <button data-testid="part-unpack" title="Put the modules back in place of this part (⇧⌘G)" @click="unpack">Unpack <span class="kbd-hint">⇧⌘G</span></button>
           <button data-testid="part-detach" :disabled="usesOfShown.length < 2" :title="usesOfShown.length < 2 ? 'Used only here: it is already its own' : 'Give this use its own copy: edits inside it then change only this one'" @click="detach">Own copy</button>
         </template>
+      </div>
+      <div class="mine" data-testid="my-part">
+        <div v-if="mine?.entry" class="muted small-text" data-testid="my-part-status">★ From My parts: {{ mine.entry.name }} v{{ mine.version }}<template v-if="mine.changedHere"> · changed here since</template></div>
+        <div v-else-if="shown.from" class="muted small-text" data-testid="my-part-status">★ Came from My parts (“{{ shown.from.id }}” is no longer there).</div>
+        <div v-if="mine?.newer" class="newer" data-testid="my-part-newer">
+          <div>v{{ mine.newer.version }} is in My parts: {{ mine.diff ? describeDiff(mine.diff) : '' }}.<template v-if="mine.changedHere"> Updating replaces what was changed here.</template></div>
+          <button class="primary" data-testid="my-part-update" @click="updateMine">Update to v{{ mine.newer.version }}</button>
+        </div>
+        <button data-testid="my-part-save" :title="mine?.entry ? 'Save what this part is now as a new version in My parts (other patches are offered the update)' : 'Keep this part in My parts: every patch can place it from the palette'" @click="saveMine">{{ mine?.entry ? `Save as v${(mine.entry.versions.at(-1)?.version ?? 0) + 1}` : 'Save to My parts' }}</button>
       </div>
       <div v-if="!usedPart && shown.params.length" class="plist">
         <div class="muted small-text">Parameters (each use has its own value):</div>
@@ -167,4 +182,6 @@ function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam',
 .prow .mono { font-size: 11px; flex: 1; }
 .ptoggle { color: #5ec4ff; }
 .ptoggle.on { background: #5ec4ff33; }
+.mine { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.newer { background: #ffd27a14; border: 1px solid #ffd27a55; border-radius: 4px; padding: 6px 8px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
 </style>

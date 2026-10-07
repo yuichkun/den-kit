@@ -196,6 +196,12 @@ function openPalette(event?: MouseEvent) {
 function addAt(type: string, x: number, y: number) {
   const pos = { x: Math.round(x / 12) * 12, y: Math.round(y / 12) * 12 };
   const inside = session.scope.value;
+  if (type.startsWith('mine:')) {
+    // From My parts: its definition comes into this patch (or another use of it, when it is already here).
+    const r = session.placeMyPart(type.slice(5), { pos, inside });
+    if (r.ok) session.select(r.created); else session.toast('warn', r.message);
+    return;
+  }
   const node = type.startsWith('part:') ? { type: 'kit.part', part: type.slice(5), pos, inside } : { type, pos, inside };
   const r = commit([{ op: 'addNode', node }], `Add ${type}`);
   if (r.ok) session.select(r.created);

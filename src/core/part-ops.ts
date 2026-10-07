@@ -6,6 +6,7 @@ import type { Catalog, PortDef } from './catalog.ts';
 import { freeSpotNear } from './layout.ts';
 import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
+import { checkBundle, type PartBundle } from './library.ts';
 import { hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
 import { spreadable } from './stacks.ts';
 import {
@@ -251,8 +252,8 @@ export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: stri
   draft.apply({ op: 'setField', node: use.id, field: 'part', from: def.id, to: copyId });
 }
 
-/** Rename or describe a part, or relabel its inputs, outputs and parameters. */
-export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null> }) {
+/** Rename or describe a part, relabel its inputs, outputs and parameters, or record where it stands with My parts. */
+export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null }) {
   const def = requirePart(draft.doc, intent.part);
   const next = clone(def);
   if (intent.name !== undefined) {
@@ -261,6 +262,12 @@ export function updatePart(draft: PartDraft, intent: { part: string; name?: stri
     next.name = name;
   }
   if (intent.doc !== undefined) { const text = intent.doc === null ? '' : String(intent.doc).trim().slice(0, 600); if (text) next.doc = text; else delete next.doc; }
+  if (intent.from !== undefined) {
+    const f = intent.from;
+    if (f === null) delete next.from;
+    else if (!f || typeof f.id !== 'string' || !f.id || !Number.isInteger(f.version) || f.version < 1) fail('bad-value', 'from is {id, version, hash?} of a part in My parts (or null).');
+    else next.from = { id: f.id.slice(0, 80), version: f.version, ...(typeof f.hash === 'string' ? { hash: f.hash.slice(0, 64) } : {}) };
+  }
   const labels = intent.labels ?? {};
   if (typeof labels !== 'object') fail('bad-intent', 'labels is {portOrParamId: "Label" | null}.');
   for (const [id, raw] of Object.entries(labels)) {
@@ -424,4 +431,85 @@ export function refreshInterfaces(doc: PatchDocument, catalog: Catalog) {
     const iface = partInterface(doc, catalog, doc.parts[partId]!);
     for (const use of usesOf(doc, partId)) use.iface = clone(iface);
   }
+}
+
+// ---- My parts: placing a saved part, and updating one to a newer version -------------------------
+
+/** Ids for a bundle's parts and nodes in `doc`: their own where free, fresh ones otherwise (`given` wins; `root` keeps the root definition's id). */
+export function bundleIds(doc: PatchDocument, bundle: PartBundle, given: { parts?: Record<string, string>; nodes?: Record<string, string> } = {}, root?: string, alsoTaken: ReadonlySet<string> = new Set()) {
+  const parts = new Map<string, string>(), nodes = new Map<string, string>();
+  const takenParts = new Set<string>(alsoTaken), takenNodes = new Set<string>(alsoTaken);
+  const defs = [bundle.part, ...Object.values(bundle.parts).sort(byId)];
+  for (const def of defs) {
+    const wish = def.id === bundle.part.id && root ? root : given.parts?.[def.id];
+    const id = wish ?? (!doc.parts[def.id] && !takenParts.has(def.id) ? def.id : partIdFor(doc, def.name, takenParts));
+    takenParts.add(id); parts.set(def.id, id);
+  }
+  for (const n of Object.values(bundle.nodes).sort(byId)) {
+    const free = (id: string) => !doc.nodes[id] && !doc.ui.elements[id] && !doc.ui.groups[id] && !takenNodes.has(id);
+    const id = given.nodes?.[n.id] ?? (free(n.id) ? n.id : nextNodeId(doc, n.id.replace(/\d+$/, '') || 'node', takenNodes));
+    takenNodes.add(id); nodes.set(n.id, id);
+  }
+  return { parts: Object.fromEntries(parts), nodes: Object.fromEntries(nodes) };
+}
+
+/** Put a bundle's parts, nodes and cables into the draft under the given ids. The root definition is returned, not added. */
+function addBundle(draft: PartDraft, bundle: PartBundle, ids: { parts: Record<string, string>; nodes: Record<string, string> }): PartDef {
+  const doc = () => draft.doc;
+  const node = (id: NodeId) => ids.nodes[id]!;
+  const def = (d: PartDef, id: string): PartDef => ({ ...clone(d), id, inputs: d.inputs.map(p => ({ ...p, node: node(p.node) })), outputs: d.outputs.map(p => ({ ...p, node: node(p.node) })), params: d.params.map(p => ({ ...p, node: node(p.node) })) });
+  for (const [old, part] of Object.entries(bundle.parts).sort(([a], [b]) => a.localeCompare(b))) {
+    const id = ids.parts[old]!;
+    if (doc().parts[id]) fail('duplicate-id', `A part "${id}" already exists.`);
+    draft.apply({ op: 'addPart', part: def(part, id) });
+  }
+  for (const n of Object.values(bundle.nodes).sort(byId)) {
+    const id = node(n.id);
+    if (doc().nodes[id] || doc().ui.elements[id] || doc().ui.groups[id]) fail('duplicate-id', `Id "${id}" is already taken.`);
+    const copy: PatchNode = { ...clone(n), id, inside: ids.parts[n.inside!]! };
+    if (n.part) copy.part = ids.parts[n.part]!;
+    delete copy.iface;
+    draft.apply({ op: 'addNode', node: copy });
+  }
+  for (const e of Object.values(bundle.edges).sort(byId)) draft.apply({ op: 'addEdge', edge: { id: nextEdgeId(doc()), from: { node: node(e.from.node), port: e.from.port }, to: { node: node(e.to.node), port: e.to.port } } });
+  return def(bundle.part, ids.parts[bundle.part.id]!);
+}
+
+/** Place a part from My parts: its definition (and the parts inside it) come into the patch, with one use of it. */
+export function importPart(draft: PartDraft, intent: { bundle: unknown; from?: PartDef['from']; node?: NodeId; pos?: XY; inside?: string; ids?: { parts?: Record<string, string>; nodes?: Record<string, string> } }, created: string[]) {
+  const { catalog } = draft;
+  const doc = () => draft.doc;
+  const bundle = checkBundle(intent.bundle, catalog);
+  if (typeof bundle === 'string') fail('bad-bundle', `This part cannot be placed: ${bundle}.`);
+  if (intent.inside !== undefined) requirePart(doc(), intent.inside);
+  const ids = bundleIds(doc(), bundle as PartBundle, intent.ids);
+  const root = addBundle(draft, bundle as PartBundle, ids);
+  if (intent.from) root.from = { ...intent.from };
+  draft.apply({ op: 'addPart', part: root });
+  const useId = intent.node ?? nextNodeId(doc(), root.id);
+  if (!NODE_ID_PATTERN.test(useId)) fail('bad-id', `Node id "${useId}" must match ${NODE_ID_PATTERN}.`);
+  if (doc().nodes[useId] || doc().ui.elements[useId] || doc().ui.groups[useId]) fail('duplicate-id', `Id "${useId}" is already taken.`);
+  const iface = partInterface(doc(), catalog, root);
+  const values = Object.fromEntries(iface.inputs.filter(p => p.role === 'control').map(p => [p.id, p.default ?? (p.type === 'gate' ? false : 0)]));
+  const use: PatchNode = { id: useId, type: 'kit.part', part: root.id, pos: intent.pos && Number.isFinite(intent.pos.x) && Number.isFinite(intent.pos.y) ? { x: intent.pos.x, y: intent.pos.y } : { x: 0, y: 0 }, config: {}, values, iface, ...(intent.inside !== undefined ? { inside: intent.inside } : {}) };
+  draft.apply({ op: 'addNode', node: use });
+  created.push(useId);
+}
+
+/** Put a newer version of a part in place of what it is now: its uses stay (their values too, where the knob is still there). */
+export function replacePart(draft: PartDraft, intent: { part: string; bundle: unknown; from?: PartDef['from'] }) {
+  const { catalog } = draft;
+  const doc = () => draft.doc;
+  const def = requirePart(doc(), intent.part);
+  const bundle = checkBundle(intent.bundle, catalog);
+  if (typeof bundle === 'string') fail('bad-bundle', `This version cannot be used: ${bundle}.`);
+  // Out with what is inside now (parts used only in there go when nothing uses them).
+  const members = new Set(membersOf(doc(), def.id).map(n => n.id));
+  for (const e of Object.values(doc().edges).filter(e => members.has(e.from.node) || members.has(e.to.node)).sort(byId)) draft.apply({ op: 'removeEdge', edge: e });
+  for (const id of [...members].sort()) draft.apply({ op: 'removeNode', node: doc().nodes[id]! });
+  const ids = bundleIds(doc(), bundle as PartBundle, {}, def.id);
+  const root = addBundle(draft, bundle as PartBundle, ids);
+  root.id = def.id;
+  if (intent.from) root.from = { ...intent.from }; else delete root.from;
+  draft.apply({ op: 'setPart', id: def.id, from: def, to: root });
 }

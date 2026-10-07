@@ -6,7 +6,7 @@ import { checkConfigValue, checkPortValue, clampPortValue, defaultValue, type Ca
 import { createsCycle } from './scope.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox.ts';
-import { addParam, checkPlacement, detachPart, makePart, removeParam, syncParts, syncPorts, unpackPart, updatePart } from './part-ops.ts';
+import { addParam, checkPlacement, detachPart, importPart, makePart, removeParam, replacePart, syncParts, syncPorts, unpackPart, updatePart } from './part-ops.ts';
 import { partInterface } from './parts.ts';
 import {
   MAX_COUNT, NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
@@ -68,8 +68,12 @@ export type Intent =
   | { op: 'unpackPart'; node: NodeId }
   /** Give this use its own copy of the part (edits inside then change only it). */
   | { op: 'detachPart'; node: NodeId; name?: string }
-  /** Rename or describe a part; relabel its inputs, outputs and parameters (null clears a label). */
-  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null> }
+  /** Rename or describe a part; relabel its inputs, outputs and parameters (null clears a label); record where it stands with My parts. */
+  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null }
+  /** Place a part from My parts: its definition (and the parts inside it) come in with one use. `ids` pins the ids it gets (default: its own where free). */
+  | { op: 'importPart'; bundle: unknown; from?: PartDef['from']; node?: NodeId; pos?: XY; inside?: string; ids?: { parts?: Record<string, string>; nodes?: Record<string, string> } }
+  /** Put another version of a part in place of what is inside it now (from My parts); its uses keep their values where the knob is still there. */
+  | { op: 'replacePart'; part: string; bundle: unknown; from?: PartDef['from'] }
   /** Show a free knob of a module inside a part on the part itself (each use gets its own value). */
   | { op: 'addParam'; part: string; node: NodeId; port: PortId; id?: PortId; label?: string }
   | { op: 'removeParam'; part: string; id: PortId }
@@ -565,6 +569,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'updatePart': return updatePart(draft, intent);
     case 'addParam': return addParam(draft, intent);
     case 'removeParam': return removeParam(draft, intent);
+    case 'importPart': return importPart(draft, intent, created);
+    case 'replacePart': return replacePart(draft, intent);
     case 'setCount': {
       const node = requireNode(draft, intent.node);
       const count = checkCount(catalog, node, intent.count);
@@ -595,7 +601,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, setCount, setSpread.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.');
   }
 }
 

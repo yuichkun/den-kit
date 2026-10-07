@@ -6,7 +6,8 @@ import { catalog } from '../blocks/index.ts';
 import { currentValues, generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
 import { applyIntents, isStructural, OpError, replaceOps, type Intent, type ResolvedOp } from '../core/ops.ts';
-import { emptyDocument, randomId, type PatchDocument } from '../core/schema.ts';
+import { emptyDocument, randomId, type PatchDocument, type XY } from '../core/schema.ts';
+import { bundleHash, diffBundles, emptyLibrary, extractBundle, latest, mergeLibrary, parseLibrary, removeFromLibrary, saveToLibrary, serializeLibrary, versionOf, type BundleDiff, type Library, type MyPart, type MyPartVersion } from '../core/library.ts';
 import { validate } from '../core/validate.ts';
 import type { Issue } from '../core/issues.ts';
 import { starter, type StarterId } from '../core/starters.ts';
@@ -31,6 +32,8 @@ export interface HistoryListener { (kind: 'undo' | 'redo', tx: Transaction): voi
 const AUTOSAVE_KEY = 'den-kit:autosave';
 /** The AI conversation about the patch being worked on (kept with the autosave). */
 const CONVERSATION_KEY = 'den-kit:conversation';
+/** My parts: saved parts every patch can place (kept apart from any one patch). */
+export const MY_PARTS_KEY = 'den-kit:my-parts';
 
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 
@@ -39,6 +42,8 @@ export class KitSession {
   readonly doc = shallowRef<PatchDocument>(emptyDocument('Untitled'));
   readonly history = markRaw(new History());
   readonly historyVersion = ref(0);
+  /** My parts, as last read from storage. */
+  readonly myParts = shallowRef<Library>(emptyLibrary());
   readonly selection = ref<string[]>([]);
   /** Cables selected in the patch view (they can be attached to an AI request too). */
   readonly edgeSelection = ref<string[]>([]);
@@ -106,6 +111,7 @@ export class KitSession {
       error: message => this.toast('error', `Audio: ${message}`),
     }, { rotateAfter: options.rotateAfter }));
     this.compiler = markRaw(new CompileClient({ createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never, timeoutMs: options.compileTimeoutMs }));
+    this.reloadMyParts();
   }
 
   // ---- Document lifecycle ----------------------------------------------------
@@ -145,6 +151,76 @@ export class KitSession {
     if (author.kind === 'human') this.conversation.value = randomId('conv');
     this.loadEpoch.value++;
     this.afterChange(true);
+  }
+
+  // ---- My parts: saved parts every patch can place -----------------------------------------
+  /** Read My parts from storage again (another tab may have saved one). */
+  reloadMyParts() {
+    const raw = this.storage?.getItem(MY_PARTS_KEY);
+    if (!raw) { this.myParts.value = emptyLibrary(); return; }
+    const read = parseLibrary(raw, catalog);
+    this.myParts.value = read.ok ? read.library : emptyLibrary();
+  }
+  private storeMyParts(library: Library): boolean {
+    try { this.storage?.setItem(MY_PARTS_KEY, serializeLibrary(library)); }
+    catch { this.toast('warn', 'My parts could not be saved: the browser storage is full.'); return false; }
+    this.myParts.value = library;
+    return true;
+  }
+  /** Where a part of this patch stands with My parts: which entry and version it came from, whether there is a newer one, and whether it was changed here since. */
+  myPartStatus(defId: string): { entry: MyPart | null; version: number | null; newer: MyPartVersion | null; changedHere: boolean; diff: BundleDiff | null } {
+    const def = this.doc.value.parts[defId];
+    const entry = def?.from ? this.myParts.value.parts[def.from.id] ?? null : null;
+    if (!def || !def.from || !entry) return { entry, version: def?.from?.version ?? null, newer: null, changedHere: false, diff: null };
+    const now = extractBundle(this.doc.value, defId);
+    const placed = versionOf(entry, def.from.version);
+    const changedHere = placed ? bundleHash(placed.bundle) !== bundleHash(now) : def.from.hash !== undefined && def.from.hash !== bundleHash(now);
+    const last = latest(entry);
+    const newer = last.version > def.from.version ? last : null;
+    return { entry, version: def.from.version, newer, changedHere, diff: newer ? diffBundles(now, newer.bundle) : null };
+  }
+  /** Save a part of this patch to My parts (a new version when it came from there). */
+  saveToMyParts(defId: string): { ok: boolean; message: string } {
+    let saved;
+    try { saved = saveToLibrary(this.myParts.value, this.doc.value, defId); }
+    catch (error) { return { ok: false, message: error instanceof Error ? error.message : String(error) }; }
+    if (saved.unchanged) return { ok: true, message: `“${saved.entry.name}” is already in My parts (v${saved.version}).` };
+    if (!this.storeMyParts(saved.library)) return { ok: false, message: 'My parts could not be saved: the browser storage is full.' };
+    const r = this.commit([{ op: 'updatePart', part: defId, from: saved.from }], { label: `Save ${saved.entry.name} to My parts` });
+    if (!r.ok) return { ok: false, message: r.error.message };
+    return { ok: true, message: saved.version > 1 ? `Saved “${saved.entry.name}” to My parts as v${saved.version}.` : `Saved “${saved.entry.name}” to My parts.` };
+  }
+  /** Place a My part: another use when this patch already has that version unchanged, else its definition comes in with one use. */
+  placeMyPart(id: string, options: { pos?: XY; inside?: string } = {}): { ok: true; created: string[] } | { ok: false; message: string } {
+    const entry = this.myParts.value.parts[id];
+    if (!entry) return { ok: false, message: `There is no “${id}” in My parts.` };
+    const last = latest(entry);
+    const here = Object.values(this.doc.value.parts).find(p => p.from?.id === id && p.from.version === last.version && bundleHash(extractBundle(this.doc.value, p.id)) === bundleHash(last.bundle));
+    const intents: Intent[] = here
+      ? [{ op: 'addNode', node: { type: 'kit.part', part: here.id, pos: options.pos, inside: options.inside } }]
+      : [{ op: 'importPart', bundle: last.bundle, from: { id, version: last.version, hash: bundleHash(last.bundle) }, pos: options.pos, inside: options.inside }];
+    const r = this.commit(intents, { label: `Place ${entry.name}` });
+    return r.ok ? { ok: true, created: r.created } : { ok: false, message: r.error.message };
+  }
+  /** Bring a part of this patch up to the newest version in My parts (its uses keep their values where the knob is still there). */
+  updateFromMyParts(defId: string): { ok: boolean; message: string } {
+    const status = this.myPartStatus(defId);
+    if (!status.entry || !status.newer) return { ok: false, message: 'There is no newer version in My parts.' };
+    const r = this.commit([{ op: 'replacePart', part: defId, bundle: status.newer.bundle, from: { id: status.entry.id, version: status.newer.version, hash: bundleHash(status.newer.bundle) } }], { label: `Update ${status.entry.name} to v${status.newer.version}` });
+    return r.ok ? { ok: true, message: `Updated to v${status.newer.version}.` } : { ok: false, message: r.error.message };
+  }
+  removeFromMyParts(id: string): boolean {
+    if (!this.myParts.value.parts[id]) return false;
+    return this.storeMyParts(removeFromLibrary(this.myParts.value, id));
+  }
+  exportMyParts(ids?: readonly string[]): string { return serializeLibrary(this.myParts.value, ids); }
+  importMyParts(text: string): { ok: boolean; message: string; report: Issue[] } {
+    const read = parseLibrary(text, catalog);
+    if (!read.ok) return { ok: false, message: read.error, report: [] };
+    const merged = mergeLibrary(this.myParts.value, read.library);
+    if (!this.storeMyParts(merged.library)) return { ok: false, message: 'My parts could not be saved: the browser storage is full.', report: read.report };
+    const bits = [merged.added.length ? `added ${merged.added.length}` : '', merged.updated.length ? `new versions of ${merged.updated.length}` : ''].filter(Boolean);
+    return { ok: true, message: bits.length ? `My parts: ${bits.join(', ')}.` : 'Nothing new in that file.', report: read.report };
   }
 
   // ---- Parts: going inside, hearing one alone -----------------------------------------

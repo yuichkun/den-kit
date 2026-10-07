@@ -6,7 +6,9 @@
 import type { Catalog } from '../core/catalog.ts';
 import type { Transaction } from '../core/history.ts';
 import { OpError, type Intent } from '../core/ops.ts';
-import type { PatchDocument } from '../core/schema.ts';
+import type { PatchDocument, XY } from '../core/schema.ts';
+import { bundleHash, latest, type Library } from '../core/library.ts';
+import { bundleIds } from '../core/part-ops.ts';
 import { CONTROL_KINDS, CONTROL_OF, DEFAULT_SKIN, SKINS, type ControlKind, type Skin } from '../core/skins.ts';
 import { THEME_TOKENS } from '../core/themes.ts';
 import { COLOR_TOKENS, ELEMENT_FIELDS, ELEMENT_KINDS, FONTS, FONT_TOKENS, LIMITS, TOKEN_DOC, isFontAsset, isImageAsset, stackOrder, type ColorToken, type Fill, type Look, type TokenName, type UiElement } from '../core/ui.ts';
@@ -202,7 +204,7 @@ function strings(v: unknown, out: Set<string>) {
  * (by id, added to the patch when an edit uses one). `origin[i]` is the index
  * of the LLM's op that intent i came from (for error messages).
  */
-export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[]): { intents: Intent[]; origin: number[]; notes: string[] } {
+export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[], context: { myParts?: Library } = {}): { intents: Intent[]; origin: number[]; notes: string[] } {
   const intents: Intent[] = [], origin: number[] = [], notes: string[] = [];
   const ids = new Set<string>(), rects: { x: number; y: number; w: number; h: number }[] = [];
   const added = new Set<string>();
@@ -224,6 +226,17 @@ export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[]):
         if (error instanceof ControlError) throw new OpError(error.message, at, 'bad-control', 'addControl is {"op":"addControl","for":{"node":"filter1","port":"cutoff"},"type"?:"ui.knob"|"ui.slider"|"ui.toggle"|"ui.button","label"?,"panel"?,"style"?,"id"?}.');
         throw error;
       }
+      return;
+    }
+    if (op.op === 'placeMyPart') {
+      // A part from My parts comes in with ids fixed now (free here, and not named by the other edits), so it lands as tried.
+      const entry = context.myParts?.parts[String(op.id ?? '')];
+      if (!entry) throw new OpError(`There is no "${String(op.id ?? '')}" in My parts.`, at, 'unknown-my-part', `My parts: ${Object.values(context.myParts?.parts ?? {}).map(p => p.id).join(', ') || 'none yet'} (kit_list_blocks lists them).`);
+      const v = latest(entry);
+      const named = new Set(ops.flatMap(o => { const x = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>; const n = x.node as Record<string, unknown> | undefined; return [x.id, x.node, n && typeof n === 'object' ? n.id : undefined].filter((s): s is string => typeof s === 'string'); }));
+      const ids = bundleIds(doc, v.bundle, {}, undefined, named);
+      intents.push({ op: 'importPart', bundle: v.bundle, from: { id: entry.id, version: v.version, hash: bundleHash(v.bundle) }, ids, ...(typeof op.node === 'string' ? { node: op.node } : {}), ...(typeof op.inside === 'string' ? { inside: op.inside } : {}), ...(op.pos && typeof op.pos === 'object' ? { pos: op.pos as XY } : {}) });
+      origin.push(at);
       return;
     }
     if (op.op === 'wearLook') {

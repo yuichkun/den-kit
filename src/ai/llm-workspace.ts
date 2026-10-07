@@ -11,6 +11,7 @@ import { applyIntents, OpError, type Intent } from '../core/ops.ts';
 import { PHRASES, phraseEvents, type Phrase } from '../core/phrases.ts';
 import type { PatchDocument, PortSpec } from '../core/schema.ts';
 import { validate } from '../core/validate.ts';
+import { latest, type Library } from '../core/library.ts';
 import { placeNewNodes } from '../core/layout.ts';
 import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
@@ -42,6 +43,8 @@ export interface WorkspaceDeps {
   viewPicture?(id: string): Promise<Picture | null>;
   /** What the person changed on the screen by hand (handEdits in plugin-tools.ts). */
   handEdits?(): string[];
+  /** The person's saved parts (My parts), to list and place. */
+  myParts?(): Library;
 }
 export interface Picture { png: Uint8Array | null; width: number; height: number; palette: Array<{ color: string; share: number }> }
 
@@ -118,7 +121,13 @@ export class LlmWorkspace {
   private listBlocks(category?: string): ToolOutput {
     const list = this.deps.catalog.list().filter(d => d.kind !== 'comment' && (d.palette !== 'never' || d.kind === 'part') && (!category || d.category === category));
     if (!list.length) return { success: false, text: `No module types in category "${category}". Categories: ${[...new Set(this.deps.catalog.list().map(d => d.category))].join(', ')}.` };
-    return { success: true, text: list.map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n') };
+    const mine = Object.values(this.deps.myParts?.().parts ?? {});
+    const shelf = !category && mine.length ? `\n\nMy parts (the person's saved parts; place one with {"op":"placeMyPart","id":"<id>"}; it comes in with one use, and its definition is then a part of this patch):\n${mine.map(p => {
+      const v = latest(p), def = v.bundle.part;
+      const ports = (list: Array<{ id: string; label?: string }>) => list.map(q => q.label ?? q.id).join(', ') || 'none';
+      return `${p.id} — ${p.name} (v${v.version})${p.doc ? `: ${p.doc.replace(/[.。]$/, '')}` : ''}. Inputs: ${ports(def.inputs)}. Parameters: ${ports(def.params)}. Outputs: ${ports(def.outputs)}.`;
+    }).join('\n')}` : '';
+    return { success: true, text: list.map(d => `${d.type} — ${d.title} (${d.category}): ${d.summary}`).join('\n') + shelf };
   }
 
   private describeBlock(type: string): ToolOutput {
@@ -148,7 +157,7 @@ export class LlmWorkspace {
     const refuse = (error: OpError, at: number) => ({ success: false, text: `Edit #${at + 1} (${JSON.stringify(ops[at]).slice(0, 200)}) was rejected: ${error.message}${error.hint ? ` ${error.hint}` : ''}\nNothing was applied; fix it and send the whole list again.` });
     let expanded, trial;
     try {
-      expanded = expandOps(before, catalog, ops);
+      expanded = expandOps(before, catalog, ops, { myParts: this.deps.myParts?.() });
       trial = applyIntents(before, expanded.intents, catalog);
     } catch (error) {
       if (error instanceof OpError) return refuse(error, expanded ? expanded.origin[error.index] ?? error.index : error.index);
@@ -163,6 +172,7 @@ export class LlmWorkspace {
       if (o.op === 'addElement') return { ...o, element: { ...o.element, id } };
       if (o.op === 'group') return { ...o, id };
       if (o.op === 'makePart') return { ...o, node: id, id: o.id ?? trial.doc.nodes[id]?.part };
+      if (o.op === 'importPart') return { ...o, node: id };
       return o;
     });
     // Modules added without a position go next to what they connect to (never on top of others).
@@ -298,6 +308,8 @@ export function describeOps(ops: Intent[], created: string[]): string {
       case 'addParam': return `◆ ${o.node}.${o.port}`;
       case 'removeParam': return `− ◆ ${o.id}`;
       case 'updatePart': return `part ${o.name ?? o.part}`;
+      case 'importPart': return `+ ${(o.bundle as { part?: { name?: string } })?.part?.name ?? 'part'} from My parts`;
+      case 'replacePart': return `update ${o.part}`;
       case 'setCount': return `${o.node} ×${o.count}`;
       case 'setSpread': return `${o.node}.${o.port} ${o.spread ? `spread ${o.spread.kind}` : 'same in every copy'}`;
       default: return describeUiOp(o) ?? o.op;

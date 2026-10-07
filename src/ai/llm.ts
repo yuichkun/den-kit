@@ -235,6 +235,7 @@ export class LlmController {
       catalog: this.session.catalog,
       images: !!this.bridge.status.value?.codex.images,
       read: () => this.session.doc.value,
+      myParts: () => this.session.myParts.value,
       land: (intents, label) => {
         const turn = this.turn;
         if (!turn || turn.id !== id || turn.stopping) return { ok: false, message: 'This request was stopped.' };

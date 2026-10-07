@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
-import { KitSession } from './session.ts';
+import { KitSession, MY_PARTS_KEY } from './session.ts';
 import { MAX_FILE_BYTES } from '../core/persistence.ts';
 import { COST_LIMITS, formatCpu } from '../core/cost.ts';
 import PatchView from './PatchView.vue';
@@ -118,14 +118,17 @@ function keys(e: KeyboardEvent) {
   else if (e.key === 'Escape' && !e.defaultPrevented) { editing.value = null; editingCanvas.value = null; menu.value = false; if (focusMode.value) void setFocus(false); }
 }
 function closeMenu(e: PointerEvent) { if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false; }
+/** My parts saved in another tab show up here too. */
+function storageChanged(e: StorageEvent) { if (e.key === MY_PARTS_KEY) session.reloadMyParts(); }
 onMounted(() => {
+  window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
   window.addEventListener('pagehide', () => session.saveNow());
   document.addEventListener('fullscreenchange', fullscreenChange);
   window.addEventListener('resize', onResize);
 });
-onBeforeUnmount(() => { window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
+onBeforeUnmount(() => { window.removeEventListener('storage', storageChanged); window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
 function rename() { session.commit([{ op: 'setName', name: name.value }]); }
 function openNew() { menu.value = false; starting.value = true; }
 function started(asked: boolean) { starting.value = false; view.value = 'patch'; if (asked) aiOpen.value = true; }
