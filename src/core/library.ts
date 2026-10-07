@@ -10,7 +10,7 @@ import type { Catalog } from './catalog.ts';
 import type { Issue } from './issues.ts';
 import { checkFace, faceAssetUses } from './face.ts';
 import { MAX_ASSET_BYTES, checkAsset, type AssetMeta } from './ui.ts';
-import { membersOf, partIdFor, partInterface } from './parts.ts';
+import { membersOf, partIdFor, partInterface, readParamRange } from './parts.ts';
 
 export const LIBRARY_SCHEMA = 'den-kit/my-parts';
 export const LIBRARY_VERSION = 1;
@@ -177,7 +177,7 @@ export function checkBundle(raw: unknown, catalog: Catalog): PartBundle | string
     if (!isObject(v) || typeof v.id !== 'string' || !PART_ID_PATTERN.test(v.id) || (key !== undefined && key !== v.id)) return `a part definition has a bad id (${isObject(v) ? String(v.id) : 'not an object'})`;
     const ports = (list: unknown): PartPort[] | null => Array.isArray(list) && list.every(p => isObject(p) && typeof p.id === 'string' && PORT_ID_PATTERN.test(p.id) && typeof p.node === 'string') ? list.map(p => ({ id: (p as PartPort).id, node: (p as PartPort).node })) : null;
     const params = Array.isArray(v.params) && v.params.every(p => isObject(p) && typeof p.id === 'string' && PORT_ID_PATTERN.test(p.id) && typeof p.node === 'string' && typeof p.port === 'string')
-      ? (v.params as PartParam[]).map(p => ({ id: p.id, node: p.node, port: p.port, ...(typeof p.label === 'string' && p.label ? { label: p.label.slice(0, 40) } : {}) })) : null;
+      ? (v.params as PartParam[]).map(p => { const range = readParamRange(p.range); return { id: p.id, node: p.node, port: p.port, ...(typeof p.label === 'string' && p.label ? { label: p.label.slice(0, 40) } : {}), ...(range ? { range } : {}) }; }) : null;
     const inputs = ports(v.inputs), outputs = ports(v.outputs);
     if (!inputs || !outputs || !params) return `part ${v.id}: its inputs, outputs or parameters cannot be read`;
     const def: PartDef = { id: v.id, name: typeof v.name === 'string' && v.name.trim() ? v.name.trim().slice(0, 60) : v.id, inputs, outputs, params };

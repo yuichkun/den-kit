@@ -15,12 +15,11 @@ import { nextNodeId, type FaceControl, type PartFace, type PatchDocument, type P
 import { CONTROL_OF } from '../core/skins.ts';
 import type { TextElement, UiElement } from '../core/ui.ts';
 import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
-import { freeSpot, freshId } from './controls.ts';
+import { freeSpot, freshId, knobConfig } from './controls.ts';
 import type { Rect } from './spec.ts';
 
 export class FaceError extends Error { constructor(message: string) { super(message); this.name = 'FaceError'; } }
 
-const UNITS = ['Hz', 's', 'dB', 'oct', 'st', 'mix', 'gain', 'ratio', 'note'];
 const STEM: Record<UiElement['kind'], string> = { text: 'text', shape: 'shape', image: 'image', svg: 'svg', led: 'led', canvas: 'canvas' };
 
 function requireUse(doc: PatchDocument, id: string): PatchNode & { part: string } {
@@ -72,6 +71,8 @@ export function faceIntents(doc: PatchDocument, catalog: Catalog, useId: string,
     if (SHOWCASE_ASSETS[asset]) { intents.push({ op: 'addAsset', asset: SHOWCASE_ASSETS[asset]! }); continue; }
     for (const w of where) lacking.set(w, asset);
   }
+  // Stacked as a plugin is drawn: backgrounds (shapes, pictures, canvases) under the controls, words and lamps over them.
+  const under: Intent[] = [], controls: Intent[] = [], over: Intent[] = [];
   face.controls.forEach((c: FaceControl, i) => {
     const port = inputs.find(p => p.id === c.param && p.role === 'control');
     if (!port) { notes.push(`The face's control for "${c.param}" was left out: ${def.name} has no such parameter now.`); return; }
@@ -80,14 +81,14 @@ export function faceIntents(doc: PatchDocument, catalog: Catalog, useId: string,
     const current = use.values[port.id];
     if (port.type === 'gate') widget.values = { value: Boolean(current ?? port.default) };
     else {
-      const min = port.uiMin ?? port.min ?? 0, max = port.uiMax ?? port.max ?? 1;
-      widget.config = { min, max, scale: port.scale ?? 'linear', unit: port.unit && UNITS.includes(port.unit) ? port.unit : '' };
+      const config = knobConfig(port), { min, max } = config;
+      widget.config = config;
       widget.values = { value: Math.min(max, Math.max(min, Number(current ?? port.default ?? min))) };
     }
     const missing = lacking.get(`control:${c.param}`);
     if (missing) notes.push(`The control for "${c.param}" has its plain look: its picture or font ("${missing}") is not in this patch (add it in Assets, then put the face again).`);
     else if (c.style) widget.style = c.style;
-    intents.push({ op: 'addNode', node: widget }, { op: 'connect', from: { node: id, port: 'out' }, to: { node: use.id, port: port.id }, replace: true });
+    controls.push({ op: 'addNode', node: widget }, { op: 'connect', from: { node: id, port: 'out' }, to: { node: use.id, port: port.id }, replace: true });
     widgetOf.set(port.id, id);
     members.push(id);
   });
@@ -102,9 +103,10 @@ export function faceIntents(doc: PatchDocument, catalog: Catalog, useId: string,
       else if (element.kind === 'text' && wordsOnly(element)) element = wordsOnly(element)!;
       else { notes.push(`A ${element.kind === 'led' ? 'lamp' : 'readout'} of the face followed "${param}", which has no control here; it was left out.`); continue; }
     }
-    intents.push({ op: 'addElement', element: element as unknown as NewElement });
+    (element.kind === 'text' || element.kind === 'led' ? over : under).push({ op: 'addElement', element: element as unknown as NewElement });
     members.push(element.id);
   }
+  intents.push(...under, ...controls, ...over);
   const group = faceGroup(use.id);
   if (members.length) intents.push({ op: 'group', ids: members, id: group });
   return { intents, rect: at, placed: !!spot || !!oldRect || !!options.at, notes, group };

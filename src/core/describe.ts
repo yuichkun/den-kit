@@ -63,7 +63,7 @@ export function describePatch(doc: PatchDocument, catalog: Catalog, options: Des
   const faceText = (part: PartDef) => { const use = all.find(n => n.type === 'kit.part' && n.part === part.id); return describeFace(part, use ? catalog.inputs(use) : []); };
   for (const part of parts) {
     const uses = all.filter(n => n.type === 'kit.part' && n.part === part.id).map(n => n.inside ? `${n.id} (inside ${n.inside})` : n.id);
-    const params = part.params.map(p => `${p.id}=${p.node}.${p.port}${p.label ? ` "${p.label}"` : ''}`);
+    const params = part.params.map(p => `${p.id}=${p.node}.${p.port}${p.label ? ` "${p.label}"` : ''}${p.range ? ` (${p.range.min}–${p.range.max}${p.range.unit ? ` ${p.range.unit}` : ''}${p.range.scale === 'log' ? ', log' : ''})` : ''}`);
     lines.push(`Part ${part.id} "${part.name}"${part.from ? ` (from My parts: ${part.from.id} v${part.from.version})` : ''}${part.doc ? ` — ${part.doc}` : ''}. Used by: ${uses.join(', ') || 'nothing'}. Inputs: ${part.inputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Parameters: ${params.join(', ') || 'none'}. Outputs: ${part.outputs.map(p => `${p.id} (${p.node})`).join(', ') || 'none'}. Face: ${faceText(part)}. Inside (nodes with inside: "${part.id}"):`);
     for (const node of all.filter(n => n.inside === part.id)) lines.push(line(node, '  '));
   }

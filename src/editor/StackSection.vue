@@ -16,8 +16,8 @@ const count = computed(() => copiesOf(session.catalog, props.node));
 const cost = computed(() => session.validation.value.cost);
 const mine = computed(() => cost.value.byNode[props.node.id] ?? 0);
 const connected = computed(() => new Set(Object.values(session.doc.value.edges).filter(e => e.to.node === props.node.id).map(e => e.to.port)));
-/** Knobs that can differ between copies (free ones: a cable replaces a knob). */
-const knobs = computed(() => session.catalog.inputs(props.node).filter(p => spreadable(p) && !connected.value.has(p.id)));
+/** Knobs that can differ between copies (with a cable in, the spread moves what the cable brings). */
+const knobs = computed(() => session.catalog.inputs(props.node).filter(p => spreadable(p)));
 const QUICK = [1, 2, 4, 8, 16, 32];
 const KIND_LABEL: Record<SpreadKind | 'same', string> = { same: 'same', range: 'range', random: 'random', harmonic: 'harmonic', each: 'each own' };
 
@@ -107,10 +107,10 @@ const fmt = (v: number) => { const a = Math.abs(v); return a >= 1000 ? `${(v / 1
       <br />Load: {{ formatCpu(mine) }} here · {{ formatCpu(cost.cpu) }} for the whole patch.
     </div>
     <template v-if="count > 1">
-      <div v-if="!knobs.length" class="muted small-text">No free knobs to spread (a cable replaces a knob).</div>
+      <div v-if="!knobs.length" class="muted small-text">No knobs here can differ between copies.</div>
       <div v-for="p in knobs" :key="p.id" class="spread" :data-spread="p.id">
         <div class="row">
-          <label :title="p.doc">{{ p.label ?? p.id }}</label>
+          <label :title="connected.has(p.id) ? 'A cable comes in: each copy gets what it brings, moved by the spread' : p.doc">{{ p.label ?? p.id }}<span v-if="connected.has(p.id)" class="muted" data-spread-cable> · cable</span></label>
           <select :value="spreadOf(p)?.kind ?? 'same'" :data-spread-kind="p.id" @change="setKind(p, ($event.target as HTMLSelectElement).value as SpreadKind | 'same')">
             <option value="same">{{ KIND_LABEL.same }}</option>
             <option v-for="k in SPREAD_KINDS" :key="k" :value="k">{{ KIND_LABEL[k] }}</option>

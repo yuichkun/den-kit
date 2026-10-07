@@ -10,7 +10,7 @@ import { refreshInterfaces } from './part-ops.ts';
 import { CONTROL_OF } from './skins.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
 import { checkFace } from './face.ts';
-import { partInterface } from './parts.ts';
+import { partInterface, readParamRange } from './parts.ts';
 import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
 /** Exports carry their pictures and fonts inside, so they can be large. */
@@ -216,7 +216,9 @@ function readParts(raw: unknown, doc: PatchDocument, report: Issue[], rename: Ma
     if (Array.isArray(value.params)) for (const p of value.params) {
       if (!isObject(p) || typeof p.id !== 'string' || !PORT_ID_PATTERN.test(p.id) || taken.has(p.id) || typeof p.port !== 'string') { report.push({ severity: 'warning', code: 'dropped-param', message: `Part "${key}": dropped a parameter that could not be read.` }); continue; }
       taken.add(p.id);
-      params.push({ id: p.id, node: ref(p.node), port: p.port, ...(typeof p.label === 'string' && p.label.trim() ? { label: p.label.trim().slice(0, 40) } : {}) });
+      const range = p.range === undefined ? undefined : readParamRange(p.range);
+      if (p.range !== undefined && !range) report.push({ severity: 'warning', code: 'dropped-range', message: `Part "${key}": the range of parameter "${p.id}" could not be read; it uses its knob's own.` });
+      params.push({ id: p.id, node: ref(p.node), port: p.port, ...(typeof p.label === 'string' && p.label.trim() ? { label: p.label.trim().slice(0, 40) } : {}), ...(range ? { range } : {}) });
     }
     taken.clear();
     const def: PartDef = { id: key, name: typeof value.name === 'string' && value.name.trim() ? value.name.trim().slice(0, 60) : key, inputs, outputs: ports(value.outputs), params };

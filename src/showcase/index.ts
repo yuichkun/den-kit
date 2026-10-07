@@ -12,7 +12,9 @@ import { lofi } from './lofi.ts';
 import { musicbox } from './musicbox.ts';
 import { neon } from './neon.ts';
 import { pad } from './pad.ts';
+import { rain } from './rain.ts';
 import { space } from './space.ts';
+import { supersaw } from './supersaw.ts';
 import { tapeecho } from './tapeecho.ts';
 import { toy } from './toy.ts';
 
@@ -38,6 +40,9 @@ export const WORKS: readonly Work[] = [
   { id: 'space', title: 'Nebula', kind: 'Effect', prompt: '宇宙っぽい空間系。星空の見た目で、音に合わせて粒が動く', reference: 'starfield photo', build: space },
   { id: 'duck', title: 'Duck Delay', kind: 'Effect', prompt: '弾いている間は引っ込んで、弾き止めると広がるディレイ。計測器みたいな画面で、沈んだ量をメーターで見せて', reference: 'none (words only)', build: duck },
   { id: 'neon', title: 'Neon Sweep', kind: 'Effect', prompt: 'XY でフィルターを弾くエフェクト。ネオンの見た目で、指の軌跡が光る', reference: 'neon sign photo', build: neon },
+  // Parts and ×N (U5): one small thing made once and used many times, with its own face on the plugin.
+  { id: 'rain', title: 'Rainfall', kind: 'Instrument', prompt: '窓を打つ雨。雨粒をひとつ作って、それを重ねて雨にする。雨脚・粒の高さ・はね・風を手で動かす', reference: 'none (words only)', build: rain },
+  { id: 'supersaw', title: 'Supersaw', kind: 'Instrument', prompt: 'スーパーソー。ノコギリ波を 7 本、少しずつずらして重ねる。デチューンと広がりをつまみで', reference: 'none (words only)', build: supersaw },
 ];
 
 export const findWork = (id: string) => WORKS.find(w => w.id === id);

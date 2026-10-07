@@ -8,11 +8,11 @@ import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
 import { checkFace } from './face.ts';
 import { checkBundle, type PartBundle } from './library.ts';
-import { hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
+import { RANGE_UNITS, hasParts, isPartPort, membersOf, partIdFor, partInterface, usedParts, usesOf } from './parts.ts';
 import { spreadable } from './stacks.ts';
 import {
   NODE_ID_PATTERN, PART_ID_PATTERN, PORT_ID_PATTERN, clone, nextEdgeId, nextNodeId,
-  type NodeId, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value, type XY,
+  type NodeId, type ParamRange, type PartDef, type PartParam, type PartPort, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value, type XY,
 } from './schema.ts';
 
 export interface PartDraft { doc: PatchDocument; readonly catalog: Catalog; apply(op: ResolvedOp): void }
@@ -254,7 +254,7 @@ export function detachPart(draft: PartDraft, intent: { node: NodeId; name?: stri
 }
 
 /** Rename or describe a part, relabel its inputs, outputs and parameters, or record where it stands with My parts. */
-export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null; face?: unknown }) {
+export function updatePart(draft: PartDraft, intent: { part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; ranges?: Record<string, unknown>; from?: PartDef['from'] | null; face?: unknown }) {
   const def = requirePart(draft.doc, intent.part);
   const next = clone(def);
   if (intent.name !== undefined) {
@@ -263,6 +263,15 @@ export function updatePart(draft: PartDraft, intent: { part: string; name?: stri
     next.name = name;
   }
   if (intent.doc !== undefined) { const text = intent.doc === null ? '' : String(intent.doc).trim().slice(0, 600); if (text) next.doc = text; else delete next.doc; }
+  const ranges = intent.ranges ?? {};
+  if (!ranges || typeof ranges !== 'object' || Array.isArray(ranges)) fail('bad-intent', 'ranges is {paramId: {min, max, scale?, unit?} | null}.');
+  for (const [id, raw] of Object.entries(ranges)) {
+    const param = next.params.find(p => p.id === id);
+    if (!param) fail('unknown-port', `${def.name} has no parameter "${id}".`, `Parameters: ${next.params.map(p => p.id).join(', ') || 'none'}.`);
+    const n = draft.doc.nodes[param!.node], port = n ? draft.catalog.input(n, param!.port) : undefined;
+    if (raw === null) delete param!.range;
+    else if (port) param!.range = checkParamRange(raw, port, `${param!.node}.${param!.port}`);
+  }
   if (intent.face !== undefined) {
     // The face is checked against the part's parameters as they are now (a use shows them all).
     if (intent.face === null) delete next.face;
@@ -289,8 +298,24 @@ export function updatePart(draft: PartDraft, intent: { part: string; name?: stri
   if (JSON.stringify(next) !== JSON.stringify(def)) draft.apply({ op: 'setPart', id: def.id, from: def, to: next });
 }
 
+/** A parameter's own knob range, checked against the knob it turns: inside its limits, max above min, a log range above 0. */
+export function checkParamRange(raw: unknown, port: PortDef, what: string): ParamRange {
+  if (port.type === 'gate') fail('bad-value', `${what} is on/off: it has no range.`);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('bad-value', 'range is {min, max, scale?, unit?}.');
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown, key: string): number => typeof v === 'number' && Number.isFinite(v) ? v : fail('bad-value', `range ${key} must be a number.`);
+  const min = num(r.min, 'min'), max = num(r.max, 'max');
+  if (!(max > min)) fail('bad-value', 'range max must be above its min.');
+  if ((port.min !== undefined && min < port.min) || (port.max !== undefined && max > port.max)) fail('out-of-range', `${what} goes from ${port.min} to ${port.max}: keep the range inside that.`);
+  const out: ParamRange = { min, max };
+  if (r.scale !== undefined) { if (r.scale !== 'linear' && r.scale !== 'log') fail('bad-value', 'range scale is "linear" or "log".'); out.scale = r.scale as 'linear' | 'log'; }
+  if ((out.scale ?? port.scale) === 'log' && min <= 0) fail('bad-value', 'A log range must start above 0.');
+  if (r.unit !== undefined) { if (typeof r.unit !== 'string' || !(RANGE_UNITS as readonly string[]).includes(r.unit)) fail('bad-value', `range unit is one of ${RANGE_UNITS.filter(Boolean).join(', ')} (or "" for none).`); out.unit = r.unit as string; }
+  return out;
+}
+
 /** Show a free knob of a module inside a part on the part itself: each use then has its own value for it. */
-export function addParam(draft: PartDraft, intent: { part: string; node: NodeId; port: PortId; id?: PortId; label?: string }) {
+export function addParam(draft: PartDraft, intent: { part: string; node: NodeId; port: PortId; id?: PortId; label?: string; range?: unknown }) {
   const { catalog } = draft;
   const def = requirePart(draft.doc, intent.part);
   const n = draft.doc.nodes[intent.node];
@@ -299,13 +324,22 @@ export function addParam(draft: PartDraft, intent: { part: string; node: NodeId;
   if (!port) fail('unknown-port', `${n!.id} has no input "${intent.port}".`, `Inputs: ${catalog.inputs(n!).map(p => p.id).join(', ')}`);
   if (!isKnob(port)) fail('not-knob', `${n!.id}.${port!.id} is not a knob, so it cannot be a parameter.`);
   if (Object.values(draft.doc.edges).some(e => e.to.node === n!.id && e.to.port === port!.id)) fail('connected', `${n!.id}.${port!.id} has a cable; only a free knob can be a parameter.`);
-  if (def.params.some(p => p.node === n!.id && p.port === port!.id)) return;
+  const existing = def.params.find(p => p.node === n!.id && p.port === port!.id);
+  if (existing) {
+    // Already a parameter: a label or a range given now is put on it.
+    const next = clone(def), param = next.params.find(p => p.id === existing.id)!;
+    if (typeof intent.label === 'string' && intent.label.trim()) param.label = intent.label.trim().slice(0, 40);
+    if (intent.range !== undefined && intent.range !== null) param.range = checkParamRange(intent.range, port!, `${n!.id}.${port!.id}`);
+    if (JSON.stringify(next) !== JSON.stringify(def)) draft.apply({ op: 'setPart', id: def.id, from: def, to: next });
+    return;
+  }
   const taken = new Set([...def.inputs, ...def.params].map(p => p.id));
   if (intent.id !== undefined && (!PORT_ID_PATTERN.test(intent.id) || taken.has(intent.id))) fail('bad-id', `Parameter id "${intent.id}" must match ${PORT_ID_PATTERN} and be free (taken: ${[...taken].join(', ') || 'none'}).`);
   const id = intent.id ?? freePortId(port!.id, taken, 'param');
   const label = typeof intent.label === 'string' && intent.label.trim() ? intent.label.trim().slice(0, 40) : undefined;
+  const range = intent.range !== undefined && intent.range !== null ? checkParamRange(intent.range, port!, `${n!.id}.${port!.id}`) : undefined;
   if (def.params.length >= 32) fail('too-large', 'A part has at most 32 parameters.');
-  draft.apply({ op: 'setPart', id: def.id, from: def, to: { ...clone(def), params: [...def.params, { id, node: n!.id, port: port!.id, ...(label ? { label } : {}) }] } });
+  draft.apply({ op: 'setPart', id: def.id, from: def, to: { ...clone(def), params: [...def.params, { id, node: n!.id, port: port!.id, ...(label ? { label } : {}), ...(range ? { range } : {}) }] } });
 }
 
 export function removeParam(draft: PartDraft, intent: { part: string; id: PortId }) {

@@ -245,6 +245,72 @@ describe('each work does what its controls say', () => {
     expect(changes).toBeLessThanOrEqual(Math.ceil(l!.length / 8) + 1); // 6000 Hz: a new sample every 8
   }, 60000);
 
+  /** Correlation of the two sides (1: the same on both). */
+  const correlation = ([l, r]: Float32Array[]) => { let lr = 0, ll = 0, rr = 0; for (let i = 0; i < l!.length; i++) { lr += l![i]! * r![i]!; ll += l![i]! ** 2; rr += r![i]! ** 2; } return lr / Math.sqrt(ll * rr); };
+  /** The control on the plugin wired to a parameter of a part's use (its face). */
+  const faceKnob = (doc: PatchDocument, use: string, param: string) => Object.values(doc.edges).find(e => e.to.node === use && e.to.port === param)!.from.node;
+
+  it('Rainfall: one Drop part ×16 — Rain makes more drops, Pitch moves them, Width spreads them, Wind brings the far rain', async () => {
+    const doc = build('rain');
+    expect(doc.nodes.drop1).toMatchObject({ type: 'kit.part', part: 'drop', count: 16 });
+    expect(doc.parts.drop!.params.map(p => p.id)).toEqual(['rain', 'pitch', 'splash']);
+    expect(validate(doc, catalog).issues.filter(i => i.code === 'heavy'), 'not heavy').toEqual([]);
+    const dry: Array<[string, string, number]> = [['kwind', 'value', 0], ['kroom', 'value', 0]];
+    const play = (values: Array<[string, string, number]>) => render(turned(doc, values), { seconds: 2 });
+    const both = (out: Float32Array[]) => Math.hypot(rms(out[0]!, 0.2, 2), rms(out[1]!, 0.2, 2));
+    const sparse = both(await play([...dry, [faceKnob(doc, 'drop1', 'rain'), 'value', 1.5]])), heavy = both(await play([...dry, [faceKnob(doc, 'drop1', 'rain'), 'value', 14]]));
+    note(`rain: level rain1.5 ${sparse.toFixed(4)}, rain14 ${heavy.toFixed(4)}`);
+    expect(heavy).toBeGreaterThan(2 * sparse);
+    const low = analyse(await play([...dry, [faceKnob(doc, 'drop1', 'pitch'), 'value', 600]]), SR).centroidHz.mean;
+    const high = analyse(await play([...dry, [faceKnob(doc, 'drop1', 'pitch'), 'value', 6000]]), SR).centroidHz.mean;
+    note(`rain: centroid pitch600 ${low} Hz, pitch6000 ${high} Hz`);
+    expect(high).toBeGreaterThan(2 * low);
+    const narrow = correlation(await play([...dry, ['kwidth', 'value', 0]])), wide = correlation(await play([...dry, ['kwidth', 'value', 1]]));
+    note(`rain: L/R correlation width0 ${narrow.toFixed(3)}, width1 ${wide.toFixed(3)}`);
+    expect(narrow).toBeGreaterThan(0.98);
+    expect(wide).toBeLessThan(0.8);
+    const calm = await play(dry), windy = await play([['kroom', 'value', 0], ['kwind', 'value', 1]]);
+    note(`rain: wind0 ${both(calm).toFixed(4)} (centroid ${analyse(calm, SR).centroidHz.mean}), wind1 ${both(windy).toFixed(4)} (centroid ${analyse(windy, SR).centroidHz.mean})`);
+    expect(both(windy)).toBeGreaterThan(1.4 * both(calm));
+    expect(analyse(windy, SR).centroidHz.mean).toBeLessThan(0.7 * analyse(calm, SR).centroidHz.mean); // the far rain is low
+  }, 120000);
+
+  it('Rainfall: every copy falls on its own (its own random numbers): sixteen copies are smoother than one, and their two sides differ', async () => {
+    const doc = turned(build('rain'), [['kwind', 'value', 0], ['kroom', 'value', 0]]);
+    const crest = (out: Float32Array[]) => { let peak = 0; for (const s of out[0]!) peak = Math.max(peak, Math.abs(s)); return peak / rms(out[0]!, 0, 2); };
+    const many = await render(doc, { seconds: 2 }), one = await render(applyIntents(doc, [{ op: 'setCount', node: 'drop1', count: 1 }], catalog).doc, { seconds: 2 });
+    note(`rain: crest ×16 ${crest(many).toFixed(1)}, ×1 ${crest(one).toFixed(1)}; correlation ×16 ${correlation(many).toFixed(3)}`);
+    expect(crest(one)).toBeGreaterThan(1.3 * crest(many));
+    expect(correlation(many)).toBeLessThan(0.9);
+  }, 120000);
+
+  it('Supersaw: one Saw part ×7 per voice — Detune makes the saws beat, Width spreads them, Cutoff darkens', async () => {
+    const doc = build('supersaw');
+    expect(doc.nodes.saw1).toMatchObject({ type: 'kit.part', part: 'saw', count: 7 });
+    expect(doc.parts.saw!.params.map(p => [p.id, p.range])).toEqual([['detune', { min: 0, max: 1, unit: 'st' }], ['drift', { min: 0, max: 0.5, unit: 'st' }]]);
+    expect(validate(doc, catalog).issues.filter(i => i.code === 'heavy'), 'not heavy').toEqual([]);
+    const held = notes([[57, 0, 1.6]]);
+    const play = (values: Array<[string, string, number]>) => render(turned(doc, values), { seconds: 1.6, events: held });
+    /** How much the level moves while the note holds (beating), relative to the level. */
+    const wobble = (out: Float32Array[]) => {
+      const ch = out[0]!, w = 960, levels: number[] = [];
+      for (let i = Math.round(0.4 * SR); i + w < Math.round(1.4 * SR); i += w) { let e = 0; for (let j = 0; j < w; j++) e += ch[i + j]! ** 2; levels.push(Math.sqrt(e / w)); }
+      const mean = levels.reduce((a, b) => a + b, 0) / levels.length;
+      return Math.sqrt(levels.reduce((a, b) => a + (b - mean) ** 2, 0) / levels.length) / mean;
+    };
+    const together = await play([[faceKnob(doc, 'saw1', 'detune'), 'value', 0], [faceKnob(doc, 'saw1', 'drift'), 'value', 0]]);
+    const apart = await play([[faceKnob(doc, 'saw1', 'detune'), 'value', 0.6]]);
+    note(`supersaw: wobble detune0 ${wobble(together).toFixed(3)}, detune0.6 ${wobble(apart).toFixed(3)}`);
+    expect(wobble(apart)).toBeGreaterThan(3 * wobble(together));
+    const narrow = correlation(await play([['kwidth', 'value', 0], ['kspace', 'value', 0]])), wide = correlation(await play([['kwidth', 'value', 1], ['kspace', 'value', 0]]));
+    note(`supersaw: L/R correlation width0 ${narrow.toFixed(3)}, width1 ${wide.toFixed(3)}`);
+    expect(narrow).toBeGreaterThan(0.98);
+    expect(wide).toBeLessThan(0.7);
+    const dark = analyse(await play([['kcut', 'value', 200], ['kenv', 'value', 0]]), SR).centroidHz.mean, bright = analyse(await play([['kcut', 'value', 6000], ['kenv', 'value', 0]]), SR).centroidHz.mean;
+    note(`supersaw: centroid cutoff200 ${dark} Hz, cutoff6000 ${bright} Hz`);
+    expect(bright).toBeGreaterThan(3 * dark);
+  }, 120000);
+
   it('Nebula: the sky rings on long after the sound stops, and Sky and Echoes set how much', async () => {
     const input = testSignal('drums', 4, SR).map(c => { c.fill(0, SR); return c; }); // one second of drums, then silence
     const tailOf = async (doc: PatchDocument) => { const out = await render(doc, { seconds: 4, input }); return Math.max(rms(out[0]!, 2.5, 3.5), rms(out[1]!, 2.5, 3.5)); };

@@ -31,6 +31,22 @@ export function control(id: string, type: string, label: string, targets: string
 
 /** A work: the sound and the plugin, built from intents on an empty patch, its modules laid out. */
 export function work(id: string, name: string, catalog: Catalog, size: [number, number], intents: Intent[]): PatchDocument {
-  const doc = applyIntents(emptyDocument(name, `work-${id}`), [{ op: 'setPanelSize', width: size[0], height: size[1] }, ...intents], catalog).doc;
+  return workInSteps(id, name, catalog, size, [intents]);
+}
+
+/**
+ * A work built in steps, each a list of intents or a function of the patch so
+ * far (e.g. to put a part's face on the plugin once the part exists), the way
+ * a person would do it one edit after another.
+ */
+export function workInSteps(id: string, name: string, catalog: Catalog, size: [number, number], steps: Array<Intent[] | ((doc: PatchDocument) => Intent[])>): PatchDocument {
+  let doc = applyIntents(emptyDocument(name, `work-${id}`), [{ op: 'setPanelSize', width: size[0], height: size[1] }], catalog).doc;
+  for (const step of steps) doc = applyIntents(doc, typeof step === 'function' ? step(doc) : step, catalog).doc;
   return withLayout({ ...doc, revision: 0 }, catalog);
 }
+
+/** The parameters a part keeps: the ones it was made with go, these come (with their labels and ranges). */
+export const onlyParams = (doc: PatchDocument, part: string, params: Array<{ node: string; port: string; id: string; label: string; range?: { min: number; max: number; scale?: 'linear' | 'log'; unit?: string } }>): Intent[] => [
+  ...doc.parts[part]!.params.map((p): Intent => ({ op: 'removeParam', part, id: p.id })),
+  ...params.map((p): Intent => ({ op: 'addParam', part, ...p })),
+];

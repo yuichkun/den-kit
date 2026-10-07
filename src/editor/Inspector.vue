@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { isParamInput, type ConfigDef, type PortDef } from '../core/catalog.ts';
 import type { ConfigValue } from '../core/schema.ts';
-import { membersOf, usesOf } from '../core/parts.ts';
+import { RANGE_UNITS, membersOf, partInterface, usesOf } from '../core/parts.ts';
+import type { PartParam } from '../core/schema.ts';
 import { describeDiff } from '../core/library.ts';
 import { describeFace } from '../core/face.ts';
 import { faceOnPlugin } from '../plugin/faces.ts';
@@ -77,6 +78,21 @@ function sourceName(from: { node: string; port: string }) {
   return `${from.node}.${from.port}`;
 }
 function removeParam(id: string) { if (shown.value) commit([{ op: 'removeParam', part: shown.value.id, id }], { label: 'Hide a parameter' }); }
+// A parameter's knob range (its own, or the knob's inside): where its knob turns and in what unit.
+const paramPorts = computed(() => shown.value ? new Map(partInterface(session.doc.value, session.catalog, shown.value).inputs.map(p => [p.id, p])) : new Map<string, PortDef>());
+function rangeOf(p: PartParam) {
+  const port = paramPorts.value.get(p.id);
+  if (!port || port.type === 'gate') return null;
+  return { min: port.uiMin ?? port.min ?? 0, max: port.uiMax ?? port.max ?? 1, unit: port.unit ?? '' };
+}
+function setRange(p: PartParam, key: 'min' | 'max' | 'unit', e: Event) {
+  const now = rangeOf(p), raw = (e.target as HTMLInputElement | HTMLSelectElement).value;
+  if (!now || !shown.value) return;
+  const next = { ...(p.range ?? {}), min: now.min, max: now.max, unit: now.unit, [key]: key === 'unit' ? raw : Number(raw) };
+  if (key !== 'unit' && !Number.isFinite(next[key])) return;
+  commit([{ op: 'updatePart', part: shown.value.id, ranges: { [p.id]: next } }], { label: `Range of ${p.label ?? p.id}` });
+}
+function resetRange(p: PartParam) { if (shown.value) commit([{ op: 'updatePart', part: shown.value.id, ranges: { [p.id]: null } }], { label: `Range of ${p.label ?? p.id}` }); }
 // ---- My parts ----
 /** Where the shown part stands with My parts (read again when the patch or My parts change). */
 const mine = computed(() => { void session.doc.value; void session.myParts.value; return shown.value ? session.myPartStatus(shown.value.id) : null; });
@@ -124,7 +140,16 @@ function updateMine() { const r = session.updateFromMyParts(shown.value!.id); se
       </div>
       <div v-if="!usedPart && shown.params.length" class="plist">
         <div class="muted small-text">Parameters (each use has its own value):</div>
-        <div v-for="p in shown.params" :key="p.id" class="prow" :data-param-row="p.id"><span>◆ {{ p.label ?? p.id }}</span><span class="muted mono">{{ p.node }}.{{ p.port }}</span><button class="small" title="Hide from the part" @click="removeParam(p.id)">×</button></div>
+        <template v-for="p in shown.params" :key="p.id">
+          <div class="prow" :data-param-row="p.id"><span>◆ {{ p.label ?? p.id }}</span><span class="muted mono">{{ p.node }}.{{ p.port }}</span><button class="small" title="Hide from the part" @click="removeParam(p.id)">×</button></div>
+          <div v-if="rangeOf(p)" class="prange" :data-param-range="p.id" :title="p.range ? 'Its own knob range' : 'The range of the knob inside (type to give it its own)'">
+            <input type="number" step="any" :value="rangeOf(p)!.min" aria-label="Knob from" data-range="min" @change="setRange(p, 'min', $event)" />
+            <span class="muted">–</span>
+            <input type="number" step="any" :value="rangeOf(p)!.max" aria-label="Knob to" data-range="max" @change="setRange(p, 'max', $event)" />
+            <select :value="rangeOf(p)!.unit" aria-label="Unit" data-range="unit" @change="setRange(p, 'unit', $event)"><option v-for="u in RANGE_UNITS" :key="u" :value="u">{{ u || '—' }}</option></select>
+            <button v-if="p.range" class="small" title="Back to the knob's own range" data-range="reset" @click="resetRange(p)">↺</button>
+          </div>
+        </template>
       </div>
       <div v-else-if="!usedPart" class="muted small-text">No parameters yet: select a module here and press ◇ next to a knob to show it on the part.</div>
     </div>
@@ -195,6 +220,9 @@ function updateMine() { const r = session.updateFromMyParts(shown.value!.id); se
 .plist { margin-top: 8px; }
 .prow { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
 .prow .mono { font-size: 11px; flex: 1; }
+.prange { display: flex; align-items: center; gap: 4px; margin: 0 0 4px 16px; font-size: 11px; }
+.prange input { width: 64px; font-size: 11px; padding: 1px 4px; }
+.prange select { font-size: 11px; }
 .ptoggle { color: #5ec4ff; }
 .ptoggle.on { background: #5ec4ff33; }
 .face { margin-top: 8px; }

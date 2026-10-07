@@ -2,7 +2,7 @@
 // input) whose range, scale, unit and starting value come from the input, put
 // in free space on the plugin. The inspector's "→ Plugin" and the LLM's
 // addControl both make controls this way, as ordinary intents.
-import type { Catalog } from '../core/catalog.ts';
+import type { Catalog, PortDef } from '../core/catalog.ts';
 import type { Intent, NewNode } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import { CONTROL_SIZE } from '../core/face.ts';
@@ -14,6 +14,19 @@ import type { Rect } from './spec.ts';
 export type ControlType = 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button';
 export { CONTROL_SIZE };
 const UNITS = ['Hz', 's', 'dB', 'oct', 'st', 'mix', 'gain', 'ratio', 'note'];
+
+/**
+ * A knob's range, scale and unit for an input: its UI range, and a log knob
+ * that would start at 0 starts at a small step instead (1 ms, 0.01 Hz, 20 Hz),
+ * so the musical part of the range is not squeezed into the first sliver.
+ */
+export function knobConfig(port: PortDef): { min: number; max: number; scale: 'linear' | 'log'; unit: string } {
+  let min = port.uiMin ?? port.min ?? 0;
+  const max = port.uiMax ?? port.max ?? 1;
+  const scale = port.scale ?? 'linear';
+  if (scale === 'log' && min <= 0 && max > 0) min = Math.min(max / 10, port.unit === 's' ? 0.001 : port.unit === 'Hz' ? (port.roles?.includes('rate') ? 0.01 : 20) : max / 1000);
+  return { min, max, scale, unit: port.unit && UNITS.includes(port.unit) ? port.unit : '' };
+}
 
 export interface ControlRequest {
   node: string;
@@ -74,12 +87,12 @@ export function controlFor(doc: PatchDocument, catalog: Catalog, req: ControlReq
   const [w, h] = CONTROL_SIZE[type];
   const spot = req.panel ?? freeSpot(doc, catalog, w, h, taken.rects);
   const panel = spot ?? { x: Math.max(0, doc.panel.width - w - 16), y: Math.max(0, doc.panel.height - h - 16), w, h };
-  const min = port.uiMin ?? port.min ?? 0, max = port.uiMax ?? port.max ?? 1;
+  const config = knobConfig(port), { min, max } = config;
   const current = node.values[req.port];
   const widget: NewNode = { id, type, label: req.label ?? `${node.label ?? node.id} ${port.label ?? port.id}`, panel, pos: { x: node.pos.x - 220, y: node.pos.y + 40 } };
   if (gate) widget.values = { value: Boolean(current ?? port.default) };
   else {
-    widget.config = { min, max, scale: port.scale ?? 'linear', unit: port.unit && UNITS.includes(port.unit) ? port.unit : '' };
+    widget.config = config;
     widget.values = { value: Math.min(max, Math.max(min, Number(current ?? port.default ?? min))) };
   }
   if (req.style) widget.style = req.style;

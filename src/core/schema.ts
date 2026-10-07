@@ -77,7 +77,9 @@ export interface Spread {
 /** One input or output of a part: the inlet or outlet node inside that carries it. */
 export interface PartPort { id: PortId; node: NodeId }
 /** A knob inside a part shown on the part itself: each use of the part has its own value. */
-export interface PartParam { id: PortId; node: NodeId; port: PortId; label?: string }
+export interface PartParam { id: PortId; node: NodeId; port: PortId; label?: string; /** Its own knob range (inside the inner knob's limits). */ range?: ParamRange }
+/** Where a part parameter's knob turns, how, and in what unit (e.g. a Multiply's ±1e6 shown as 0–1 st). */
+export interface ParamRange { min: number; max: number; scale?: 'linear' | 'log'; /** A unit (Hz, s, st…), or "" for none. */ unit?: string }
 /** A control on a part's face: it sets one of the part's parameters, for the use the face is put on the plugin for. */
 export interface FaceControl { param: PortId; type: 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button'; rect: PanelRect; label?: string; style?: WidgetStyle }
 /**

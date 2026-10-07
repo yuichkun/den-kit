@@ -9,11 +9,11 @@
 // its parameter values land on the knobs they stand for, and cables through
 // the part's inputs and outputs are joined up. What the checks and the compiler
 // say about the flat patch is mapped back to the patch as it is drawn.
-import type { Catalog, PortDef } from './catalog.ts';
+import type { Catalog, PortDef, Unit } from './catalog.ts';
 import type { Issue } from './issues.ts';
 import { analyze, type Analysis, type Scope } from './scope.ts';
-import { clone, type EdgeId, type NodeId, type PartDef, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value } from './schema.ts';
-import { copiesOf, hasStacks, position, random01, spreadable, spreadValue } from './stacks.ts';
+import { clone, type EdgeId, type NodeId, type ParamRange, type PartDef, type PatchDocument, type PatchEdge, type PatchNode, type PortId, type PortRef, type Value } from './schema.ts';
+import { copiesOf, hasStacks, position, random01, spreadable, spreadShape, spreadValue } from './stacks.ts';
 
 /** How deep parts may sit inside parts. */
 export const PART_DEPTH = 8;
@@ -71,6 +71,18 @@ export function partIdFor(doc: Pick<PatchDocument, 'parts'>, name: string, taken
   for (let n = 2; ; n++) { const id = `${base}${n}`; if (!Object.hasOwn(doc.parts, id) && !taken.has(id)) return id; }
 }
 
+export const RANGE_UNITS = ['', 'Hz', 's', 'dB', 'oct', 'st', 'mix', 'gain', 'ratio', 'note', 'level', 'q', 'cycles', 'bpm', 'beats'] as const;
+/** A parameter's range as stored (a file, My parts): its shape only (partInterface keeps it inside the knob it turns); undefined when it cannot be read. */
+export function readParamRange(raw: unknown): ParamRange | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.min !== 'number' || typeof r.max !== 'number' || !Number.isFinite(r.min) || !Number.isFinite(r.max) || !(r.max > r.min)) return undefined;
+  const out: ParamRange = { min: r.min, max: r.max };
+  if (r.scale === 'linear' || (r.scale === 'log' && r.min > 0)) out.scale = r.scale;
+  if (typeof r.unit === 'string' && (RANGE_UNITS as readonly string[]).includes(r.unit)) out.unit = r.unit;
+  return out;
+}
+
 /** What a part shows outside: its inputs (cables), then its parameters (knobs that also take cables), and its outputs. */
 export function partInterface(doc: PatchDocument, catalog: Catalog, def: PartDef): { inputs: PortDef[]; outputs: PortDef[] } {
   const inputs: PortDef[] = [], outputs: PortDef[] = [];
@@ -88,6 +100,15 @@ export function partInterface(doc: PatchDocument, catalog: Catalog, def: PartDef
     const label = p.label ?? port.label;
     if (label) d.label = label;
     for (const key of ['min', 'max', 'uiMin', 'uiMax', 'scale', 'unit', 'roles', 'doc'] as const) if (port[key] !== undefined) (d as unknown as Record<string, unknown>)[key] = clone(port[key]);
+    if (p.range && port.type !== 'gate') {
+      // Its own range, kept inside what the knob inside can take.
+      const lo = Math.max(p.range.min, port.min ?? -Infinity), hi = Math.min(p.range.max, port.max ?? Infinity);
+      if (hi > lo) {
+        d.uiMin = lo; d.uiMax = hi;
+        if (p.range.scale && (p.range.scale === 'linear' || lo > 0)) d.scale = p.range.scale;
+        if (p.range.unit !== undefined) { if (p.range.unit) d.unit = p.range.unit as Unit; else delete d.unit; }
+      }
+    }
     inputs.push(d);
   }
   for (const p of def.outputs) {
@@ -193,10 +214,15 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
     }
     return into;
   };
-  /** A node's knob values in copy k: the use's parameters land on the knobs they stand for, then the node's own spread. */
-  const valuesOf = (ctx: Ctx, n: PatchNode, k: number): Record<PortId, Value> => {
+  /** A node's own knob values here (the use's parameters landed on the knobs they stand for), before any spread. */
+  const ownValues = (ctx: Ctx, n: PatchNode): Record<PortId, Value> => {
     const v = { ...n.values };
     if (ctx.part) for (const p of ctx.part.params) if (p.node === n.id && Object.hasOwn(ctx.values, p.id)) v[p.port] = ctx.values[p.id]!;
+    return v;
+  };
+  /** A node's knob values in copy k: the use's parameters land on the knobs they stand for, then the node's own spread. */
+  const valuesOf = (ctx: Ctx, n: PatchNode, k: number): Record<PortId, Value> => {
+    const v = ownValues(ctx, n);
     const count = copies(n);
     if (count > 1 && n.spread) for (const [port, s] of Object.entries(n.spread)) {
       const def = catalog.input(n, port), base = v[port] ?? def?.default;
@@ -305,6 +331,24 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
     return refs;
   };
 
+  /**
+   * A cable into a spread knob of copy k: what comes in, moved the way the
+   * spread moves the knob in that copy (a Scale per copy, its amounts
+   * AudioParams, so changing the spread plays at once).
+   */
+  const spreadCable = (ctx: Ctx, target: PatchNode, port: PortId, k: number, m: number, from: PortRef, id: string, edge: EdgeId): PortRef => {
+    const s = m > 1 ? target.spread?.[port] : undefined;
+    const def = s ? catalog.input(target, port) : undefined;
+    if (!s || !def || !spreadable(def)) return from;
+    const base = Number(ownValues(ctx, target)[port] ?? def.default ?? 0);
+    const { scale, offset } = spreadShape(s, k, m, def, base);
+    out[id] = { id, type: 'kit.scale', pos: { x: 0, y: 0 }, config: {}, values: { scale, offset } };
+    origin[id] = [...ctx.path, target.id];
+    count++;
+    addEdge(`${id}$in`, from, { node: id, port: 'in' }, edge);
+    return { node: id, port: 'out' };
+  };
+
   let count = 0, capped = false;
   /** Copy k of a node: its values for this copy, its own seed in a stack, and the AudioParams it shares with the other copies. */
   const emit = (ctx: Ctx, n: PatchNode, k: number) => {
@@ -348,7 +392,7 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
       for (let k = 0; k < m; k++) {
         const child = childOf(ctx, target, k);
         if (!child) continue;
-        const from = pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id), at);
+        const from = spreadCable(ctx, target, e.to.port, k, m, pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id), at), `${tag(k)}$spread`, e.id);
         paramTargets(child, e.to.port).forEach((to, j) => addEdge(`${tag(k)}${j ? `$${j}` : ''}`, from, to, e.id));
       }
       return;
@@ -363,7 +407,7 @@ export function flatten(doc: PatchDocument, catalog: Catalog, options: FlattenOp
       return;
     }
     const all = catalog.input(target, e.to.port)?.merge === 'all';
-    for (let k = 0; k < m; k++) addEdge(tag(k), pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id, all), at), { node: flatId(ctx, target, k), port: e.to.port }, e.id);
+    for (let k = 0; k < m; k++) addEdge(tag(k), spreadCable(ctx, target, e.to.port, k, m, pick(refs, k, m, () => mixdown(ctx, e.from, refs, e.id, all), at), `${tag(k)}$spread`, e.id), { node: flatId(ctx, target, k), port: e.to.port }, e.id);
   };
   const expand = (ctx: Ctx) => {
     for (const n of ctx.members) {

@@ -140,6 +140,60 @@ describe('expanding copies', () => {
     expect(apply(doc, { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: null }).ops.some(isStructural)).toBe(true);
     expect(apply(doc, { op: 'setCount', node: 'svf1', count: 5 }).ops.some(isStructural)).toBe(true);
   });
+  it('a cable into a spread knob: each copy gets what the cable brings, moved by the spread (×2^oct on a log knob, + on others), live', () => {
+    const doc = apply(rain(4),
+      { op: 'addNode', node: { id: 'k1', type: 'ui.knob', panel: { x: 0, y: 0, w: 84, h: 96 }, config: { min: 100, max: 8000, scale: 'log', unit: 'Hz' }, values: { value: 1000 } } },
+      { op: 'addNode', node: { id: 'k2', type: 'ui.knob', panel: { x: 90, y: 0, w: 84, h: 96 }, config: { min: 0.5, max: 10, scale: 'linear', unit: '' }, values: { value: 2 } } },
+      { op: 'connect', from: { node: 'k1', port: 'out' }, to: { node: 'svf1', port: 'cutoffHz' } },
+      { op: 'connect', from: { node: 'k2', port: 'out' }, to: { node: 'svf1', port: 'q' } },
+      { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: { kind: 'range', amount: 1 } },
+      { op: 'setSpread', node: 'svf1', port: 'q', spread: { kind: 'range', amount: 0.6 } },
+    ).doc;
+    const flat = flatten(doc, catalog).doc;
+    const into = (k: number, port: string) => Object.values(flat.edges).find(e => e.to.node === `svf1_${k}` && e.to.port === port)!.from.node;
+    const shape = (k: number, port: string) => flat.nodes[into(k, port)]!;
+    // Copy 0 sits an octave below the knob, copy 3 an octave above; q from −0.6 to +0.6.
+    expect(shape(0, 'cutoffHz')).toMatchObject({ type: 'kit.scale', values: { scale: 0.5, offset: 0 } });
+    expect(shape(3, 'cutoffHz').values).toEqual({ scale: 2, offset: 0 });
+    expect(shape(0, 'q').values).toEqual({ scale: 1, offset: -0.6 });
+    expect(shape(3, 'q').values.offset).toBeCloseTo(0.6, 9);
+    for (let k = 0; k < 4; k++) expect(Object.values(flat.edges).some(e => e.from.node === 'k1' && e.to.node === into(k, 'cutoffHz'))).toBe(true);
+    // The amounts are AudioParams: a new amount plays without recompiling.
+    const g = generate(doc, catalog);
+    const wider = apply(doc, { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: { kind: 'range', amount: 2 } });
+    expect(isStructural(wider.ops)).toBe(false);
+    const next = currentValues(wider.doc, catalog, g);
+    expect(next[`${into(3, 'cutoffHz')}_scale`]).toBe(4);
+    expect(generate(wider.doc, catalog).hash).toBe(g.hash);
+  });
+  it('harmonics multiply what comes in; drawn values keep their distance from the knob\'s own value; a spread on a wired part parameter moves each copy inside', () => {
+    const doc = apply(rain(3),
+      { op: 'addNode', node: { id: 'k1', type: 'ui.knob', panel: { x: 0, y: 0, w: 84, h: 96 }, config: { min: 100, max: 8000, scale: 'log', unit: 'Hz' }, values: { value: 500 } } },
+      { op: 'connect', from: { node: 'k1', port: 'out' }, to: { node: 'svf1', port: 'cutoffHz' } },
+      { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: { kind: 'harmonic' } },
+    ).doc;
+    const flat = flatten(doc, catalog).doc;
+    const scaleOf = (d: PatchDocument, k: number, node = 'svf1', port = 'cutoffHz') => d.nodes[Object.values(d.edges).find(e => e.to.node === `${node}_${k}` && e.to.port === port)!.from.node]!.values;
+    expect([0, 1, 2].map(k => scaleOf(flat, k).scale)).toEqual([1, 2, 3]);
+    const drawn = flatten(apply(doc, { op: 'setSpread', node: 'svf1', port: 'cutoffHz', spread: { kind: 'each', values: [1000, 2000, 4000] } }).doc, catalog).doc; // the knob's own value is 1000
+    expect([0, 1, 2].map(k => scaleOf(drawn, k).scale)).toEqual([1, 2, 4]);
+    // A part ×3 whose parameter takes a knob: the spread moves what reaches each copy's knob inside.
+    const part = apply(emptyDocument('p'),
+      { op: 'addNode', node: { id: 'lfo1', type: 'den.lfo' } }, { op: 'addNode', node: { id: 'out1', type: 'kit.out' } },
+      { op: 'connect', from: { node: 'lfo1', port: 'out' }, to: { node: 'out1', port: 'left' } },
+      { op: 'makePart', ids: ['lfo1'], name: 'Wob', id: 'wob', node: 'wob1' },
+    ).doc;
+    const wired = apply(part,
+      { op: 'setCount', node: 'wob1', count: 3 },
+      { op: 'addNode', node: { id: 'k9', type: 'ui.knob', panel: { x: 0, y: 0, w: 84, h: 96 }, config: { min: 0.1, max: 20, scale: 'log', unit: 'Hz' }, values: { value: 2 } } },
+      { op: 'connect', from: { node: 'k9', port: 'out' }, to: { node: 'wob1', port: 'rate' } },
+      { op: 'setSpread', node: 'wob1', port: 'rate', spread: { kind: 'range', amount: 1 } },
+    ).doc;
+    const f = flatten(wired, catalog).doc;
+    const rateInto = (k: number) => Object.values(f.edges).find(e => e.to.node === `wob1_${k}_lfo1` && e.to.port === 'rate')!.from.node;
+    expect([0, 1, 2].map(k => f.nodes[rateInto(k)]!.values.scale)).toEqual([0.5, 1, 2]);
+    expect(validate(wired, catalog).issues.filter(i => i.severity === 'error')).toEqual([]);
+  });
   it('a gate from copies into a single input is on while any copy is; into Voice Mix done, when all of them are', () => {
     const doc = apply(emptyDocument('gates'),
       { op: 'addNode', node: { id: 'voice1', type: 'kit.voiceIn' } },

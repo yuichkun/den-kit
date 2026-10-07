@@ -309,10 +309,11 @@ export function planPart(doc: PatchDocument, action: 'make' | 'unpack' | 'detach
 
 /** The knob a fast "spread it" acts on: one already spread, else the first free face knob, else any free knob that can spread. */
 function mainSpreadKnob(doc: PatchDocument, catalog: Catalog, node: PatchNode): PortDef | undefined {
+  // A knob already spread, else a main knob (a free one first; with a cable in, the spread moves what it brings).
   const fed = new Set(edgesInto(doc, node.id).map(e => e.to.port));
-  const free = catalog.inputs(node).filter(p => spreadable(p) && !fed.has(p.id));
+  const all = catalog.inputs(node).filter(p => spreadable(p));
   const face = catalog.face(node);
-  return free.find(p => node.spread?.[p.id]) ?? free.find(p => face.includes(p.id)) ?? free[0];
+  return all.find(p => node.spread?.[p.id]) ?? all.find(p => face.includes(p.id) && !fed.has(p.id)) ?? all.find(p => !fed.has(p.id)) ?? all.find(p => face.includes(p.id)) ?? all[0];
 }
 /** A gentle first spread: a quarter octave on a frequency knob, a tenth of the knob's range elsewhere. */
 const firstAmount = (port: PortDef) => port.scale === 'log' ? 0.25 : Number((spreadReach(port) / 10).toPrecision(3));
@@ -351,7 +352,7 @@ export function planStack(doc: PatchDocument, catalog: Catalog, item: { count?: 
     intents.push({ op: 'setSpread', node: id, port: port.id, spread });
     changed.push(`${id}.${port.id}`);
   }
-  if (!intents.length) return { ok: false, reason: item.spread === 'less' ? 'at-limit' : 'no-target', message: item.spread === 'off' ? 'The copies are already the same.' : item.spread === 'less' ? 'Nothing is spread yet.' : 'No free knob to spread (a cable replaces a knob); the AI can add a module to spread instead.' };
+  if (!intents.length) return { ok: false, reason: item.spread === 'less' ? 'at-limit' : 'no-target', message: item.spread === 'off' ? 'The copies are already the same.' : item.spread === 'less' ? 'Nothing is spread yet.' : 'Nothing here has a knob that can differ between copies.' };
   const label = item.spread === 'off' ? `copies of ${changed.join(', ')} the same again` : `${item.spread === 'less' ? 'less spread on' : 'spread'} ${changed.join(', ')}`;
   return { ok: true, plan: { kind: 'stack', intents, label, short: item.spread === 'off' ? 'same' : item.spread === 'less' ? 'less spread' : 'spread' } };
 }

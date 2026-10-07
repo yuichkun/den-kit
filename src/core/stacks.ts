@@ -69,6 +69,31 @@ export function spreadValue(base: number, spread: Spread, k: number, n: number, 
   return Number.isFinite(v) ? clampPortValue(port, v) : base;
 }
 
+/**
+ * What copy k of n does to a cable (or a control) coming into a spread knob:
+ * the same moves as on the knob's own value, made on what comes in — a log
+ * knob (frequency, time) is multiplied (2^offset octaves; harmonics ×(k+1)),
+ * any other gets the offset added; drawn values keep their distance from the
+ * knob's own value `base`.
+ */
+export function spreadShape(spread: Spread, k: number, n: number, port: PortDef, base: number): { scale: number; offset: number } {
+  const log = port.scale === 'log';
+  switch (spread.kind) {
+    case 'range': case 'random': {
+      const t = spread.kind === 'range' ? position(k, n) : 2 * random01(spread.seed ?? 1, [k]) - 1;
+      const offset = (spread.amount ?? 0) * t;
+      return log ? { scale: 2 ** offset, offset: 0 } : { scale: 1, offset };
+    }
+    case 'harmonic': return { scale: k + 1, offset: 0 };
+    case 'each': {
+      const v = spread.values?.[k];
+      if (v === undefined || !Number.isFinite(v)) return { scale: 1, offset: 0 };
+      return log && base > 0 && v > 0 ? { scale: v / base, offset: 0 } : { scale: 1, offset: v - base };
+    }
+  }
+  return { scale: 1, offset: 0 };
+}
+
 /** The furthest a spread may reach, either way: 10 octaves on a log knob, the knob's whole range otherwise. */
 export function spreadReach(port: PortDef): number {
   if (port.scale === 'log') return 10;

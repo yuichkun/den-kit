@@ -20,7 +20,7 @@ describe('looking the plugin over', () => {
   it('every showcase work: nothing that needs fixing, and a picture of the plugin at its size', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
-    for (const id of ['acid', 'pad', 'musicbox', 'toy', 'tapeecho', 'fuzz', 'lofi', 'space', 'duck', 'neon']) {
+    for (const id of ['acid', 'pad', 'musicbox', 'toy', 'tapeecho', 'fuzz', 'lofi', 'space', 'duck', 'neon', 'rain', 'supersaw']) {
       await page.keyboard.press('Control+Alt+KeyN');
       await page.waitForSelector('[data-testid=start-screen]');
       await page.click(`[data-work=${id}]`);

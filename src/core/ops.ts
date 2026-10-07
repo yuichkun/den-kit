@@ -11,7 +11,7 @@ import { faceAssetUses } from './face.ts';
 import { partInterface } from './parts.ts';
 import {
   MAX_COUNT, NODE_ID_PATTERN, PORT_ID_PATTERN, THEMES, clone, edgesInto, edgesOf, nextEdgeId, nextNodeId,
-  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type PartDef, type PartFace, type PatchDocument, type PatchEdge, type PatchNode,
+  type ConfigValue, type EdgeId, type NodeId, type PanelRect, type ParamRange, type PartDef, type PartFace, type PatchDocument, type PatchEdge, type PatchNode,
   type PortId, type PortRef, type PortSpec, type Spread, type ThemeId, type Value, type XY,
 } from './schema.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
@@ -70,13 +70,13 @@ export type Intent =
   /** Give this use its own copy of the part (edits inside then change only it). */
   | { op: 'detachPart'; node: NodeId; name?: string }
   /** Rename or describe a part; relabel its inputs, outputs and parameters (null clears a label); record where it stands with My parts. */
-  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; from?: PartDef['from'] | null; /** Its own screen (null: back to the default face). */ face?: PartFace | null }
+  | { op: 'updatePart'; part: string; name?: string; doc?: string | null; labels?: Record<string, string | null>; /** Parameters' own knob ranges (null: the inner knob's). */ ranges?: Record<string, ParamRange | null>; from?: PartDef['from'] | null; /** Its own screen (null: back to the default face). */ face?: PartFace | null }
   /** Place a part from My parts: its definition (and the parts inside it) come in with one use. `ids` pins the ids it gets (default: its own where free). */
   | { op: 'importPart'; bundle: unknown; from?: PartDef['from']; node?: NodeId; pos?: XY; inside?: string; ids?: { parts?: Record<string, string>; nodes?: Record<string, string> } }
   /** Put another version of a part in place of what is inside it now (from My parts); its uses keep their values where the knob is still there. */
   | { op: 'replacePart'; part: string; bundle: unknown; from?: PartDef['from'] }
   /** Show a free knob of a module inside a part on the part itself (each use gets its own value). */
-  | { op: 'addParam'; part: string; node: NodeId; port: PortId; id?: PortId; label?: string }
+  | { op: 'addParam'; part: string; node: NodeId; port: PortId; id?: PortId; label?: string; range?: ParamRange }
   | { op: 'removeParam'; part: string; id: PortId }
   // ---- copies (×N) ----
   /** Run a node (or a part) as this many copies side by side (1: once). Its outputs then carry one signal per copy (a thick cable). */

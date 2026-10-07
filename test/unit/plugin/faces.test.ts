@@ -18,6 +18,8 @@ import { validate } from '../../../src/core/validate.ts';
 import { describePatch } from '../../../src/core/describe.ts';
 import { FaceError, faceFromPlugin, faceIntents, faceOnPlugin, screenFace } from '../../../src/plugin/faces.ts';
 import { KitSession } from '../../../src/editor/session.ts';
+import { stackOrder } from '../../../src/core/ui.ts';
+import { checkPlugin } from '../../../src/plugin/checks.ts';
 import { SHOWCASE_ASSETS } from '../../../src/showcase/assets.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
@@ -54,6 +56,26 @@ describe('putting a face on the plugin', () => {
     // The knob drives the part: still one cable per input, and it compiles.
     expect(validate(after, catalog).issues.filter(i => i.severity === 'error')).toEqual([]);
     expect(generate(after, catalog).source).not.toBe('');
+  });
+  it('stacks as a plugin is drawn: its frame under its controls, its words and lamps over them; a seconds knob turns from 1 ms', () => {
+    const doc = apply(toned(), { op: 'updatePart', part: 'tone', face: { width: 200, height: 140, controls: [{ param: 'resonance', type: 'ui.knob', rect: { x: 10, y: 30, w: 84, h: 96 } }], elements: [
+      { id: 'lamp', kind: 'led', bind: '@level', color: 'accent', threshold: 0.5, rect: { x: 180, y: 6, w: 10, h: 10 } },
+      { id: 'name', kind: 'text', text: 'TONE', rect: { x: 10, y: 6, w: 100, h: 20 } },
+      { id: 'frame', kind: 'shape', shape: 'rect', rect: { x: 0, y: 0, w: 200, h: 140 }, style: { fill: [{ kind: 'color', color: 'track' }] } },
+    ] } }).doc;
+    const on = put(doc, 'tone1', { x: 20, y: 20 }).doc;
+    const order = stackOrder(on.ui, Object.values(on.nodes).filter(n => n.panel).map(n => n.id));
+    const at = (kind: string) => order.findIndex(id => (on.ui.elements[id]?.kind ?? on.nodes[id]?.type) === kind);
+    expect(at('shape')).toBeLessThan(at('ui.knob'));
+    expect(at('text')).toBeGreaterThan(at('ui.knob'));
+    expect(at('led')).toBeGreaterThan(at('ui.knob'));
+    expect(checkPlugin(on, catalog).filter(i => i.code === 'covered')).toEqual([]);
+    // A seconds knob (log, from 0 inside) turns from 1 ms on the face, so its useful range is not squeezed.
+    const env = apply(starter('bass', catalog), { op: 'makePart', ids: ['aenv1'], name: 'Amp' }).doc;
+    const use = Object.values(env.nodes).find(n => n.type === 'kit.part')!.id;
+    const onEnv = put(env, use).doc;
+    const decayKnob = Object.values(onEnv.nodes).find(n => n.type === 'ui.knob' && Object.values(onEnv.edges).some(e => e.from.node === n.id && e.to.port === 'decay'))!;
+    expect(decayKnob.config).toMatchObject({ min: 0.001, scale: 'log', unit: 's' });
   });
   it('putting it again replaces it where it is (no duplicates); undo takes it off in one step', () => {
     const doc = toned();
