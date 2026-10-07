@@ -53,10 +53,12 @@ export type Intent =
   | { op: 'addAsset'; asset: AssetMeta }
   | { op: 'updateAsset'; id: string; set: { name?: string; source?: AssetMeta['source'] | null } }
   | { op: 'removeAsset'; id: string }
-  | { op: 'setUnderlay'; underlay: Underlay | null };
+  | { op: 'setUnderlay'; underlay: Underlay | null }
+  /** The design brief (null or empty removes it). */
+  | { op: 'setBrief'; brief: string | null };
 
 type Field = 'pos' | 'label' | 'panel' | 'text' | 'code' | 'ports' | 'style';
-type UiField = 'look' | 'order' | 'groups' | 'underlay';
+type UiField = 'look' | 'order' | 'groups' | 'underlay' | 'brief';
 export interface Size { width: number; height: number }
 export type ResolvedOp =
   | { op: 'addNode'; node: PatchNode }
@@ -501,8 +503,17 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       draft.apply({ op: 'setUi', field: 'underlay', from: draft.doc.ui.underlay, to });
       return;
     }
+    case 'setBrief': {
+      if (intent.brief !== null && typeof intent.brief !== 'string') fail('bad-intent', 'brief is text (or null to remove it).');
+      const text = typeof intent.brief === 'string' ? intent.brief.trim() : '';
+      if (text.length > LIMITS.brief) fail('too-large', `The brief is limited to ${LIMITS.brief} characters.`);
+      const to = text || undefined;
+      if (to === draft.doc.ui.brief) return;
+      draft.apply({ op: 'setUi', field: 'brief', from: draft.doc.ui.brief, to });
+      return;
+    }
     default:
-      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay.');
+      fail('bad-intent', `Unknown op "${(intent as { op?: unknown }).op}".`, 'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief.');
   }
 }
 
@@ -602,7 +613,7 @@ export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp
   if (prev.name !== next.name) ops.push({ op: 'setDoc', field: 'name', from: prev.name, to: next.name });
   if (prev.panel.theme !== next.panel.theme) ops.push({ op: 'setDoc', field: 'theme', from: prev.panel.theme, to: next.panel.theme });
   if (prev.panel.width !== next.panel.width || prev.panel.height !== next.panel.height) ops.push({ op: 'setSize', from: { width: prev.panel.width, height: prev.panel.height }, to: { width: next.panel.width, height: next.panel.height } });
-  for (const field of ['look', 'order', 'groups', 'underlay'] as const) if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field])) ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
+  for (const field of ['look', 'order', 'groups', 'underlay', 'brief'] as const) if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field])) ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
   return ops;
 }
 

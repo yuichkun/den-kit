@@ -134,7 +134,7 @@ export class FastPath {
     this.controller = controller;
     const started = performance.now();
     const id = randomId('rq');
-    const lex = parseRequest(text);
+    const lex = parseRequest(text, { screen: this.session.screenFocus.value });
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
     const finish = (given: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
       let decision = given;

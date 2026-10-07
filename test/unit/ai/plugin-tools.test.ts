@@ -4,8 +4,10 @@
 import { describe, expect, it } from 'vitest';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, OpError } from '../../../src/core/ops.ts';
-import { describePlugin, expandOps, uiReference, UI_TOPICS } from '../../../src/ai/plugin-tools.ts';
+import { applyIntents, OpError, type Intent } from '../../../src/core/ops.ts';
+import type { Transaction } from '../../../src/core/history.ts';
+import type { PatchDocument } from '../../../src/core/schema.ts';
+import { describePlugin, expandOps, handEdits, uiReference, UI_TOPICS } from '../../../src/ai/plugin-tools.ts';
 import { intersects } from '../../../src/plugin/edit.ts';
 import { findWork } from '../../../src/showcase/index.ts';
 
@@ -98,5 +100,51 @@ describe('kit_apply_ops shorthands', () => {
     expect(after.assets['sc-wood']!.url).toBe('/showcase/wood.jpg');
     // Already in the patch: nothing added again.
     expect(expandOps(after, catalog, [{ op: 'setLook', look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'tile' }] } }]).intents.map(i => i.op)).toEqual(['setLook']);
+  });
+});
+
+describe('the design brief, hand edits, ready looks, pictures', () => {
+  it('the brief is part of the patch: set, cleared, undone, saved and loaded', async () => {
+    const { serializeDocument, parseDocument } = await import('../../../src/core/persistence.ts');
+    const { invertAll, applyResolvedOps } = await import('../../../src/core/ops.ts');
+    const doc = starter('bass', catalog);
+    const r = applyIntents(doc, [{ op: 'setBrief', brief: '  Warm tape machine: brushed steel, cream type.  ' }], catalog);
+    expect(r.doc.ui.brief).toBe('Warm tape machine: brushed steel, cream type.');
+    expect(applyResolvedOps(r.doc, invertAll(r.ops)).ui.brief).toBeUndefined();
+    const loaded = parseDocument(serializeDocument(r.doc), catalog);
+    expect(loaded.ok && loaded.doc.ui.brief).toBe('Warm tape machine: brushed steel, cream type.');
+    expect(applyIntents(r.doc, [{ op: 'setBrief', brief: null }], catalog).doc.ui.brief).toBeUndefined();
+    expect(() => applyIntents(doc, [{ op: 'setBrief', brief: 'x'.repeat(2001) }], catalog)).toThrow(/limited to 2000/);
+    expect(describePlugin(doc, catalog)).toMatch(/No design brief yet: before you design the screen, write one with \{"op":"setBrief"/);
+    expect(describePlugin(r.doc, catalog)).toMatch(/Design brief \(keep to it; change it with setBrief only when the direction changes\):\nWarm tape machine/);
+  });
+
+  it('hand edits: what the person changed on the screen since the patch was loaded (not the AI\'s, not before the load)', () => {
+    const doc0 = findWork('space')!.build(catalog);
+    const tx = (author: Transaction['author'], intents: Intent[], doc: PatchDocument, extra: Partial<Transaction> = {}) => { const r = applyIntents(doc, intents, catalog); return { doc: r.doc, tx: { id: 'tx', author, label: 'x', ops: r.ops, at: 0, baseRevision: 0, ...extra } as Transaction }; };
+    const a = tx({ kind: 'human' }, [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }], doc0, { replaced: true });
+    const b = tx({ kind: 'human' }, [{ op: 'setRect', id: 'ktime', rect: { x: 70, y: 300, w: 96, h: 104 } }, { op: 'setLook', look: { tokens: { fg: '#ffffff' } } }], a.doc);
+    const c = tx({ kind: 'ai-llm', take: 't1' }, [{ op: 'updateElement', id: 'text1', set: { text: 'NEBULA II' } }], b.doc);
+    const d = tx({ kind: 'human' }, [{ op: 'addElement', element: { id: 'note1', kind: 'text', text: 'hi', rect: { x: 10, y: 10, w: 50, h: 20 } } }, { op: 'setBrief', brief: 'Dark sky' }], c.doc);
+    expect(handEdits([a.tx, b.tx, c.tx, d.tx], d.doc, catalog)).toEqual(['ktime (place)', 'the look (fg token)', 'note1 (added it)', 'the design brief (text)']);
+    expect(describePlugin(d.doc, catalog, { handEdits: ['ktime (place)'] })).toContain("Changed by the person's own hand (keep these unless the request is about them): ktime (place).");
+  });
+
+  it('wearLook puts a showcase work\'s look on; the reference lists the looks', () => {
+    const doc = starter('bass', catalog);
+    const { intents } = expandOps(doc, catalog, [{ op: 'wearLook', work: 'neon' }]);
+    const after = applyIntents(doc, intents, catalog).doc;
+    expect(after.ui.look.tokens).toEqual(findWork('neon')!.build(catalog).ui.look.tokens);
+    expect(() => expandOps(doc, catalog, [{ op: 'wearLook', work: 'nope' }])).toThrow(/No look "nope"/);
+    expect(uiReference('looks', undefined, catalog)).toMatch(/neon: Neon Sweep — .* Colours: bg #/);
+  });
+
+  it('palette: the main colours of a picture, largest first', async () => {
+    const { palette } = await import('../../../src/plugin/picture.ts');
+    const data = new Uint8ClampedArray(100 * 4);
+    for (let i = 0; i < 100; i++) data.set(i < 70 ? [200, 40, 40, 255] : [20, 20, 160, 255], i * 4);
+    const p = palette(data, 2);
+    expect(p).toEqual([{ color: '#c82828', share: 0.7 }, { color: '#1414a0', share: 0.3 }]);
+    expect(palette(new Uint8ClampedArray(16))).toEqual([]);
   });
 });

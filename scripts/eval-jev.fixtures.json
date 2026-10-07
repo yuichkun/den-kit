@@ -34,5 +34,10 @@
   { "text": "太いベースがほしい", "expect": { "route": "create", "template": "bass" } },
   { "text": "ふわっとしたパッドを用意して", "expect": { "route": "create", "template": "pad" } },
   { "text": "コードボックスでビットクラッシャーを書いて", "expect": { "route": "complex" } },
-  { "text": "このパッチの仕組みを説明して", "expect": { "route": "complex" } }
+  { "text": "このパッチの仕組みを説明して", "expect": { "route": "complex" } },
+  { "text": "make the plugin screen look like an old hi-fi amplifier", "expect": { "route": "screen" } },
+  { "text": "the knobs are hard to read, give the screen more contrast", "expect": { "route": "screen" } },
+  { "text": "lay the controls out in two neat rows", "expect": { "route": "screen" } },
+  { "text": "画面をもっと高級感のある見た目にして", "expect": { "route": "screen" } },
+  { "text": "つまみを並べ直して、タイトルを大きく", "expect": { "route": "screen" } }
 ]

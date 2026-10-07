@@ -19,6 +19,9 @@ import type { BridgeClient, LlmInbound } from './bridge-client.ts';
 import type { FastPath, Outcome } from './fast-path.ts';
 import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
+import { handEdits } from './plugin-tools.ts';
+import { viewPicture } from '../plugin/picture.ts';
+import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import type { LlmEvent, ToolOutput } from './protocol.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 
@@ -52,7 +55,7 @@ const MAX_STEPS = 12;
 const TOOL_ACTIVITY: Record<string, string> = {
   kit_get_patch: 'reading the patch…', kit_list_blocks: 'looking up modules…', kit_describe_block: 'looking up a module…',
   kit_apply_ops: 'editing…', kit_write_codebox: 'writing code…', kit_listen: 'listening…', kit_finish: 'finishing…',
-  kit_get_plugin: 'reading the plugin screen…', kit_ui_reference: 'looking up how screens are built…', kit_look: 'looking at the screen…',
+  kit_get_plugin: 'reading the plugin screen…', kit_ui_reference: 'looking up how screens are built…', kit_look: 'looking at the screen…', kit_view_picture: 'looking at a picture…',
 };
 const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module', kit_get_plugin: 'read the plugin screen', kit_ui_reference: 'looked up the screen reference' };
 const KEPT = 'What it already changed stays; ⌘Z takes it back.';
@@ -227,6 +230,13 @@ export class LlmController {
       },
       render: request => this.checkRenderer().render(request),
       look: (doc, picture) => this.session.look({ doc, picture }),
+      viewPicture: async id => {
+        const asset = this.session.doc.value.assets[id] ?? SHOWCASE_ASSETS[id];
+        const url = this.session.assetUrls.value[id] ?? asset?.url;
+        if (!url) return null;
+        try { return await viewPicture(url); } catch { return null; }
+      },
+      handEdits: () => handEdits(this.session.history.entries(), this.session.doc.value, this.session.catalog),
       ...this.options.deps,
     };
   }

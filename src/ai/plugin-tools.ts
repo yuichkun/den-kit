@@ -4,12 +4,14 @@
 // (addControl; bundled pictures by id). Pure functions over the patch; the
 // workspace (llm-workspace.ts) calls them.
 import type { Catalog } from '../core/catalog.ts';
+import type { Transaction } from '../core/history.ts';
 import { OpError, type Intent } from '../core/ops.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import { CONTROL_KINDS, CONTROL_OF, DEFAULT_SKIN, SKINS, type ControlKind, type Skin } from '../core/skins.ts';
 import { THEME_TOKENS } from '../core/themes.ts';
-import { COLOR_TOKENS, ELEMENT_FIELDS, ELEMENT_KINDS, FONTS, FONT_TOKENS, LIMITS, TOKEN_DOC, isFontAsset, isImageAsset, stackOrder, type ColorToken, type Fill, type TokenName, type UiElement } from '../core/ui.ts';
+import { COLOR_TOKENS, ELEMENT_FIELDS, ELEMENT_KINDS, FONTS, FONT_TOKENS, LIMITS, TOKEN_DOC, isFontAsset, isImageAsset, stackOrder, type ColorToken, type Fill, type Look, type TokenName, type UiElement } from '../core/ui.ts';
 import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
+import { WORKS, findWork, lookIntents } from '../showcase/index.ts';
 import { ControlError, controlFor, type ControlType } from '../plugin/controls.ts';
 import { formatValue } from '../plugin/format.ts';
 import { PART_CURSORS } from '../plugin/part-api.ts';
@@ -38,7 +40,7 @@ function skinText(control: ControlKind, skin: Skin | undefined, from: string): s
  * JSON, so an edit can start from them), with the look, the controls kept off
  * the plugin, groups and assets. `part` returns one custom part's whole code.
  */
-export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { part?: string; problems?: string[] } = {}): string {
+export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { part?: string; problems?: string[]; handEdits?: string[] } = {}): string {
   if (options.part) {
     const el = doc.ui.elements[options.part];
     if (!el || el.kind !== 'part') throw new Error(`No custom part "${options.part}". Parts: ${Object.values(doc.ui.elements).filter(e => e.kind === 'part').map(e => e.id).join(', ') || 'none'}.`);
@@ -48,6 +50,9 @@ export function describePlugin(doc: PatchDocument, catalog: Catalog, options: { 
   const look = doc.ui.look;
   const lines: string[] = [];
   lines.push(`Plugin "${doc.name}": ${doc.panel.width}×${doc.panel.height} px (design pixels; it scales to the window). Base theme: ${doc.panel.theme}.`);
+  lines.push(doc.ui.brief ? `Design brief (keep to it; change it with setBrief only when the direction changes):\n${doc.ui.brief}` : 'No design brief yet: before you design the screen, write one with {"op":"setBrief","brief":"…"} (the idea, palette, type and layout in 2–4 short lines).');
+  if (options.handEdits?.length) lines.push(`Changed by the person's own hand (keep these unless the request is about them): ${options.handEdits.join('; ')}.`);
+  if (doc.ui.underlay) lines.push(`Reference picture laid under the editor: ${doc.ui.underlay.asset} (the person's guide for the layout; look at it with kit_view_picture).`);
   const token = (t: TokenName) => `${t} ${look.tokens[t] ?? `${base[t]} (theme)`}`;
   lines.push(`Look tokens: ${COLOR_TOKENS.map(token).join(', ')}.`);
   lines.push(`Look fonts: ${FONT_TOKENS.map(token).join(', ')}.`);
@@ -102,11 +107,11 @@ function widgetLine(doc: PatchDocument, catalog: Catalog, id: string): string {
 }
 
 // ---- reference ------------------------------------------------------------------------------
-export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'layout'] as const;
+export const UI_TOPICS = ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'looks', 'layout'] as const;
 export type UiTopic = typeof UI_TOPICS[number];
 
 /** What the LLM can ask for on the plugin, by topic (skins can be narrowed to one control kind). */
-export function uiReference(topic: string | undefined, control?: string): string {
+export function uiReference(topic: string | undefined, control?: string, catalog?: Catalog): string {
   switch (topic) {
     case 'look': return [
       'The look: {"op":"setLook","look":{...}} merges into the current look (tokens and skins key by key, null removes one; background and css replace, null removes). "replace":true replaces the whole look.',
@@ -160,6 +165,10 @@ export function uiReference(topic: string | undefined, control?: string): string
       'Bundled pictures (use the id in a fill, an image element or a skin param; it is added to the patch when used):',
       ...Object.values(SHOWCASE_ASSETS).filter(isImageAsset).map(a => `  ${a.id}: ${PICTURE_DOC[a.id] ?? a.source?.title ?? a.name}${a.width ? ` ${a.width}×${a.height}` : ''}`),
       'Pictures the user added are in kit_get_plugin under Assets. You cannot fetch pictures from the web.',
+    ].join('\n');
+    case 'looks': return [
+      'Ready looks from den-kit\'s showcase works. {"op":"wearLook","work":"neon"} puts one on the plugin (its base theme, colour and font tokens, background, default skins and CSS, with the pictures they use); the layout and the decorations stay, and follow the new colours where they use tokens. A good start; adjust from there.',
+      ...WORKS.map(w => `  ${w.id}: ${w.title} — ${w.prompt}.${catalog ? ` ${lookSummary(w.build(catalog).ui.look)}` : ''}`),
     ].join('\n');
     case 'layout': return [
       'Layout that reads well:',
@@ -217,6 +226,12 @@ export function expandOps(doc: PatchDocument, catalog: Catalog, ops: unknown[]):
       }
       return;
     }
+    if (op.op === 'wearLook') {
+      const work = findWork(String(op.work ?? ''));
+      if (!work) throw new OpError(`No look "${String(op.work ?? '')}".`, at, 'bad-look', `Looks: ${WORKS.map(w => w.id).join(', ')} (kit_ui_reference "looks").`);
+      for (const i of lookIntents(doc, work.build(catalog))) { intents.push(i); origin.push(at); }
+      return;
+    }
     if (op.op === 'addAsset' && op.asset && typeof op.asset === 'object') {
       const id = String((op.asset as { id?: unknown }).id ?? '');
       if (SHOWCASE_ASSETS[id] && Object.keys(op.asset).every(k => k === 'id' || k === 'name')) { addAsset(id, at); return; }
@@ -246,9 +261,48 @@ export function describeUiOp(op: Intent): string | null {
     case 'addAsset': return `+ picture ${op.asset.id}`;
     case 'removeAsset': return `− asset ${op.id}`;
     case 'setUnderlay': return 'reference picture';
+    case 'setBrief': return 'design brief';
     case 'setTheme': return `theme ${op.theme}`;
     default: return null;
   }
+}
+
+/** A look in a line: its colours, fonts, background and skins. */
+function lookSummary(look: Look): string {
+  const t = look.tokens;
+  const colors = COLOR_TOKENS.filter(k => t[k]).map(k => `${k} ${t[k]}`).join(', ');
+  const fonts = [...new Set(FONT_TOKENS.map(k => t[k]).filter(Boolean))].join('/');
+  const bg = look.background?.length ? look.background.map(fillText).join(' | ') : 'plain';
+  const skins = Object.entries(look.skins).map(([k, v]) => `${k} ${v!.name}`).join(', ');
+  return `Colours: ${colors}. Fonts: ${fonts || 'theme'}. Background: ${bg}.${skins ? ` Skins: ${skins}.` : ''}`;
+}
+
+/**
+ * What the person changed on the screen by hand since the patch was loaded
+ * (newest last): the AI is told, so it keeps those choices unless asked.
+ */
+export function handEdits(entries: readonly Transaction[], doc: PatchDocument, catalog: Catalog): string[] {
+  const start = entries.map(t => !!t.replaced).lastIndexOf(true) + 1;
+  const things = new Map<string, Set<string>>();
+  const note = (id: string, what: string) => { if (!things.has(id)) things.set(id, new Set()); things.get(id)!.add(what); };
+  for (const tx of entries.slice(start)) {
+    if (tx.author.kind !== 'human') continue;
+    for (const op of tx.ops) {
+      if (op.op === 'addElement') note(op.element.id, 'added it');
+      else if (op.op === 'setElement') note(op.id, op.field === 'rect' ? 'place' : op.field);
+      else if (op.op === 'addNode' && op.node.panel && isWidget({ ...doc, nodes: { ...doc.nodes, [op.node.id]: op.node } }, catalog, op.node.id)) note(op.node.id, 'added it');
+      else if (op.op === 'setField' && ['panel', 'style', 'label'].includes(op.field) && isWidget(doc, catalog, op.node)) note(op.node, op.field === 'panel' ? 'place' : op.field);
+      else if (op.op === 'setSize') note('the plugin', 'size');
+      else if (op.op === 'setUi' && op.field === 'look') {
+        const from = (op.from ?? { tokens: {}, skins: {} }) as Look, to = (op.to ?? { tokens: {}, skins: {} }) as Look;
+        for (const k of new Set([...Object.keys(from.tokens), ...Object.keys(to.tokens)])) if (from.tokens[k as TokenName] !== to.tokens[k as TokenName]) note('the look', `${k} token`);
+        if (JSON.stringify(from.background) !== JSON.stringify(to.background)) note('the look', 'background');
+        for (const k of new Set([...Object.keys(from.skins), ...Object.keys(to.skins)])) if (JSON.stringify(from.skins[k as ControlKind]) !== JSON.stringify(to.skins[k as ControlKind])) note('the look', `${k} skin`);
+        if (from.css !== to.css) note('the look', 'css');
+      } else if (op.op === 'setUi' && op.field === 'brief') note('the design brief', 'text');
+    }
+  }
+  return [...things].filter(([id]) => id.startsWith('the ') || doc.ui.elements[id] || doc.nodes[id]).map(([id, what]) => `${id} (${[...what].join(', ')})`);
 }
 
 /** Did the plugin screen change between two versions of the patch (its look, decorations, size, or a control on it)? */

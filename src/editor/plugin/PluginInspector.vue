@@ -62,6 +62,9 @@ watch(element, e => { propsDraft.value = e?.kind === 'part' ? JSON.stringify(e.p
 function setProps() { try { setEl({ props: JSON.parse(propsDraft.value || '{}') }, 'Part settings'); } catch { session.toast('warn', 'Settings must be JSON, e.g. {"speed": 2}.'); } }
 const cssDraft = ref(look.value.css ?? '');
 watch(() => look.value.css, c => { cssDraft.value = c ?? ''; });
+// The design brief: what the screen is going for, kept to by the AI on every request.
+const briefDraft = ref(doc.value.ui.brief ?? '');
+watch(() => doc.value.ui.brief, b => { briefDraft.value = b ?? ''; });
 const defaultSkinControl = ref<ControlKind>('knob');
 const KIND_TITLE: Record<string, string> = { text: 'Text', shape: 'Shape', image: 'Picture', svg: 'SVG', led: 'Lamp', part: 'Custom part' };
 const pictures = computed(() => Object.values(assets.value).filter(isImageAsset));
@@ -133,6 +136,10 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
 
     <!-- the plugin itself -->
     <template v-else>
+      <div class="section">
+        <h3>Design brief</h3>
+        <textarea v-model="briefDraft" rows="3" spellcheck="false" placeholder="What the screen is going for: the idea, colours, type, layout. The AI keeps to it." data-testid="design-brief" @change="commit([{ op: 'setBrief', brief: briefDraft.trim() || null }], 'Design brief')" />
+      </div>
       <div class="section">
         <h3>Plugin</h3>
         <div class="row"><label>Size</label><NumberField :value="doc.panel.width" :min="120" :max="4000" unit="w" @update="v => v && commit([{ op: 'setPanelSize', width: v, height: doc.panel.height }], 'Plugin size')" /><NumberField :value="doc.panel.height" :min="80" :max="4000" unit="h" @update="v => v && commit([{ op: 'setPanelSize', width: doc.panel.width, height: v }], 'Plugin size')" /></div>

@@ -38,6 +38,8 @@ export class KitSession {
   readonly history = markRaw(new History());
   readonly historyVersion = ref(0);
   readonly selection = ref<string[]>([]);
+  /** The person is editing the plugin screen (so "darker" means the screen, not the sound). */
+  readonly screenFocus = ref(false);
   readonly compileStatus = ref<CompileStatus>('idle');
   readonly compileMessage = ref('');
   readonly compileIssues = shallowRef<Issue[]>([]);
@@ -109,7 +111,7 @@ export class KitSession {
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
-    if (undoable) this.history.record({ id: randomId('tx'), author, label, ops: replaceOps(previous, doc), at: Date.now(), baseRevision: previous.revision });
+    if (undoable) this.history.record({ id: randomId('tx'), author, label, ops: replaceOps(previous, doc), at: Date.now(), baseRevision: previous.revision, replaced: true });
     else this.history.clear();
     this.historyVersion.value++;
     this.doc.value = { ...doc, panel: { ...doc.panel }, revision: previous.revision + 1, id: undoable ? previous.id : doc.id };

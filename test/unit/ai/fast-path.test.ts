@@ -29,6 +29,8 @@ beforeEach(() => {
   fast = new FastPath(session);
 });
 const snapshot = () => JSON.stringify({ ...clone(session.doc.value), revision: 0 });
+/** The plugin knob that drives `node.port` (a template's first screen puts one there). */
+const knobInto = (node: string, port: string) => { const e = Object.values(session.doc.value.edges).find(x => x.to.node === node && x.to.port === port)!; return session.doc.value.nodes[e.from.node]!; };
 
 describe('lexicon path (no Jev)', () => {
   it('applies at once as one ai-fast transaction; ⌘Z (session.undo) restores the exact patch and clears the result line', async () => {
@@ -55,11 +57,12 @@ describe('lexicon path (no Jev)', () => {
     expect(fast.outcome.value?.status).toBe('applied');
   });
 
-  it('a template replaces the patch in one undoable step, with slots applied', async () => {
+  it('a template replaces the patch in one undoable step, with slots applied (on its plugin\'s knobs)', async () => {
     const o = await fast.run('明るいリードを作って');
     expect(o.status).toBe('applied');
     expect(session.doc.value.name).toBe('Lead');
-    expect(session.doc.value.nodes.cut1!.values.hz).toBeGreaterThan(900);
+    expect(knobInto('cut1', 'hz').values.value).toBeGreaterThan(900);
+    expect(Object.values(session.doc.value.ui.elements).some(e => e.kind === 'text' && e.text === 'Lead')).toBe(true);
     session.undo();
     expect(session.doc.value.name).toBe('Bass');
   });
@@ -98,7 +101,7 @@ describe('Jev path', () => {
     expect((await fast.run('put it in a big hall')).status).toBe('applied');
     expect(Object.values(session.doc.value.nodes).some(n => n.type === 'den.algorithmicReverb')).toBe(true);
     expect((await fast.run('I need a squelchy acid line')).status).toBe('applied');
-    expect(session.doc.value.nodes.filter1!.values.resonance).toBeGreaterThan(0.707);
+    expect(knobInto('filter1', 'resonance').values.value).toBeGreaterThan(0.707);
   });
 
   it('route "complex" needs the LLM; without one wired it says so and changes nothing (hand-off: llm.test.ts)', async () => {

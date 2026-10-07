@@ -3,17 +3,22 @@
 // weaker Japanese. When the lexicon accounts for the whole request, Jev is not
 // called at all; otherwise its matches become hints and fallbacks.
 import type { Amount, Direction, FxId } from './intents.ts';
+import { ACCENTS, LOOK_WORDS, type LookChange } from './look-intents.ts';
 import type { TemplateId } from './templates.ts';
 
 export type LexItem =
   | { kind: 'adjust'; aspect: string; direction: Direction; amount?: Amount; phrase: string }
   | { kind: 'fx'; fx: FxId; verb: 'add' | 'more' | 'less'; amount?: Amount; phrase: string }
   | { kind: 'template'; template: TemplateId; phrase: string }
+  /** A change of the plugin screen (colours, text size, font, corners, a look). */
+  | { kind: 'look'; change: LookChange; amount?: Amount; phrase: string }
   /** Needs the LLM (code, wiring, explanations): never guessed by the fast path. */
   | { kind: 'complex'; phrase: string };
 
 export interface LexResult {
   items: LexItem[];
+  /** The request is about the screen (it says so, or the person is editing the plugin). */
+  screen: boolean;
   /** True when nothing meaningful is left after the matches and filler words. */
   full: boolean;
   leftover: string;
@@ -36,10 +41,61 @@ const EN_TEMPLATES: Array<[TemplateId, string]> = [['bass', 'bass(?:line)?'], ['
 
 const JA_NOUNS: Array<[string, string]> = [['resonance', 'レゾナンス|レゾ'], ['attack', 'アタック'], ['decay', 'ディケイ|ディケー'], ['sustain', 'サステイン|サスティン|サステン'], ['release', 'リリース|余韻'], ['feedback', 'フィードバック|リピート'], ['mix', 'ウェット|エフェクト'], ['drive', '歪み|ドライブ'], ['glide', 'グライド|ポルタメント'], ['volume', '音量|ボリューム'], ['brightness', 'カットオフ|フィルター|フィルタ'], ['wobble', '揺れ|ビブラート|トレモロ']];
 
+// ---- the plugin screen ----------------------------------------------------------------------------
+/** Words that say the request is about the screen ("色" but not "音色"). */
+const SCREEN_WORDS = /画面|見た目|ルック|デザイン|ui|背景|テーマ|スキン|(?<!音)色|カラー|フォント|書体|文字|ラベル|パネル|\b(?:screen|look|looks|gui|interface|design|background|theme|skin|colou?rs?|font|fonts|text|labels?|panel|layout|visuals?|appearance)\b/;
+const look = (change: (m: RegExpExecArray) => LookChange) => (m: RegExpExecArray): LexItem => ({ kind: 'look', change: change(m), phrase: m[0] });
+const JA_COLORS: Array<[string, string]> = [['neon green', '蛍光グリーン|蛍光緑'], ['lime', '黄緑|ライム'], ['teal', '青緑|ティール'], ['cyan', '水色|シアン|空色'], ['yellow', '黄色|黄|イエロー'], ['red', '赤|レッド'], ['orange', 'オレンジ|橙'], ['gold', '金|ゴールド'], ['green', '緑|グリーン'], ['blue', '青|ブルー'], ['purple', '紫|パープル'], ['pink', 'ピンク|桃色'], ['magenta', 'マゼンタ'], ['white', 'ホワイト'], ['silver', '銀|シルバー']];
+const EN_COLORS: Array<[string, string]> = [['neon green', 'neon green'], ['lime', 'lime'], ['teal', 'teal'], ['cyan', 'cyan|turquoise|aqua'], ['yellow', 'yellow'], ['red', 'red'], ['orange', 'orange'], ['gold', 'gold(?:en)?'], ['green', 'green'], ['blue', 'blue'], ['purple', 'purple|violet'], ['pink', 'pink'], ['magenta', 'magenta'], ['white', 'white'], ['silver', 'silver']];
+const JA_COLOR = JA_COLORS.map(([, w]) => w).join('|'), EN_COLOR = EN_COLORS.map(([, w]) => w).join('|');
+const colorKey = (word: string) => (JA_COLORS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)) ?? EN_COLORS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)))?.[0] ?? 'red';
+const accent = (word: string): LookChange => { const key = colorKey(word); return { kind: 'accent', color: ACCENTS[key]!, name: key }; };
+const JA_FONTS: Array<[string, string]> = [['caveat', '手書き|手描き'], ['kalam', 'マーカー'], ['serif', '明朝|セリフ'], ['playfair-display', 'エレガント|上品'], ['jetbrains-mono', '等幅|モノスペース'], ['fredoka', '丸文字|丸ゴシック|丸ゴ|丸い'], ['orbitron', '近未来|sf|サイファイ'], ['saira-stencil-one', 'ステンシル'], ['courier-prime', 'タイプライター'], ['lato', 'ゴシック|サンセリフ'], ['cinzel', '刻印|クラシック'], ['oswald', 'コンデンス|細長い']];
+const EN_FONTS: Array<[string, string]> = [['caveat', 'handwritten|handwriting|hand-?drawn'], ['kalam', 'marker'], ['serif', 'serif'], ['playfair-display', 'elegant'], ['jetbrains-mono', 'monospaced|monospace|mono|code'], ['fredoka', 'rounded|round'], ['orbitron', 'sci-?fi|futuristic|space-?age'], ['saira-stencil-one', 'stencil(?:led)?'], ['courier-prime', 'typewriter'], ['lato', 'sans(?:-serif)?|clean'], ['cinzel', 'engraved|classical|roman'], ['oswald', 'condensed']];
+const fontOf = (word: string) => (JA_FONTS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)) ?? EN_FONTS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)))?.[0] ?? 'lato';
+const JA_LOOKS: Array<[string, string]> = [['neon', 'ネオン'], ['sunset', '夕焼け|夕暮れ|サンセット'], ['wood', '木目|木箱|オルゴール|真鍮|アンティーク'], ['space', '宇宙|星空|銀河'], ['tape', 'テープエコー|テープ|オープンリール'], ['cassette', 'カセット'], ['pedal', 'コンパクトエフェクター|エフェクター|ペダル'], ['toy', 'おもちゃ|カラフル|ポップ'], ['lab', '計測器|測定器|オシロ'], ['acid', 'アシッド|蛍光']];
+const EN_LOOKS: Array<[string, string]> = [['neon', 'neon(?: sign)?'], ['sunset', 'sunset'], ['wood', 'wood(?:en)?|brass|music ?box|antique'], ['space', 'space|starry|galaxy|cosmic'], ['tape', 'tape(?: machine| echo)?|reel(?:-to-reel)?'], ['cassette', 'cassette'], ['pedal', '(?:guitar )?pedal|stomp ?box'], ['toy', 'toy|playful|colou?rful'], ['lab', 'lab|measuring|scientific|oscilloscope'], ['acid', 'acid']];
+const lookOf = (word: string): LookChange => { const key = (JA_LOOKS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)) ?? EN_LOOKS.find(([, w]) => new RegExp(`^(?:${w})$`).test(word)))?.[0] ?? 'neon'; return { kind: 'wear', work: LOOK_WORDS[key]! }; };
+const JA_LOOK = JA_LOOKS.map(([, w]) => w).join('|'), EN_LOOK = EN_LOOKS.map(([, w]) => w).join('|');
+const TEXT_JA = '(?:文字|字|テキスト|ラベル|フォント(?:サイズ)?)(?:の(?:サイズ|大きさ))?(?:を|が|は)?\\s*(?:もっと|もう少し|少し|ちょっと|かなり)?\\s*';
+const TEXT_EN = '(?:text|labels?|fonts?|letters|type|writing|lettering)';
+
+/** Screen edits any request may ask for: colours, text size, fonts, corners, a look named with a look word. */
+const SCREEN_RULES: Rule[] = [
+  { re: new RegExp(`(${JA_LOOK})(?:っぽい|風の?|みたいな|調の?|ぽい|な|の)?\\s*(?:見た目|デザイン|画面|ルック|雰囲気|スキン|テーマ|ui)(?:に|で)?`, 'g'), item: look(m => lookOf(m[1]!)) },
+  { re: new RegExp(`\\b(${EN_LOOK}) (?:look|style|theme|skin|design|ui|vibe)\\b|\\blooks? like (?:a |an )?(${EN_LOOK})\\b`, 'g'), item: look(m => lookOf(m[1] ?? m[2]!)) },
+  { re: new RegExp(`${TEXT_JA}(?:大きく|でかく|拡大)`, 'g'), item: look(() => ({ kind: 'text', direction: 'bigger' })) },
+  { re: new RegExp(`${TEXT_JA}(?:小さく|縮小)`, 'g'), item: look(() => ({ kind: 'text', direction: 'smaller' })) },
+  { re: new RegExp(`\\b(?:bigger|larger|huger|enlarge(?: the)?) ${TEXT_EN}\\b|\\b${TEXT_EN} (?:bigger|larger)\\b`, 'g'), item: look(() => ({ kind: 'text', direction: 'bigger' })) },
+  { re: new RegExp(`\\b(?:smaller|tinier|shrink(?: the)?) ${TEXT_EN}\\b|\\b${TEXT_EN} smaller\\b`, 'g'), item: look(() => ({ kind: 'text', direction: 'smaller' })) },
+  { re: new RegExp(`(?:フォント|書体|文字|字)(?:を|は)?\\s*(${JA_FONTS.map(([, w]) => w).join('|')})(?:風|っぽく|に|の(?:フォント|書体)?|で)?|(${JA_FONTS.map(([, w]) => w).join('|')})(?:風の|っぽい|の)?(?:フォント|書体|文字)(?:に|で)?`, 'g'), item: look(m => ({ kind: 'font', font: fontOf(m[1] ?? m[2]!) })) },
+  { re: new RegExp(`\\b(${EN_FONTS.map(([, w]) => w).join('|')}) (?:font|fonts|text|lettering|type|typeface|letters)\\b|\\b(?:font|typeface|lettering) (?:to |in |=)?(?:a |an )?(${EN_FONTS.map(([, w]) => w).join('|')})\\b`, 'g'), item: look(m => ({ kind: 'font', font: fontOf(m[1] ?? m[2]!) })) },
+  { re: /角(?:を|が)?\s*(?:もっと|少し)?\s*(?:丸く|丸め)|角丸に|丸みを(?:つけ|付け|足し)|\b(?:rounder|round(?:ed)?|softer) (?:corners|edges)\b|\bround (?:the |off the )?corners\b/g, item: look(() => ({ kind: 'corners', direction: 'rounder' })) },
+  { re: /角(?:を|が)?\s*(?:尖らせ|立て|四角く|シャープに)|四角っぽく|\b(?:square|squarer|sharp|sharper|hard) (?:corners|edges)\b/g, item: look(() => ({ kind: 'corners', direction: 'squarer' })) },
+  { re: new RegExp(`(?:アクセント(?:カラー|色)?|差し色|メイン(?:カラー|の色)|テーマ(?:カラー|色)|キーカラー|(?<!音)色)(?:を|は|が)?\\s*(?:もっと)?\\s*(${JA_COLOR})(?:色)?(?:に|へ|っぽく|系に|系)?`, 'g'), item: look(m => accent(m[1]!)) },
+  { re: new RegExp(`(${JA_COLOR})(?:色)?(?:っぽく|系に|基調に|ベースに|を基調|をアクセント|のアクセント)`, 'g'), item: look(m => accent(m[1]!)) },
+  { re: /(赤|青|黄色)く(?:して|する)?/g, item: look(m => accent(m[1]!)) },
+  { re: new RegExp(`\\b(${EN_COLOR}) (?:accents?|highlights?|colou?r ?scheme|theme)\\b|\\b(?:accent|highlight|main) ?colou?rs? (?:to |in |into |=)?(?:be )?(?:a |an )?(${EN_COLOR})\\b|\\baccents? (?:in |to )?(${EN_COLOR})\\b|\\b(?:make|turn|paint) it (${EN_COLOR})\\b`, 'g'), item: look(m => accent(m[1] ?? m[2] ?? m[3] ?? m[4]!)) },
+  { re: /黒(?:っぽく|く|基調に|ベースに)|ダークモード|ダークテーマ|\bdark (?:mode|theme)\b/g, item: (m: RegExpExecArray): LexItem => ({ kind: 'look', change: { kind: 'tone', direction: 'darker' }, amount: /モード|テーマ|mode|theme/.test(m[0]) ? 'extreme' : 'large', phrase: m[0] }) },
+  { re: /白(?:っぽく|く|基調に|ベースに)|ライトモード|ライトテーマ|\blight (?:mode|theme)\b/g, item: (m: RegExpExecArray): LexItem => ({ kind: 'look', change: { kind: 'tone', direction: 'lighter' }, amount: /モード|テーマ|mode|theme/.test(m[0]) ? 'extreme' : 'large', phrase: m[0] }) },
+];
+/** Words that mean the screen only when the request is about it ("暗く" is a darker sound otherwise). */
+const SCREEN_CONTEXT_RULES: Rule[] = [
+  { re: new RegExp(`(${JA_LOOK})(?:っぽく|風に|みたいに|調に|にして)`, 'g'), item: look(m => lookOf(m[1]!)) },
+  { re: new RegExp(`\\b(${EN_LOOK})(?:-?ish| style)?\\b`, 'g'), item: look(m => lookOf(m[1]!)) },
+  { re: /暗[くいめ]|ダークに|シックに|渋く|落ち着いた色に|\bdark(?:er|en)?\b/g, item: look(() => ({ kind: 'tone', direction: 'darker' })) },
+  { re: /明る[くいめ]|爽やかに|ライトに|\b(?:light(?:er|en)?|brighter)\b/g, item: look(() => ({ kind: 'tone', direction: 'lighter' })) },
+  { re: /丸く|\brounder\b/g, item: look(() => ({ kind: 'corners', direction: 'rounder' })) },
+  { re: new RegExp(`(${JA_COLOR})(?:に|で)|\\b(${EN_COLOR})\\b`, 'g'), item: look(m => accent(m[1] ?? m[2]!)) },
+];
+/** Screen nouns that carry nothing once a screen edit is recognised ("画面を", "the look"). */
+const SCREEN_FILLER = /画面|見た目|ルック|デザイン|ui|背景|テーマ|スキン|(?<!音)色|カラー|全体|プラグイン|\b(?:screen|look|looks|gui|interface|design|background|theme|skin|colou?rs?|plugin|visuals?|appearance)\b/g;
+
 // Order matters: longer / more specific rules first; matches never overlap.
-const RULES: Rule[] = [
+const COMPLEX: Rule =
   // ---- requests that need the LLM path. ("コード" alone also means "chord", so only code-ish phrasings.)
-  { re: /コードボックス|コードで|コードを(?:書|作)|スクリプト|プログラム|説明|仕組み|教えて|なぜ|どうして|ルーティング|配線|(?:つな|繋)(?:い|げ)|接続|\b(?:codebox|code|script|program|write|explain|why|how does|what does|route|wire|connect|modulate the)\b/g, item: m => ({ kind: 'complex', phrase: m[0] }) },
+  { re: /コードボックス|コードで|コードを(?:書|作)|スクリプト|プログラム|説明|仕組み|教えて|なぜ|どうして|ルーティング|配線|(?:つな|繋)(?:い|げ)|接続|\b(?:codebox|code|script|program|write|explain|why|how does|what does|route|wire|connect|modulate the)\b/g, item: m => ({ kind: 'complex', phrase: m[0] }) };
+const RULES: Rule[] = [
   // ---- template nouns (kept only when a "make/作って" verb is also present; see parseRequest)
   ...JA_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`(?:${w})(?:の音色|の音|っぽい音|っぽく)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
   ...EN_TEMPLATES.map(([t, w]): Rule => ({ re: new RegExp(`\\b(?:${w})\\b(?: sound| patch| synth)?`, 'g'), item: m => ({ kind: 'template', template: t, phrase: m[0] }) })),
@@ -148,14 +204,19 @@ export function detectLanguage(text: string): 'ja' | 'en' {
   return /[぀-ヿ㐀-鿿]/.test(text) ? 'ja' : 'en';
 }
 
-export function parseRequest(raw: string): LexResult {
+/**
+ * Read a request. `screen`: the person is editing the plugin screen, so words
+ * like "darker" mean the screen (a request that names the screen counts too).
+ */
+export function parseRequest(raw: string, options: { screen?: boolean } = {}): LexResult {
   const text = raw.normalize('NFKC').replace(/\s+/g, ' ').trim();
   const lower = text.toLowerCase();
   const lang = detectLanguage(text);
+  const screen = !!options.screen || SCREEN_WORDS.test(lower);
   const taken: Array<[number, number]> = [];
   const overlaps = (s: number, e: number) => taken.some(([a, b]) => s < b && e > a);
   const found: Array<{ at: number; end: number; item: LexItem }> = [];
-  for (const rule of RULES) {
+  for (const rule of [COMPLEX, ...SCREEN_RULES, ...(screen ? SCREEN_CONTEXT_RULES : []), ...RULES]) {
     rule.re.lastIndex = 0;
     for (let m = rule.re.exec(lower); m; m = rule.re.exec(lower)) {
       if (!m[0]) { rule.re.lastIndex++; continue; }
@@ -194,11 +255,12 @@ export function parseRequest(raw: string): LexResult {
       if (mod.amount === 'max') target.item.direction = target.item.direction === 'down' ? 'set_min' : 'set_max';
       else if (mod.amount === 'min') target.item.direction = 'set_min';
       else if (!target.item.amount || inside === undefined) target.item.amount = mod.amount;
-    } else if (target.item.kind === 'fx' && mod.amount !== 'max' && mod.amount !== 'min') target.item.amount = mod.amount;
+    } else if ((target.item.kind === 'fx' || target.item.kind === 'look') && mod.amount !== 'max' && mod.amount !== 'min') target.item.amount = mod.amount;
   }
   let rest = '';
   for (let i = 0; i < lower.length; i++) if (!taken.some(([a, b]) => i >= a && i < b)) rest += lower[i]; else rest += ' ';
   if (found.some(f => f.item.kind === 'template')) rest = rest.replace(TEMPLATE_ADJ, ' ');
+  if (found.some(f => f.item.kind === 'look')) rest = rest.replace(SCREEN_FILLER, ' ');
   const leftover = rest.replace(FILLER_EN, ' ').replace(FILLER_JA, '').replace(/\s+/g, ' ').trim();
   const meaningful = leftover.replace(/[^\p{L}\p{N}]/gu, '');
   // "warmer and less harsh" says the same thing twice: one step, not two.
@@ -207,5 +269,5 @@ export function parseRequest(raw: string): LexResult {
     const same = items.find(i => i.kind === item.kind && JSON.stringify({ ...i, phrase: '', amount: undefined }) === JSON.stringify({ ...item, phrase: '', amount: undefined }));
     if (!same) items.push(item);
   }
-  return { items, full: items.length > 0 && meaningful.length <= 1, leftover, lang };
+  return { items, screen, full: items.length > 0 && meaningful.length <= 1, leftover, lang };
 }

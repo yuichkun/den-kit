@@ -42,15 +42,16 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"setLook","look":{"tokens":{"accent":"#ff7a59"},"background":[{"kind":"image","asset":"sc-wood","fit":"cover"}],"skins":{"knob":{"name":"ring"}}}}  (merges)',
       '  {"op":"addElement","element":{"kind":"text","text":"ACID","rect":{"x":24,"y":16,"w":300,"h":48},"textStyle":{"font":"oswald","size":40,"color":"fg"}}} · {"op":"updateElement","id":"text1","set":{"text":"ACID 303"}} · {"op":"removeElement","id":"text1"}',
       '  {"op":"arrange","ids":["shape1"],"to":"back"} · {"op":"group","ids":["text1","shape1"]} · {"op":"setPanelSize","width":720,"height":440}',
+      '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief)',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
     ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: {
         ops: { type: 'array', minItems: 1, maxItems: 96, items: { type: 'object', properties: {
-          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset'] },
+          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief'] },
           node: {}, id: { type: 'string' }, from: portRef, to: {}, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' },
-          for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' },
+          for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' }, work: { type: 'string' }, brief: {},
         }, required: ['op'] } },
       },
       required: ['ops'],
@@ -84,8 +85,13 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_ui_reference',
-    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, part; style and textStyle fields), "parts" (custom canvas code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "layout" (what reads well). No topic: an overview.',
-    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, part; style and textStyle fields), "parts" (custom canvas code, including taking the mouse to move controls), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
+    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'parts', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+  },
+  {
+    name: 'kit_view_picture',
+    description: 'Look at a picture: one the person added (a reference photo, a sketch, the picture laid under the editor) or a bundled one, with its main colours (and the picture itself when your model accepts images). Use it when the person points at a picture ("like this photo", "follow my sketch").',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
     name: 'kit_look',
@@ -131,6 +137,8 @@ The plugin screen (what the user plays)
 - The plugin is a window of fixed design size that scales to fit. Its controls are widget modules (ui.knob, ui.slider, ui.toggle, ui.button, ui.xy, ui.keyboard, ui.scope, ui.meter) with a "panel" rect; decorations are elements (text, shape, image, svg, led, custom part); the look holds the colour and font tokens, the background and the default skin of each control kind.
 - Read it with kit_get_plugin; edit it with kit_apply_ops (screen edits are checked like any edit and land at once; they never recompile the sound). kit_ui_reference has the skins, fonts, element fields, custom parts and bundled pictures.
 - After screen edits, look with kit_look and fix what it finds before you finish.
+- Designing a screen: start from the design brief (kit_get_plugin shows it; with none yet, write one first with setBrief: the idea, palette, type and layout in 2-4 short lines) and keep to it on later requests. A ready look (wearLook) is a quick start. When the person points at a picture, look at it with kit_view_picture.
+- What the person changed by hand (kit_get_plugin lists it) stays as they made it unless the request is about it.
 - A control for a module input: addControl (wired, ranged and placed for you). Label every control; keep text at 11 px or more and readable against what is behind it; leave 16-24 px margins; line things up; nothing opaque over a control.
 - Colours: use the tokens (bg, fg, accent, track, knob, pointer, muted, glow) so the screen survives a change of look; fixed colours only for things printed on a picture or a plate.
 - Custom parts draw with canvas code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.

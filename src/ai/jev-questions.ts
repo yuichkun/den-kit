@@ -12,6 +12,7 @@ export const ROUTES = {
   add_effect: 'Add a ready-made audio effect to the current sound (reverb/hall/space, delay/echo, ping-pong delay, chorus, phaser, flanger, distortion, compressor).',
   create: 'The user wants a different instrument or sound type, e.g. "make a bass", "I want a fat bass", "a pad please", "something like a piano".',
   complex: 'Needs real work or words: writing code or a codebox (custom DSP such as a bitcrusher), new routing or wiring, explaining the patch, or several unrelated steps.',
+  screen: 'Change how the plugin looks on screen, not how it sounds: its colours, background, fonts, text size, layout, controls\' look, or a style such as neon, wood or a guitar pedal.',
 } as const;
 export type RouteId = keyof typeof ROUTES;
 

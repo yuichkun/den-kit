@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
 import { KitSession } from './session.ts';
 import { MAX_FILE_BYTES } from '../core/persistence.ts';
@@ -20,6 +20,7 @@ const session = props.session;
 provide(SESSION, session);
 const view = ref<'patch' | 'plugin' | 'code'>('patch');
 const pluginEdit = ref(false);
+watchEffect(() => { props.session.screenFocus.value = view.value === 'plugin' && pluginEdit.value; });
 const editing = ref<string | null>(null);
 const editingPart = ref<string | null>(null);
 const pluginView = ref<InstanceType<typeof PluginView> | null>(null);

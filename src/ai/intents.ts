@@ -69,9 +69,14 @@ export const aspectById = (id: string) => ASPECTS.find(a => a.id === id);
 export interface Target { node: string; port: PortId }
 export interface Candidate extends Target { def: PortDef; title: string; label?: string; category: Category; selected: boolean; score: number; description: string }
 
-/** Unconnected, visible signal inputs whose roles match the aspect, best first. */
+/**
+ * Signal inputs whose roles match the aspect, best first: unconnected ones (their
+ * knob in the patch), and ones a knob or slider on the plugin drives (then that
+ * control is turned, so the person sees it move).
+ */
 export function candidates(doc: PatchDocument, catalog: Catalog, aspect: Aspect, selection: readonly string[] = []): Candidate[] {
   const out: Candidate[] = [];
+  const seen = new Set<string>();
   for (const node of Object.values(doc.nodes)) {
     const def = catalog.find(node.type);
     if (!def || def.kind === 'widget' || def.kind === 'comment') continue;
@@ -79,14 +84,28 @@ export function candidates(doc: PatchDocument, catalog: Catalog, aspect: Aspect,
     for (const port of catalog.inputs(node)) {
       if (port.type !== 'signal' || port.hidden || port.constant || port.role === 'audio' || port.binding) continue;
       if (!port.roles?.some(r => aspect.roles.includes(r))) continue;
-      if (edgesInto(doc, node.id, port.id).length) continue;
-      const selected = selection.includes(node.id);
       const preferIndex = aspect.prefer?.indexOf(def.category) ?? -1;
-      let score = selected ? 100 : 0;
-      score += preferIndex >= 0 ? 10 - preferIndex : 0;
+      let score = preferIndex >= 0 ? 10 - preferIndex : 0;
       if (aspect.ampEnvelope && def.category === 'envelope') score += isAmpEnvelope(doc, node) ? 5 : 0;
       if (aspect.id === 'volume') score += feedsOut(doc, node) ? 5 : 0;
-      out.push({ node: node.id, port: port.id, def: port, title: def.title, label: node.label, category: def.category, selected, score, description: describeCandidate(doc, catalog, node, port, selected) });
+      const driver = edgesInto(doc, node.id, port.id)[0];
+      if (!driver) {
+        const selected = selection.includes(node.id);
+        out.push({ node: node.id, port: port.id, def: port, title: def.title, label: node.label, category: def.category, selected, score: score + (selected ? 100 : 0), description: describeCandidate(doc, catalog, node, port, selected) });
+        continue;
+      }
+      const control = doc.nodes[driver.from.node];
+      if (!control || (control.type !== 'ui.knob' && control.type !== 'ui.slider') || driver.from.port !== 'out' || seen.has(control.id)) continue;
+      const value = catalog.inputs(control).find(p => p.id === 'value');
+      if (!value) continue;
+      seen.add(control.id);
+      const selected = selection.includes(node.id) || selection.includes(control.id);
+      const unit = (typeof control.config.unit === 'string' && control.config.unit ? control.config.unit : port.unit) as PortDef['unit'];
+      // A control put on the plugin is the one the designer meant (the knobs left inside are details).
+      out.push({
+        node: control.id, port: 'value', def: { ...value, hidden: false, roles: port.roles, unit, label: control.label ?? port.label }, title: def.title, label: control.label, category: def.category, selected, score: score + (selected ? 100 : 0) + (control.panel ? 3 : 0),
+        description: `${describeCandidate(doc, catalog, node, port, selected)}, set by the control '${control.label ?? control.id}' on the plugin`,
+      });
     }
   }
   return out.sort((a, b) => b.score - a.score || a.node.localeCompare(b.node) || a.port.localeCompare(b.port));
@@ -179,6 +198,8 @@ export type Plan =
   | { kind: 'adjust'; aspect: string; direction: Direction; amount: Amount; intents: Intent[]; changes: Change[]; label: string; short: string }
   | { kind: 'addFx'; fx: FxId; intents: Intent[]; node: string; label: string; short: string }
   | { kind: 'multi'; plans: Plan[]; intents: Intent[]; label: string; short: string }
+  /** A change of the plugin screen (look-intents.ts). */
+  | { kind: 'look'; change: string; intents: Intent[]; label: string; short: string }
   | { kind: 'template'; template: string; doc: PatchDocument; label: string; short: string };
 
 export type PlanResult =

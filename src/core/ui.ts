@@ -171,10 +171,12 @@ export interface PluginUi {
   groups: Record<string, string[]>;
   /** A reference picture shown under the plugin while editing (never in play). */
   underlay?: Underlay;
+  /** The design brief: the idea, palette, type and layout in a few lines, written by the person or the AI, kept to on later edits. */
+  brief?: string;
 }
 export const emptyUi = (): PluginUi => ({ look: { tokens: {}, skins: {} }, elements: {}, order: [], groups: {} });
 
-export const LIMITS = { elements: 500, text: 2000, svg: 200_000, code: 64_000, css: 32_000, fills: 8, stops: 16, shadows: 6, props: 32 } as const;
+export const LIMITS = { elements: 500, text: 2000, svg: 200_000, code: 64_000, css: 32_000, fills: 8, stops: 16, shadows: 6, props: 32, brief: 2000 } as const;
 
 // ---- checks ---------------------------------------------------------------------------------
 export class UiCheckError extends Error {

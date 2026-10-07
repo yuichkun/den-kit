@@ -12,6 +12,7 @@ import type { LexItem, LexResult } from './lexicon.ts';
 import { ranked, type Choice, type ReadAnswers } from './jev-answers.ts';
 import type { BuiltRequest, RouteId } from './jev-questions.ts';
 import { buildTemplate, TEMPLATES, TEMPLATE_INFO, type TemplateId } from './templates.ts';
+import { planLook } from './look-intents.ts';
 
 export interface RouterSettings { tau: number; tauJa: number }
 /** From the second kit:eval:jev run (36/36 right; Japanese answers down to 70%). */
@@ -55,6 +56,7 @@ export function planItem(item: LexItem, doc: PatchDocument, catalog: Catalog, se
     return planAddFx(doc, catalog, item.fx);
   }
   if (item.kind === 'complex') return { ok: false, reason: 'unknown', message: NEEDS_LLM };
+  if (item.kind === 'look') return planLook(doc, catalog, item.change, item.amount);
   const tdoc = buildTemplate(item.template, catalog);
   const info = TEMPLATE_INFO[item.template];
   return { ok: true, plan: { kind: 'template', template: item.template, doc: tdoc, label: `new ${info.title.toLowerCase()} patch`, short: `new ${info.title}` } };
@@ -173,6 +175,8 @@ export function decideFromJev(read: ReadAnswers, built: BuiltRequest, ctx: Route
   if (!route) return chips('Jev gave no usable answer.');
   if (!route.agree) return chips('Jev was unsure what kind of edit this is.', route.confidence);
   if (route.choice === 'complex') return { kind: 'escalate', message: NEEDS_LLM, chips: chipsFromAnswers(read, ctx, fallback).filter(c => c.plan.kind !== 'template') };
+  // A screen request the built-in phrases did not cover: the LLM builds screens.
+  if (route.choice === 'screen') return { kind: 'escalate', message: NEEDS_LLM, chips: fallback };
   if (route.confidence < tau) return chips(`Not sure enough (${Math.round(route.confidence * 100)}% < ${Math.round(tau * 100)}%).`, route.confidence);
 
   if (route.choice === 'adjust') {

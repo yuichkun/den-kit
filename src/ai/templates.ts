@@ -1,10 +1,13 @@
 // Templates for "make a bass" style requests: whole patches built from the
-// den starters (CANDIDATE sound) plus a few value changes per preset. Slots
-// (brighter, longer release, …) are applied afterwards as ordinary intents.
+// den starters (CANDIDATE sound) plus a few value changes per preset, each with
+// a first plugin screen (its name, knobs for its main parameters, a keyboard).
+// Slots (brighter, longer release, …) are applied afterwards as ordinary intents.
 import type { Catalog } from '../core/catalog.ts';
 import { applyIntents, type Intent } from '../core/ops.ts';
 import { starter, type StarterId } from '../core/starters.ts';
 import type { PatchDocument } from '../core/schema.ts';
+import { controlFor } from '../plugin/controls.ts';
+import { aspectById, candidates, chooseTargets } from './intents.ts';
 
 export const TEMPLATES = ['bass', 'pad', 'lead', 'pluck', 'keys', 'perc'] as const;
 export type TemplateId = typeof TEMPLATES[number];
@@ -44,5 +47,42 @@ export function buildTemplate(id: TemplateId, catalog: Catalog): PatchDocument {
   const info = TEMPLATE_INFO[id];
   const base = starter(info.base, catalog);
   const intents: Intent[] = [...info.tweaks, { op: 'setName', name: info.title }];
-  return applyIntents(base, intents, catalog).doc;
+  const doc = applyIntents(base, intents, catalog).doc;
+  return applyIntents(doc, starterScreen(doc, catalog, info.title), catalog).doc;
+}
+
+/** The main things to play on a new sound, in this order, with the name its knob gets. */
+const MAIN: ReadonlyArray<[string, string]> = [['brightness', 'Tone'], ['resonance', 'Resonance'], ['attack', 'Attack'], ['release', 'Release'], ['wobble', 'Wobble'], ['mix', 'Space'], ['volume', 'Level']];
+
+/**
+ * A first plugin screen for a new sound, so it can be played at once: its name,
+ * a row of knobs for its main parameters (each wired to the module it turns),
+ * and a keyboard when it is an instrument. Ordinary edits, like everything else.
+ */
+export function starterScreen(doc: PatchDocument, catalog: Catalog, title: string): Intent[] {
+  const picked: Array<{ node: string; port: string; label: string }> = [];
+  for (const [id, label] of MAIN) {
+    const aspect = aspectById(id);
+    if (!aspect || picked.length >= 6) continue;
+    const list = candidates(doc, catalog, aspect).filter(c => !doc.nodes[c.node]?.type.startsWith('ui.'));
+    const choice = chooseTargets(aspect, list);
+    const target = choice.kind === 'one' ? choice.targets[0] : choice.kind === 'ambiguous' ? choice.candidates[0] : undefined;
+    if (target && !picked.some(p => p.node === target.node && p.port === target.port)) picked.push({ node: target.node, port: target.port, label });
+  }
+  const instrument = Object.values(doc.nodes).some(n => n.type === 'kit.voiceIn');
+  const knob = { w: 84, h: 96, gap: 12, x: 24, y: 80 };
+  const width = Math.max(420, knob.x * 2 + picked.length * knob.w + Math.max(0, picked.length - 1) * knob.gap);
+  const height = knob.y + knob.h + (instrument ? 24 + 64 : 0) + 24;
+  const intents: Intent[] = [
+    { op: 'setPanelSize', width, height },
+    { op: 'addElement', element: { kind: 'text', name: 'Title', text: title, rect: { x: knob.x, y: 18, w: width - knob.x * 2, h: 44 }, textStyle: { size: 30, weight: 700, color: 'fg', align: 'left' } } },
+  ];
+  let taken = doc;
+  picked.forEach((p, i) => {
+    const made = controlFor(taken, catalog, { node: p.node, port: p.port, label: p.label, panel: { x: knob.x + i * (knob.w + knob.gap), y: knob.y, w: knob.w, h: knob.h } });
+    intents.push(...made.intents);
+    taken = applyIntents(taken, made.intents, catalog).doc;
+  });
+  if (instrument) intents.push({ op: 'addNode', node: { type: 'ui.keyboard', label: 'Keys', pos: { x: -320, y: 420 }, panel: { x: knob.x, y: knob.y + knob.h + 24, w: width - knob.x * 2, h: 64 }, style: { skin: { name: 'piano', params: { octaves: width >= 560 ? 3 : 2, start: 48 } } } } });
+  return intents;
 }

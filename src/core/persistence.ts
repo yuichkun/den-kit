@@ -6,7 +6,7 @@ import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
 import { NODE_ID_PATTERN, PATCH_SCHEMA, PATCH_VERSION, THEMES, nextNodeId, type PatchDocument, type PatchEdge, type PatchNode, type ThemeId } from './schema.ts';
 import { CONTROL_OF } from './skins.ts';
-import { MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
+import { LIMITS, MAX_ASSET_BYTES, checkAsset, checkElement, checkLook, checkWidgetStyle, emptyUi, type CheckContext } from './ui.ts';
 
 /** Exports carry their pictures and fonts inside, so they can be large. */
 export const MAX_FILE_BYTES = 40 * 1024 * 1024;
@@ -170,6 +170,7 @@ function readUi(raw: Record<string, unknown>, doc: PatchDocument, report: Issue[
   if (isObject(raw.underlay) && typeof raw.underlay.asset === 'string' && doc.assets[raw.underlay.asset]) {
     ui.underlay = { asset: raw.underlay.asset, opacity: finite(raw.underlay.opacity) ? Math.min(1, Math.max(0.05, raw.underlay.opacity)) : 0.4, visible: raw.underlay.visible !== false };
   }
+  if (typeof raw.brief === 'string' && raw.brief.trim()) ui.brief = raw.brief.trim().slice(0, LIMITS.brief);
 }
 
 /** Autosave record with a checksum, so a torn or corrupted write is detected on load. */

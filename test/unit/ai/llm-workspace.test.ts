@@ -236,5 +236,19 @@ describe('LlmWorkspace', () => {
     expect((await plain.ws.call('kit_finish', { summary: 'x' })).success).toBe(true);
     expect((await plain.ws.call('kit_look', {})).imageDataUrl).toBeUndefined();
   });
+
+  it('kit_view_picture: a picture of the patch (or a bundled one) with its main colours; the picture itself only for image models', async () => {
+    const seen = { png: new Uint8Array([137, 80, 78, 71]), width: 1024, height: 1024, palette: [{ color: '#5a3a22', share: 0.6 }, { color: '#8a5a32', share: 0.4 }] };
+    const { ws } = workspace({ images: true, viewPicture: async id => id === 'sc-wood' ? seen : null });
+    const r = await ws.call('kit_view_picture', { id: 'sc-wood' });
+    expect(r.success).toBe(true);
+    expect(r.text).toMatch(/^Picture sc-wood Warm mid-brown wood grain.*: 1024×1024\. Main colours: #5a3a22 \(60%\), #8a5a32 \(40%\)\. The picture is attached\./);
+    expect(r.imageDataUrl).toMatch(/^data:image\/png;base64,/);
+    const missing = await ws.call('kit_view_picture', { id: 'my-photo' });
+    expect(missing.success).toBe(false);
+    expect(missing.text).toMatch(/No picture "my-photo"\. This patch has no pictures\./);
+    const plain = workspace({ images: false, viewPicture: async () => seen });
+    expect((await plain.ws.call('kit_view_picture', { id: 'sc-wood' })).imageDataUrl).toBeUndefined();
+  });
 });
 

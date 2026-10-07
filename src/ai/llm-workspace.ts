@@ -16,6 +16,7 @@ import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
 import type { RenderRequest } from '../compile/protocol.ts';
 import type { Rendered } from '../compile/render-client.ts';
 import { describePlugin, describeUiOp, expandOps, screenChanged, uiReference } from './plugin-tools.ts';
+import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
 import type { LookResult } from '../plugin/look.ts';
 
@@ -36,12 +37,17 @@ export interface WorkspaceDeps {
   land(intents: Intent[], label: string): { ok: true } | { ok: false; message: string };
   /** Draw the plugin and look it over (and take a picture when `picture`). */
   look(doc: PatchDocument, picture: boolean): Promise<LookResult>;
+  /** A picture asset, made small enough to send, with its main colours (null: no such picture, or it cannot be read). */
+  viewPicture?(id: string): Promise<Picture | null>;
+  /** What the person changed on the screen by hand (handEdits in plugin-tools.ts). */
+  handEdits?(): string[];
 }
+export interface Picture { png: Uint8Array | null; width: number; height: number; palette: Array<{ color: string; share: number }> }
 
 const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
-const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_look, kit_finish';
+const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_finish';
 
 export class LlmWorkspace {
   summary: string | null = null;
@@ -69,10 +75,11 @@ export class LlmWorkspace {
         case 'kit_get_plugin': {
           const doc = this.deps.read();
           const part = typeof a.part === 'string' && a.part ? a.part : undefined;
-          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { part, problems: part ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue) })) };
+          return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { part, problems: part ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.() })) };
         }
         case 'kit_look': return await this.look();
-        case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined) };
+        case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined, this.deps.catalog) };
+        case 'kit_view_picture': return await this.viewPicture(String(a.id ?? ''));
         case 'kit_finish':
           if (this.unseen && !this.remindedToLook) {
             this.remindedToLook = true;
@@ -209,6 +216,21 @@ export class LlmWorkspace {
   }
 
   // ---- looking ---------------------------------------------------------------------------
+  private async viewPicture(id: string): Promise<ToolOutput> {
+    const doc = this.deps.read();
+    const asset = doc.assets[id] ?? SHOWCASE_ASSETS[id];
+    if (!asset || !asset.mime.startsWith('image/')) {
+      const pictures = Object.values(doc.assets).filter(a => a.mime.startsWith('image/')).map(a => a.id);
+      return { success: false, text: `No picture "${id}". ${pictures.length ? `Pictures in this patch: ${pictures.join(', ')}.` : 'This patch has no pictures.'} Bundled ones: kit_ui_reference "pictures".` };
+    }
+    const seen = await this.deps.viewPicture?.(id) ?? null;
+    if (!seen) return { success: false, text: `The picture "${id}" could not be read in this browser.` };
+    this.steps.push(`looked at the picture ${id}`);
+    const palette = seen.palette.map(p => `${p.color} (${Math.round(p.share * 100)}%)`).join(', ');
+    const where = PICTURE_DOC[id] ? ` ${PICTURE_DOC[id]}` : asset.source?.title ? ` (${asset.source.title})` : '';
+    return { success: true, text: `Picture ${id}${where}: ${asset.width ?? seen.width}×${asset.height ?? seen.height}. Main colours: ${palette}.${this.deps.images && seen.png ? ' The picture is attached.' : ''}`, imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined };
+  }
+
   private async look(): Promise<ToolOutput> {
     const doc = this.deps.read();
     const seen = await this.deps.look(doc, this.deps.images);

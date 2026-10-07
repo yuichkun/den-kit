@@ -23,6 +23,8 @@ export interface Transaction {
   /** Steps of one request (an LLM turn): consecutive ones undo together. */
   group?: string;
   baseRevision: number;
+  /** The whole patch was replaced (a load, a new start): nothing before it is about this patch. */
+  replaced?: boolean;
 }
 
 export const authorLabel = (a: Author) => a.kind === 'human' ? 'you' : a.kind === 'ai-fast' ? `fast:${a.handler}` : a.kind === 'ai-llm' ? `llm:${a.take}` : `system:${a.reason}`;

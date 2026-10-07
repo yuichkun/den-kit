@@ -117,3 +117,39 @@ describe('templates', () => {
     expect(generate(doc, catalog).source.length).toBeGreaterThan(100);
   });
 });
+
+describe('a parameter driven by a control on the plugin', () => {
+  it('"brighter" on a work turns the plugin\'s cutoff knob (within the knob\'s own range), so the person sees it move', async () => {
+    const { findWork } = await import('../../../src/showcase/index.ts');
+    const doc = findWork('acid')!.build(catalog);
+    const r = planAdjust(doc, catalog, { aspect: 'brightness', direction: 'up' });
+    if (!r.ok) throw new Error(r.message);
+    const knob = Object.values(doc.nodes).find(n => n.type === 'ui.knob' && n.label?.toLowerCase() === 'cutoff')!;
+    const intents = (r.plan as { intents: unknown[] }).intents;
+    expect(intents).toEqual([expect.objectContaining({ op: 'setValue', node: knob.id, port: 'value' })]);
+    const to = (intents[0] as { value: number }).value;
+    expect(to).toBeGreaterThan(Number(knob.values.value));
+    expect(to).toBeLessThanOrEqual(Number(knob.config.max));
+  });
+
+  it('one control driving two inputs is turned once', async () => {
+    const { findWork } = await import('../../../src/showcase/index.ts');
+    const doc = findWork('lofi')!.build(catalog); // "tone" drives both channels' lowpass
+    const r = planAdjust(doc, catalog, { aspect: 'brightness', direction: 'down' });
+    if (!r.ok) throw new Error(r.message);
+    expect((r.plan as { intents: unknown[] }).intents).toEqual([expect.objectContaining({ node: 'ftone', port: 'value' })]);
+  });
+});
+
+describe('a new sound comes with a first screen', () => {
+  it.each(TEMPLATES)('%s: its name, knobs for its main parameters in a row, a keyboard; nothing for the checks to fix', async id => {
+    const { checkPlugin } = await import('../../../src/plugin/checks.ts');
+    const doc = buildTemplate(id, catalog);
+    const knobs = Object.values(doc.nodes).filter(n => n.type === 'ui.knob' && n.panel);
+    expect(knobs.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(knobs.map(k => k.panel!.y)).size).toBe(1);
+    for (const k of knobs) expect(Object.values(doc.edges).some(e => e.from.node === k.id)).toBe(true);
+    expect(Object.values(doc.nodes).some(n => n.type === 'ui.keyboard' && n.panel)).toBe(true);
+    expect(checkPlugin(doc, catalog)).toEqual([]);
+  });
+});
