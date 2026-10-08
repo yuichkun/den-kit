@@ -44,6 +44,8 @@ export interface PageFacts {
   framed: boolean;
   /** The isolation headers the server sends with this page (null: it could not be read). */
   headers: { coop: string | null; coep: string | null } | null;
+  /** A service worker answers this page's loads (den-kit has none: one left here by another app). */
+  serviceWorker: boolean;
 }
 /** Why this tab is not cross-origin isolated, and what fixes it (the checks in the order that decides). */
 export function isolationProblem(f: PageFacts): { reason: string; fix: string } {
@@ -52,7 +54,8 @@ export function isolationProblem(f: PageFacts): { reason: string; fix: string } 
   if (f.framed) return { reason: 'den-kit is shown inside another page (an app\'s preview or a frame), which cannot be isolated', fix: `Open ${origin}/ in a tab of its own (Chrome recommended).` };
   if (!f.headers) return { reason: 'den-kit could not read its own page from the server', fix: 'Check that `npm run kit:dev` is still running, then reload.' };
   if (f.headers.coop !== 'same-origin' || !/^(require-corp|credentialless)$/.test(f.headers.coep ?? '')) return { reason: `the server sends COOP "${f.headers.coop ?? 'none'}" and COEP "${f.headers.coep ?? 'none'}" with this page`, fix: `Another server may be answering on ${origin}: stop it, start \`npm run kit:dev\` (from the den folder, on this branch) and reload.` };
-  return { reason: 'the server sends the isolation headers, but this tab was not isolated', fix: `Close this tab and open ${origin}/ in a new one (Chrome recommended; a tab opened before den-kit sent the headers can stay as it was).` };
+  if (f.serviceWorker) return { reason: 'a service worker left on this address by another app answers den-kit\'s page without its isolation headers', fix: `Reload: den-kit removes it. If this stays, open Chrome DevTools ▸ Application ▸ Service workers, press Unregister for ${origin}, then reload.` };
+  return { reason: 'the server sends the isolation headers, but this tab was not isolated', fix: `Open ${origin}/ in an incognito window (⇧⌘N). If it works there, a browser extension changes den-kit's headers: turn it off for 127.0.0.1.` };
 }
 async function pageFacts(): Promise<PageFacts> {
   let headers: PageFacts['headers'] = null;
@@ -62,7 +65,25 @@ async function pageFacts(): Promise<PageFacts> {
   } catch { /* the server is gone */ }
   let framed = false;
   try { framed = window.top !== window; } catch { framed = true; }
-  return { href: location.href, secure: globalThis.isSecureContext, framed, headers };
+  return { href: location.href, secure: globalThis.isSecureContext, framed, headers, serviceWorker: !!navigator.serviceWorker?.controller };
+}
+
+/**
+ * den-kit uses no service worker. One left on its address by another app (a dev
+ * server that ran on the same port) answers page loads itself, without den-kit's
+ * isolation headers, so the tab is never isolated and BrowserPod cannot start.
+ * When the tab is not isolated, remove such workers and load the page again (once).
+ */
+export async function clearForeignServiceWorkers(): Promise<boolean> {
+  if (globalThis.crossOriginIsolated || !navigator.serviceWorker?.getRegistrations) return false;
+  const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+  if (!registrations.length) return false;
+  await Promise.all(registrations.map(r => r.unregister().catch(() => false)));
+  const key = 'den-kit:service-workers-cleared';
+  try { if (sessionStorage.getItem(key)) return false; sessionStorage.setItem(key, String(Date.now())); } catch { return false; }
+  console.info(`den-kit: removed ${registrations.length} service worker(s) left on this address by another app; loading again.`);
+  location.reload();
+  return true;
 }
 
 export async function bootBrowserPod(options: BrowserPodOptions): Promise<PodHost> {

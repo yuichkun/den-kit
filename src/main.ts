@@ -13,6 +13,8 @@ import '@fontsource/lato/700.css';
 import './plugin/fonts.ts';
 import './editor/style.css';
 
+// A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
+if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator) void import('./pod/browserpod.ts').then(m => m.clearForeignServiceWorkers());
 defineWidgets();
 const query = new URLSearchParams(location.search);
 const number = (key: string) => query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : undefined;
