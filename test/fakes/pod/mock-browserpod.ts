@@ -4,8 +4,10 @@
 // an API key. It follows what BrowserPod's documentation says, taking the
 // harder reading where the documentation is silent:
 // - run() resolves when the program exits, with an opaque Process and no exit status;
+//   like BrowserPod 3.4.0's, what it returns is a bare thenable (no catch or finally);
 // - the program's output reaches the terminal's onOutput as raw bytes, in pieces
-//   that may split lines (and UTF-8 characters);
+//   that may split lines (and UTF-8 characters), in resizable buffers as BrowserPod's
+//   (its WebAssembly memory; TextDecoder in a browser refuses them);
 // - `env` is the program's whole environment (nothing is inherited), and without
 //   `env` the program gets the pod's own (HOME, PATH, and here this machine's
 //   network settings, which npm needs in this environment);
@@ -17,6 +19,8 @@ import { createServer, type AddressInfo } from 'node:net';
 import { dirname } from 'node:path';
 
 interface Terminal { write(data: string): void }
+/** A resizable ArrayBuffer (ES2024: den-kit's types stop at ES2023). */
+export const resizableBuffer = (length: number, maxByteLength: number): ArrayBuffer => new (ArrayBuffer as unknown as new (length: number, options: { maxByteLength: number }) => ArrayBuffer)(length, { maxByteLength });
 const freePort = () => new Promise<number>((ok, fail) => { const s = createServer(); s.unref(); s.on('error', fail); s.listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => ok(p)); }); });
 
 export class MockBrowserPod {
@@ -38,11 +42,15 @@ export class MockBrowserPod {
     return {
       write: (data: string) => { if (data.includes('\x03') && child?.pid) { try { process.kill(-child.pid, 'SIGINT'); } catch { /* gone */ } } },
       attach: (c: ChildProcess) => { child = c; },
-      output: (b: Buffer) => { for (let i = 0; i < b.length; i += this.chunk) { const piece = b.subarray(i, i + this.chunk); opts.onOutput(piece.buffer.slice(piece.byteOffset, piece.byteOffset + piece.byteLength) as ArrayBuffer); } },
+      output: (b: Buffer) => { for (let i = 0; i < b.length; i += this.chunk) { const piece = b.subarray(i, i + this.chunk); const data = resizableBuffer(piece.byteLength, piece.byteLength + 64); new Uint8Array(data).set(piece); opts.onOutput(data); } },
     };
   }
 
-  async run(executable: string, args: string[], opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean }): Promise<object> {
+  run(executable: string, args: string[], opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean }): PromiseLike<object> {
+    const ran = this.start(executable, args, opts);
+    return { then: ((ok?: (v: object) => unknown, fail?: (e: unknown) => unknown) => { void ran.then(ok, fail); }) as PromiseLike<object>['then'] };
+  }
+  private async start(executable: string, args: string[], opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean }): Promise<object> {
     this.runs.push({ executable, args, env: opts.env, cwd: opts.cwd });
     // The pod's own environment is this machine's (its network settings too: npm needs them here), with the pod's home.
     const own = { ...Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string')), HOME: this.home, PATH: this.path, USER: 'user' };

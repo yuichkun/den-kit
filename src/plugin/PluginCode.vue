@@ -50,7 +50,8 @@ const message = computed(() => {
 
 function post(message: Record<string, unknown>, transfer: Transferable[] = []) {
   const w = frame.value?.contentWindow;
-  if (w && origin.value) w.postMessage({ denkit: 1, ...message }, origin.value, transfer);
+  // Until the part's page says hello, the frame may still hold a blank page of another origin: nothing to send it yet.
+  if (w && origin.value && hello) w.postMessage({ denkit: 1, ...message }, origin.value, transfer);
 }
 /** The controls as they are now (values, positions 0..1, ranges). */
 function controls() {

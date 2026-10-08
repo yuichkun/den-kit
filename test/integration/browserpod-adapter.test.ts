@@ -1,10 +1,12 @@
 // den-kit's BrowserPod adapter (src/pod/browserpod.ts) running its real code
 // against a stand-in with BrowserPod's API (test/fakes/pod/mock-browserpod.ts),
 // which follows BrowserPod's documented behaviour and takes the harder reading
-// where the documentation is silent: run() resolves at exit with no status,
-// output arrives as raw byte pieces, `env` replaces the whole environment,
-// createFile() wipes, read() returns less than asked. Then the whole pod session
-// (npm install, the Vite dev server, TypeScript, ESLint) through the adapter.
+// where the documentation is silent: run() resolves at exit with no status (a
+// bare thenable, as BrowserPod 3.4.0's), output arrives as raw byte pieces in
+// resizable buffers (which a browser's TextDecoder refuses), `env` replaces the
+// whole environment, createFile() wipes, read() returns less than asked. Then the
+// whole pod session (npm install, the Vite dev server, TypeScript, ESLint)
+// through the adapter.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,10 +16,23 @@ import type { BrowserPod } from '@leaningtech/browserpod';
 import { catalog } from '../../src/blocks/index.ts';
 import { starter } from '../../src/core/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
-import { BrowserPodHost, isolationProblem, parseEnv } from '../../src/pod/browserpod.ts';
+import { BrowserPodHost, bootBrowserPod, isolationProblem, parseEnv, plainBytes, resetBrowserPodForTest } from '../../src/pod/browserpod.ts';
 import { PodSession } from '../../src/pod/pod-session.ts';
 import { starterPart } from '../../src/pod/template.ts';
-import { MockBrowserPod } from '../fakes/pod/mock-browserpod.ts';
+import { MockBrowserPod, resizableBuffer } from '../fakes/pod/mock-browserpod.ts';
+
+const resizable = (buffer: ArrayBufferLike) => (buffer as { resizable?: boolean }).resizable === true;
+/** A browser's TextDecoder: it refuses resizable buffers, which Node's accepts. */
+const NodeDecoder = globalThis.TextDecoder;
+class BrowserDecoder extends NodeDecoder {
+  override decode(input?: AllowSharedBufferSource, options?: TextDecodeOptions): string {
+    const buffer = input instanceof ArrayBuffer ? input : ArrayBuffer.isView(input) ? input.buffer : null;
+    if (buffer && resizable(buffer)) throw new TypeError('Failed to execute \'decode\' on \'TextDecoder\': The provided ArrayBuffer value must not be resizable');
+    return super.decode(input, options);
+  }
+}
+beforeAll(() => { globalThis.TextDecoder = BrowserDecoder; });
+afterAll(() => { globalThis.TextDecoder = NodeDecoder; });
 
 describe('BrowserPod adapter (against a stand-in with BrowserPod\'s API)', () => {
   let root: string, home: string, mock: MockBrowserPod, host: BrowserPodHost;
@@ -41,6 +56,15 @@ describe('BrowserPod adapter (against a stand-in with BrowserPod\'s API)', () =>
     expect(isolationProblem({ ...good, headers: { coop: 'same-origin', coep: 'credentialless' } }).reason).toContain('this tab was not isolated');
     expect(isolationProblem({ ...good, serviceWorker: true })).toMatchObject({ reason: expect.stringContaining('a service worker left on this address by another app'), fix: expect.stringContaining('Unregister for http://127.0.0.1:5180') });
     expect(isolationProblem(good)).toMatchObject({ fix: expect.stringContaining('incognito window') });
+  });
+  it('copies output out of resizable buffers (BrowserPod\'s memory) before decoding it', () => {
+    const memory = resizableBuffer(8, 64);
+    new Uint8Array(memory).set([0, 104, 105, 33, 0, 0, 0, 0]);
+    const whole = plainBytes(memory);
+    expect([resizable(whole.buffer), whole.byteLength]).toEqual([false, 8]);
+    const part = plainBytes(new Uint8Array(memory, 1, 3));
+    expect([resizable(part.buffer), new BrowserDecoder().decode(part)]).toEqual([false, 'hi!']);
+    expect(() => new BrowserDecoder().decode(memory)).toThrow(/must not be resizable/);
   });
   it('reads env and export -p lines', () => {
     expect(parseEnv('HOME=/home/user\nPATH=/usr/bin:/bin\nPWD=/x\nA=b=c\n  junk')).toEqual({ HOME: '/home/user', PATH: '/usr/bin:/bin', A: 'b=c' });
@@ -127,4 +151,85 @@ describe('the pod session through the BrowserPod adapter', () => {
     expect(page.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
     expect((await fetch(`${pod.portal.value}src/parts/meter.ts`)).status).toBe(200);
   }, 240_000);
+  it('the dev server starts with src/parts made and looks for new folders (BrowserPod\'s file watching does not see folders made later)', async () => {
+    const dev = mock.runs.find(r => r.args.some(a => a.endsWith('/.den-kit/run/dev.sh')));
+    expect(dev?.env).toEqual(expect.arrayContaining(['KIT_WATCH_NEW_FOLDERS=1', 'KIT_HMR_CLIENT_PORT=443', 'PORT=5173']));
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(dev!.args.find(a => a.endsWith('dev.sh'))!, 'utf8')).toMatch(/^mkdir -p src\/parts && npm run dev/);
+    // A part in a folder made after the server started is served, and so is its change.
+    await pod.bash("mkdir -p src/lib && echo 'export const n = 1;' > src/lib/n.ts", { who: 'ai' });
+    expect(await (await fetch(`${pod.portal.value}src/lib/n.ts`)).text()).toContain('n = 1');
+    await new Promise(r => setTimeout(r, 1500));
+    await pod.bash("echo 'export const n = 2;' > src/lib/n.ts", { who: 'ai' });
+    const end = Date.now() + 10_000;
+    let text = '';
+    while (Date.now() < end && !text.includes('n = 2')) { text = await (await fetch(`${pod.portal.value}src/lib/n.ts`)).text(); await new Promise(r => setTimeout(r, 200)); }
+    expect(text).toContain('n = 2');
+  }, 60_000);
 });
+
+describe('BrowserPod starts once per page', () => {
+  // BrowserPod opens its disk once: a second BrowserPod.boot in the same page fails ("Device already opened in another tab").
+  let root: string, home: string;
+  const memory = WebAssembly.Memory.prototype as { toResizableBuffer?: unknown };
+  const nodeHas = 'toResizableBuffer' in memory;
+  beforeAll(async () => {
+    // A page as Chrome gives it: isolated, with resizable WebAssembly memory (Node 22 has none).
+    Object.defineProperty(globalThis, 'crossOriginIsolated', { value: true, configurable: true });
+    if (!nodeHas) memory.toResizableBuffer = () => new ArrayBuffer(0);
+    root = mkdtempSync(join(tmpdir(), 'den-kit-bp-once-'));
+    home = join(root, 'home', 'user');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(home, { recursive: true });
+  });
+  afterAll(() => { resetBrowserPodForTest(); if (!nodeHas) delete memory.toResizableBuffer; if (root) rmSync(root, { recursive: true, force: true }); });
+  /** A stand-in module whose boot is controlled by the test, counting boots and refusing a second one like BrowserPod. */
+  function module(settle: (mock: MockBrowserPod) => Promise<unknown>) {
+    const state = { boots: 0, mock: new MockBrowserPod({ home }) };
+    const BrowserPod = { boot: async () => { state.boots++; if (state.boots > 1) throw new Error('Device already opened in another tab'); await settle(state.mock); return state.mock; } };
+    return { state, load: async () => ({ BrowserPod }) as unknown as typeof import('@leaningtech/browserpod') };
+  }
+
+  it('a slow start: den-kit says so, and asking again waits for the same start (no second boot)', async () => {
+    resetBrowserPodForTest();
+    let release!: () => void;
+    const { state, load } = module(() => new Promise<void>(r => { release = r; }));
+    await expect(bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load, limitMs: 200 } })).rejects.toThrow(/has not started after/);
+    release();
+    await new Promise(r => setTimeout(r, 50));
+    const host = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load, limitMs: 200 } });
+    expect(host.home).toBe(home);
+    expect(state.boots).toBe(1);
+    state.mock.dispose();
+  });
+  it('a start that failed is said again without booting again; the fix is to reload the page', async () => {
+    resetBrowserPodForTest();
+    const { state, load } = module(async () => { throw new Error('the machine image could not be read'); });
+    const first = bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } });
+    await expect(first).rejects.toThrow('BrowserPod did not start: the machine image could not be read');
+    const again = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(e => e);
+    expect(again.message).toBe('BrowserPod did not start: the machine image could not be read');
+    expect(again.fix).toMatch(/Reload the page/);
+    expect(state.boots).toBe(1);
+  });
+  it('a browser too old for BrowserPod is said plainly, before anything loads', async () => {
+    resetBrowserPodForTest();
+    const { state, load } = module(async () => undefined);
+    const had = memory.toResizableBuffer;
+    delete memory.toResizableBuffer;
+    try {
+      const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(x => x);
+      expect(e.message).toBe('This browser is too old for BrowserPod (it lacks resizable WebAssembly memory).');
+      expect(e.fix).toMatch(/Update Chrome/);
+      expect(state.boots).toBe(0);
+    } finally { memory.toResizableBuffer = had; }
+  });
+  it('BrowserPod\'s "Device already opened in another tab" is said plainly', async () => {
+    resetBrowserPodForTest();
+    const { load } = module(async () => { throw new Error('Device already opened in another tab'); });
+    const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(x => x);
+    expect(e.message).toMatch(/disk is open in another den-kit tab/);
+    expect(e.fix).toMatch(/Close the other den-kit tabs/);
+  });
+});
+

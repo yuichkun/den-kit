@@ -17,7 +17,9 @@ describe('pod template', () => {
     expect(files['src/kit/controls.ts']).toBeUndefined();
     for (const path of Object.keys(files)) expect(checkProjectPath(path), path).toBeNull();
     const pkg = JSON.parse(files['package.json']!);
-    expect(pkg.scripts).toMatchObject({ dev: 'vite', check: 'tsc --noEmit', lint: 'eslint .', build: 'vite build' });
+    expect(pkg.scripts).toMatchObject({ dev: 'vite', check: 'tsc --noEmit', build: 'vite build' });
+    // ESLint is handed the files: in BrowserPod (its Node 22.15) ESLint's own folder search finds nothing.
+    expect(pkg.scripts.lint).toMatch(/^eslint \$\(find \. .*-prune -o -type f .*-print\)$/);
     // Native binaries do not run in the pod: the WebAssembly builds stand in.
     expect(pkg.overrides).toMatchObject({ esbuild: expect.stringContaining('esbuild-wasm'), rollup: expect.stringContaining('@rollup/wasm-node') });
     // The lockfile matches package.json (installs are the same everywhere) and has no native builds in it.

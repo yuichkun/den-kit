@@ -8,7 +8,7 @@ import { COST_LIMITS, formatCpu } from '../core/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
-import ProjectView, { podCheck } from './ProjectView.vue';
+import ProjectView from './ProjectView.vue';
 import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
@@ -128,23 +128,20 @@ function closeMenu(e: PointerEvent) { if (!(e.target as HTMLElement).closest('.p
 /** My parts saved in another tab show up here too. */
 function storageChanged(e: StorageEvent) { if (e.key === MY_PARTS_KEY) session.reloadMyParts(); }
 /**
- * With a BrowserPod key, the pod check runs once by itself (the first time in this browser), after the
- * start overlay: what working in the pod feels like, measured; the Project view shows it.
+ * With a BrowserPod key, the pod starts by itself the first time in this browser (after the start overlay):
+ * that first start installs the project's packages (a minute or two), so it is out of the way before the AI
+ * or a code part needs the pod. The pod check is a button in the Project view (run while working, its
+ * commands would queue ahead of the AI's).
  */
-const POD_CHECKED = 'den-kit:pod-checked';
-function firstPodCheck() {
+const POD_STARTED = 'den-kit:pod-started';
+function firstPodStart() {
   const pod = session.pod;
-  if (!pod || pod.kind !== 'browserpod') return;
-  try { if (localStorage.getItem(POD_CHECKED)) return; localStorage.setItem(POD_CHECKED, String(Date.now())); } catch { return; }
-  const check = podCheck();
-  session.toast('info', 'Checking the pod (BrowserPod) once: see Project for each step and its time.');
-  void check.run(pod).then(() => {
-    pod.note(check.summary(pod.kind).split('\n')[0]!);
-    session.bridge?.telemetry({ kind: 'pod-check', pod: pod.kind, ok: check.ok, totalMs: check.totalMs.value, steps: check.steps.value, first: true });
-    session.toast(check.ok ? 'info' : 'warn', `Pod check: ${check.ok ? 'every step passed' : 'some steps failed'} (see Project).`);
-  });
+  if (!pod || pod.kind !== 'browserpod' || pod.booted) return;
+  try { if (localStorage.getItem(POD_STARTED)) return; localStorage.setItem(POD_STARTED, String(Date.now())); } catch { return; }
+  session.toast('info', 'Starting the pod (BrowserPod) for the first time in this browser: about two minutes. Project shows each step.');
+  void pod.ensure().catch(() => undefined);
 }
-watch(() => session.engineState.value, s => { if (s === 'running') firstPodCheck(); });
+watch(() => session.engineState.value, s => { if (s === 'running') firstPodStart(); });
 onMounted(() => {
   window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);

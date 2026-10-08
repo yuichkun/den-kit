@@ -25,7 +25,7 @@ const STEPS: Array<Pick<CheckStep, 'id' | 'title'>> = [
   { id: 'edit', title: 'An edit reaches the part' },
 ];
 
-const part = (word: string) => `import { part } from '../kit';\n\n// den-kit's pod check (a scratch part; removed after the check).\nexport default part({ mount(root) { root.textContent = '${word}'; } });\n`;
+const part = (word: string) => `import { part } from '../kit';\n\n// den-kit's pod check (a scratch part; removed after the check).\nexport default part({ mount(root) { root.textContent = '${word}'; console.log('den-kit check: ${word}'); } });\n`;
 
 export class PodCheck {
   readonly steps = ref<CheckStep[]>(STEPS.map(s => ({ ...s, state: 'waiting' })));
@@ -95,33 +95,39 @@ export class PodCheck {
     let onMessage: ((m: Record<string, unknown>) => void) | null = null;
     const listener = (e: MessageEvent) => { if (e.source === frame.contentWindow && e.origin === origin && e.data?.denkit === 1) onMessage?.(e.data as Record<string, unknown>); };
     window.addEventListener('message', listener);
-    /** The next time the page says it is ready (after hello → init), and what it shows; null after `ms`. */
-    const ready = (ms: number) => new Promise<boolean>(resolve => {
+    /** True when the page next says it is ready showing `word` (after hello → init); false after `ms` or an error. */
+    const ready = (ms: number, word: string) => new Promise<boolean>(resolve => {
+      let shows = false;
       const timer = setTimeout(() => { onMessage = null; resolve(false); }, ms);
       onMessage = m => {
-        if (m.type === 'hello') frame.contentWindow?.postMessage({ denkit: 1, type: 'init', props: {}, look: {}, size: { width: 200, height: 100 }, mode: 'edit', ranges: {}, values: {}, norms: {} }, origin);
-        else if (m.type === 'ready') { clearTimeout(timer); onMessage = null; resolve(true); }
+        if (m.type === 'hello') { shows = false; frame.contentWindow?.postMessage({ denkit: 1, type: 'init', props: {}, look: {}, size: { width: 200, height: 100 }, mode: 'edit', ranges: {}, values: {}, norms: {} }, origin); }
+        else if (m.type === 'log' && String(m.text) === `den-kit check: ${word}`) shows = true;
+        // Ready with an older version (served before the change was seen): wait for the next load.
+        else if (m.type === 'ready' && shows) { clearTimeout(timer); onMessage = null; resolve(true); }
         else if (m.type === 'error' || m.type === 'missing') { clearTimeout(timer); onMessage = null; resolve(false); }
       };
     });
     try {
       document.body.appendChild(frame);
       const first = this.step('part', async () => {
-        const shown = ready(60_000);
+        const shown = ready(60_000, 'first');
         frame.src = url.href;
         if (!await shown) throw new Error('The part did not get ready within 60 s.');
         return `loaded and drawing (${new URL(portal).host})`;
       });
       if (!await first) { this.set('edit', { state: 'skipped' }); return; }
       await this.step('edit', async () => {
+        // (A pod's file times count whole seconds: a change in the same second as the file's last write can go
+        // unnoticed by the dev server. An edit comes later than that; so does this one.)
+        await new Promise(r => setTimeout(r, 1100));
         // The dev server reloads the page by itself when its live reload reaches it; if not, den-kit reloads parts itself.
-        const shown = ready(8000);
+        const shown = ready(8000, 'second');
         await pod.writeFile(CHECK_FILE, part('second'));
         if (await shown) return 'the dev server reloaded the part by itself';
-        const again = ready(30_000);
+        const again = ready(30_000, 'second');
         frame.src = `${url.href}&r=${Date.now()}`;
-        if (!await again) throw new Error('The changed part did not get ready.');
-        return 'live reload did not reach the part; reloading it (as den-kit does) worked';
+        if (!await again) throw new Error('The part still shows its old version after a reload: the dev server did not see the change.');
+        return 'live reload did not reach the part; reloading it (as den-kit does) showed the change';
       });
     } finally {
       window.removeEventListener('message', listener);

@@ -89,7 +89,9 @@ The same part can be placed several times with different props.
   that ship native binaries do not run here; most have a WebAssembly build
   (see the `overrides` in package.json for esbuild and rollup).
 - `npm run check` (TypeScript), `npm run lint` (ESLint), `npm run build` (Vite):
-  run them before you finish.
+  run them before you finish. ESLint cannot search folders in this pod (its
+  Node has a fault there), so `npm run lint` hands it the files; to lint a few,
+  name them: `npx eslint src/parts/meter.ts`.
 - The dev server is already running (den-kit starts it and shows the parts from
   it); do not start another. Saving a file updates the plugin.
 - git works as usual. den-kit also commits after each request.

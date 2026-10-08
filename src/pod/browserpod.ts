@@ -86,54 +86,111 @@ export async function clearForeignServiceWorkers(): Promise<boolean> {
   return true;
 }
 
-export async function bootBrowserPod(options: BrowserPodOptions): Promise<PodHost> {
+/** What BrowserPod needs from the browser besides isolation (without it, it fails to start with an obscure error), or null. */
+export function missingBrowserFeature(): string | null {
+  if (typeof (globalThis.WebAssembly?.Memory?.prototype as { toResizableBuffer?: unknown } | undefined)?.toResizableBuffer !== 'function') return 'resizable WebAssembly memory';
+  if (typeof (Atomics as { waitAsync?: unknown }).waitAsync !== 'function') return 'Atomics.waitAsync';
+  return null;
+}
+
+export async function bootBrowserPod(options: BrowserPodOptions & { testing?: BootTesting }): Promise<PodHost> {
   if (!globalThis.crossOriginIsolated) {
     const facts = await pageFacts();
     const problem = isolationProblem(facts);
     console.info('den-kit: not cross-origin isolated', facts);
     throw new PodUnavailable(`This page is not cross-origin isolated, which BrowserPod needs: ${problem.reason}.`, problem.fix);
   }
-  options.log?.('Loading BrowserPod (rt.browserpod.io)…');
-  let mod: typeof import('@leaningtech/browserpod');
-  try { mod = await import('@leaningtech/browserpod'); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in kit/.'); }
-  if (!mod.BrowserPod) throw new PodUnavailable('The BrowserPod runtime could not be loaded from rt.browserpod.io.', 'Check the network connection, then reload.');
-  options.log?.('Starting BrowserPod (checking the API key)…');
-  let pod: Pod;
-  const watch = bootWatch();
-  try { pod = await Promise.race([mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: options.storageKey }), watch.failed]); } catch (error) {
-    if (error instanceof PodUnavailable) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    throw new PodUnavailable(`BrowserPod did not start: ${message}`, KEY_PROBLEM.test(message) ? KEY_FIX : undefined);
-  } finally { watch.stop(); }
+  const missing = missingBrowserFeature();
+  if (missing) throw new PodUnavailable(`This browser is too old for BrowserPod (it lacks ${missing}).`, 'Update Chrome (chrome://settings/help), then reload the page.');
+  starting ??= startBoot(options).catch(error => { starting = null; throw error; });
+  const boot = await starting;
+  if (boot.problem && !boot.pod) throw boot.problem;
+  if (!boot.pod) options.log?.('Starting BrowserPod (checking the API key)…');
+  const pod = boot.pod ?? await Promise.race([boot.ready, boot.failed]);
   options.log?.('Starting the Linux machine…');
   const host = new BrowserPodHost(pod, options.log);
   await host.init();
   return host;
 }
+/** For the tests: BrowserPod's module stand-in and a shorter limit. */
+export interface BootTesting { load: () => Promise<typeof import('@leaningtech/browserpod')>; limitMs?: number }
+/** For the tests: as a fresh page. */
+export function resetBrowserPodForTest() { starting = null; }
+
+/** BrowserPod's calls return thenables that are not always real Promises (no .catch): make them Promises. */
+const promise = <T>(work: () => PromiseLike<T> | T): Promise<T> => { try { return Promise.resolve(work()); } catch (error) { return Promise.reject(error); } };
+/** BrowserPod hands terminal output over in resizable buffers (its WebAssembly memory), which TextDecoder refuses: copy the bytes. */
+export const plainBytes = (data: ArrayBuffer | ArrayBufferView): Uint8Array => (ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data)).slice();
 
 const KEY_PROBLEM = /api ?key|auth|401|403|token|credential/i;
-const KEY_FIX = 'Check BROWSERPOD_API_KEY in kit/.env (a key from console.browserpod.io), then restart `npm run kit:dev` and reload.';
-/** How long BrowserPod may take to start (it downloads its machine the first time). */
-export const BOOT_LIMIT_MS = 180_000;
+const KEY_FIX = 'Check BROWSERPOD_API_KEY in kit/.env (a key from console.browserpod.io) and the network; after changing the key, restart `npm run kit:dev` and reload the page.';
+/** How long den-kit waits for BrowserPod to start before saying so (it keeps starting; asking again waits for the same start). */
+export const BOOT_LIMIT_MS = 300_000;
 
 /**
- * BrowserPod's boot does not end when the key is refused: it reports that as an
- * uncaught error ("WebSocket connection failed, check your API key.") and keeps
- * waiting. Watch for that (and for a boot that never ends) to say so instead.
+ * BrowserPod starts once per page: its disk can be opened only once, so a second
+ * BrowserPod.boot in the same page fails with "Device already opened in another
+ * tab". Every attempt after the first waits for that same start, whatever den-kit
+ * said about it meanwhile (a refused key, a slow start).
  */
-function bootWatch(): { failed: Promise<never>; stop(): void } {
+interface Boot {
+  /** Settles when BrowserPod has started (it never settles when the key is refused). */
+  ready: Promise<Pod>;
+  pod: Pod | null;
+  /** Why it has not started (null: still starting, or started). */
+  problem: PodUnavailable | null;
+  /** Rejects with `problem` when one is found (for the attempt waiting now). */
+  failed: Promise<never>;
+}
+let starting: Promise<Boot> | null = null;
+
+async function startBoot(options: BrowserPodOptions & { testing?: BootTesting }): Promise<Boot> {
+  if (!await claimPod()) throw new PodUnavailable('Another den-kit tab is using the pod (BrowserPod runs in one tab at a time).', 'Close the other den-kit tab, then press Start the pod here.');
+  options.log?.('Loading BrowserPod (rt.browserpod.io)…');
+  let mod: typeof import('@leaningtech/browserpod');
+  try { mod = await (options.testing?.load ?? (() => import('@leaningtech/browserpod')))(); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in kit/.'); }
+  if (!mod.BrowserPod) throw new PodUnavailable('The BrowserPod runtime could not be loaded from rt.browserpod.io.', 'Check the network connection, then reload.');
   let fail!: (error: PodUnavailable) => void;
   const failed = new Promise<never>((_, reject) => { fail = reject; });
   failed.catch(() => undefined);
+  const boot: Boot = { ready: null as unknown as Promise<Pod>, pod: null, problem: null, failed };
+  const report = (problem: PodUnavailable) => { if (boot.pod || boot.problem) return; boot.problem = problem; fail(problem); };
+  // BrowserPod reports a refused key (and any failure of its connection) as an uncaught error, and its start never ends.
   const check = (message: string) => {
-    if (/websocket connection failed|check your api key/i.test(message) || (KEY_PROBLEM.test(message) && /browserpod|browserportal|pod/i.test(message))) fail(new PodUnavailable(`BrowserPod refused to start: ${message}`, KEY_FIX));
+    if (/websocket connection failed|check your api key/i.test(message)) report(new PodUnavailable(`BrowserPod could not connect: ${message}`, KEY_FIX));
+    else if (/device already opened/i.test(message)) report(new PodUnavailable('BrowserPod\'s disk is open in another den-kit tab (or in a page that is still closing).', 'Close the other den-kit tabs, then reload this one.'));
   };
   const onError = (e: ErrorEvent) => check(e.message || (e.error instanceof Error ? e.error.message : String(e.error ?? '')));
   const onRejection = (e: PromiseRejectionEvent) => check(e.reason instanceof Error ? e.reason.message : String(e.reason ?? ''));
   globalThis.addEventListener?.('error', onError);
   globalThis.addEventListener?.('unhandledrejection', onRejection);
-  const timer = setTimeout(() => fail(new PodUnavailable(`BrowserPod did not start within ${BOOT_LIMIT_MS / 60_000} minutes.`, 'Check the network and BROWSERPOD_API_KEY in kit/.env, then reload. (The browser console may say more.)')), BOOT_LIMIT_MS);
-  return { failed, stop() { clearTimeout(timer); globalThis.removeEventListener?.('error', onError); globalThis.removeEventListener?.('unhandledrejection', onRejection); } };
+  const limit = options.testing?.limitMs ?? BOOT_LIMIT_MS;
+  const timer = setTimeout(() => report(new PodUnavailable(`BrowserPod has not started after ${Math.round(limit / 60_000)} minutes.`, 'It keeps starting: press Start the pod again in a minute. If it never starts, check the network and BROWSERPOD_API_KEY, then reload the page.')), limit);
+  const stop = () => { clearTimeout(timer); globalThis.removeEventListener?.('error', onError); globalThis.removeEventListener?.('unhandledrejection', onRejection); };
+  boot.ready = promise(() => mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: options.storageKey }));
+  boot.ready.then(pod => { boot.pod = pod; boot.problem = null; stop(); }, error => {
+    stop();
+    const message = error instanceof Error ? error.message : String(error);
+    report(/device already opened/i.test(message)
+      ? new PodUnavailable('BrowserPod\'s disk is open in another den-kit tab (or in a page that is still closing).', 'Close the other den-kit tabs, then reload this one.')
+      : new PodUnavailable(`BrowserPod did not start: ${message}`, KEY_PROBLEM.test(message) ? KEY_FIX : 'Reload the page to start BrowserPod again (it can start once per page).'));
+  });
+  return boot;
+}
+
+/** Only one den-kit tab may run BrowserPod (its disk is shared by every tab of this address): hold a lock for the page's lifetime. */
+let claimed = false;
+function claimPod(): Promise<boolean> {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+  if (claimed || !locks?.request) return Promise.resolve(true);
+  return new Promise(resolve => {
+    void locks.request('den-kit:browserpod', { ifAvailable: true }, lock => {
+      if (!lock) { resolve(false); return null; }
+      claimed = true;
+      resolve(true);
+      return new Promise<void>(() => undefined);
+    }).catch(() => resolve(true));
+  });
 }
 
 /** Exported for the tests (test/fakes/pod/mock-browserpod.ts stands in for BrowserPod there). */
@@ -170,7 +227,7 @@ export class BrowserPodHost implements PodHost {
     this.base.PATH ??= '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
     this.log?.(`pod environment: ${Object.keys(this.base).join(', ')}; home ${this.home}`);
     const dir = `${this.home}/.den-kit/run`;
-    await this.pod.createDirectory(dir, { recursive: true }).catch(() => undefined);
+    await promise(() => this.pod.createDirectory(dir, { recursive: true })).catch(() => undefined);
   }
   /** The environment a command runs with: the pod's own, quiet tools, then the command's. */
   private env(vars?: Record<string, string>): string[] { return Object.entries({ ...this.base, ...QUIET, ...vars }).map(([k, v]) => `${k}=${v}`); }
@@ -192,14 +249,14 @@ export class BrowserPodHost implements PodHost {
     const terminal = await this.pod.createCustomTerminal({
       cols: 200, rows: 50,
       onOutput: buffer => {
-        raw += decoder.decode(buffer, { stream: true });
+        raw += decoder.decode(plainBytes(buffer), { stream: true });
         if (raw.length > MAX_OUTPUT * 2) raw = raw.slice(raw.length - MAX_OUTPUT * 2);
         const text = cleanOutput(raw);
         if (options.onOutput && text.length > seen) { const fresh = text.slice(seen); seen = text.length; const shown = fresh.split(exitMarker(nonce))[0]!; if (shown) options.onOutput(shown); }
         if (readExit(text, nonce)) resolveMarker();
       },
     });
-    const ran = this.pod.run('bash', args, { terminal, cwd: options.cwd ?? this.home, ...(env ? { env } : {}), echo: false }).catch(error => { raw += `\n${error instanceof Error ? error.message : String(error)}\n`; });
+    const ran = promise(() => this.pod.run('bash', args, { terminal, cwd: options.cwd ?? this.home, ...(env ? { env } : {}), echo: false })).catch(error => { raw += `\n${error instanceof Error ? error.message : String(error)}\n`; });
     let timedOut = false;
     const timer = options.timeoutMs ? new Promise<void>(r => setTimeout(() => { if (!settled) { timedOut = true; terminal.write('\x03'); } r(); }, options.timeoutMs)) : null;
     // The marker is the end; the run itself ending (without one) is too. A timeout gives it two more seconds to print.
@@ -219,7 +276,7 @@ export class BrowserPodHost implements PodHost {
       await this.writeFile(path, `${script.replace(/\s+$/, '')}\n`);
       const terminal = await this.pod.createCustomTerminal({
         cols: 200, rows: 50,
-        onOutput: buffer => { const text = cleanOutput(decoder.decode(buffer, { stream: true })); out = keepEnd(out + text, 64_000); if (text) options.onOutput?.(text); },
+        onOutput: buffer => { const text = cleanOutput(decoder.decode(plainBytes(buffer), { stream: true })); out = keepEnd(out + text, 64_000); if (text) options.onOutput?.(text); },
       });
       await this.pod.run('bash', [path], { terminal, cwd: options.cwd ?? this.home, env: this.env(options.env), echo: false });
     })().catch(error => { out += `\n${error instanceof Error ? error.message : String(error)}`; }).finally(() => { running = false; self.log?.(`${name} ended`); });
@@ -228,7 +285,7 @@ export class BrowserPodHost implements PodHost {
 
   async writeFile(path: string, content: string): Promise<void> {
     const dir = path.slice(0, path.lastIndexOf('/'));
-    if (dir) await this.pod.createDirectory(dir, { recursive: true }).catch(() => undefined);
+    if (dir) await promise(() => this.pod.createDirectory(dir, { recursive: true })).catch(() => undefined);
     const bytes = new TextEncoder().encode(content);
     const write = async () => {
       const file = await this.pod.createFile(path, 'binary') as import('@leaningtech/browserpod').BinaryFile;
@@ -252,7 +309,7 @@ export class BrowserPodHost implements PodHost {
       while (got < size) { const part = new Uint8Array(await file.read(size - got)); if (!part.byteLength) break; chunks.push(part); got += part.byteLength; }
       const all = new Uint8Array(got); let at = 0; for (const c of chunks) { all.set(c, at); at += c.byteLength; }
       return new TextDecoder().decode(all);
-    } catch { return null; } finally { await file.close().catch(() => undefined); }
+    } catch { return null; } finally { await promise(() => file.close()).catch(() => undefined); }
   }
 
   onPortal(listener: (portal: Portal) => void): () => void {
