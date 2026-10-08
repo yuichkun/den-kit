@@ -26,6 +26,7 @@ import {
 import type { Plan } from './intents.ts';
 import type { JevResult } from './protocol.ts';
 import type { Attachment } from './attachments.ts';
+import type { SentSketch } from './sketch.ts';
 import { SAVED_LINES, followUp, readSavedLines, savedLine } from './conversation.ts';
 
 /** `budgetMs: null` = the bridge default (KIT_JEV_BUDGET_MS, else 1200 ms). */
@@ -100,6 +101,8 @@ export interface Outcome {
   agents?: AgentLane[];
   /** Tokens the request used, members included. */
   tokens?: number;
+  /** The person's rough sketch went with it (U8c). */
+  sketch?: SentSketch;
 }
 
 export interface RequestTrace {
@@ -201,7 +204,7 @@ export class FastPath {
     this.history.value = i >= 0 ? [...list.slice(0, i), outcome, ...list.slice(i + 1)] : [...list, outcome].slice(-MAX_HISTORY);
   }
 
-  async run(raw: string, options: { via?: 'typed' | 'voice'; /** What the person pointed at (default: the selection). */ attached?: Attachment[]; /** Internal: asked again because the patch changed meanwhile. */ again?: boolean } = {}): Promise<Outcome> {
+  async run(raw: string, options: { via?: 'typed' | 'voice'; /** What the person pointed at (default: the selection). */ attached?: Attachment[]; /** The person's rough sketch (U8c): the LLM gets it if the request goes there. */ sketch?: SentSketch; /** Internal: asked again because the patch changed meanwhile. */ again?: boolean } = {}): Promise<Outcome> {
     const text = raw.trim().slice(0, 600);
     this.controller?.abort();
     const controller = new AbortController();
@@ -209,12 +212,15 @@ export class FastPath {
     const started = performance.now();
     const id = randomId('rq');
     const attached = options.attached?.length ? options.attached : undefined;
+    const sketch = options.sketch;
+    // The marks stay (dimmed) while the request is worked on.
+    if (sketch?.ids?.length) this.session.markSent(sketch.ids, id);
     const where = this.where();
     const aim = this.aimed(options.attached);
     const ctx = () => this.ctxFor(aim);
     // "戻して" takes the last AI change back; "もっと" does the last fast change again.
     const follow = text ? followUp(text) : null;
-    if (follow?.kind === 'undo') return this.undoLast(id, text, options.via, attached);
+    if (follow?.kind === 'undo') { this.session.releaseSent(id, true); return this.undoLast(id, text, options.via, attached); }
     let query = text, repeats: string | undefined;
     if (follow?.kind === 'more') {
       const last = [...this.history.value].reverse().find(o => o.status === 'applied' && o.route !== 'llm' && !o.undone);
@@ -226,10 +232,11 @@ export class FastPath {
     const lex = parseRequest(query, { screen: this.session.screenFocus.value });
     const trace: RequestTrace = { kind: 'route', id, at: new Date().toISOString(), text, lang: lex.lang, lexicon: { items: lex.items.length, full: lex.full, leftover: lex.leftover }, decision: 'nothing', route: 'none', tau: this.tau(lex.lang), applied: false, totalMs: 0 };
     const finish = (given: Decision, route: RouteKind, extra: Partial<Outcome> = {}): Outcome => {
-      extra = { attached, repeats, where, ...extra };
+      extra = { attached, repeats, where, ...(sketch ? { sketch } : {}), ...extra };
       let decision = given;
       if (controller.signal.aborted && this.controller !== controller) {
         this.history.value = this.history.value.filter(o => o.id !== id); // replaced by the newer request
+        this.session.releaseSent(id, true);
         return { id, text, status: 'nothing', route, ms: 0, message: 'Superseded by a newer request.' };
       }
       const ms = Math.round(performance.now() - started);
@@ -237,7 +244,7 @@ export class FastPath {
       const unsure = decision.kind === 'chips' || decision.kind === 'escalate' || (decision.kind === 'nothing' && decision.llm);
       if (text && unsure) {
         if (decision.kind === 'chips') { trace.confidence = decision.confidence; trace.alternatives = decision.chips.map(c => c.label); }
-        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs, attached });
+        const handed = this.llm?.take({ id, text, via: options.via, status: 'thinking', route: 'llm', ms, jevMs: extra.jevMs, attached, ...(sketch ? { sketch } : {}) });
         trace.decision = decision.kind === 'chips' ? 'chips' : 'escalate';
         trace.totalMs = ms; trace.route = route;
         if (handed) { this.record(trace); this.busy.value = false; if (this.controller === controller) this.controller = null; return handed; }
@@ -247,6 +254,7 @@ export class FastPath {
         decision = { kind: 'nothing', message: why ? `${message} ${why}` : message };
       }
       const outcome = this.realize(decision, { id, text, via: options.via, route, ms, ...extra }, trace);
+      this.session.releaseSent(id, outcome.status !== 'applied'); // done here: its marks go (unless nothing came of them)
       if (text && unsure) trace.decision = given.kind === 'chips' ? 'chips' : 'escalate';
       trace.totalMs = outcome.ms;
       trace.route = route;
@@ -258,7 +266,7 @@ export class FastPath {
     };
     if (!text) return finish({ kind: 'nothing', message: 'Type what you want, e.g. “brighter”, “longer release”, “add reverb”, “make a bass”.' }, 'none');
     this.busy.value = true;
-    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, attached, repeats, where });
+    this.show({ id, text, via: options.via, status: 'working', route: 'none', ms: 0, attached, repeats, where, ...(sketch ? { sketch } : {}) });
 
     const before = this.snapshot();
     const stage = lexiconStage(lex, ctx());
@@ -311,7 +319,7 @@ export class FastPath {
   }
 
   /** The patch changed while Jev was thinking: ask again about the patch as it is now (once; then the LLM takes it). */
-  private again(raw: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; again?: boolean }, id: string, trace: RequestTrace, controller: AbortController): Promise<Outcome> {
+  private again(raw: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; sketch?: SentSketch; again?: boolean }, id: string, trace: RequestTrace, controller: AbortController): Promise<Outcome> {
     trace.stale = true;
     trace.decision = 'nothing';
     this.record(trace);
@@ -319,8 +327,9 @@ export class FastPath {
     if (this.controller === controller) this.controller = null;
     if (!options.again) return this.run(raw, { ...options, again: true });
     this.busy.value = false;
-    const line = this.llm?.take({ id, text: raw.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined });
+    const line = this.llm?.take({ id, text: raw.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, ...(options.sketch ? { sketch: options.sketch } : {}) });
     if (line) return Promise.resolve(line);
+    this.session.releaseSent(id, true);
     const outcome: Outcome = { id, text: raw.trim().slice(0, 600), via: options.via, status: 'nothing', route: 'jev', ms: 0, message: 'The patch kept changing while Jev was thinking; say it again when you are ready.' };
     this.show(outcome);
     return Promise.resolve(outcome);

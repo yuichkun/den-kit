@@ -5,8 +5,10 @@
 // the patch step by step while the line below shows what it does. Nothing here
 // asks you to choose; ⌘Z takes a request back, Esc stops the LLM. What is
 // selected rides along with the request (the chips above the prompt; × or
-// Backspace in an empty prompt leaves one out). The lines are the conversation
-// about this patch; a patch opened before keeps its own, folded.
+// Backspace in an empty prompt leaves one out). ✎ (or P) picks up the pen to
+// sketch over the patch or the plugin; the marks go with the next request, in
+// words and as a picture (the chip above the prompt; × rubs them out). The lines
+// are the conversation about this patch; a patch opened before keeps its own, folded.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { AgentLane, FastPath, Outcome } from '../ai/fast-path.ts';
 import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
@@ -14,6 +16,8 @@ import type { LlmController } from '../ai/llm.ts';
 import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
 import AiStatus from './AiStatus.vue';
 import { offerEnter } from './keys.ts';
+import { sketchSummary, type SketchView } from '../ai/sketch.ts';
+import { takeSketch } from './sketch-send.ts';
 
 const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
 const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void; (e: 'show-plugin'): void }>();
@@ -48,18 +52,54 @@ const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
 const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
 async function toggleScreen() { if (screenOn.value) screen.stop(); else await screen.start(); }
+// ---- the sketch (U8c) ----
+/** The view the pen draws on: the one the person looks at, when it is the patch or the plugin. */
+const inkView = computed<SketchView | null>(() => session.seeing.value.view === 'plugin' || session.seeing.value.view === 'patch' ? session.seeing.value.view : null);
+const inking = computed(() => !!session.inking.value);
+function togglePen() { session.inking.value = session.inking.value || !inkView.value ? null : 'pen'; }
+/** New marks (not sent yet), per view: they go with the next request. */
+const sketchParts = computed(() => (['plugin', 'patch'] as const).map(view => ({ view, marks: session.unsentMarks(view).length })).filter(p => p.marks > 0));
+function dropSketch() { for (const view of ['plugin', 'patch'] as const) session.clearSketch(view, true); }
+/** Said for the person when they send only a sketch. */
+const SKETCH_REQUEST = 'Do what my sketch shows.';
+const preparing = ref(false);
 
 async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
   const request = value.trim();
   text.value = ''; // the request moves to the history; the prompt is ready for the next one
   voice.error.value = '';
   resize();
-  if (!request) return;
+  const sketched = sketchParts.value.length > 0;
+  if (!request && !sketched) return;
   emit('request');
-  const attached = attachments.value.length ? attachments.value.map(a => ({ ...a })) : undefined;
+  let attached = attachments.value.length ? attachments.value.map(a => ({ ...a })) : undefined;
   leftOut.value = []; // left out of that request only
-  if (toLlm && llm) llm.run(request, { via, attached });
-  else await fast.run(request, { via, attached: attached ?? [] });
+  const taken = sketched ? await sketchNow() : null;
+  if (!taken) {
+    if (!request) return;
+    if (toLlm && llm) llm.run(request, { via, attached });
+    else await fast.run(request, { via, attached: attached ?? [] });
+    return;
+  }
+  const words = request || SKETCH_REQUEST;
+  // Things the marks are about ride along like a selection.
+  const along = (ids: readonly string[]) => {
+    const more = attachmentsOf(session.doc.value, session.catalog, ids).filter(a => !attached?.some(b => b.id === a.id));
+    attached = [...(attached ?? []), ...more];
+    return attached;
+  };
+  // Loops and boxes around things only point (like selecting them): words the fast path knows can go that way.
+  if (taken.pointing && request && !toLlm) { await fast.run(words, { via, attached: along(taken.pointing), sketch: taken.sketch }); return; }
+  if (llm && llmReady.value) { llm.run(words, { via, attached, sketch: taken.sketch }); return; }
+  // No LLM to read the sketch: the fast path gets what the marks are about.
+  await fast.run(words, { via, attached: along(taken.about), sketch: taken.sketch });
+}
+/** The marks, read and drawn for the AI; the pen goes down (they went with the request). */
+async function sketchNow() {
+  session.inking.value = null;
+  preparing.value = true;
+  try { return await takeSketch(session, { pictures: !!session.bridge?.status.value?.codex.images }); }
+  finally { preparing.value = false; }
 }
 
 // Keep the newest line in view while it changes (unless the user scrolled up to read).
@@ -122,6 +162,13 @@ function keydown(e: KeyboardEvent) {
     return;
   }
   if (e.key === 'Escape' && listening.value) { e.preventDefault(); voice.cancel(); return; }
+  // Drawing: Esc puts the pen down (before anything else it would do); ⌘Z takes back the last mark, not an edit.
+  if (session.inking.value && !inOtherField(e)) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); session.inking.value = null; return; }
+    if (mod && !e.altKey && e.code === 'KeyZ' && !inPrompt(e) && inkView.value) { e.preventDefault(); e.stopImmediatePropagation(); if (!e.shiftKey) session.undoMark(inkView.value); return; }
+  }
+  // P picks up the pen over the patch or the plugin (or puts it down).
+  if (e.code === 'KeyP' && !mod && !e.altKey && !e.shiftKey && !e.repeat && !inPrompt(e) && !inOtherField(e) && (inking.value || inkView.value)) { e.preventDefault(); togglePen(); return; }
   // Esc stops a running LLM request (outside other text fields).
   if (e.key === 'Escape' && !inOtherField(e) && llm?.busy.value) { e.preventDefault(); llm.stop(); return; }
   // Enter anywhere outside a text field jumps to the prompt, unless a view claims it (Enter on a selected text or canvas opens it).
@@ -169,6 +216,7 @@ defineExpose({ focus });
       <span class="title"><span class="spark">✦</span> AI</span>
       <AiStatus v-if="fast.session.bridge" :bridge="fast.session.bridge" />
       <span class="grow" />
+      <button type="button" class="icon pen" data-testid="ai-pen" :class="{ active: inking }" :disabled="!inking && !inkView" :aria-pressed="inking" :title="inking ? 'Put the pen down (Esc); the marks stay for your next request' : inkView ? 'Sketch over the view for the AI (P): circle things, draw boxes and arrows, leave notes' : 'Sketch on the patch or the plugin'" @click="togglePen">✎</button>
       <button v-if="llm" type="button" class="icon eye" data-testid="ai-screen" :class="{ active: screenOn, off: screen.state.value === 'unsupported' }" :disabled="screen.state.value === 'unsupported' || screen.state.value === 'asking'" :title="screenTitle" :aria-pressed="screenOn" @click="toggleScreen">
         <svg viewBox="0 0 20 14" width="20" height="14" aria-hidden="true"><path d="M1 7c2.2-3.6 5.3-5.5 9-5.5s6.8 1.9 9 5.5c-2.2 3.6-5.3 5.5-9 5.5S3.2 10.6 1 7z" fill="none" stroke="currentColor" stroke-width="1.5" /><circle cx="10" cy="7" r="2.6" fill="currentColor" /></svg>
         <span v-if="screenOn" class="shared-dot" />
@@ -211,6 +259,7 @@ defineExpose({ focus });
           <dt><kbd>⌘Z</kbd></dt><dd>take a request back</dd>
           <dt><kbd>⌘J</kbd></dt><dd>hide or show this panel</dd>
           <dt><kbd>⌥⌘E</kbd></dt><dd>patch ⇄ plugin</dd>
+          <dt><kbd>P</kbd></dt><dd>sketch over the view for the AI</dd>
         </dl>
       </li>
       <li v-if="fast.earlier.value.length" class="earlier" data-testid="ai-earlier">
@@ -219,7 +268,7 @@ defineExpose({ focus });
       </li>
       <li v-for="o in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: o.id === latestId, undone: o.undone, llm: o.route === 'llm', live: o.live }]" :data-status="o.status" :data-route="o.route" :data-testid="o.id === latestId ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined">
         <div class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}<span v-if="o.repeats" class="again" title="Did the last change again"> · again: “{{ o.repeats }}”</span></div>
-        <div v-if="o.attached?.length" class="attached" data-testid="ai-attached"><span v-for="a in o.attached" :key="a.id" class="chip small" :title="a.id">{{ KIND_ICON[a.kind] ?? '▣' }} {{ a.label }}</span></div>
+        <div v-if="o.attached?.length || o.sketch?.parts.length" class="attached" data-testid="ai-attached"><span v-if="o.sketch?.parts.length" class="chip small sketch" data-testid="ai-line-sketch">✎ {{ sketchSummary(o.sketch.parts) }}</span><span v-for="a in o.attached ?? []" :key="a.id" class="chip small" :title="a.id">{{ KIND_ICON[a.kind] ?? '▣' }} {{ a.label }}</span></div>
         <div class="answer">
           <div v-if="o.status === 'working'" class="activity"><span class="spin" /> thinking…</div>
           <template v-else>
@@ -255,13 +304,16 @@ defineExpose({ focus });
     </ol>
     <div v-if="voice.error.value && !listening" class="voice-error" data-testid="ai-voice-message">{{ voice.error.value }}</div>
     <form class="prompt" :class="{ listening }" @submit.prevent>
+      <div v-if="sketchParts.length" class="chips" data-testid="ai-sketch" title="Your sketch goes with the next request: the marks in words and as a picture">
+        <span class="chip sketch" data-testid="ai-sketch-chip">✎ {{ sketchSummary(sketchParts) }}<button type="button" class="x" title="Rub out the new marks" data-testid="ai-sketch-drop" @click="dropSketch">×</button></span>
+      </div>
       <div v-if="attachments.length" class="chips" data-testid="ai-attachments" title="What you selected comes with the request">
         <span v-for="a in shownChips" :key="a.id" class="chip" :data-attachment="a.id">{{ KIND_ICON[a.kind] }} {{ a.label }}<button type="button" class="x" :title="`Leave ${a.id} out of this request`" @click="leaveOut(a.id)">×</button></span>
         <button v-if="attachments.length > CHIPS && !allChips" type="button" class="chip more" data-testid="ai-attachments-more" @click="allChips = true">+{{ attachments.length - CHIPS }} more</button>
       </div>
       <textarea ref="input" :value="listening ? voice.heard.value : text" rows="1" data-testid="ai-input" :placeholder="placeholder" :readonly="listening" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLTextAreaElement).value; resize()" @keydown="promptKey" />
       <div class="prompt-foot">
-        <span v-if="fast.busy.value" class="spin" />
+        <span v-if="fast.busy.value || preparing" class="spin" />
         <span class="hint">{{ listening ? 'release Space to send' : `Enter send${llmReady ? ' · ⇧Enter LLM' : ''}` }}</span>
         <span class="grow" />
         <button type="button" class="icon mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : 'Voice input needs Chrome'" @click="toggleMic">
@@ -365,5 +417,9 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .eye { position: relative; }
 .eye.off { opacity: .35; }
 .eye .shared-dot { position: absolute; top: 2px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--error); }
+.pen { font-size: 17px; }
+.pen:disabled { opacity: .35; }
+.chip.sketch { background: #45352b; color: #f6dccd; }
+.chip.small.sketch { background: #382d26; color: #d6bfb0; }
 .screen-note { padding: 6px 14px; font-size: 13px; color: #d6d6d6; background: #262626; border-bottom: 1px solid #000; }
 </style>

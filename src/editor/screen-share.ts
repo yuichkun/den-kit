@@ -10,7 +10,8 @@ import { randomId } from '../core/schema.ts';
 import { cropRect } from '../ai/seeing.ts';
 
 export type ShareState = 'off' | 'asking' | 'on' | 'unsupported' | 'refused' | 'error';
-export interface Picture { png: Uint8Array; width: number; height: number; source: 'tab' | 'shell' }
+/** A picture of the page: JPEG (screens are photos to compress, and a tool result carries at most 2 MB). */
+export interface Picture { data: Uint8Array; mime: 'image/jpeg' | 'image/png'; width: number; height: number; source: 'tab' | 'shell' }
 export interface PageRect { x: number; y: number; width: number; height: number }
 /** What a desktop shell offers den-kit (Electron: webContents.capturePage through a preload bridge). */
 export interface ShellCapture { capturePage(rect: PageRect): Promise<string> }
@@ -98,8 +99,8 @@ export class ScreenShare {
       const c = cropRect({ width: frame.width, height: frame.height }, { width: window.innerWidth, height: window.innerHeight }, rect, maxSide);
       const canvas = new OffscreenCanvas(c.dw, c.dh);
       canvas.getContext('2d')!.drawImage(frame, c.sx, c.sy, c.sw, c.sh, 0, 0, c.dw, c.dh);
-      const blob = await canvas.convertToBlob({ type: 'image/png' });
-      return { png: new Uint8Array(await blob.arrayBuffer()), width: c.dw, height: c.dh, source: 'tab' };
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+      return { data: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: c.dw, height: c.dh, source: 'tab' };
     } finally { frame.close(); }
   }
 
@@ -120,7 +121,7 @@ async function fromDataUrl(url: string, maxSide: number, source: Picture['source
     const w = Math.max(1, Math.round(bitmap.width * k)), h = Math.max(1, Math.round(bitmap.height * k));
     const canvas = new OffscreenCanvas(w, h);
     canvas.getContext('2d')!.drawImage(bitmap, 0, 0, w, h);
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
-    return { png: new Uint8Array(await blob.arrayBuffer()), width: w, height: h, source };
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+    return { data: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: w, height: h, source };
   } finally { bitmap.close(); }
 }

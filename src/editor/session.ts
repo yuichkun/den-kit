@@ -27,6 +27,9 @@ import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
 import type { LlmController } from '../ai/llm.ts';
 import type { Seeing } from '../ai/seeing.ts';
+import { MARK_COLORS, type Box, type Mark, type SketchView } from '../ai/sketch.ts';
+/** What drawing on a view does: a mark kind, or rubbing marks out. */
+export type InkTool = Mark['kind'] | 'eraser';
 import { ScreenShare } from './screen-share.ts';
 import type { PodSession } from '../pod/pod-session.ts';
 
@@ -100,8 +103,21 @@ export class KitSession {
   readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
   /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
   viewDetails: (() => Partial<Seeing>) | null = null;
+  /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches (U8c). */
+  patchBoxes: (() => Record<string, Box>) | null = null;
   /** Pictures of den-kit as the person sees it, once they let the AI see the screen (U8b). */
   readonly screen = markRaw(new ScreenShare());
+  /** The person's rough sketch over each view (U8c): marks for the AI, not part of the work and not in the undo history. */
+  readonly sketch = shallowRef<Record<SketchView, Mark[]>>({ plugin: [], patch: [] });
+  /** Drawing on the view: the tool in hand (null: not drawing). */
+  readonly inking = ref<InkTool | null>(null);
+  readonly inkColor = ref<string>(MARK_COLORS[0]);
+  /** Keep marks after the AI has dealt with them. */
+  readonly inkPinned = ref(false);
+  /** A stylus draws when it touches a view, without picking the pen first. */
+  readonly stylusDraws = ref(true);
+  /** Marks sent with a request (dimmed until it ends): mark id → request id. */
+  readonly sentMarks = shallowRef<Record<string, string>>({});
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
@@ -163,6 +179,10 @@ export class KitSession {
     this.partPath.value = [];
     this.solo.value = null;
     if (author.kind === 'human') this.conversation.value = randomId('conv');
+    // Marks were about the patch that was there.
+    this.sketch.value = { plugin: [], patch: [] };
+    this.sentMarks.value = {};
+    this.inking.value = null;
     this.loadEpoch.value++;
     this.afterChange(true);
   }
@@ -363,7 +383,51 @@ export class KitSession {
     this.replace({ ...doc, name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name }, `Start from ${work.title}`);
   }
 
-  /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
+  // ---- the sketch (U8c) ----
+  /** Where marks belong: the plugin is one place; on the patch, the main patch or the part the person is inside. */
+  private markPlace(view: SketchView): string { return view === 'patch' ? this.partPath.value.join('/') : ''; }
+  /** The marks on a view, where the person is now. */
+  marksHere(view: SketchView): Mark[] { const at = this.markPlace(view); return this.sketch.value[view].filter(m => (m.where ?? '') === at); }
+  /** Add a mark to a view's sketch, where the person is; it gets the next number there. */
+  addMark(view: SketchView, mark: Omit<Mark, 'id' | 'n' | 'where'>): Mark {
+    const at = this.markPlace(view);
+    const added: Mark = { ...mark, id: randomId('mark'), n: this.marksHere(view).reduce((n, m) => Math.max(n, m.n), 0) + 1, ...(at ? { where: at } : {}) };
+    this.sketch.value = { ...this.sketch.value, [view]: [...this.sketch.value[view], added] };
+    return added;
+  }
+  updateMark(view: SketchView, id: string, patch: Partial<Mark>) {
+    this.sketch.value = { ...this.sketch.value, [view]: this.sketch.value[view].map(m => m.id === id ? { ...m, ...patch } : m) };
+  }
+  removeMark(view: SketchView, id: string) {
+    this.sketch.value = { ...this.sketch.value, [view]: this.sketch.value[view].filter(m => m.id !== id) };
+  }
+  /** Take back the last mark here not sent yet. */
+  undoMark(view: SketchView): boolean {
+    const last = [...this.marksHere(view)].reverse().find(m => !this.sentMarks.value[m.id]);
+    if (!last) return false;
+    this.removeMark(view, last.id);
+    return true;
+  }
+  /** Rub out the marks here (all, or only those not sent yet). */
+  clearSketch(view: SketchView, onlyUnsent = false) {
+    const here = new Set(this.marksHere(view).filter(m => !onlyUnsent || !this.sentMarks.value[m.id]).map(m => m.id));
+    this.sketch.value = { ...this.sketch.value, [view]: this.sketch.value[view].filter(m => !here.has(m.id)) };
+  }
+  /** The marks here not sent yet: what goes with the next request. */
+  unsentMarks(view: SketchView): Mark[] { return this.marksHere(view).filter(m => !this.sentMarks.value[m.id]); }
+  markSent(ids: readonly string[], request: string) { this.sentMarks.value = { ...this.sentMarks.value, ...Object.fromEntries(ids.map(id => [id, request])) }; }
+  /**
+   * The request is over: its marks go (pinned ones become new marks again). `keep`: it did nothing (failed, stopped,
+   * not understood), so they become new marks for the next try.
+   */
+  releaseSent(request: string, keep = false) {
+    const done = new Set(Object.entries(this.sentMarks.value).filter(([, r]) => r === request).map(([id]) => id));
+    if (!done.size) return;
+    this.sentMarks.value = Object.fromEntries(Object.entries(this.sentMarks.value).filter(([id]) => !done.has(id)));
+    if (keep || this.inkPinned.value) return;
+    for (const view of ['plugin', 'patch'] as const) if (this.sketch.value[view].some(m => done.has(m.id))) this.sketch.value = { ...this.sketch.value, [view]: this.sketch.value[view].filter(m => !done.has(m.id)) };
+  }
+
   /** What the person is looking at now. */
   seeingNow(): Seeing { return { ...this.seeing.value, ...(this.viewDetails?.() ?? {}) }; }
 
@@ -380,6 +444,7 @@ export class KitSession {
     return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
   }
 
+  /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
   look(options: { picture?: boolean; doc?: PatchDocument } = {}): Promise<LookResult> {
     return lookAt(options.doc ?? this.doc.value, catalog, { generated: this.generated.value, assetUrls: this.assetUrls.value, analyser: probe => probe >= 0 ? this.engine.probeAnalysers[probe] ?? null : this.engine.outAnalyser, picture: options.picture, pod: this.pod });
   }

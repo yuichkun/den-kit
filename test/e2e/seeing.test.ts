@@ -40,7 +40,7 @@ describe('the AI sees what the person sees', () => {
       k.screen.stub = async (rect: { width: number; height: number }) => {
         const c = new OffscreenCanvas(Math.round(rect.width), Math.round(rect.height));
         const g = c.getContext('2d')!; g.fillStyle = '#39ff14'; g.fillRect(0, 0, c.width, c.height);
-        return { png: new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()), width: c.width, height: c.height, source: 'tab' };
+        return { data: new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()), mime: 'image/png', width: c.width, height: c.height, source: 'tab' };
       };
     });
     const second = await ask(page, 'and now what do you see?');

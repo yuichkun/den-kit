@@ -50,7 +50,7 @@ describe('kit_look as "seen"', () => {
     return { w: new LlmWorkspace(deps), looks: () => designLooks };
   }
   it('with the screen shared: the picture of what they see, and what they look at', async () => {
-    const { w } = ws({ text: 'The person is looking at the plugin, playing it.', looking: 'plugin', picture: { png, width: 800, height: 450, source: 'tab' } });
+    const { w } = ws({ text: 'The person is looking at the plugin, playing it.', looking: 'plugin', picture: { data: png, mime: 'image/png', width: 800, height: 450, source: 'tab' } });
     const r = await w.call('kit_look', { as: 'seen' });
     expect(r.text).toBe('What the person sees now (plugin, 800×450, from their shared tab). The person is looking at the plugin, playing it. The picture is attached.');
     expect(r.imageDataUrl).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
@@ -70,7 +70,7 @@ describe('kit_look as "seen"', () => {
     expect(looks()).toBe(0);
   });
   it('a model without pictures gets the words only', async () => {
-    const { w } = ws({ text: 'The person is looking at the patch.', looking: 'patch', picture: { png, width: 10, height: 10, source: 'shell' } }, false);
+    const { w } = ws({ text: 'The person is looking at the patch.', looking: 'patch', picture: { data: png, mime: 'image/png', width: 10, height: 10, source: 'shell' } }, false);
     const r = await w.call('kit_look', { as: 'seen' });
     expect(r.text).toMatch(/from the desktop app\)\. .* Your model does not take pictures, so there is none\.$/);
     expect(r.imageDataUrl).toBeUndefined();

@@ -94,7 +94,7 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     assert.equal(line.status, 'reply', JSON.stringify(line));
     assert.match(line.reply, /You chose nothing/);
     assert.ok(line.steps.some((s: string) => /skipped a question/.test(s)), line.steps.join(' | '));
-    assert.equal(await page.locator('[data-testid=ai-panel] button:not([data-testid=ai-drawer-toggle]):not([data-testid=ai-close]):not([data-testid=ai-mic])').count(), 0, 'nothing to pick');
+    assert.equal(await page.locator('[data-testid=ai-panel] button:not([data-testid=ai-drawer-toggle]):not([data-testid=ai-close]):not([data-testid=ai-mic]):not([data-testid=ai-screen]):not([data-testid=ai-pen])').count(), 0, 'nothing to pick');
     assert.deepEqual(errors, []);
     await page.close();
   });

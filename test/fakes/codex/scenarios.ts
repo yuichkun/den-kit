@@ -68,6 +68,20 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // U8c: a request with the person's sketch: what came (pictures, the marks in words), and an edit on what was circled.
+    name: 'sketch',
+    // The person's words come last (the recap of earlier requests may quote an older sketch request).
+    match: text => /Do what my sketch shows|sketch test/i.test(text.split('\n\n').at(-1) ?? ''),
+    async run(t) {
+      await t.think();
+      await t.sleep(600); // long enough to see the marks wait, dimmed
+      const marks = t.text.split('\n').filter(l => /^[①-⑳]/.test(l));
+      const sizes = t.images.map(url => `${url.slice(5, url.indexOf(';'))} ${url.length}`);
+      if (/sketch test: brighter/i.test(t.text)) await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 2400 }] });
+      await t.say(`pictures ${t.images.length} [${sizes.join(', ')}]; ${marks.length} marks: ${marks.join(' | ')}`);
+    },
+  },
+  {
     name: 'member-start',
     match: /\[den-kit\] You are a member/,
     async run(t) {

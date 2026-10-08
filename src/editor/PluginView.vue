@@ -30,6 +30,9 @@ import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 import { claimEnter } from './keys.ts';
 import { controlWriter } from './play.ts';
+import InkLayer from './InkLayer.vue';
+import InkToolbar from './InkToolbar.vue';
+import { underlayPicture } from './sketch-picture.ts';
 
 const props = defineProps<{ edit: boolean; focus?: boolean }>();
 const emit = defineEmits<{ (e: 'update:edit', value: boolean): void; (e: 'fullscreen'): void; (e: 'edit-canvas', id: string): void }>();
@@ -312,6 +315,20 @@ function onEnter(e: KeyboardEvent): boolean {
 }
 // The AI panel offers Enter here before jumping to its prompt; without the panel, the window listener takes it.
 const releaseEnter = claimEnter(onEnter);
+/** Drawing on the plugin (U8c): the pen is in hand while the person looks at the plugin. */
+const inking = computed(() => !!session.inking.value && session.seeing.value.view === 'plugin');
+/** Lay the sketch under the plugin, a picture to build on (it shows while editing), and rub the marks out. */
+async function layUnder() {
+  const marks = session.marksHere('plugin');
+  if (!marks.length) return;
+  const png = await underlayPicture({ width: W.value, height: H.value }, marks);
+  const meta = await session.addAssetFile(new File([png], 'sketch.png', { type: 'image/png' }));
+  if (!meta || !commit([{ op: 'setUnderlay', underlay: { asset: meta.id, opacity: 0.6, visible: true } }], 'Sketch under the plugin')) return;
+  session.clearSketch('plugin', true);
+  session.inking.value = null;
+  emit('update:edit', true);
+  session.toast('info', 'The sketch is under the plugin now, to build on: it shows while you edit (the plugin inspector’s reference picture hides it or changes its opacity; ⌘Z takes it back).');
+}
 /** What the person sees of the plugin (U8b): its scale on screen. */
 const viewDetails = () => {
   const panel = stageEl.value?.querySelector('[data-testid=panel]');
@@ -362,8 +379,10 @@ const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.l
           <div v-if="selectionBox" class="sel-box" :style="{ left: `${selectionBox.x}px`, top: `${selectionBox.y}px`, width: `${selectionBox.w}px`, height: `${selectionBox.h}px` }" />
           <div v-if="marquee" class="marquee" data-testid="marquee" :style="{ left: `${marquee.x}px`, top: `${marquee.y}px`, width: `${marquee.w}px`, height: `${marquee.h}px` }" />
           <div v-for="b in touchBoxes" :key="`touch-${b.id}`" class="touch" :data-touched-by="b.name" :style="{ left: `${b.rect.x}px`, top: `${b.rect.y}px`, width: `${b.rect.w}px`, height: `${b.rect.h}px`, '--touch': b.color }"><span>{{ b.name }}</span></div>
+          <InkLayer view="plugin" :width="W" :height="H" />
         </template>
       </PluginWindow>
+      <InkToolbar v-if="inking" view="plugin" @underlay="layUnder" />
       <InsertMenu v-if="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @pick="insert" @close="menu = null" />
       <div v-if="checks && edit" class="checks" data-testid="plugin-checks" @pointerdown.stop>
         <header>

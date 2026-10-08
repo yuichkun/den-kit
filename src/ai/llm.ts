@@ -40,8 +40,10 @@ import { viewPicture } from '../plugin/picture.ts';
 import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import { changes, describeScope, heldByMembers, made, outside, scopesOverlap, seamOf, shortScope, touched, type Holding, type Seam } from './scope.ts';
 import { MAX_MEMBERS, MEMBER_COLORS, MEMBER_CONTEXTS, conversationAccount, integrationText, memberReportText, memberText, parseBriefs, scopeState, seamText, type Brief, type MemberContext, type MemberState } from './members.ts';
-import type { LlmEvent, LlmRole, TokenUsage, ToolOutput } from './protocol.ts';
+import { MAX_LLM_IMAGES, MAX_TOOL_IMAGE, type LlmEvent, type LlmRole, type TokenUsage, type ToolOutput } from './protocol.ts';
 import { seeingText } from './seeing.ts';
+import { markNumber, type SentSketch, type SketchPart } from './sketch.ts';
+import type { Scope } from './scope.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 
 export type LlmTransport = Pick<BridgeClient, 'llmStart' | 'llmSteer' | 'llmStop' | 'llmAnswer' | 'llmForget' | 'toolResult' | 'onLlm' | 'telemetry' | 'status' | 'codexReady' | 'online'>;
@@ -134,8 +136,11 @@ interface Turn {
   waiting: Array<{ ids: string[]; resolve: (why: WakeReason) => void; timer: ReturnType<typeof setTimeout> }>;
   /** The lead's turn ended while members worked: it gets another turn when they finish. */
   leadEnded: Extract<LlmEvent, { kind: 'done' }> | null;
-  /** What the person added while the lead's turn was over (goes to its next turn). */
+  /** What the person added while the lead's turn was over (goes to its next turn), and the pictures of sketches among it. */
   additions: string[];
+  additionImages: string[];
+  /** The person's sketches in this request (U8c): with the request and what they added while it ran. */
+  sketch: SketchPart[];
   /** The person's words in this request: the first, then what they added. */
   words: string[];
   integrations: number;
@@ -160,6 +165,22 @@ const TOOL_ACTIVITY: Record<string, string> = {
 };
 const TOOL_DONE: Record<string, string> = { kit_get_patch: 'read the patch', kit_list_blocks: 'looked up modules', kit_describe_block: 'looked up a module', kit_get_plugin: 'read the plugin screen', kit_ui_reference: 'looked up the screen reference', kit_read_file: 'read a file', kit_wait: '', kit_tell: '' };
 const KEPT = 'What it already changed stays; ⌘Z takes it back.';
+
+/** Pictures that go with a message (at most MAX_LLM_IMAGES). */
+const pictures = (images: readonly string[]): { images?: string[] } => images.length ? { images: images.slice(0, MAX_LLM_IMAGES) } : {};
+/** The pictures of sketches. */
+const imagesOf = (parts: readonly SketchPart[] | undefined) => pictures((parts ?? []).flatMap(p => p.image ? [p.image] : []));
+/** Sketches in words, one [den-kit] block per view. */
+const sketchLines = (parts: readonly SketchPart[] | undefined) => (parts ?? []).filter(p => p.text).map(p => `\n[den-kit] ${p.text}`).join('');
+/** The sketches a member gets: those on what its scope holds (the plugin: the screen; the patch: the sound). */
+const sketchesFor = (parts: readonly SketchPart[], scope: Scope) => parts.filter(p => p.view === 'plugin' ? !!scope.screen : !!scope.sound);
+/** Only the marks with these numbers (and the line that says where they are). */
+function onlyMarks(part: SketchPart, numbers: readonly number[]): SketchPart {
+  if (!part.text) return part;
+  const wanted = new Set(numbers.map(markNumber));
+  const [head, ...lines] = part.text.split('\n');
+  return { ...part, text: [head, ...lines.filter(l => wanted.has([...l][0] ?? ''))].join('\n') };
+}
 
 export class LlmController {
   /** A request is running (Esc stops it). */
@@ -225,10 +246,13 @@ export class LlmController {
   }
 
   /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
-  run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[] } = {}): Outcome {
-    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.fast.where() };
+  run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; /** The person's rough sketch (U8c). */ sketch?: SentSketch } = {}): Outcome {
+    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.fast.where(), ...(options.sketch ? { sketch: options.sketch } : {}) };
+    // The marks stay (dimmed) while the request runs.
+    if (options.sketch?.ids?.length) this.session.markSent(options.sketch.ids, line.id);
     const taken = this.take(line);
     if (taken) return taken;
+    this.session.releaseSent(line.id, true);
     const failed: Outcome = { ...line, status: 'failed', message: this.reason() };
     this.fast.upsert(failed);
     return failed;
@@ -295,7 +319,7 @@ export class LlmController {
     const turn = {
       id: line.id, started, epoch: this.session.loadEpoch.value, conversation: this.session.conversation.value,
       line: { ...line, status: 'thinking', route: 'llm', live: true, steps: [], activity: 'starting…', message: undefined },
-      members: [], byKey: new Map(), seam: null, waiting: [], leadEnded: null, additions: [], words: [line.text], integrations: 0,
+      members: [], byKey: new Map(), seam: null, waiting: [], leadEnded: null, additions: [], additionImages: [], sketch: [...(line.sketch?.parts ?? [])], words: [line.text], integrations: 0,
       stopping: false, stopTimer: null, firstChange: null,
     } as unknown as Turn;
     turn.lead = this.makeAgent(turn, { id: 'lead', key: line.id, role, name: 'Lead', color: 'var(--accent)' });
@@ -306,7 +330,7 @@ export class LlmController {
     const text = this.compose(line.text, false, line);
     this.lastLine = line.id;
     this.lastStarted = Date.now();
-    if (!this.bridge.llmStart(turn.lead.key, text, developerInstructions(this.blocks(), role), this.thread ?? undefined, { role })) {
+    if (!this.bridge.llmStart(turn.lead.key, text, developerInstructions(this.blocks(), role), this.thread ?? undefined, { role, ...imagesOf(line.sketch?.parts) })) {
       this.finish(turn, { kind: 'done', status: 'failed', error: { message: 'The AI bridge is not connected.' }, ms: 0 });
     }
     return turn.line;
@@ -325,9 +349,14 @@ export class LlmController {
   private steer(line: Outcome): Outcome {
     const turn = this.turn!;
     turn.words.push(line.text);
+    // A sketch added to the running request stays (dimmed) until the request ends.
+    if (line.sketch?.parts.length) {
+      turn.sketch.push(...line.sketch.parts);
+      if (line.sketch.ids?.length) this.session.markSent(line.sketch.ids, turn.id);
+    }
     if (turn.leadEnded) {
       // The lead's turn is over while its members work: what the person adds goes to its next turn.
-      turn.additions.push(line.text);
+      this.addition(turn, line);
       const merged: Outcome = { ...line, status: 'merged', route: 'llm', live: false, message: '→ added to the running request' };
       this.fast.upsert(merged);
       this.step(turn, turn.lead, `you added: “${line.text.slice(0, 60)}”`);
@@ -337,13 +366,21 @@ export class LlmController {
     this.steering.set(steer.id, steer);
     this.fast.upsert(steer);
     this.wake(turn, 'steer'); // a lead waiting for its members reads it at once
-    if (!this.bridge.llmSteer(steer.id, turn.lead.key, this.compose(line.text, true, line))) this.later(steer);
+    if (!this.bridge.llmSteer(steer.id, turn.lead.key, this.compose(line.text, true, line), imagesOf(line.sketch?.parts).images)) this.later(steer);
     return steer;
+  }
+
+  /** What the person said while the lead's turn was over: for its next turn (with the sketch, if any). */
+  private addition(turn: Turn, line: Outcome) {
+    const sketch = line.sketch?.parts.map(p => p.text).filter(Boolean).join('\n') ?? '';
+    turn.additions.push(sketch ? `${line.text}\n${sketch}` : line.text);
+    turn.additionImages.push(...(imagesOf(line.sketch?.parts).images ?? []));
   }
 
   /** Run after the current request (a steer that arrived as it ended). */
   private later(line: Outcome) {
     this.steering.delete(line.id);
+    if (line.sketch?.ids?.length) this.session.markSent(line.sketch.ids, line.id);
     const waiting: Outcome = { ...line, status: 'thinking', live: true, message: 'waits for the running request…' };
     this.queue.push(waiting);
     this.fast.upsert(waiting);
@@ -353,14 +390,14 @@ export class LlmController {
   private next() {
     const line = this.queue.shift();
     if (!line) return;
-    if (!this.ready) { this.fast.upsert({ ...line, status: 'failed', live: false, message: this.reason() }); this.next(); return; }
+    if (!this.ready) { this.session.releaseSent(line.id, true); this.fast.upsert({ ...line, status: 'failed', live: false, message: this.reason() }); this.next(); return; }
     this.start(line);
   }
 
   /** The request text with what Codex should know about the moment it was made. */
   private compose(text: string, steering: boolean, line: Outcome): string {
     const attached = line.attached?.length ? `\n[den-kit] The person attached (points at) these: ${describeAttachments(line.attached)}. The request is about them: change these unless they clearly ask for something new.` : '';
-    const where = `${line.where ? `\n[den-kit] ${this.whereText(line)}` : ''}\n[den-kit] ${this.seeingLine()}`;
+    const where = `${line.where ? `\n[den-kit] ${this.whereText(line)}` : ''}\n[den-kit] ${this.seeingLine()}${sketchLines(line.sketch?.parts)}`;
     if (steering) return `[den-kit] The user adds, while you work:${attached}${where}\n\n${text}`;
     const parts = [`[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.`];
     // What happened that this conversation's LLM has not seen: the whole recent story for a new conversation,
@@ -532,15 +569,18 @@ export class LlmController {
     for (const member of fresh) {
       const brief = member.brief!, id = member.id;
       const others = turn.members.filter(m => m !== member && m.status === 'working').map(m => ({ id: m.id, name: m.name, scope: m.holding!.scope }));
+      // The person's sketches on what the member holds go with it (words and pictures), unless it gets only its brief.
+      const sketches = brief.context === 'bare' ? [] : sketchesFor(turn.sketch, brief.scope);
       const text = memberText({
         id, brief, others, words: turn.words, recent: recent.slice(-RECAP_LINES).map(lineForAi),
         attached: turn.line.attached?.length ? describeAttachments(turn.line.attached) : undefined,
         where: turn.line.where ? this.whereText(turn.line) : undefined,
+        sketch: sketches.length ? sketches.map(p => p.text).filter(Boolean).join('\n') : undefined,
         designBrief: doc.ui.brief, seam, state: scopeState(doc, this.session.catalog, brief.scope), seeing: this.seeingLine(),
       });
       member.textChars = text.length;
       const fork = brief.context === 'full' ? { thread: this.thread ?? '', fallback: conversationAccount(recent.map(lineForAi), { steps: turn.lead.steps, message: turn.lead.message }) } : undefined;
-      if (!this.bridge.llmStart(member.key, text, developerInstructions(this.blocks(), 'member'), undefined, { role: 'member', fork })) {
+      if (!this.bridge.llmStart(member.key, text, developerInstructions(this.blocks(), 'member'), undefined, { role: 'member', fork, ...imagesOf(sketches) })) {
         this.memberEnded(turn, member, { kind: 'done', status: 'failed', error: { message: 'The AI bridge is not connected.' }, ms: 0 });
         continue;
       }
@@ -578,15 +618,19 @@ export class LlmController {
   }
 
   private tell(turn: Turn, args: unknown): ToolOutput {
-    const a = (args && typeof args === 'object' ? args : {}) as { member?: unknown; text?: unknown };
+    const a = (args && typeof args === 'object' ? args : {}) as { member?: unknown; text?: unknown; marks?: unknown };
     const member = turn.members.find(m => m.id === a.member);
     if (!member) return { success: false, text: `No member ${String(a.member)}. Members: ${turn.members.map(m => `${m.id} “${m.name}”`).join(', ') || 'none'}.` };
     if (member.status !== 'working' || member.stopping) return { success: false, text: `${member.id} “${member.name}” has already finished.` };
     const text = typeof a.text === 'string' ? a.text.trim().slice(0, 4000) : '';
     if (!text) return { success: false, text: 'Say what to tell it (text).' };
+    // Marks of the person's sketch the lead passes along: their lines, and the pictures they are on.
+    const numbers = Array.isArray(a.marks) ? a.marks.filter((n): n is number => Number.isInteger(n) && n > 0).slice(0, 40) : [];
+    const marked = numbers.length ? turn.sketch.map(p => onlyMarks(p, numbers)).filter(p => p.text?.includes('\n')) : [];
+    if (numbers.length && !marked.length) return { success: false, text: `No marks ${numbers.join(', ')} in the person's sketch${turn.sketch.length ? '' : ' (there is none in this request)'}.` };
     const key = `${member.key}~t${++this.tellSerial}`;
     this.tells.set(key, member);
-    if (!this.bridge.llmSteer(key, member.key, `[den-kit] The lead adds: ${text}`)) { this.tells.delete(key); return { success: false, text: 'The AI bridge is not connected.' }; }
+    if (!this.bridge.llmSteer(key, member.key, `[den-kit] The lead adds: ${text}${sketchLines(marked)}`, imagesOf(marked).images)) { this.tells.delete(key); return { success: false, text: 'The AI bridge is not connected.' }; }
     this.step(turn, member, `the lead added: “${text.slice(0, 60)}”`);
     return { success: true, text: `Sent to ${member.id} “${member.name}”; it reads it at its next step.` };
   }
@@ -629,10 +673,11 @@ export class LlmController {
     turn.leadEnded = null;
     const reports = turn.members.filter(m => !m.reported).map(m => { m.reported = true; return memberReportText(this.memberState(m)); });
     const text = integrationText(reports, turn.additions);
+    const images = turn.additionImages.splice(0);
     turn.additions = [];
     this.step(turn, lead, 'checking what the members did');
     this.update(turn, { activity: 'checking the members’ work…' });
-    if (!this.bridge.llmStart(lead.key, text, developerInstructions(this.blocks(), lead.role), this.thread ?? undefined, { role: lead.role })) {
+    if (!this.bridge.llmStart(lead.key, text, developerInstructions(this.blocks(), lead.role), this.thread ?? undefined, { role: lead.role, ...pictures(images) })) {
       this.finish(turn, { kind: 'done', status: 'failed', error: { message: 'The AI bridge is not connected.' }, ms: 0 });
     }
   }
@@ -674,7 +719,7 @@ export class LlmController {
       const turn = this.turn;
       if (turn && turn.leadEnded && !turn.stopping) {
         this.steering.delete(line.id);
-        turn.additions.push(line.text);
+        this.addition(turn, line);
         this.fast.upsert({ ...line, status: 'merged', live: false, message: '→ added to the running request' });
       } else this.later(line);
     }
@@ -683,7 +728,9 @@ export class LlmController {
   private async toolCall(turn: Turn, agent: Agent, key: string, callId: string, tool: string, args: unknown) {
     let pending = agent.calls.get(callId);
     if (!pending) { pending = this.runTool(turn, agent, tool, args); agent.calls.set(callId, pending); }
-    const output = await pending;
+    let output = await pending;
+    // A picture too large for the bridge would lose the whole result: send the words without it.
+    if (output.imageDataUrl && output.imageDataUrl.length > MAX_TOOL_IMAGE) output = { ...output, imageDataUrl: undefined, text: `${output.text}\n(The picture was too large to send.)` };
     if (this.turn === turn) this.bridge.toolResult(key, callId, output);
   }
 
@@ -797,6 +844,8 @@ export class LlmController {
     // The screen project's changes of this request become one commit in the pod's git.
     if (agents.some(a => a.ws.projectTouched)) void this.session.pod?.commit(`den-kit AI: ${label ?? turn.line.text}`).catch(() => undefined);
     const status = turn.stopping && done.status === 'completed' ? 'interrupted' : done.status;
+    // The request is over: its marks go, unless it did nothing with them (then they are new marks for another try).
+    this.session.releaseSent(turn.id, status !== 'completed' && !landed);
     this.syncLanes(turn);
     if (status === 'completed') this.close(turn, { status: landed ? 'applied' : 'reply', ms, label });
     else if (status === 'interrupted') this.close(turn, { status: 'stopped', ms, label: landed ? label : undefined, message: turn.stopNote ?? (done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped.'), note: landed ? KEPT : 'Nothing was changed.' });

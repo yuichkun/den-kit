@@ -5,6 +5,7 @@
 // person's own edits) and, when its conversation is new, what came before.
 import type { Transaction } from '../core/history.ts';
 import type { Outcome, OutcomeStatus, RouteKind } from './fast-path.ts';
+import { sketchSummary } from './sketch.ts';
 
 /** Lines kept per conversation (oldest drop first). */
 export const SAVED_LINES = 40;
@@ -20,6 +21,8 @@ const str = (v: unknown, n: number) => typeof v === 'string' ? v.slice(0, n) : u
 export function savedLine(o: Outcome): Outcome {
   const running = o.live || o.status === 'working' || o.status === 'thinking';
   const line: Outcome = { ...o, live: undefined, activity: undefined };
+  // A sketch is kept as what it was (its words and picture only mattered while it ran).
+  if (o.sketch) line.sketch = { parts: o.sketch.parts.map(p => ({ view: p.view, marks: p.marks })) };
   if (running) Object.assign(line, { status: 'stopped', message: 'Interrupted (the page was reloaded).' });
   return JSON.parse(JSON.stringify(line)) as Outcome;
 }
@@ -37,6 +40,11 @@ export function readSavedLines(raw: readonly unknown[]): Outcome[] {
     if (o.undone === true) line.undone = true;
     if (o.screen === true) line.screen = true;
     if (Array.isArray(o.steps)) line.steps = o.steps.filter((s): s is string => typeof s === 'string').slice(-12).map(s => s.slice(0, 200));
+    const sketch = (o.sketch as { parts?: unknown } | undefined)?.parts;
+    if (Array.isArray(sketch)) {
+      const parts = sketch.filter((p): p is { view: 'plugin' | 'patch'; marks: number } => !!p && typeof p === 'object' && ((p as { view?: unknown }).view === 'plugin' || (p as { view?: unknown }).view === 'patch') && Number.isInteger((p as { marks?: unknown }).marks) && (p as { marks: number }).marks > 0).slice(0, 2);
+      if (parts.length) line.sketch = { parts: parts.map(p => ({ view: p.view, marks: Math.min(p.marks, 99) })) };
+    }
     if (Array.isArray(o.attached)) line.attached = o.attached.filter((a): a is { id: string; kind: never; label: string } => !!a && typeof a === 'object' && typeof (a as { id?: unknown }).id === 'string' && typeof (a as { label?: unknown }).label === 'string').slice(0, 24);
     if (line.status === 'working' || line.status === 'thinking') Object.assign(line, { status: 'stopped', message: 'Interrupted (the page was reloaded).' });
     out.push(line);
@@ -55,7 +63,8 @@ export function lineForAi(o: Outcome): string {
     : o.status === 'merged' ? 'added to the running request'
     : o.status;
   const attached = o.attached?.length ? ` [about: ${o.attached.map(a => a.id).join(', ')}]` : '';
-  return `- ${who}: “${clip(o.text, 140)}”${attached} → ${clip(result, 160)}${o.undone ? ' (then undone with ⌘Z)' : ''}`;
+  const sketch = o.sketch?.parts.length ? ` [with a sketch: ${sketchSummary(o.sketch.parts)}]` : '';
+  return `- ${who}: “${clip(o.text, 140)}”${attached}${sketch} → ${clip(result, 160)}${o.undone ? ' (then undone with ⌘Z)' : ''}`;
 }
 
 /**

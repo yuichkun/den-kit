@@ -19,6 +19,8 @@ import GridPalette from './GridPalette.vue';
 import { portColor } from './grid-style.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 import { claimEnter } from './keys.ts';
+import InkLayer from './InkLayer.vue';
+import InkToolbar from './InkToolbar.vue';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -243,8 +245,12 @@ const viewDetails = () => {
   const inView = Object.values(session.doc.value.nodes).filter(n => here(n) && n.pos.x < x1 && n.pos.x + 160 > x0 && n.pos.y < y1 && n.pos.y + 100 > y0).map(n => n.id);
   return { zoom: Math.round(vp.zoom * 100) / 100, inView };
 };
-onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); session.viewDetails = viewDetails; });
-onBeforeUnmount(() => { offLlmFit(); releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); if (session.viewDetails === viewDetails) session.viewDetails = null; });
+/** Where the modules are drawn (their boxes in the patch's positions), for reading the person's sketch (U8c). */
+const patchBoxes = () => Object.fromEntries(flow.getNodes.value.map(n => [n.id, { x: n.computedPosition.x, y: n.computedPosition.y, w: n.dimensions.width || 160, h: n.dimensions.height || 100 }]));
+/** Drawing on the patch: the pen is in hand while the person looks at the patch. */
+const inking = computed(() => !!session.inking.value && session.seeing.value.view === 'patch');
+onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); session.viewDetails = viewDetails; session.patchBoxes = patchBoxes; });
+onBeforeUnmount(() => { offLlmFit(); releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); if (session.viewDetails === viewDetails) session.viewDetails = null; if (session.patchBoxes === patchBoxes) session.patchBoxes = null; });
 defineExpose({ openPalette, fit });
 </script>
 
@@ -263,6 +269,8 @@ defineExpose({ openPalette, fit });
       <template #edge-kit="edgeProps"><KitEdge v-bind="edgeProps" /></template>
       <Background variant="lines" :gap="120" :line-width="1" pattern-color="#1c1c1c" />
     </VueFlow>
+    <InkLayer view="patch" :viewport="flow.viewport.value" />
+    <InkToolbar v-if="inking" view="patch" />
     <Palette v-if="palette" :style="{ left: `${palette.x}px`, top: `${palette.y}px` }" @pick="pick" @close="palette = null" />
     <div v-if="crumbs.length" class="crumbs" data-testid="part-crumbs">
       <button class="crumb" data-crumb="0" title="The main patch" @click="session.leavePart(Infinity)">Patch</button>

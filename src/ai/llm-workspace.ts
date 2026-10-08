@@ -85,7 +85,7 @@ export interface SeenResult {
   text: string;
   /** The view they look at now. */
   looking: 'plugin' | 'patch' | 'other';
-  picture?: { png: Uint8Array; width: number; height: number; source: 'tab' | 'shell' };
+  picture?: { data: Uint8Array; mime: 'image/jpeg' | 'image/png'; width: number; height: number; source: 'tab' | 'shell' };
   /** Why there is no picture. */
   reason?: string;
 }
@@ -102,6 +102,8 @@ export interface Picture { png: Uint8Array | null; width: number; height: number
 
 const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
+/** Bytes as a data: URL. */
+export const dataUrl = (bytes: Uint8Array, mime: string) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return `data:${mime};base64,${btoa(s)}`; };
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_finish';
 const TEAM_TOOLS = new Set(['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']);
@@ -357,7 +359,7 @@ export class LlmWorkspace {
       const p = seen.picture;
       this.steps.push(`looked at what you see (${view ?? seen.looking})`);
       const from = p.source === 'shell' ? 'the desktop app' : 'their shared tab';
-      return { success: true, text: `What the person sees now (${view ?? seen.looking}, ${p.width}×${p.height}, from ${from}). ${seen.text}${this.deps.images ? ' The picture is attached.' : ' Your model does not take pictures, so there is none.'}`, imageDataUrl: this.deps.images ? pngDataUrl(p.png) : undefined };
+      return { success: true, text: `What the person sees now (${view ?? seen.looking}, ${p.width}×${p.height}, from ${from}). ${seen.text}${this.deps.images ? ' The picture is attached.' : ' Your model does not take pictures, so there is none.'}`, imageDataUrl: this.deps.images ? dataUrl(p.data, p.mime) : undefined };
     }
     const why = seen.reason ?? 'The person has not shared their screen with you.';
     if ((view ?? seen.looking) === 'plugin') {
