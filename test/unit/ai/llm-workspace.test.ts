@@ -7,7 +7,7 @@ import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';
 import { clone, type PatchDocument } from '../../../src/core/schema.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
-import { KIT_TOOLS, KIT_TOOL_NAMES, developerInstructions } from '../../../src/ai/llm-spec.ts';
+import { KIT_TOOLS, KIT_TOOL_NAMES, LEAD_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import type { RenderRequest } from '../../../src/compile/protocol.ts';
 import { analyse } from '../../../src/core/analysis.ts';
 import { checkPlugin } from '../../../src/plugin/checks.ts';
@@ -41,7 +41,9 @@ describe('tool specs', () => {
     for (const name of ['kit_get_patch', 'kit_apply_ops', 'kit_listen', 'kit_finish']) expect(text).toContain(name);
     expect(text).toMatch(/Never ask the user to choose/);
     expect(text).toMatch(/lands on the live patch at once/);
-    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length);
+    // Every tool den-kit runs: everyone's and the lead's (U8).
+    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length + LEAD_TOOLS.length);
+    for (const t of LEAD_TOOLS) { expect(t.inputSchema.type).toBe('object'); expect(KIT_TOOL_NAMES.has(t.name)).toBe(true); }
     expect(KIT_TOOL_NAMES.has('kit_ask')).toBe(false);
   });
 });

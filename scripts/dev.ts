@@ -20,7 +20,7 @@ const budget = Number(process.env.KIT_JEV_BUDGET_MS);
 const telemetry = new Telemetry(join(root, '.logs'));
 // The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
 const codex = process.env.KIT_CODEX === 'off' ? undefined : new CodexClient({
-  kitRoot: root, model: process.env.KIT_CODEX_MODEL, effort: process.env.KIT_CODEX_EFFORT, telemetry,
+  kitRoot: root, model: process.env.KIT_CODEX_MODEL, effort: process.env.KIT_CODEX_EFFORT, fork: process.env.KIT_CODEX_FORK === '1', telemetry,
   log: line => console.log(`  [bridge] ${line}`),
 });
 

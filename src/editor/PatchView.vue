@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Patch canvas (Vue Flow). The document is the source of truth: Vue Flow only
 // renders it; every user gesture becomes a session.commit() intent.
+import { useTouches } from './touches.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { SelectionMode, VueFlow, useVueFlow, type Connection, type NodeDragEvent, type NodeChange, type EdgeChange } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
@@ -21,6 +22,8 @@ import { claimEnter } from './keys.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
+/** What the AIs of a request with members just changed (outlined in their colour). */
+const touches = useTouches(session);
 const flow = useVueFlow('den-kit');
 const palette = ref<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
 const wrapper = ref<HTMLElement | null>(null);
@@ -50,7 +53,7 @@ const nodes = computed(() => {
   for (const e of Object.values(doc.edges)) (connected.get(e.to.node) ?? connected.set(e.to.node, []).get(e.to.node)!).push(e.to.port);
   return Object.values(doc.nodes).filter(here).map(node => ({
     id: node.id, type: 'kit', position: { ...(dragging.value[node.id] ?? node.pos) }, selected: session.selection.value.includes(node.id),
-    data: { node, issues: issuesByNode.value.get(node.id) ?? [], connected: connected.get(node.id) ?? [], scope: scopeOf(node.id) },
+    data: { node, issues: issuesByNode.value.get(node.id) ?? [], connected: connected.get(node.id) ?? [], scope: scopeOf(node.id), touch: touches.value.get(node.id) },
   }));
 });
 

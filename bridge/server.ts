@@ -216,12 +216,14 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         add(running, tab.tab, key);
         // Only the tab's own conversations can be continued.
         const thread = message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
-        codex.startTurn({ key, text: message.text, thread, instructions: message.instructions }, sinkFor(tab.tab, message.id));
+        // A member may start from a copy of one of the tab's own conversations only.
+        const fork = message.fork ? { thread: threads.get(tab.tab)?.has(message.fork.thread) ? message.fork.thread : '', fallback: message.fork.fallback } : undefined;
+        codex.startTurn({ key, text: message.text, thread, instructions: message.instructions, role: message.role, images: message.images, fork }, sinkFor(tab.tab, message.id));
         return;
       }
       case 'llm.steer':
         if (!codex) { llmOff(tab.socket, message.id); return; }
-        codex.steer({ key: keyOf(tab.tab, message.id), target: keyOf(tab.tab, message.target), text: message.text }, sinkFor(tab.tab, message.id));
+        codex.steer({ key: keyOf(tab.tab, message.id), target: keyOf(tab.tab, message.target), text: message.text, images: message.images }, sinkFor(tab.tab, message.id));
         return;
       case 'llm.stop': codex?.stopTurn(keyOf(tab.tab, message.id)); return;
       case 'llm.answer': {

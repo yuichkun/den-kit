@@ -11,8 +11,8 @@
 // for powers den-kit never grants are declined, anything unknown gets an error.
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CodexStatus, LlmError, LlmEvent, LlmQuestion, ToolOutput } from '../../src/ai/protocol.ts';
-import { KIT_TOOLS, toolDeadlineMs, type ToolSpec } from '../../src/ai/llm-spec.ts';
+import type { CodexStatus, LlmError, LlmEvent, LlmQuestion, LlmRole, TokenUsage, ToolOutput } from '../../src/ai/protocol.ts';
+import { toolDeadlineMs, toolsFor, type ToolSpec } from '../../src/ai/llm-spec.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { RpcClosed, RpcError, RpcPeer, RpcTimeout } from './rpc.ts';
 import { codexHome, codexWorkdir, isProblem, LOGIN_COMMAND, resolveCodex, spawnAppServer, type AppServerProcess, type CodexCommand } from './process.ts';
@@ -21,6 +21,7 @@ import {
   type AgentMessageDeltaNotification, type DynamicToolCallParams, type DynamicToolCallResponse, type ErrorNotification, type GetAccountRateLimitsResponse,
   type GetAccountResponse, type InitializeResponse, type ItemNotification, type Model, type ModelListResponse, type RateLimitSnapshot, type RequestId,
   type RpcNotification, type RpcRequest, type ServerRequestResolvedNotification, type ThreadStartParams, type ThreadStartResponse, type ToolRequestUserInputParams,
+  type ThreadForkParams, type ThreadTokenUsageUpdatedNotification, type TokenUsageBreakdown,
   type TurnError, type TurnNotification, type TurnStartResponse, type UserInput,
 } from './protocol.ts';
 
@@ -41,8 +42,10 @@ export interface CodexClientOptions {
   model?: string;
   /** KIT_CODEX_EFFORT (low, medium, high, …); default: the model's own. */
   effort?: string;
-  /** Tools registered on every thread (doctor --deep uses a ping tool). */
+  /** Tools registered on every thread instead of each role's own (doctor --deep uses a ping tool). */
   tools?: ToolSpec[];
+  /** KIT_CODEX_FORK=1: a member asked for the lead's whole conversation starts from a copy of it (thread/fork); otherwise from den-kit's account of it. */
+  fork?: boolean;
   telemetry?: Telemetry;
   log?: (line: string) => void;
   /** Every JSON-RPC line in and out (doctor --deep records the real conversation). */
@@ -50,6 +53,7 @@ export interface CodexClientOptions {
   timeouts?: Partial<Timeouts>;
   restart?: Partial<{ baseMs: number; maxMs: number; maxFailures: number }>;
   authPollMs?: number;
+  /** Turns running at once across the bridge (a lead and its members count each). */
   maxTurns?: number;
 }
 interface Timeouts {
@@ -63,7 +67,7 @@ interface Timeouts {
   settleMs: number;
 }
 
-interface ThreadState { id: string; turn: TurnState | null; generation: number }
+interface ThreadState { id: string; turn: TurnState | null; generation: number; /** The kit_* tools this conversation has. */ tools: Set<string> }
 interface TurnState {
   key: string;
   sink: TurnSink;
@@ -73,7 +77,7 @@ interface TurnState {
   stopRequested: boolean;
   interruptSent: boolean;
   stopReason?: string;
-  steers: Array<{ key: string; text: string; sink: TurnSink }>;
+  steers: Array<{ key: string; text: string; images?: string[]; sink: TurnSink }>;
   calls: Map<string, { rpcId: RequestId; timer: ReturnType<typeof setTimeout>; tool: string; args: unknown }>;
   questions: Set<string>;
   error: TurnError | null;
@@ -105,6 +109,29 @@ export function threadStartParams(options: { model?: string | null; cwd: string;
 }
 
 export const text = (value: string): UserInput => ({ type: 'text', text: value, text_elements: [] });
+/** A request's input: its text, then its pictures (data: URLs). */
+export const userInput = (value: string, images?: readonly string[]): UserInput[] => [text(value), ...(images ?? []).map((url): UserInput => ({ type: 'image', url }))];
+/** Turns running at once across the bridge: a lead and up to three members, or a few separate requests. */
+export const MAX_TURNS = 4;
+
+/** A member's copy of the lead's conversation: the same isolation as a new thread (no shell, no files, no approvals), the member's rules. */
+export function forkParams(options: { threadId: string; model?: string | null; cwd: string; instructions: string }): ThreadForkParams {
+  return {
+    threadId: options.threadId,
+    ...(options.model ? { model: options.model } : {}),
+    cwd: options.cwd,
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    ephemeral: true,
+    config: THREAD_CONFIG,
+    developerInstructions: options.instructions,
+  };
+}
+
+const count = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0;
+function tokens(b: TokenUsageBreakdown): TokenUsage {
+  return { input: count(b.inputTokens), cached: count(b.cachedInputTokens), output: count(b.outputTokens), reasoning: count(b.reasoningOutputTokens), total: count(b.totalTokens) };
+}
 const failure = (message: string): DynamicToolCallResponse => ({ contentItems: [{ type: 'inputText', text: message }], success: false });
 
 export function describeRpcError(error: unknown): string {
@@ -132,8 +159,8 @@ export class CodexClient {
   private serial = 0;
   readonly home: { path: string; isolated: boolean };
   readonly workdir: string;
-  readonly tools: ToolSpec[];
-  private readonly toolNames: Set<string>;
+  /** Tools that replace each role's own (doctor --deep). */
+  private readonly toolOverride: ToolSpec[] | null;
   private readonly options: CodexClientOptions;
   private readonly timeouts: Timeouts;
   private readonly restartPolicy: { baseMs: number; maxMs: number; maxFailures: number };
@@ -144,8 +171,7 @@ export class CodexClient {
     const env = options.env ?? process.env;
     this.home = options.home ?? codexHome(options.kitRoot, env);
     this.workdir = options.workdir ?? codexWorkdir(options.kitRoot);
-    this.tools = options.tools ?? KIT_TOOLS;
-    this.toolNames = new Set(this.tools.map(t => t.name));
+    this.toolOverride = options.tools ?? null;
     this.timeouts = { initializeMs: 30000, requestMs: 20000, toolMs: 90000, interruptMs: 8000, settleMs: 10000, ...options.timeouts };
     this.restartPolicy = { baseMs: 1000, maxMs: 30000, maxFailures: 5, ...options.restart };
   }
@@ -328,14 +354,18 @@ export class CodexClient {
     return { message: s.detail ?? 'Codex is not available.', code: s.state, fix: s.fix };
   }
 
-  /** Start a turn (in a new thread, or continuing `thread`). Progress and the final `done` go to `sink`. */
-  startTurn(request: { key: string; text: string; thread?: string; instructions: string }, sink: TurnSink) {
+  /**
+   * Start a turn (in a new thread, or continuing `thread`). Progress and the final `done` go to `sink`.
+   * `role` picks the new thread's tools; `images` come with the text; `fork` starts a member from a copy
+   * of the lead's conversation (KIT_CODEX_FORK=1), or else from a new one that begins with `fallback`.
+   */
+  startTurn(request: { key: string; text: string; thread?: string; instructions: string; role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }, sink: TurnSink) {
     const started = Date.now();
     const fail = (error: LlmError) => sink.event({ kind: 'done', status: 'failed', error, ms: Date.now() - started });
     const peer = this.peer;
     if (!this.ready || !peer) return fail(this.unavailable());
     if (this.turns.has(request.key)) return fail({ message: 'This request is already running.', code: 'duplicate' });
-    if (this.turns.size >= (this.options.maxTurns ?? 3)) return fail({ message: 'Several LLM requests are already running; wait for one to finish or stop it (Esc).', code: 'busy' });
+    if (this.turns.size >= (this.options.maxTurns ?? MAX_TURNS)) return fail({ message: 'Several LLM requests are already running; wait for one to finish or stop it (Esc).', code: 'busy' });
     let thread = request.thread ? this.threads.get(request.thread) : undefined;
     if (thread?.turn) return fail({ message: 'This conversation is still working on the previous request.', code: 'busy' });
     const turn: TurnState = { key: request.key, sink, thread: null, turnId: null, started, stopRequested: false, interruptSent: false, steers: [], calls: new Map(), questions: new Set(), error: null, tools: 0, done: false, settleTimer: null };
@@ -343,23 +373,42 @@ export class CodexClient {
     this.stats.turns++;
     void (async () => {
       try {
+        let input = request.text;
         if (!thread) {
-          const r = await peer.request<ThreadStartResponse>('thread/start', this.threadParams(request.instructions), { timeoutMs: this.timeouts.requestMs });
+          const tools = this.toolOverride ?? toolsFor(request.role);
+          const source = request.fork ? this.threads.get(request.fork.thread) : undefined;
+          let forked: boolean | undefined;
+          let r: ThreadStartResponse | null = null;
+          if (request.fork) {
+            forked = false;
+            if (this.options.fork && source) {
+              try {
+                r = await peer.request<ThreadStartResponse>('thread/fork', forkParams({ threadId: source.id, model: this.modelId, cwd: this.workdir, instructions: request.instructions }), { timeoutMs: this.timeouts.requestMs });
+                forked = true;
+              } catch (error) {
+                this.log(`codex: thread/fork failed (${describeRpcError(error)}); the member starts from den-kit's account of the conversation`);
+                this.record('fork-failed', { message: describeRpcError(error) });
+              }
+            }
+            if (!forked) input = `${request.fork.fallback}\n\n${request.text}`;
+          }
+          r ??= await peer.request<ThreadStartResponse>('thread/start', threadStartParams({ model: this.modelId, cwd: this.workdir, instructions: request.instructions, tools }), { timeoutMs: this.timeouts.requestMs });
           if (turn.done) { peer.request('thread/unsubscribe', { threadId: r.thread.id }, { timeoutMs: this.timeouts.requestMs }).catch(() => {}); return; }
-          thread = { id: r.thread.id, turn: null, generation: this.generation };
+          // A copy keeps the lead's tools (lead tools too: den-kit refuses those from a member).
+          thread = { id: r.thread.id, turn: null, generation: this.generation, tools: new Set((forked && source ? [...source.tools] : tools.map(t => t.name))) };
           this.threads.set(thread.id, thread);
           if (r.instructionSources?.length) {
             this.log(`codex: instruction files were loaded: ${r.instructionSources.join(', ')}`);
             this.record('instruction-sources', { sources: r.instructionSources });
             sink.event({ kind: 'activity', what: 'warning', detail: `Codex also loaded ${r.instructionSources.length} instruction file(s) from CODEX_HOME.` });
           }
-          sink.event({ kind: 'thread', thread: thread.id, fresh: !!request.thread });
+          sink.event({ kind: 'thread', thread: thread.id, fresh: !!request.thread, ...(forked !== undefined ? { forked } : {}) });
         }
         if (turn.stopRequested) { this.finish(turn, 'interrupted'); return; }
         turn.thread = thread;
         thread.turn = turn;
-        const effort = this.options.effort?.trim();
-        const r = await peer.request<TurnStartResponse>('turn/start', { threadId: thread.id, input: [text(request.text)], ...(effort ? { effort } : {}) }, { timeoutMs: this.timeouts.requestMs });
+        const effort = this.effort();
+        const r = await peer.request<TurnStartResponse>('turn/start', { threadId: thread.id, input: userInput(input, request.images), ...(effort ? { effort } : {}) }, { timeoutMs: this.timeouts.requestMs });
         if (turn.done) return;
         turn.turnId ??= r.turn.id;
         sink.event({ kind: 'started', turn: turn.turnId });
@@ -373,18 +422,19 @@ export class CodexClient {
     })();
   }
 
-  /** Add text to a running request's turn. The steer request ends with `steered`, or a failed `done` (then send it as a new request). */
-  steer(request: { key: string; target: string; text: string }, sink: TurnSink) {
+  /** Add text (and pictures) to a running request's turn. The steer request ends with `steered`, or a failed `done` (then send it as a new request). */
+  steer(request: { key: string; target: string; text: string; images?: string[] }, sink: TurnSink) {
     const turn = this.turns.get(request.target);
     if (!turn || turn.done || turn.stopRequested || !this.peer) { sink.event({ kind: 'done', status: 'failed', error: { message: 'That request has already finished.', code: 'not-steerable' }, ms: 0 }); return; }
-    if (!turn.turnId) { turn.steers.push({ key: request.key, text: request.text, sink }); return; }
-    this.sendSteer(turn, { key: request.key, text: request.text, sink });
+    const steer = { key: request.key, text: request.text, images: request.images, sink };
+    if (!turn.turnId) { turn.steers.push(steer); return; }
+    this.sendSteer(turn, steer);
   }
 
-  private sendSteer(turn: TurnState, steer: { key: string; text: string; sink: TurnSink }) {
+  private sendSteer(turn: TurnState, steer: { key: string; text: string; images?: string[]; sink: TurnSink }) {
     const peer = this.peer;
     if (!peer || !turn.thread || !turn.turnId || turn.done) { steer.sink.event({ kind: 'done', status: 'failed', error: { message: 'That request has already finished.', code: 'not-steerable' }, ms: 0 }); return; }
-    peer.request('turn/steer', { threadId: turn.thread.id, input: [text(steer.text)], expectedTurnId: turn.turnId }, { timeoutMs: this.timeouts.requestMs })
+    peer.request('turn/steer', { threadId: turn.thread.id, input: userInput(steer.text, steer.images), expectedTurnId: turn.turnId }, { timeoutMs: this.timeouts.requestMs })
       .then(() => steer.sink.event({ kind: 'steered', target: turn.key }))
       .catch(error => steer.sink.event({ kind: 'done', status: 'failed', error: { message: describeRpcError(error), code: 'not-steerable' }, ms: 0 }));
   }
@@ -480,9 +530,17 @@ export class CodexClient {
     turn.sink.event({ kind: 'done', status, ...(error ? { error } : {}), ms });
   }
 
-  private threadParams(instructions: string): ThreadStartParams {
-    return threadStartParams({ model: this.modelId, cwd: this.workdir, instructions, tools: this.tools });
+  /** KIT_CODEX_EFFORT, except "ultra": that turns on Codex's own sub-agents, and den-kit runs its own members. */
+  private effort(): string | undefined {
+    const effort = this.options.effort?.trim();
+    if (!effort) return undefined;
+    if (effort.toLowerCase() === 'ultra') {
+      if (!this.warnedUltra) { this.warnedUltra = true; this.log('codex: KIT_CODEX_EFFORT=ultra is not sent (it starts Codex\'s own sub-agents; den-kit has its own members). Using the model\'s default effort.'); }
+      return undefined;
+    }
+    return effort;
   }
+  private warnedUltra = false;
 
   // ---- from Codex ------------------------------------------------------------------------------
   private turnOf(threadId: unknown): TurnState | null {
@@ -512,7 +570,8 @@ export class CodexClient {
     const turn = this.turnOf(params.threadId);
     if (!turn || turn.done) { peer.respond(rpcId, failure('This request is over; the tool was not run.')); return; }
     if (turn.stopRequested) { peer.respond(rpcId, failure('The user stopped this request; do not continue.')); return; }
-    if (params.namespace || !this.toolNames.has(params.tool)) { peer.respond(rpcId, failure(`Unknown tool "${params.tool}". Use only: ${[...this.toolNames].join(', ')}.`)); return; }
+    const names = turn.thread?.tools ?? new Set<string>();
+    if (params.namespace || !names.has(params.tool)) { peer.respond(rpcId, failure(`Unknown tool "${params.tool}". Use only: ${[...names].join(', ')}.`)); return; }
     const callId = typeof params.callId === 'string' && params.callId ? params.callId : `call-${++this.serial}`;
     if (this.calls.has(callId)) { peer.respond(rpcId, failure('Duplicate tool call id.')); return; }
     turn.tools++;
@@ -592,6 +651,12 @@ export class CodexClient {
           q.turn.sink.event({ kind: 'question.resolved', question: q.key });
         }
         for (const [callId, turn] of this.calls) { const c = turn.calls.get(callId); if (c && c.rpcId === n.requestId) { clearTimeout(c.timer); turn.calls.delete(callId); this.calls.delete(callId); } }
+        return;
+      }
+      case 'thread/tokenUsage/updated': {
+        const n = p as unknown as ThreadTokenUsageUpdatedNotification;
+        const t = this.turnOf(n.threadId);
+        if (t && n.tokenUsage?.total && n.tokenUsage.last) t.sink.event({ kind: 'usage', total: tokens(n.tokenUsage.total), last: tokens(n.tokenUsage.last), window: typeof n.tokenUsage.modelContextWindow === 'number' ? n.tokenUsage.modelContextWindow : null });
         return;
       }
       case 'account/rateLimits/updated': this.updateRateLimit((p as { rateLimits?: RateLimitSnapshot }).rateLimits); return;

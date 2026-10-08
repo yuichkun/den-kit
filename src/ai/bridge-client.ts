@@ -2,7 +2,10 @@
 // pairs requests with replies, and degrades to "AI offline" without ever
 // blocking the editor: every request resolves (never rejects) with a result.
 import { shallowRef, ref } from 'vue';
-import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type JevRequest, type JevResult, type ServerMessage, type ToolOutput } from './protocol.ts';
+import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type JevRequest, type JevResult, type LlmRole, type ServerMessage, type ToolOutput } from './protocol.ts';
+
+/** How an LLM turn starts besides its text: the role (tools), pictures, a member's copy of the lead's conversation. */
+export interface LlmStartOptions { role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }
 
 /** What the LLM controller hears from the bridge. */
 export type LlmInbound = Extract<ServerMessage, { t: 'llm.event' | 'tool.call' }> | { t: 'error'; message: string; ref: string } | { t: 'welcome'; running: string[] };
@@ -74,8 +77,10 @@ export class BridgeClient {
   get codexReady() { return this.online && this.status.value?.codex.state === 'ok'; }
   onLlm(listener: (m: LlmInbound) => void) { this.llmListeners.add(listener); return () => { this.llmListeners.delete(listener); }; }
   // LLM requests: false when the message could not be sent (offline).
-  llmStart(id: string, text: string, instructions: string, thread?: string) { return this.post({ t: 'llm.start', id, text, instructions, ...(thread ? { thread } : {}) }); }
-  llmSteer(id: string, target: string, text: string) { return this.post({ t: 'llm.steer', id, target, text }); }
+  llmStart(id: string, text: string, instructions: string, thread?: string, options: LlmStartOptions = {}) {
+    return this.post({ t: 'llm.start', id, text, instructions, ...(thread ? { thread } : {}), ...(options.role ? { role: options.role } : {}), ...(options.images?.length ? { images: options.images } : {}), ...(options.fork ? { fork: options.fork } : {}) });
+  }
+  llmSteer(id: string, target: string, text: string, images?: string[]) { return this.post({ t: 'llm.steer', id, target, text, ...(images?.length ? { images } : {}) }); }
   llmStop(id: string) { return this.post({ t: 'llm.stop', id }); }
   llmAnswer(id: string, question: string, answers: Record<string, string[]>) { return this.post({ t: 'llm.answer', id, question, answers }); }
   llmForget(thread: string) { return this.post({ t: 'llm.forget', thread }); }

@@ -17,7 +17,7 @@ import { hasViz as vizFor, moduleBox } from '../core/layout.ts';
 import GridKnob from './GridKnob.vue';
 import ModuleViz from './ModuleViz.vue';
 
-const props = defineProps<{ id: string; selected?: boolean; data: { node: PatchNode; issues: Issue[]; connected: string[]; scope: 'global' | 'voice' } }>();
+const props = defineProps<{ id: string; selected?: boolean; data: { node: PatchNode; issues: Issue[]; connected: string[]; scope: 'global' | 'voice'; /** An AI just changed it (a request with members). */ touch?: { color: string; name: string } } }>();
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
 const expanded = ref(false);
@@ -103,7 +103,8 @@ const voiceText = computed(() => node.value.type === 'kit.voiceIn' ? `${node.val
 </script>
 
 <template>
-  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment', part: isPart, port: !!portName, stacked: copies > 1 }" :style="{ '--c': color, width: `${width}px` }" :data-node="id" :data-part="part?.id" :data-count="copies > 1 ? copies : undefined">
+  <div class="mod" :class="{ selected, voice: data.scope === 'voice', [worst ?? '']: !!worst, comment: node.type === 'kit.comment', part: isPart, port: !!portName, stacked: copies > 1, touched: !!data.touch }" :style="{ '--c': color, width: `${width}px`, ...(data.touch ? { '--touch': data.touch.color } : {}) }" :data-node="id" :data-part="part?.id" :data-count="copies > 1 ? copies : undefined" :data-touched-by="data.touch?.name">
+    <span v-if="data.touch" class="touch-tag" data-testid="touch-tag">{{ data.touch.name }}</span>
     <header>
       <svg v-if="data.scope === 'voice'" class="poly" width="12" height="10" viewBox="0 0 12 10" aria-label="per voice"><title>Runs once per voice</title><rect x="0" y="4" width="7" height="6" rx="1" /><rect x="3" y="2" width="7" height="6" rx="1" opacity=".7" /><rect x="5" y="0" width="7" height="6" rx="1" opacity=".45" /></svg>
       <span v-if="isPart" class="partmark" title="A part: Enter or double-click goes inside">◇</span>
@@ -215,4 +216,6 @@ header { position: relative; text-align: center; padding: 6px 22px 2px; height: 
 .port.out :deep(.vue-flow__handle) { right: 3px; left: auto; transform: translateY(-50%); background: var(--pc); }
 .port.in :deep(.vue-flow__handle.on) { background: var(--pc); }
 .port :deep(.vue-flow__handle:hover) { box-shadow: 0 0 0 3px #ffffff30; }
+.mod.touched { box-shadow: 0 0 0 2px var(--touch), 0 0 14px color-mix(in srgb, var(--touch) 55%, transparent); transition: box-shadow .3s; }
+.touch-tag { position: absolute; top: -18px; left: 0; padding: 0 6px; border-radius: 4px 4px 0 0; background: var(--touch); color: #000; font: 600 11px/16px Lato, system-ui, sans-serif; white-space: nowrap; pointer-events: none; }
 </style>

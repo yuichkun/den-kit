@@ -10,6 +10,7 @@
 // ⌥A ⌥D ⌥W ⌥S ⌥H ⌥V align, ⌃⌥H ⌃⌥V spread, ⇧⌘L lock, ⇧⌘H hide, Delete removes,
 // ⌘C ⌘V ⌘D copy. Files dropped on it become pictures. Every change is a commit
 // like in the patch, so ⌘Z undoes it.
+import { useTouches } from './touches.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Intent } from '../core/ops.ts';
 import { THEMES } from '../core/schema.ts';
@@ -34,6 +35,9 @@ const props = defineProps<{ edit: boolean; focus?: boolean }>();
 const emit = defineEmits<{ (e: 'update:edit', value: boolean): void; (e: 'fullscreen'): void; (e: 'edit-canvas', id: string): void }>();
 defineExpose({ action });
 const session = useSession();
+/** What the AIs of a request with members just changed (outlined in their colour). */
+const touches = useTouches(session);
+const touchBoxes = computed(() => [...touches.value].flatMap(([id, mark]) => { const r = doc.value.ui.elements[id]?.rect ?? doc.value.nodes[id]?.panel; return r ? [{ id, ...mark, rect: r }] : []; }));
 const doc = computed(() => session.doc.value);
 const win = ref<InstanceType<typeof PluginWindow> | null>(null);
 const stageEl = ref<HTMLElement | null>(null);
@@ -351,6 +355,7 @@ const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.l
           <div v-if="edit" class="frame" />
           <div v-if="selectionBox" class="sel-box" :style="{ left: `${selectionBox.x}px`, top: `${selectionBox.y}px`, width: `${selectionBox.w}px`, height: `${selectionBox.h}px` }" />
           <div v-if="marquee" class="marquee" data-testid="marquee" :style="{ left: `${marquee.x}px`, top: `${marquee.y}px`, width: `${marquee.w}px`, height: `${marquee.h}px` }" />
+          <div v-for="b in touchBoxes" :key="`touch-${b.id}`" class="touch" :data-touched-by="b.name" :style="{ left: `${b.rect.x}px`, top: `${b.rect.y}px`, width: `${b.rect.w}px`, height: `${b.rect.h}px`, '--touch': b.color }"><span>{{ b.name }}</span></div>
         </template>
       </PluginWindow>
       <InsertMenu v-if="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @pick="insert" @close="menu = null" />
@@ -397,4 +402,6 @@ kbd { font-size: 10.5px; margin-left: 4px; padding: 0 4px; border: 1px solid #55
 .checks .issue:hover { background: #2a2d33; }
 .checks .issue::before { content: ''; position: absolute; left: 10px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f2c14e; }
 .checks .issue.error::before { background: #ff6b5b; }
+.touch { position: absolute; pointer-events: none; border: 2px solid var(--touch); border-radius: 4px; box-shadow: 0 0 12px color-mix(in srgb, var(--touch) 50%, transparent); }
+.touch span { position: absolute; top: -18px; left: -2px; padding: 0 6px; border-radius: 4px 4px 0 0; background: var(--touch); color: #000; font: 600 11px/16px Lato, system-ui, sans-serif; white-space: nowrap; }
 </style>

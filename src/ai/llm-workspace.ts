@@ -22,7 +22,8 @@ import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
 import type { LookResult } from '../plugin/look.ts';
 
-import type { ToolOutput } from './protocol.ts';
+import type { LlmRole, ToolOutput } from './protocol.ts';
+import { reportOf, type MemberReport } from './members.ts';
 import type { PodRunResult } from '../pod/host.ts';
 import type { PartReport } from '../pod/pod-session.ts';
 import { projectPath } from '../pod/host.ts';
@@ -68,6 +69,23 @@ export interface WorkspaceDeps {
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
   pod?: PodAccess;
+  /** Alone, the lead of a team, or a member (U8). */
+  role?: LlmRole;
+  /** Why an edit (the live patch → the patch with it) is outside what this AI may change now; null: it may. */
+  scope?(before: PatchDocument, after: PatchDocument): string | null;
+  /** Why this AI may not use the screen project now (a member without it, the lead while a member holds it); null: it may. */
+  project?(): string | null;
+  /** The lead's team (kit_delegate, kit_wait, kit_tell, kit_stop_member). */
+  team?: Team;
+}
+/** What a lead does with its members (src/ai/llm.ts runs them). */
+export interface Team {
+  delegate(args: unknown): ToolOutput | Promise<ToolOutput>;
+  wait(args: unknown): Promise<ToolOutput>;
+  tell(args: unknown): ToolOutput | Promise<ToolOutput>;
+  stop(args: unknown): ToolOutput;
+  /** Members still working ("m1 “Sound”"). */
+  working(): string[];
 }
 export interface Picture { png: Uint8Array | null; width: number; height: number; palette: Array<{ color: string; share: number }> }
 
@@ -75,6 +93,7 @@ const MAX_TEXT = 24000;
 const clip = (s: string, n = MAX_TEXT) => s.length > n ? `${s.slice(0, n - 30)}\n… (cut, ${s.length} chars)` : s;
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS = 'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_finish';
+const TEAM_TOOLS = new Set(['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']);
 /** Kept of a command's output for the model (the end, where errors are). */
 const MAX_COMMAND_TEXT = 12000;
 const clipEnd = (s: string, n = MAX_COMMAND_TEXT) => s.length > n ? `[… ${s.length - n} characters cut]\n${s.slice(-n)}` : s;
@@ -91,6 +110,10 @@ export class LlmWorkspace {
   screenTouched = false;
   /** This request changed the screen project (den-kit commits it in the pod's git at the end). */
   projectTouched = false;
+  /** Edits refused because they were outside this AI's scope. */
+  refused = 0;
+  /** A member's report to the lead (its kit_finish). */
+  report: MemberReport | null = null;
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
@@ -118,17 +141,35 @@ export class LlmWorkspace {
         case 'kit_bash': return await this.bash(typeof a.command === 'string' ? a.command : '', typeof a.timeout_s === 'number' ? a.timeout_s : undefined);
         case 'kit_read_file': return await this.readFile(a.path, typeof a.from_line === 'number' ? a.from_line : undefined, typeof a.to_line === 'number' ? a.to_line : undefined);
         case 'kit_write_file': return await this.writeFile(a.path, a.content);
-        case 'kit_finish':
+        case 'kit_finish': {
+          const working = this.deps.team?.working() ?? [];
+          if (working.length) return { success: false, text: `Members are still working (${working.join(', ')}). Wait for them with kit_wait (or stop one with kit_stop_member), check their work, then finish.` };
           if (this.unseen && !this.remindedToLook) {
             this.remindedToLook = true;
             return { success: false, text: 'You changed the plugin screen but have not looked at it since. Call kit_look (it checks overlaps, text that does not fit, contrast and more), fix what it finds, then call kit_finish again.' };
           }
           this.summary = String(a.summary ?? '').slice(0, 400) || null;
+          if (this.deps.role === 'member') { this.report = reportOf(a); return { success: true, text: 'Reported to the lead. Your edits are already on the live patch.' }; }
           return { success: true, text: 'OK. Your edits are already on the live patch; the user can undo the whole request with one ⌘Z.' };
-        default: return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
+        }
+        default:
+          if (TEAM_TOOLS.has(tool)) return await this.team(tool, args);
+          return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
       }
     } catch (error) {
       return { success: false, text: `Tool failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  // ---- the team (U8) ---------------------------------------------------------------
+  private async team(tool: string, args: unknown): Promise<ToolOutput> {
+    const team = this.deps.team;
+    if (!team || this.deps.role !== 'lead') return { success: false, text: this.deps.role === 'member' ? 'Members cannot start or manage members; only the lead does. Do your part and report in kit_finish.' : 'Members are off for this request (the person turned them off): do the work yourself.' };
+    switch (tool) {
+      case 'kit_delegate': return await team.delegate(args);
+      case 'kit_wait': return await team.wait(args);
+      case 'kit_tell': return await team.tell(args);
+      default: return team.stop(args);
     }
   }
 
@@ -239,6 +280,8 @@ export class LlmWorkspace {
       this.steps.push(`${step} — not applied`);
       return { success: false, text: `${problem}\nNothing was applied (the live patch is unchanged). Fix it and send the whole edit again.` };
     };
+    const held = this.deps.scope?.(before, doc);
+    if (held) { this.refused++; return reject(held); }
     const existing = new Set(validate(before, catalog).issues.filter(i => i.severity === 'error').map(issueKey));
     const problems = validate(doc, catalog).issues.filter(i => i.severity === 'error' && !existing.has(issueKey(i)));
     if (problems.length) return reject(`It would not validate:\n${problems.slice(0, 12).map(formatIssue).join('\n')}`);
@@ -297,7 +340,9 @@ export class LlmWorkspace {
 
   // ---- the pod: the screen project ---------------------------------------------------------
   /** The pod, or why the tools cannot use it. */
-  private async pod(): Promise<PodAccess | ToolOutput> {
+  private async pod(write = true): Promise<PodAccess | ToolOutput> {
+    const held = write ? this.deps.project?.() : null;
+    if (held) return { success: false, text: held };
     const pod = this.deps.pod;
     const instead = 'Until then, build the screen from den-kit\'s controls, decorations and canvases.';
     if (!pod) return { success: false, text: `This den-kit has no pod, so the screen project cannot be used. ${instead}` };
@@ -363,7 +408,7 @@ export class LlmWorkspace {
   }
 
   private async readFile(path: unknown, from?: number, to?: number): Promise<ToolOutput> {
-    const pod = await this.pod(); if (!('bash' in pod)) return pod;
+    const pod = await this.pod(false); if (!('bash' in pod)) return pod;
     const p = projectPath(path, pod.projectDir());
     if (!p.ok) return { success: false, text: p.message };
     const text = await pod.readFile(p.path);

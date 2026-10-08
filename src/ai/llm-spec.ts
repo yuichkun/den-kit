@@ -136,12 +136,60 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_finish',
-    description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z.',
-    inputSchema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'], additionalProperties: false },
+    description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z. A member also reports to the lead: names (ids and names others rely on, e.g. "knob3 Drive → drive1.amount"), needs (what it needed outside its scope) and problems (what is left).',
+    inputSchema: { type: 'object', properties: { summary: { type: 'string' }, names: { type: 'array', items: { type: 'string' } }, needs: { type: 'array', items: { type: 'string' } }, problems: { type: 'array', items: { type: 'string' } } }, required: ['summary'], additionalProperties: false },
   },
 ];
 
-export const KIT_TOOL_NAMES = new Set(KIT_TOOLS.map(t => t.name));
+const scopeSchema = {
+  type: 'object',
+  description: 'What the member may change. "sound": "all" (the whole patch) or {"parts":["drop"]} (inside those parts) or {"nodes":["filter1","env2"]} (those modules and the ones it adds). "screen": "all" (the whole plugin screen: look, brief, size, every control\'s place and style, decorations) or {"elements":["text1","knob3"]} (those controls and decorations and the ones it adds) or {"area":{"x":0,"y":0,"w":360,"h":200}} (what lies in that part of the screen and what it adds there). "project": "all" (the screen project in the pod: kit_bash, kit_write_file; one holder at a time). Scopes of members working at the same time must not overlap; yours is what is left.',
+  properties: { sound: {}, screen: {}, project: { type: 'string', enum: ['all'] } },
+  additionalProperties: false,
+};
+
+/** Tools only a lead has: starting members, waiting for them, talking to them. */
+export const LEAD_TOOLS: ToolSpec[] = [
+  {
+    name: 'kit_delegate',
+    description: 'Start members: other AIs like you (same model, same tools) that work on parts of this request at the same time as you, each in its own scope. It returns at once with their ids; then do your own part outside their scopes, or call kit_wait. Use it only for parts that are substantial and independent once the names they share are fixed (land those first). Give each a short name the person sees, the goal (the result), why (what the person cares about, one sentence), its scope and when it is done; not how to build it. den-kit gives each member the person\'s own words, the recent conversation, what the person attached or sketched and the current state of its scope. context: "brief" (default), "full" (this whole conversation as well: for many rounds of taste talk) or "bare" (only your brief: mechanical jobs).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        members: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'object', properties: {
+          name: { type: 'string' }, goal: { type: 'string' }, why: { type: 'string' }, scope: scopeSchema, done: { type: 'string' }, notes: { type: 'string' },
+          context: { type: 'string', enum: ['brief', 'full', 'bare'] },
+        }, required: ['name', 'goal', 'scope', 'done'], additionalProperties: false } },
+      },
+      required: ['members'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'kit_wait',
+    description: 'Wait for members: returns when the members named (default: all working ones) have finished, with their reports (summary, names, needs, problems, what landed, time, tokens), or after timeout_s (default 60, at most 60) with their progress so far, or at once when the person adds something to the request. Call it again to keep waiting.',
+    inputSchema: { type: 'object', properties: { members: { type: 'array', items: { type: 'string' } }, timeout_s: { type: 'number', minimum: 5, maximum: 60 } }, additionalProperties: false },
+  },
+  {
+    name: 'kit_tell',
+    description: 'Add instructions to a member that is working (it reads them at its next step). "marks": numbers of the person\'s sketch marks to pass along with their picture.',
+    inputSchema: { type: 'object', properties: { member: { type: 'string' }, text: { type: 'string' }, marks: { type: 'array', items: { type: 'number' } } }, required: ['member', 'text'], additionalProperties: false },
+  },
+  {
+    name: 'kit_stop_member',
+    description: 'Stop a member that is working (what it already changed stays; its scope comes back to you).',
+    inputSchema: { type: 'object', properties: { member: { type: 'string' }, why: { type: 'string' } }, required: ['member'], additionalProperties: false },
+  },
+];
+export const LEAD_TOOL_NAMES = new Set(LEAD_TOOLS.map(t => t.name));
+
+/** Every kit_* tool den-kit runs (the lead's set). */
+export const KIT_TOOL_NAMES = new Set([...KIT_TOOLS, ...LEAD_TOOLS].map(t => t.name));
+
+/** The tools a conversation gets: a lead also starts members; alone or as a member, the rest. */
+export function toolsFor(role: 'solo' | 'lead' | 'member' = 'solo'): ToolSpec[] {
+  return role === 'lead' ? [...KIT_TOOLS, ...LEAD_TOOLS] : KIT_TOOLS;
+}
 
 /** The pod may have to start first (on BrowserPod: boot, npm install, the dev server — minutes the first time). */
 const POD_START_MS = 10 * 60_000;
@@ -156,11 +204,39 @@ export function toolDeadlineMs(tool: string, args: unknown, base: number): numbe
     return Math.max(base, seconds * 1000 + POD_START_MS);
   }
   if (tool === 'kit_read_file' || tool === 'kit_write_file') return Math.max(base, POD_START_MS);
+  if (tool === 'kit_wait') {
+    const t = (args as { timeout_s?: unknown } | null)?.timeout_s;
+    const seconds = typeof t === 'number' && Number.isFinite(t) ? Math.min(60, Math.max(5, t)) : 60;
+    return Math.max(base, seconds * 1000 + 15_000);
+  }
   return base;
 }
 
-/** The rules the LLM works under; `blocks` is the catalogue summary from the browser. */
-export function developerInstructions(blocks: string): string {
+/** The rules the LLM works under; `blocks` is the catalogue summary from the browser. A lead and a member get their part of the rules too. */
+export function developerInstructions(blocks: string, role: 'solo' | 'lead' | 'member' = 'solo'): string {
+  return `${baseInstructions(blocks)}${role === 'lead' ? LEAD_RULES : role === 'member' ? MEMBER_RULES : ''}`;
+}
+
+const LEAD_RULES = `
+
+Working with members (you lead this request)
+- You can hand parts of a request to members: other AIs like you (same model, same tools) that work at the same time as you, so the person gets the result sooner. Use kit_delegate only when the request has two or more substantial parts that can be built independently once the names they share are fixed: the sound and the screen of a new plugin, two separate sections of a screen, a code part beside den-kit controls. Do small edits, and work where every step depends on the last, yourself: a member takes a few seconds to start and you have to check its work.
+- Fix the seam before you split: the controls both sides use (addControl, with labels and ranges), the signals a display shows, the names of parts. Land them first with kit_apply_ops; members read them and keep them.
+- Give each member a short name the person sees ("Sound", "Screen", "Waveform"), the goal, why (what the person cares about, one sentence), its scope and when it is done. Not how to build it: it decides. den-kit already gives it the person's own words, the recent conversation, what they attached or sketched and the state of its scope; do not repeat those. context "brief" (default) is enough unless many rounds of taste talk matter ("full") or the job is mechanical ("bare").
+- Scopes must not overlap. A member changes only its scope, and while it works you cannot change its scope either. Controls are shared: a screen member places and styles them, a sound member sets their values; the controls that existed when they started are yours (nobody else removes or rewires them). The screen project ("project") has one holder at a time.
+- While members work, do your own part outside their scopes or wait with kit_wait (it returns when they finish, or after up to 60 s with their progress: call it again). kit_tell adds instructions to a working member; kit_stop_member stops one.
+- When they are done, read their reports (what changed, names, what they need), fix the seam if needed, look (kit_look) and listen (kit_listen) once over the whole, then kit_finish. Members included, the request is one ⌘Z for the person.`;
+
+const MEMBER_RULES = `
+
+You are a member
+- The lead AI split the person's request and gave you one part of it; other members may work on other parts at the same time. The first message says your part: the goal, why, your scope, when you are done, and what den-kit knows (the person's own words, the recent conversation, the state of your scope).
+- Change only what is in your scope: an edit outside it is refused and nothing of it lands. You may read everything. Keep the names others rely on: the controls and parts that existed when you started stay as they are (do not remove, rename or rewire them).
+- If you need something outside your scope (a new knob, a module, a file), do not work around it: put it in kit_finish "needs" and the lead adds it.
+- Work as usual (check, listen, look), then end with kit_finish: summary (one sentence, the person's language), names (ids and names others rely on), needs and problems. Keep chat text short: the lead reads your report and the person sees your progress.
+- You cannot start members yourself.`;
+
+function baseInstructions(blocks: string): string {
   return `You edit a modular synthesizer patch in den-kit, a Bitwig-Grid-like environment whose patch compiles to an AudioWorklet. The user plays it live while you work.
 
 How to work

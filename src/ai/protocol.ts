@@ -1,7 +1,7 @@
 // Browser ↔ bridge WebSocket protocol. Dependency-free and erasable-only so the
 // Node bridge (type stripping) and the browser share exactly these types.
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const WS_PATH = '/__kit/ws';
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
@@ -39,14 +39,29 @@ export interface CodexStatus {
 export interface BridgeStatus { jev: JevStatus; codex: CodexStatus }
 
 // ---- LLM turns (Codex) ------------------------------------------------------------
+/**
+ * Who a turn is: alone (no members), the lead of a team (it may start members
+ * with kit_delegate), or a member working on one part of the lead's request.
+ * The role picks the tools the conversation gets.
+ */
+export type LlmRole = 'solo' | 'lead' | 'member';
+export const LLM_ROLES: readonly LlmRole[] = ['solo', 'lead', 'member'];
+/** Tokens, as Codex counts them for one conversation (thread/tokenUsage/updated). */
+export interface TokenUsage { input: number; cached: number; output: number; reasoning: number; total: number }
 /** What a kit_* tool returns to the model (the browser runs the tools; see src/ai/llm-workspace.ts). */
 export interface ToolOutput { success: boolean; text: string; imageDataUrl?: string }
 export interface LlmQuestion { id: string; header: string; question: string; options: string[]; other: boolean }
 export interface LlmError { message: string; code?: string; fix?: string }
 /** Progress of one LLM request (`id`), in order. Exactly one `done` ends it. */
 export type LlmEvent =
-  /** The conversation this turn runs in; `fresh` when an earlier one was lost (Codex restarted). */
-  | { kind: 'thread'; thread: string; fresh: boolean }
+  /**
+   * The conversation this turn runs in; `fresh` when an earlier one was lost (Codex restarted).
+   * `forked`: a member asked to start from a copy of the lead's conversation got one (true) or,
+   * when Codex could not copy it, a new conversation that starts with den-kit's summary (false).
+   */
+  | { kind: 'thread'; thread: string; fresh: boolean; forked?: boolean }
+  /** Tokens the turn's conversation has used so far (all of it, and the last model call). */
+  | { kind: 'usage'; total: TokenUsage; last: TokenUsage; window: number | null }
   | { kind: 'started'; turn: string }
   | { kind: 'delta'; text: string }
   | { kind: 'message'; text: string }
@@ -62,7 +77,12 @@ export type LlmEvent =
 export const MAX_TOOL_TEXT = 100_000;
 export const MAX_TOOL_IMAGE = 2_000_000;
 export const MAX_INSTRUCTIONS = 60_000;
-export const MAX_LLM_TEXT = 4_000;
+/** A request with what den-kit adds to it (a member's brief carries the state of its part). */
+export const MAX_LLM_TEXT = 40_000;
+/** Pictures that come with a request or an addition (a sketch over the screen). */
+export const MAX_LLM_IMAGES = 4;
+/** What a member starts from when Codex cannot copy the lead's conversation. */
+export const MAX_FORK_TEXT = 60_000;
 
 // ---- Messages ------------------------------------------------------------------
 export type ClientMessage =
@@ -71,10 +91,15 @@ export type ClientMessage =
   | { t: 'jev.ask'; id: string; request: JevRequest; budgetMs?: number }
   | { t: 'jev.cancel'; id: string }
   | { t: 'telemetry'; record: Record<string, unknown> }
-  /** Start an LLM turn; `thread` continues an earlier conversation, `instructions` is used for a new one. */
-  | { t: 'llm.start'; id: string; text: string; thread?: string; instructions: string }
-  /** Add `text` to the running turn of request `target` (answered with `steered` or a failed `done`). */
-  | { t: 'llm.steer'; id: string; target: string; text: string }
+  /**
+   * Start an LLM turn; `thread` continues an earlier conversation, `instructions` is used for a new one.
+   * `role` picks the tools (default solo). `images` are data: URLs that come with the text. `fork`: a member
+   * that starts from a copy of the lead's conversation; when Codex cannot copy it, the new conversation
+   * starts with `fallback` (den-kit's account of that conversation) before the text.
+   */
+  | { t: 'llm.start'; id: string; text: string; thread?: string; instructions: string; role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }
+  /** Add `text` (and pictures) to the running turn of request `target` (answered with `steered` or a failed `done`). */
+  | { t: 'llm.steer'; id: string; target: string; text: string; images?: string[] }
   | { t: 'llm.stop'; id: string }
   | { t: 'llm.answer'; id: string; question: string; answers: Record<string, string[]> }
   | { t: 'llm.forget'; thread: string }
@@ -96,6 +121,12 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
+/** Pictures sent with a request: absent, or up to MAX_LLM_IMAGES data:image/ URLs of at most MAX_TOOL_IMAGE characters. */
+function images(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_LLM_IMAGES) return null;
+  return value.every(v => typeof v === 'string' && v.startsWith('data:image/') && v.length <= MAX_TOOL_IMAGE) ? value as string[] : null;
+}
 
 /** Shape check for messages from the browser (the bridge never trusts the socket). */
 export function parseClientMessage(raw: string): ClientMessage | { error: string } {
@@ -108,12 +139,28 @@ export function parseClientMessage(raw: string): ClientMessage | { error: string
     case 'jev.ask': return typeof data.id === 'string' && isObject(data.request) && isObject(data.request.questions) ? { t: 'jev.ask', id: data.id, request: data.request as unknown as JevRequest, budgetMs: typeof data.budgetMs === 'number' ? data.budgetMs : undefined } : { error: 'bad jev.ask' };
     case 'jev.cancel': return typeof data.id === 'string' ? { t: 'jev.cancel', id: data.id } : { error: 'bad jev.cancel' };
     case 'telemetry': return isObject(data.record) ? { t: 'telemetry', record: data.record } : { error: 'bad telemetry' };
-    case 'llm.start':
+    case 'llm.start': {
       if (!isId(data.id) || typeof data.text !== 'string' || typeof data.instructions !== 'string' || (data.thread !== undefined && !isId(data.thread))) return { error: 'bad llm.start' };
       if (!data.text.trim() || data.text.length > MAX_LLM_TEXT) return { error: `llm.start text must be 1–${MAX_LLM_TEXT} characters` };
       if (data.instructions.length > MAX_INSTRUCTIONS) return { error: 'llm.start instructions are too long' };
-      return { t: 'llm.start', id: data.id, text: data.text, thread: data.thread as string | undefined, instructions: data.instructions };
-    case 'llm.steer': return isId(data.id) && isId(data.target) && typeof data.text === 'string' && data.text.trim() && data.text.length <= MAX_LLM_TEXT ? { t: 'llm.steer', id: data.id, target: data.target, text: data.text } : { error: 'bad llm.steer' };
+      if (data.role !== undefined && !LLM_ROLES.includes(data.role as LlmRole)) return { error: 'bad llm.start role' };
+      const pictures = images(data.images);
+      if (pictures === null) return { error: `llm.start images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
+      let fork: { thread: string; fallback: string } | undefined;
+      if (data.fork !== undefined) {
+        const f = data.fork;
+        if (!isObject(f) || !isId(f.thread) || typeof f.fallback !== 'string' || f.fallback.length > MAX_FORK_TEXT) return { error: 'bad llm.start fork' };
+        if (data.role !== 'member') return { error: 'only a member starts from a copy of the lead\'s conversation' };
+        fork = { thread: f.thread, fallback: f.fallback };
+      }
+      return { t: 'llm.start', id: data.id, text: data.text, thread: data.thread as string | undefined, instructions: data.instructions, ...(data.role ? { role: data.role as LlmRole } : {}), ...(pictures?.length ? { images: pictures } : {}), ...(fork ? { fork } : {}) };
+    }
+    case 'llm.steer': {
+      if (!isId(data.id) || !isId(data.target) || typeof data.text !== 'string' || !data.text.trim() || data.text.length > MAX_LLM_TEXT) return { error: 'bad llm.steer' };
+      const pictures = images(data.images);
+      if (pictures === null) return { error: `llm.steer images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
+      return { t: 'llm.steer', id: data.id, target: data.target, text: data.text, ...(pictures?.length ? { images: pictures } : {}) };
+    }
     case 'llm.stop': return isId(data.id) ? { t: 'llm.stop', id: data.id } : { error: 'bad llm.stop' };
     case 'llm.answer': {
       if (!isId(data.id) || !isId(data.question) || !isObject(data.answers)) return { error: 'bad llm.answer' };

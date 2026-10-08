@@ -8,7 +8,7 @@
 // Backspace in an empty prompt leaves one out). The lines are the conversation
 // about this patch; a patch opened before keeps its own, folded.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { FastPath, Outcome } from '../ai/fast-path.ts';
+import type { AgentLane, FastPath, Outcome } from '../ai/fast-path.ts';
 import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
 import type { LlmController } from '../ai/llm.ts';
 import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
@@ -76,8 +76,18 @@ const elapsed = (o: Outcome) => {
   return Math.max(o.ms, Math.round(now.value - started.get(o.id)!));
 };
 const fmt = (ms: number) => ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
+const tokensShort = (n: number) => n >= 10_000 ? `${Math.round(n / 1000)}k tokens` : n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
+// A member's lane keeps its own clock while it works.
+const laneStarted = new Map<string, number>();
+const laneElapsed = (o: Outcome, a: AgentLane) => {
+  const key = `${o.id}:${a.id}`;
+  if (a.status !== 'working' || !o.live) { laneStarted.delete(key); return a.ms; }
+  if (!laneStarted.has(key)) laneStarted.set(key, now.value - a.ms);
+  return Math.max(a.ms, Math.round(now.value - laneStarted.get(key)!));
+};
+const LANE_STATUS: Record<AgentLane['status'], string> = { working: 'working', done: 'done', failed: 'failed', stopped: 'stopped' };
 const via = (o: Outcome) => o.route === 'llm' ? 'LLM' : o.route === 'lexicon' ? 'instant' : o.route === 'jev' || o.route === 'jev-target' ? 'Jev' : '';
-const meta = (o: Outcome) => o.status === 'working' ? '' : [via(o), fmt(elapsed(o))].filter(Boolean).join(' · ');
+const meta = (o: Outcome) => o.status === 'working' ? '' : [via(o), fmt(elapsed(o)), o.agents?.length ? `${o.agents.length} member${o.agents.length === 1 ? '' : 's'}` : '', o.tokens ? tokensShort(o.tokens) : ''].filter(Boolean).join(' · ');
 const routeTitle = (o: Outcome) => {
   if (o.route === 'llm') return 'Answered by the LLM (Codex)';
   const how = o.route === 'lexicon' ? 'built-in phrases (no Jev)' : o.route === 'jev' || o.route === 'jev-target' ? `Jev ${o.jevMs ?? '?'} ms` : '';
@@ -164,6 +174,10 @@ defineExpose({ focus });
         <label><span>Jev time budget</span><input :value="fast.budgetMs" type="range" min="300" max="8000" step="100" data-testid="ai-budget" @input="fast.settings.budgetMs = Number(($event.target as HTMLInputElement).value)" /> <b>{{ fast.budgetMs }} ms</b></label>
         <label><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
         <label class="check"><input v-model="fast.settings.useJev" type="checkbox" data-testid="ai-use-jev" /> use Jev (off: built-in phrases only)</label>
+        <template v-if="llm">
+          <label title="The LLM may hand parts of a request to members that work at the same time (off: one AI per request, to compare)"><span>Members</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">the AI decides</option><option value="off">off (one AI)</option></select></label>
+          <label title="How much each member is told (fixed here to compare; otherwise the lead chooses)"><span>Members are told</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
+        </template>
       </div>
       <table class="traces">
         <tr><th>request</th><th>route</th><th>result</th><th>conf.</th><th>ms</th></tr>
@@ -206,6 +220,20 @@ defineExpose({ focus });
             <div v-if="o.note" class="note">{{ o.note }}</div>
             <button v-if="o.screen && !o.undone && view !== 'plugin' && o.id === latestId" type="button" class="show" data-testid="ai-show-plugin" title="The request changed the plugin screen (⌥⌘E switches)" @click="emit('show-plugin')">Show the plugin <kbd>⌥⌘E</kbd></button>
             <ul v-if="o.steps?.length && (o.live || o.id === latestId)" class="steps" data-testid="ai-steps"><li v-for="(s, k) in o.steps" :key="k">{{ s }}</li></ul>
+            <ul v-if="o.agents?.length" class="lanes" data-testid="ai-lanes">
+              <li v-for="a in o.agents" :key="a.id" class="lane" :class="`l-${a.status}`" :data-member="a.id" :data-status="a.status" :style="{ '--lane': a.color }">
+                <div class="lane-head">
+                  <span class="dot" :class="{ pulse: a.status === 'working' && o.live }" />
+                  <span class="lane-name">{{ a.name }}</span>
+                  <span class="lane-scope" title="What this member may change">{{ a.scope }}</span>
+                  <span class="grow" />
+                  <span class="lane-meta">{{ fmt(laneElapsed(o, a)) }}{{ a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span>
+                  <button v-if="a.status === 'working' && o.live" type="button" class="lane-stop" data-testid="ai-lane-stop" :title="`Stop ${a.name} (the others go on)`" @click="llm?.stopMember(a.id)">×</button>
+                </div>
+                <div class="lane-what" data-testid="ai-lane-what">{{ a.status === 'working' && o.live ? (a.activity ?? 'thinking…') : a.message ?? LANE_STATUS[a.status] }}</div>
+                <div v-if="a.step && a.status === 'working' && o.live" class="lane-step">{{ a.step }}</div>
+              </li>
+            </ul>
             <div v-if="o.reply && o.reply.trim() !== (o.message ?? '').trim()" class="reply" data-testid="ai-reply">{{ o.reply }}</div>
           </template>
         </div>
@@ -309,4 +337,19 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .traces th { text-align: left; color: var(--muted); font-weight: 400; border-bottom: 1px solid #333; padding: 2px 6px; }
 .traces td { padding: 2px 6px; border-bottom: 1px solid #262626; vertical-align: top; font-variant-numeric: tabular-nums; }
 .traces .req { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lanes { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lane { border-left: 3px solid var(--lane); background: #1f1f1f; border-radius: 0 6px 6px 0; padding: 4px 8px; font-size: 13.5px; }
+.lane-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lane .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lane); flex: none; }
+.lane .dot.pulse { animation: pulse 1s ease-in-out infinite; }
+.lane-name { color: #f0f0f0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane-scope { color: #8fa3ad; font-size: 12px; white-space: nowrap; }
+.lane-meta { color: #8c8c8c; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lane-stop { border: 0; background: transparent; color: #9a9a9a; padding: 0 4px; font-size: 15px; line-height: 1; box-shadow: none; }
+.lane-stop:hover { color: #fff; background: transparent !important; }
+.lane-what { color: #c9c9c9; overflow-wrap: anywhere; }
+.lane.l-failed .lane-what { color: #ff8da0; }
+.lane.l-stopped .lane-what, .lane.l-done .lane-what { color: #a8a8a8; }
+.lane-step { color: #8f8f8f; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer select { flex: 1 1 auto; min-width: 0; }
 </style>

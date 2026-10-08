@@ -17,6 +17,7 @@
 //   FAKE_CODEX_SPLIT      1: write every message in two chunks (tests line buffering)
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
+//   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -28,6 +29,10 @@ export interface TurnApi {
   readonly turnId: string;
   /** The text that started the turn. */
   readonly text: string;
+  /** Pictures that came with it (data: URLs), and with each steer. */
+  readonly images: string[];
+  /** This turn's conversation is a copy of another (thread/fork): its id. */
+  readonly forkedFrom: string | null;
   /** Texts steered into the turn so far. */
   readonly steers: string[];
   readonly interrupted: boolean;
@@ -41,6 +46,8 @@ export interface TurnApi {
   /** An `error` notification for this turn. */
   error(info: CodexErrorInfo, message: string, willRetry: boolean): void;
   rateLimits(usedPercent: number, resetsAt?: number): void;
+  /** thread/tokenUsage/updated for this conversation (adds to its running total). */
+  usage(input: number, output: number, cached?: number, reasoning?: number): void;
   waitForSteer(ms: number): Promise<string | null>;
   sleep(ms: number): Promise<void>;
   /** Write a raw line (malformed-input tests). */
@@ -103,8 +110,10 @@ let serial = 0;
 const pending = new Map<string | number, { resolve: (v: unknown) => void; method: string; turn: TurnState | null }>();
 /** Requests the fake resolved itself (turn ended): a reply crossing that on the wire is a benign race. */
 const resolvedIds = new Set<string | number>();
-interface TurnState { id: string; thread: ThreadState; active: boolean; interrupted: boolean; steers: string[]; steersRead: number; steerWaiters: Array<(t: string) => void>; started: number }
-interface ThreadState { id: string; turn: TurnState | null; tools: Set<string>; unsubscribed: boolean }
+interface TurnState { id: string; thread: ThreadState; active: boolean; interrupted: boolean; steers: string[]; steersRead: number; steerWaiters: Array<(t: string) => void>; started: number; images: string[] }
+interface ThreadState { id: string; turn: TurnState | null; tools: Set<string>; unsubscribed: boolean; forkedFrom: string | null; usage: { input: number; cached: number; output: number; reasoning: number } }
+const textOf = (input: unknown) => (input as Array<{ type: string; text?: string }>).filter(i => i.type === 'text').map(i => i.text).join('\n');
+const imagesOf = (input: unknown) => (input as Array<{ type: string; url?: string }>).filter(i => i.type === 'image').map(i => i.url!);
 const threads = new Map<string, ThreadState>();
 
 const MODELS = [
@@ -114,14 +123,20 @@ const MODELS = [
 
 // ---- conformance checks (from the generated 0.160.1 types) ----------------------------------------
 const THREAD_START_KEYS = new Set(['model', 'modelProvider', 'allowProviderModelFallback', 'serviceTier', 'cwd', 'runtimeWorkspaceRoots', 'approvalPolicy', 'approvalsReviewer', 'sandbox', 'permissions', 'config', 'serviceName', 'baseInstructions', 'developerInstructions', 'personality', 'multiAgentMode', 'ephemeral', 'historyMode', 'sessionStartSource', 'threadSource', 'projectId', 'daybreakEnabled', 'environments', 'dynamicTools', 'selectedCapabilityRoots', 'mockExperimentalField', 'experimentalRawEvents']);
+const THREAD_FORK_KEYS = new Set(['threadId', 'lastTurnId', 'beforeTurnId', 'path', 'model', 'modelProvider', 'serviceTier', 'cwd', 'runtimeWorkspaceRoots', 'approvalPolicy', 'approvalsReviewer', 'sandbox', 'permissions', 'config', 'baseInstructions', 'developerInstructions', 'ephemeral', 'threadSource', 'excludeTurns', 'deferGoalContinuation']);
 const TURN_START_KEYS = new Set(['threadId', 'disabledPluginIds', 'clientUserMessageId', 'input', 'turnTrigger', 'toolOutput', 'responsesapiClientMetadata', 'additionalContext', 'environments', 'cwd', 'runtimeWorkspaceRoots', 'approvalPolicy', 'approvalsReviewer', 'sandboxPolicy', 'permissions', 'model', 'serviceTier', 'serviceTierForTurn', 'effort', 'summary', 'personality', 'outputSchema', 'collaborationMode', 'multiAgentMode', 'cyberAccessProgram']);
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 function checkInput(input: unknown, where: string): string | null {
   if (!Array.isArray(input) || !input.length) return `${where}: input must be a non-empty array`;
   for (const item of input) {
-    if (!isObj(item) || item.type !== 'text' || typeof item.text !== 'string') return `${where}: input items must be {type:"text", text}`;
+    if (isObj(item) && item.type === 'image') {
+      if (typeof item.url !== 'string' || !item.url.startsWith('data:image/')) return `${where}: image items must be {type:"image", url} with a data:image/ URL`;
+      continue;
+    }
+    if (!isObj(item) || item.type !== 'text' || typeof item.text !== 'string') return `${where}: input items must be {type:"text", text} or {type:"image", url}`;
     if (!Array.isArray(item.text_elements)) return `${where}: missing field \`text_elements\``;
   }
+  if (!(input as Array<{ type: string }>).some(i => i.type === 'text')) return `${where}: input needs a text item`;
   return null;
 }
 function checkThreadStart(p: Record<string, unknown>): string | null {
@@ -182,6 +197,8 @@ function api(turn: TurnState, text: string): TurnApi {
   const ids = { threadId: turn.thread.id, turnId: turn.id };
   return {
     threadId: turn.thread.id, turnId: turn.id, text,
+    get images() { return turn.images; },
+    forkedFrom: turn.thread.forkedFrom,
     get steers() { return turn.steers; },
     get interrupted() { return turn.interrupted; },
     async say(message, chunks = 3) {
@@ -212,6 +229,12 @@ function api(turn: TurnState, text: string): TurnApi {
     request: (method, params) => live() ? serverRequest(method, { ...ids, ...params }, turn) : Promise.resolve(undefined),
     notify: (method, params) => notify(method, params),
     error(info, message, willRetry) { if (live()) notify('error', { error: { message, codexErrorInfo: info, additionalDetails: null, misalignment: null }, willRetry, ...ids }); },
+    usage(input, output, cached = 0, reasoning = 0) {
+      const u = turn.thread.usage;
+      u.input += input; u.output += output; u.cached += cached; u.reasoning += reasoning;
+      const breakdown = (i: number, o: number, c: number, r: number) => ({ totalTokens: i + o, inputTokens: i, cachedInputTokens: c, cacheWriteInputTokens: 0, outputTokens: o, reasoningOutputTokens: r });
+      notify('thread/tokenUsage/updated', { threadId: turn.thread.id, turnId: turn.id, tokenUsage: { total: breakdown(u.input, u.output, u.cached, u.reasoning), last: breakdown(input, output, cached, reasoning), modelContextWindow: 272000 } });
+    },
     rateLimits(usedPercent, resetsAt) { notify('account/rateLimits/updated', { rateLimits: { limitId: 'codex', limitName: null, normalModelSlug: null, primary: { usedPercent, windowDurationMins: 300, resetsAt: resetsAt ?? Math.floor(Date.now() / 1000) + 3600 }, secondary: null, credits: null, individualLimit: null, spendControlReached: null, planType: 'plus', rateLimitReachedType: null } }); },
     waitForSteer(ms) {
       // Steers are read in order; one that arrived before the wait is returned at once.
@@ -288,10 +311,23 @@ async function handle(message: Record<string, unknown>) {
     case 'thread/start': {
       const problem = checkThreadStart(params);
       if (problem) { violation(problem, params); refuse(id, problem); return; }
-      const thread: ThreadState = { id: randomUUID(), turn: null, tools: new Set(((params.dynamicTools as Array<{ name: string }> | undefined) ?? []).map(t => t.name)), unsubscribed: false };
+      const thread: ThreadState = { id: randomUUID(), turn: null, tools: new Set(((params.dynamicTools as Array<{ name: string }> | undefined) ?? []).map(t => t.name)), unsubscribed: false, forkedFrom: null, usage: { input: 0, cached: 0, output: 0, reasoning: 0 } };
       threads.set(thread.id, thread);
       const t = { id: thread.id, environments: params.environments ?? null, extra: null, sessionId: thread.id, forkedFromId: null, parentThreadId: null, preview: '', ephemeral: !!params.ephemeral, model: params.model ?? 'gpt-6.1-sol', modelProvider: 'openai', status: { type: 'idle' }, cwd: params.cwd ?? '/', cliVersion: '0.160.1', turns: [] };
       respond(id, { thread: t, model: t.model, modelProvider: 'openai', serviceTier: null, disabledPluginIds: [], cwd: t.cwd, runtimeWorkspaceRoots: [], instructionSources: env.FAKE_CODEX_INSTRUCTION_SOURCES ? env.FAKE_CODEX_INSTRUCTION_SOURCES.split(',') : [], approvalPolicy: params.approvalPolicy ?? 'on-request', approvalsReviewer: 'user', sandbox: { type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite', networkAccess: false }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' });
+      notify('thread/started', { thread: t });
+      return;
+    }
+    case 'thread/fork': {
+      for (const key of Object.keys(params)) if (!THREAD_FORK_KEYS.has(key)) { violation(`thread/fork: unknown field \`${key}\``); refuse(id, `unknown field \`${key}\``); return; }
+      const source = threads.get(String(params.threadId));
+      if (env.FAKE_CODEX_FORK === 'refuse' || !source) { refuse(id, `no rollout found for thread id ${String(params.threadId)}`); return; }
+      if (params.ephemeral !== true) violation('thread/fork: den-kit forks must be ephemeral', params);
+      // The copy keeps the source's tools (fork has no dynamicTools).
+      const thread: ThreadState = { id: randomUUID(), turn: null, tools: new Set(source.tools), unsubscribed: false, forkedFrom: source.id, usage: { ...source.usage } };
+      threads.set(thread.id, thread);
+      const t = { id: thread.id, environments: null, extra: null, sessionId: thread.id, forkedFromId: source.id, parentThreadId: null, preview: '', ephemeral: true, model: params.model ?? 'gpt-6.1-sol', modelProvider: 'openai', status: { type: 'idle' }, cwd: params.cwd ?? '/', cliVersion: '0.160.1', turns: [] };
+      respond(id, { thread: t, model: t.model, modelProvider: 'openai', serviceTier: null, disabledPluginIds: [], cwd: t.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: params.approvalPolicy ?? 'on-request', approvalsReviewer: 'user', sandbox: { type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite', networkAccess: false }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' });
       notify('thread/started', { thread: t });
       return;
     }
@@ -301,7 +337,7 @@ async function handle(message: Record<string, unknown>) {
       if (problem) { violation(problem, params); refuse(id, problem); return; }
       const thread = threads.get(String(params.threadId));
       if (!thread) { refuse(id, `thread not found: ${String(params.threadId)}`); return; }
-      const text = (params.input as Array<{ text: string }>).map(i => i.text).join('\n');
+      const text = textOf(params.input);
       if (thread.turn) {
         // Like the real server: a turn/start on a busy thread steers the running turn.
         thread.turn.steers.push(text);
@@ -309,7 +345,7 @@ async function handle(message: Record<string, unknown>) {
         respond(id, { turn: { id: thread.turn.id, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: null, completedAt: null, durationMs: null } });
         return;
       }
-      const turn: TurnState = { id: randomUUID(), thread, active: true, interrupted: false, steers: [], steersRead: 0, steerWaiters: [], started: Date.now() };
+      const turn: TurnState = { id: randomUUID(), thread, active: true, interrupted: false, steers: [], steersRead: 0, steerWaiters: [], started: Date.now(), images: imagesOf(params.input) };
       thread.turn = turn;
       respond(id, { turn: { id: turn.id, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: null, completedAt: null, durationMs: null } });
       notify('thread/status/changed', { threadId: thread.id, status: { type: 'active', activeFlags: [] } });
@@ -327,7 +363,8 @@ async function handle(message: Record<string, unknown>) {
       const turn = threads.get(String(params.threadId))?.turn;
       if (!turn?.active) { refuse(id, 'no active turn to steer'); return; }
       if (turn.id !== params.expectedTurnId) { refuse(id, `expected active turn id \`${params.expectedTurnId}\` but found \`${turn.id}\``); return; }
-      const text = (params.input as Array<{ text: string }>).map(i => i.text).join('\n');
+      const text = textOf(params.input);
+      turn.images.push(...imagesOf(params.input));
       turn.steers.push(text);
       turn.steerWaiters.shift()?.(text);
       respond(id, { turnId: turn.id });

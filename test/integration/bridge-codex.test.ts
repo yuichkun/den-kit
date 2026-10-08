@@ -277,13 +277,120 @@ describe('a turn', () => {
     expect(doneOf((await collect(s, 'r2')).events)!.status).toBe('completed');
   });
 
-  it('three requests at once is the limit', async () => {
+  it('four turns at once is the limit (a lead and three members)', async () => {
     const { bridge } = await setup();
     const s = await tab(bridge);
-    for (const id of ['a', 'b', 'c']) start(s, id, 'slow please');
-    start(s, 'd', 'slow please');
-    expect(doneOf((await collect(s, 'd')).events)).toMatchObject({ status: 'failed', error: { code: 'busy' } });
-    for (const id of ['a', 'b', 'c']) s.send({ t: 'llm.stop', id });
+    for (const id of ['a', 'b', 'c', 'd']) start(s, id, 'slow please');
+    start(s, 'e', 'slow please');
+    expect(doneOf((await collect(s, 'e')).events)).toMatchObject({ status: 'failed', error: { code: 'busy' } });
+    for (const id of ['a', 'b', 'c', 'd']) s.send({ t: 'llm.stop', id });
+  });
+});
+
+describe('members, pictures and token counts (U8)', () => {
+  const tools = (params: Record<string, unknown>) => (params.dynamicTools as Array<{ name: string }>).map(t => t.name);
+  it('the role picks the tools: a lead can start members, a member and a request alone cannot', async () => {
+    const { bridge, fake } = await setup();
+    const s = await tab(bridge);
+    for (const [id, role] of [['p1', 'lead'], ['p2', 'member'], ['p3', 'solo']] as const) {
+      s.send({ t: 'llm.start', id, text: 'explain', instructions: 'You edit a synth patch.', role });
+      expect(doneOf((await collect(s, id)).events)!.status).toBe('completed');
+    }
+    const [lead, member, solo] = fake.sent('thread/start').map(m => tools(m.params as Record<string, unknown>));
+    for (const name of ['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']) {
+      expect(lead).toContain(name);
+      expect(member).not.toContain(name);
+      expect(solo).not.toContain(name);
+    }
+    expect(member).toContain('kit_finish');
+    noViolations(fake);
+  });
+  it('a lead tool called in a conversation that does not have it is refused before it reaches the tab', async () => {
+    const { bridge, fake } = await setup();
+    const s = await tab(bridge);
+    s.send({ t: 'llm.start', id: 'u1', text: 'unknown tool', instructions: 'x', role: 'member' });
+    const { events, calls } = await collect(s, 'u1');
+    expect(calls).toEqual([]);
+    expect(events.find(e => e.kind === 'message')).toMatchObject({ text: expect.stringMatching(/^refused: Unknown tool/) });
+    noViolations(fake);
+  });
+  it('pictures come with a request and with an addition to it', async () => {
+    const { bridge, fake } = await setup();
+    const s = await tab(bridge);
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    s.send({ t: 'llm.start', id: 'k1', text: 'look at my sketch', instructions: 'x', images: [png, png] });
+    const first = await collect(s, 'k1', canned, { until: e => e.kind === 'message' });
+    expect(first.events.find(e => e.kind === 'message')).toMatchObject({ text: 'pictures: 2' });
+    s.send({ t: 'llm.steer', id: 'k2', target: 'k1', text: 'and this one', images: [png] });
+    const rest = await collect(s, 'k1');
+    expect(rest.events.filter(e => e.kind === 'message').at(-1)).toMatchObject({ text: 'after "and this one": pictures 3' });
+    const input = (fake.sent('turn/start')[0]!.params as { input: Array<{ type: string }> }).input;
+    expect(input.map(i => i.type)).toEqual(['text', 'image', 'image']);
+    expect((fake.sent('turn/steer')[0]!.params as { input: Array<{ type: string }> }).input.map(i => i.type)).toEqual(['text', 'image']);
+    noViolations(fake);
+  });
+  it('pictures that are not data:image URLs, too many of them, or a fork for anyone but a member are refused', async () => {
+    const { bridge } = await setup();
+    const s = await tab(bridge);
+    s.send({ t: 'llm.start', id: 'b1', text: 'x', instructions: 'x', images: ['https://example.com/a.png'] });
+    expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/images/) });
+    s.send({ t: 'llm.start', id: 'b2', text: 'x', instructions: 'x', images: Array(5).fill('data:image/png;base64,AA') });
+    expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/images/) });
+    s.send({ t: 'llm.start', id: 'b3', text: 'x', instructions: 'x', role: 'lead', fork: { thread: 'abc', fallback: 'y' } });
+    expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/member/) });
+  });
+  it('token counts of a conversation reach the tab', async () => {
+    const { bridge } = await setup();
+    const s = await tab(bridge);
+    start(s, 't1', 'count my tokens');
+    const { events } = await collect(s, 't1');
+    const usage = events.filter((e): e is Extract<LlmEvent, { kind: 'usage' }> => e.kind === 'usage');
+    expect(usage[0]).toMatchObject({ total: { input: 1200, output: 300, cached: 900, reasoning: 120, total: 1500 }, last: { input: 1200 }, window: 272000 });
+    expect(usage.at(-1)).toMatchObject({ total: { input: 1600, output: 400, cached: 1250 }, last: { input: 400, output: 100 } });
+  });
+  it('a member starts from a copy of the lead\'s conversation when forking is on, with its own rules and the same isolation', async () => {
+    const { bridge, fake } = await setup({ client: { fork: true } });
+    const s = await tab(bridge);
+    s.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'You lead.', role: 'lead' });
+    const lead = await collect(s, 'L1');
+    const thread = (lead.events.find(e => e.kind === 'thread') as { thread: string }).thread;
+    s.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: Screen.', instructions: 'You are a member.', role: 'member', fork: { thread, fallback: '[den-kit] The conversation so far: …' } });
+    const member = await collect(s, 'M1');
+    expect(member.events.find(e => e.kind === 'thread')).toMatchObject({ forked: true });
+    expect(member.events.find(e => e.kind === 'message')).toMatchObject({ text: 'forked=yes; begins: [den-kit] You are a member. Your part: Screen.' });
+    expect(fake.sent('thread/fork')[0]!.params).toMatchObject({ threadId: thread, ephemeral: true, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: 'You are a member.', config: { web_search: 'disabled' } });
+    noViolations(fake);
+  });
+  it('when Codex cannot copy the conversation (or forking is off), the member starts fresh with den-kit\'s account first', async () => {
+    for (const setupOptions of [{ client: { fork: true }, env: { FAKE_CODEX_FORK: 'refuse' } }, {}]) {
+      const { bridge, fake } = await setup(setupOptions);
+      const s = await tab(bridge);
+      s.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'You lead.', role: 'lead' });
+      const thread = ((await collect(s, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }).thread;
+      s.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: Sound.', instructions: 'You are a member.', role: 'member', fork: { thread, fallback: '[den-kit] You are a member — the conversation so far: …' } });
+      const member = await collect(s, 'M1');
+      expect(member.events.find(e => e.kind === 'thread')).toMatchObject({ forked: false });
+      expect(member.events.find(e => e.kind === 'message')).toMatchObject({ text: expect.stringMatching(/^forked=no; begins: \[den-kit\] You are a member — the conversation so far/) });
+      expect(tools(fake.sent('thread/start').at(-1)!.params as Record<string, unknown>)).not.toContain('kit_delegate');
+      noViolations(fake);
+    }
+  });
+  it('another tab\'s conversation cannot be copied', async () => {
+    const { bridge, fake } = await setup({ client: { fork: true } });
+    const a = await tab(bridge, 'tab-a');
+    a.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'x', role: 'lead' });
+    const thread = ((await collect(a, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }).thread;
+    const b = await tab(bridge, 'tab-b');
+    b.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: X.', instructions: 'x', role: 'member', fork: { thread, fallback: 'nothing of yours' } });
+    expect((await collect(b, 'M1')).events.find(e => e.kind === 'thread')).toMatchObject({ forked: false });
+    expect(fake.sent('thread/fork')).toEqual([]);
+  });
+  it('effort "ultra" is not sent (it would start Codex\'s own sub-agents)', async () => {
+    const { bridge, fake } = await setup({ client: { effort: 'ultra' } });
+    const s = await tab(bridge);
+    start(s, 'e1', 'explain');
+    await collect(s, 'e1');
+    expect(fake.sent('turn/start')[0]!.params).not.toHaveProperty('effort');
   });
 });
 

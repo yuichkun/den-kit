@@ -65,7 +65,22 @@ export interface ThreadStartResponse {
   approvalPolicy: unknown;
   sandbox: { type: string; networkAccess?: boolean };
 }
-export type UserInput = { type: 'text'; text: string; text_elements: unknown[] };
+/** Text, or a picture by URL (den-kit sends data: URLs: a sketch over the screen). */
+export type UserInput = { type: 'text'; text: string; text_elements: unknown[] } | { type: 'image'; url: string };
+/**
+ * A copy of a conversation (a member that starts from the lead's). The copy keeps the source's tools
+ * (there is no dynamicTools here) and takes its own instructions and isolation.
+ */
+export interface ThreadForkParams {
+  threadId: string;
+  model?: string | null;
+  cwd?: string | null;
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
+  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access';
+  config?: Record<string, unknown> | null;
+  developerInstructions?: string | null;
+  ephemeral?: boolean;
+}
 export interface TurnStartParams { threadId: string; input: UserInput[]; effort?: string | null }
 export type TurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
 /** "usageLimitExceeded", { httpConnectionFailed: { httpStatusCode } }, … */
@@ -76,6 +91,10 @@ export interface TurnStartResponse { turn: Turn }
 export interface TurnSteerParams { threadId: string; input: UserInput[]; expectedTurnId: string }
 export interface TurnSteerResponse { turnId: string }
 export interface TurnInterruptParams { threadId: string; turnId: string }
+/** Tokens of one conversation: all of it, and its last model call. */
+export interface TokenUsageBreakdown { totalTokens: number; inputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number; outputTokens: number; reasoningOutputTokens: number }
+export interface ThreadTokenUsage { total: TokenUsageBreakdown; last: TokenUsageBreakdown; modelContextWindow: number | null }
+export interface ThreadTokenUsageUpdatedNotification { threadId: string; turnId: string; tokenUsage: ThreadTokenUsage }
 
 // ---- items -------------------------------------------------------------------------------------
 export type ToolContentItem = { type: 'inputText'; text: string } | { type: 'inputImage'; imageUrl: string } | { type: 'inputAudio'; audioUrl: string };

@@ -44,6 +44,24 @@ export interface LlmHandoff {
   reason(): string;
 }
 
+/** One member of an LLM request's team, as the person sees it under the request (U8). */
+export interface AgentLane {
+  id: string;
+  name: string;
+  color: string;
+  status: 'working' | 'done' | 'failed' | 'stopped';
+  /** What it is doing now, or its last step. */
+  activity?: string;
+  step?: string;
+  /** Milliseconds it has worked (until it ended). */
+  ms: number;
+  /** What it holds, in a few words ("sound", "screen", "part of the screen"). */
+  scope: string;
+  /** Tokens its conversation used. */
+  tokens?: number;
+  message?: string;
+}
+
 export interface Outcome {
   id: string;
   text: string;
@@ -78,6 +96,10 @@ export interface Outcome {
   repeats?: string;
   /** Asked inside a part: which one, and the chain of uses it was entered through. */
   where?: { path: string[]; part: string; name: string };
+  /** The members the LLM started for this request (U8). */
+  agents?: AgentLane[];
+  /** Tokens the request used, members included. */
+  tokens?: number;
 }
 
 export interface RequestTrace {
