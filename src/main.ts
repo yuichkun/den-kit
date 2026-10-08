@@ -28,7 +28,7 @@ session.llm = new LlmController(session, session.fast, session.bridge);
 const pod: PodFactory = podConfig.fakeUrl
   ? { kind: 'fake', create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!) }
   : podConfig.apiKey
-    ? { kind: 'browserpod', create: async () => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey: podConfig.apiKey!, storageKey: 'den-kit' }) }
+    ? { kind: 'browserpod', create: async progress => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey: podConfig.apiKey!, storageKey: 'den-kit', log: progress }) }
     : { kind: null, create: () => Promise.reject(new Error('No pod.')), reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in kit/.env (a key from console.browserpod.io), then restart `npm run kit:dev`.' };
 session.pod = new PodSession(session, pod);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.

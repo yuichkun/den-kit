@@ -35,19 +35,84 @@ export function parseEnv(text: string): Record<string, string> {
   return out;
 }
 
+/** What decides whether this tab can be cross-origin isolated. */
+export interface PageFacts {
+  href: string;
+  /** A secure context (https, or http on 127.0.0.1 / localhost). */
+  secure: boolean;
+  /** Shown inside another page (an app's preview, a frame). */
+  framed: boolean;
+  /** The isolation headers the server sends with this page (null: it could not be read). */
+  headers: { coop: string | null; coep: string | null } | null;
+}
+/** Why this tab is not cross-origin isolated, and what fixes it (the checks in the order that decides). */
+export function isolationProblem(f: PageFacts): { reason: string; fix: string } {
+  const origin = new URL(f.href).origin;
+  if (!f.secure) return { reason: `${origin} is not a secure address, so the browser ignores the isolation headers`, fix: 'Open http://127.0.0.1:5180/ (or http://localhost:5180/) on the Mac running `npm run kit:dev`, not a network address.' };
+  if (f.framed) return { reason: 'den-kit is shown inside another page (an app\'s preview or a frame), which cannot be isolated', fix: `Open ${origin}/ in a tab of its own (Chrome recommended).` };
+  if (!f.headers) return { reason: 'den-kit could not read its own page from the server', fix: 'Check that `npm run kit:dev` is still running, then reload.' };
+  if (f.headers.coop !== 'same-origin' || !/^(require-corp|credentialless)$/.test(f.headers.coep ?? '')) return { reason: `the server sends COOP "${f.headers.coop ?? 'none'}" and COEP "${f.headers.coep ?? 'none'}" with this page`, fix: `Another server may be answering on ${origin}: stop it, start \`npm run kit:dev\` (from the den folder, on this branch) and reload.` };
+  return { reason: 'the server sends the isolation headers, but this tab was not isolated', fix: `Close this tab and open ${origin}/ in a new one (Chrome recommended; a tab opened before den-kit sent the headers can stay as it was).` };
+}
+async function pageFacts(): Promise<PageFacts> {
+  let headers: PageFacts['headers'] = null;
+  try {
+    const res = await fetch(location.href, { method: 'HEAD', cache: 'no-store' });
+    headers = { coop: res.headers.get('cross-origin-opener-policy'), coep: res.headers.get('cross-origin-embedder-policy') };
+  } catch { /* the server is gone */ }
+  let framed = false;
+  try { framed = window.top !== window; } catch { framed = true; }
+  return { href: location.href, secure: globalThis.isSecureContext, framed, headers };
+}
+
 export async function bootBrowserPod(options: BrowserPodOptions): Promise<PodHost> {
-  if (!globalThis.crossOriginIsolated) throw new PodUnavailable('This page is not cross-origin isolated, which BrowserPod needs.', 'Open den-kit through `npm run kit:dev` (it sends the COOP and COEP headers).');
+  if (!globalThis.crossOriginIsolated) {
+    const facts = await pageFacts();
+    const problem = isolationProblem(facts);
+    console.info('den-kit: not cross-origin isolated', facts);
+    throw new PodUnavailable(`This page is not cross-origin isolated, which BrowserPod needs: ${problem.reason}.`, problem.fix);
+  }
+  options.log?.('Loading BrowserPod (rt.browserpod.io)…');
   let mod: typeof import('@leaningtech/browserpod');
   try { mod = await import('@leaningtech/browserpod'); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in kit/.'); }
   if (!mod.BrowserPod) throw new PodUnavailable('The BrowserPod runtime could not be loaded from rt.browserpod.io.', 'Check the network connection, then reload.');
+  options.log?.('Starting BrowserPod (checking the API key)…');
   let pod: Pod;
-  try { pod = await mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: options.storageKey }); } catch (error) {
+  const watch = bootWatch();
+  try { pod = await Promise.race([mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: options.storageKey }), watch.failed]); } catch (error) {
+    if (error instanceof PodUnavailable) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    throw new PodUnavailable(`BrowserPod did not start: ${message}`, /key|auth|401|403|token/i.test(message) ? 'Check BROWSERPOD_API_KEY in kit/.env (console.browserpod.io), then restart `npm run kit:dev`.' : undefined);
-  }
+    throw new PodUnavailable(`BrowserPod did not start: ${message}`, KEY_PROBLEM.test(message) ? KEY_FIX : undefined);
+  } finally { watch.stop(); }
+  options.log?.('Starting the Linux machine…');
   const host = new BrowserPodHost(pod, options.log);
   await host.init();
   return host;
+}
+
+const KEY_PROBLEM = /api ?key|auth|401|403|token|credential/i;
+const KEY_FIX = 'Check BROWSERPOD_API_KEY in kit/.env (a key from console.browserpod.io), then restart `npm run kit:dev` and reload.';
+/** How long BrowserPod may take to start (it downloads its machine the first time). */
+export const BOOT_LIMIT_MS = 180_000;
+
+/**
+ * BrowserPod's boot does not end when the key is refused: it reports that as an
+ * uncaught error ("WebSocket connection failed, check your API key.") and keeps
+ * waiting. Watch for that (and for a boot that never ends) to say so instead.
+ */
+function bootWatch(): { failed: Promise<never>; stop(): void } {
+  let fail!: (error: PodUnavailable) => void;
+  const failed = new Promise<never>((_, reject) => { fail = reject; });
+  failed.catch(() => undefined);
+  const check = (message: string) => {
+    if (/websocket connection failed|check your api key/i.test(message) || (KEY_PROBLEM.test(message) && /browserpod|browserportal|pod/i.test(message))) fail(new PodUnavailable(`BrowserPod refused to start: ${message}`, KEY_FIX));
+  };
+  const onError = (e: ErrorEvent) => check(e.message || (e.error instanceof Error ? e.error.message : String(e.error ?? '')));
+  const onRejection = (e: PromiseRejectionEvent) => check(e.reason instanceof Error ? e.reason.message : String(e.reason ?? ''));
+  globalThis.addEventListener?.('error', onError);
+  globalThis.addEventListener?.('unhandledrejection', onRejection);
+  const timer = setTimeout(() => fail(new PodUnavailable(`BrowserPod did not start within ${BOOT_LIMIT_MS / 60_000} minutes.`, 'Check the network and BROWSERPOD_API_KEY in kit/.env, then reload. (The browser console may say more.)')), BOOT_LIMIT_MS);
+  return { failed, stop() { clearTimeout(timer); globalThis.removeEventListener?.('error', onError); globalThis.removeEventListener?.('unhandledrejection', onRejection); } };
 }
 
 /** Exported for the tests (test/fakes/pod/mock-browserpod.ts stands in for BrowserPod there). */

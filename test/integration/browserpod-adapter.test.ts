@@ -14,7 +14,7 @@ import type { BrowserPod } from '@leaningtech/browserpod';
 import { catalog } from '../../src/blocks/index.ts';
 import { starter } from '../../src/core/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
-import { BrowserPodHost, parseEnv } from '../../src/pod/browserpod.ts';
+import { BrowserPodHost, isolationProblem, parseEnv } from '../../src/pod/browserpod.ts';
 import { PodSession } from '../../src/pod/pod-session.ts';
 import { starterPart } from '../../src/pod/template.ts';
 import { MockBrowserPod } from '../fakes/pod/mock-browserpod.ts';
@@ -32,6 +32,15 @@ describe('BrowserPod adapter (against a stand-in with BrowserPod\'s API)', () =>
   });
   afterAll(() => { mock?.dispose(); if (root) rmSync(root, { recursive: true, force: true }); });
 
+  it('says why a tab is not cross-origin isolated, and what fixes it', () => {
+    const good = { href: 'http://127.0.0.1:5180/?x', secure: true, framed: false, headers: { coop: 'same-origin', coep: 'require-corp' } };
+    expect(isolationProblem({ ...good, href: 'http://192.168.1.5:5180/', secure: false })).toMatchObject({ reason: expect.stringContaining('http://192.168.1.5:5180 is not a secure address'), fix: expect.stringContaining('http://127.0.0.1:5180/') });
+    expect(isolationProblem({ ...good, framed: true })).toMatchObject({ reason: expect.stringContaining('inside another page'), fix: 'Open http://127.0.0.1:5180/ in a tab of its own (Chrome recommended).' });
+    expect(isolationProblem({ ...good, headers: null }).fix).toContain('still running');
+    expect(isolationProblem({ ...good, headers: { coop: null, coep: null } })).toMatchObject({ reason: 'the server sends COOP "none" and COEP "none" with this page', fix: expect.stringContaining('Another server may be answering on http://127.0.0.1:5180') });
+    expect(isolationProblem({ ...good, headers: { coop: 'same-origin', coep: 'credentialless' } }).reason).toContain('this tab was not isolated');
+    expect(isolationProblem(good)).toMatchObject({ fix: expect.stringContaining('Close this tab and open http://127.0.0.1:5180/ in a new one') });
+  });
   it('reads env and export -p lines', () => {
     expect(parseEnv('HOME=/home/user\nPATH=/usr/bin:/bin\nPWD=/x\nA=b=c\n  junk')).toEqual({ HOME: '/home/user', PATH: '/usr/bin:/bin', A: 'b=c' });
     expect(parseEnv('declare -x HOME="/home/user"\ndeclare -x Q="say \\"hi\\" \\$x"\ndeclare -x SHLVL="1"')).toEqual({ HOME: '/home/user', Q: 'say "hi" $x' });

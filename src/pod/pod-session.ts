@@ -23,7 +23,8 @@ export interface PodLogEntry { id: number; who: PodWho; command: string; output:
 export interface PodFactory {
   /** Which pod this is (null: none can be made; `reason` and `fix` say why). */
   kind: 'browserpod' | 'fake' | null;
-  create(): Promise<PodHost>;
+  /** Make the pod; `progress` says what it is doing (starting BrowserPod takes a while the first time). */
+  create(progress?: (text: string) => void): Promise<PodHost>;
   reason?: string;
   fix?: string;
 }
@@ -112,7 +113,7 @@ export class PodSession {
     const started = performance.now();
     if (!this.host) {
       this.set('booting', this.factory.kind === 'browserpod' ? 'Starting the pod (BrowserPod)…' : 'Starting the pod…');
-      this.host = await this.factory.create();
+      this.host = await this.factory.create(text => { if (this.state.value === 'booting') this.message.value = text; });
       this.projectDir = `${this.host.home}/work`;
       this.portalWatch = this.host.onPortal(p => { if (p.port === DEV_PORT) { this.portal.value = p.url; if (this.state.value === 'starting') this.set('ready', 'Ready.'); } });
       this.timings.value = { ...this.timings.value, bootMs: Math.round(performance.now() - started) };
