@@ -41,6 +41,7 @@ import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
 import { changes, describeScope, heldByMembers, made, outside, scopesOverlap, seamOf, shortScope, touched, type Holding, type Seam } from './scope.ts';
 import { MAX_MEMBERS, MEMBER_COLORS, MEMBER_CONTEXTS, conversationAccount, integrationText, memberReportText, memberText, parseBriefs, scopeState, seamText, type Brief, type MemberContext, type MemberState } from './members.ts';
 import type { LlmEvent, LlmRole, TokenUsage, ToolOutput } from './protocol.ts';
+import { seeingText } from './seeing.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
 
 export type LlmTransport = Pick<BridgeClient, 'llmStart' | 'llmSteer' | 'llmStop' | 'llmAnswer' | 'llmForget' | 'toolResult' | 'onLlm' | 'telemetry' | 'status' | 'codexReady' | 'online'>;
@@ -359,7 +360,7 @@ export class LlmController {
   /** The request text with what Codex should know about the moment it was made. */
   private compose(text: string, steering: boolean, line: Outcome): string {
     const attached = line.attached?.length ? `\n[den-kit] The person attached (points at) these: ${describeAttachments(line.attached)}. The request is about them: change these unless they clearly ask for something new.` : '';
-    const where = line.where ? `\n[den-kit] ${this.whereText(line)}` : '';
+    const where = `${line.where ? `\n[den-kit] ${this.whereText(line)}` : ''}\n[den-kit] ${this.seeingLine()}`;
     if (steering) return `[den-kit] The user adds, while you work:${attached}${where}\n\n${text}`;
     const parts = [`[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.`];
     // What happened that this conversation's LLM has not seen: the whole recent story for a new conversation,
@@ -373,6 +374,12 @@ export class LlmController {
     const hand = handEditsSince(this.session.history.entries(), this.thread ? this.lastStarted : 0);
     if (hand) parts.push(`[den-kit] The person edited by hand${this.thread ? ' since your last turn' : ''}: ${hand}.`);
     return `${parts.join('\n')}${attached}${where}\n\n${text}`;
+  }
+
+  /** What the person is looking at now, in one line. */
+  private seeingLine(): string {
+    const s = this.session;
+    return seeingText(s.seeingNow(), s.doc.value, s.catalog, { selection: s.selection.value, held: s.heldNotes.value, inside: s.scope.value, shared: !!s.screen.source });
   }
 
   private whereText(line: Outcome): string {
@@ -417,6 +424,19 @@ export class LlmController {
       scope: (before, after) => this.scopeCheck(turn, agent, before, after),
       project: () => this.projectCheck(turn, agent),
       team: agent.role === 'lead' ? this.teamOf(turn) : undefined,
+      seen: async view => {
+        const s = this.session;
+        const seeing = s.seeingNow();
+        const looking = seeing.view === 'plugin' ? 'plugin' : seeing.view === 'patch' ? 'patch' : 'other';
+        const text = this.seeingLine();
+        if (!s.screen.source) return { text, looking, reason: 'The person has not shared their screen with you (they can, in the AI panel).' };
+        const which = view ?? (looking === 'other' ? 'window' : looking);
+        if (which !== 'window' && which !== looking) return { text, looking, reason: `The person is not looking at the ${which} now, so it is not on their screen.` };
+        const rect = s.viewRect(which === 'window' ? 'window' : which);
+        if (!rect) return { text, looking, reason: `The ${which} is not on the screen now.` };
+        try { return { text, looking, picture: await s.screen.picture(rect, 1280) }; }
+        catch (error) { return { text, looking, reason: `The picture could not be taken (${error instanceof Error ? error.message : String(error)}).` }; }
+      },
       ...this.options.deps,
     };
   }
@@ -516,7 +536,7 @@ export class LlmController {
         id, brief, others, words: turn.words, recent: recent.slice(-RECAP_LINES).map(lineForAi),
         attached: turn.line.attached?.length ? describeAttachments(turn.line.attached) : undefined,
         where: turn.line.where ? this.whereText(turn.line) : undefined,
-        designBrief: doc.ui.brief, seam, state: scopeState(doc, this.session.catalog, brief.scope),
+        designBrief: doc.ui.brief, seam, state: scopeState(doc, this.session.catalog, brief.scope), seeing: this.seeingLine(),
       });
       member.textChars = text.length;
       const fork = brief.context === 'full' ? { thread: this.thread ?? '', fallback: conversationAccount(recent.map(lineForAi), { steps: turn.lead.steps, message: turn.lead.message }) } : undefined;

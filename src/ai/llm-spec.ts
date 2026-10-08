@@ -113,8 +113,8 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_look',
-    description: 'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    description: 'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words.',
+    inputSchema: { type: 'object', properties: { as: { type: 'string', enum: ['design', 'seen'] }, view: { type: 'string', enum: ['plugin', 'patch', 'window'] } }, additionalProperties: false },
   },
   {
     name: 'kit_bash',
@@ -251,6 +251,7 @@ How to work
 - Requests can start with [den-kit] notes: what happened since your last turn (requests the fast path handled, the person's own edits, things they undid) or, in a new conversation, what came before. Use them for follow-ups such as "more", "not that one" or "like before".
 - When the person attached things (they point at them), the request is about those: change them rather than building something new, unless they clearly ask for something new.
 - When the person is inside a part (a [den-kit] note says which), the request is about that part: work inside it unless they clearly ask for something else.
+- A [den-kit] note says what the person is looking at (the view, what is in sight and selected, the notes they hold): "this", "here" and "what I see" mean that. When they share their screen, kit_look with as "seen" shows it to you as they see it.
 
 The patch model
 - Cables carry a signal (one f32 per sample) or a gate (on/off). An input takes at most one cable; an unconnected input is a knob (its value in "values") or follows its default/binding.

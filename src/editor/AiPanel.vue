@@ -43,6 +43,11 @@ const shownChips = computed(() => allChips.value ? attachments.value : attachmen
 const KIND_ICON: Record<Attachment['kind'], string> = { module: '▣', control: '◉', element: '◇', cable: '⌇' };
 const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : 'Ask anything — or hold Space and talk');
 const llmReady = computed(() => !!llm && !!fast.session.bridge?.status.value && fast.session.bridge.codexReady);
+// ---- letting the AI see the screen (U8b) ----
+const screen = session.screen;
+const screenOn = computed(() => screen.state.value === 'on');
+const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
+async function toggleScreen() { if (screenOn.value) screen.stop(); else await screen.start(); }
 
 async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
   const request = value.trim();
@@ -164,9 +169,14 @@ defineExpose({ focus });
       <span class="title"><span class="spark">✦</span> AI</span>
       <AiStatus v-if="fast.session.bridge" :bridge="fast.session.bridge" />
       <span class="grow" />
+      <button v-if="llm" type="button" class="icon eye" data-testid="ai-screen" :class="{ active: screenOn, off: screen.state.value === 'unsupported' }" :disabled="screen.state.value === 'unsupported' || screen.state.value === 'asking'" :title="screenTitle" :aria-pressed="screenOn" @click="toggleScreen">
+        <svg viewBox="0 0 20 14" width="20" height="14" aria-hidden="true"><path d="M1 7c2.2-3.6 5.3-5.5 9-5.5s6.8 1.9 9 5.5c-2.2 3.6-5.3 5.5-9 5.5S3.2 10.6 1 7z" fill="none" stroke="currentColor" stroke-width="1.5" /><circle cx="10" cy="7" r="2.6" fill="currentColor" /></svg>
+        <span v-if="screenOn" class="shared-dot" />
+      </button>
       <button type="button" class="icon" title="Fast-path settings and recent requests" data-testid="ai-drawer-toggle" :class="{ active: drawer }" @click="drawer = !drawer">⚙</button>
       <button type="button" class="icon" title="Hide the AI panel (⌘J)" data-testid="ai-close" @click="emit('close')">⟩</button>
     </header>
+    <div v-if="screen.message.value && screen.state.value !== 'unsupported' && screen.state.value !== 'on'" class="screen-note" data-testid="ai-screen-note">{{ screen.message.value }}</div>
     <div v-if="drawer" class="drawer" data-testid="ai-drawer">
       <div class="row">
         <label><span>τ (apply at ≥)</span><input v-model.number="fast.settings.tau" type="range" min="0.3" max="0.95" step="0.01" data-testid="ai-tau" /> <b>{{ pct(fast.settings.tau) }}</b></label>
@@ -352,4 +362,8 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .lane.l-stopped .lane-what, .lane.l-done .lane-what { color: #a8a8a8; }
 .lane-step { color: #8f8f8f; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer select { flex: 1 1 auto; min-width: 0; }
+.eye { position: relative; }
+.eye.off { opacity: .35; }
+.eye .shared-dot { position: absolute; top: 2px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--error); }
+.screen-note { padding: 6px 14px; font-size: 13px; color: #d6d6d6; background: #262626; border-bottom: 1px solid #000; }
 </style>

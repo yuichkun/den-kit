@@ -58,6 +58,16 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // U8b: the model asks to see what the person sees.
+    name: 'see',
+    match: /what do you see/i,
+    async run(t) {
+      await t.think();
+      const r = await t.call('kit_look', { as: 'seen' });
+      await t.say(`${r.images ? 'picture' : 'no picture'}: ${r.text.slice(0, 400)}`);
+    },
+  },
+  {
     name: 'member-start',
     match: /\[den-kit\] You are a member/,
     async run(t) {

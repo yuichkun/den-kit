@@ -77,6 +77,17 @@ export interface WorkspaceDeps {
   project?(): string | null;
   /** The lead's team (kit_delegate, kit_wait, kit_tell, kit_stop_member). */
   team?: Team;
+  /** A picture of what the person sees now (U8b): their view, or the one asked for; or why there is none. */
+  seen?(view?: 'plugin' | 'patch' | 'window'): Promise<SeenResult>;
+}
+export interface SeenResult {
+  /** What the person is looking at, in words. */
+  text: string;
+  /** The view they look at now. */
+  looking: 'plugin' | 'patch' | 'other';
+  picture?: { png: Uint8Array; width: number; height: number; source: 'tab' | 'shell' };
+  /** Why there is no picture. */
+  reason?: string;
 }
 /** What a lead does with its members (src/ai/llm.ts runs them). */
 export interface Team {
@@ -135,7 +146,7 @@ export class LlmWorkspace {
           const canvas = typeof a.canvas === 'string' && a.canvas ? a.canvas : typeof a.part === 'string' && a.part ? a.part : undefined;
           return { success: true, text: clip(describePlugin(doc, this.deps.catalog, { canvas, problems: canvas ? undefined : checkPlugin(doc, this.deps.catalog).map(formatPluginIssue), handEdits: this.deps.handEdits?.(), parts: this.deps.pod?.parts() })) };
         }
-        case 'kit_look': return await this.look();
+        case 'kit_look': return a.as === 'seen' ? await this.lookSeen(a.view === 'plugin' || a.view === 'patch' || a.view === 'window' ? a.view : undefined) : await this.look();
         case 'kit_ui_reference': return { success: true, text: uiReference(typeof a.topic === 'string' ? a.topic : undefined, typeof a.control === 'string' ? a.control : undefined, this.deps.catalog) };
         case 'kit_view_picture': return await this.viewPicture(String(a.id ?? ''));
         case 'kit_bash': return await this.bash(typeof a.command === 'string' ? a.command : '', typeof a.timeout_s === 'number' ? a.timeout_s : undefined);
@@ -336,6 +347,25 @@ export class LlmWorkspace {
     const head = `Looked at the plugin (${doc.panel.width}×${doc.panel.height}).${this.deps.images && seen.png ? ' The picture is attached.' : ''}`;
     const body = seen.issues.length ? `${seen.issues.length} thing${seen.issues.length === 1 ? '' : 's'} to fix${errors ? ` (${errors} serious)` : ''}:\n${seen.issues.map(i => `- ${formatPluginIssue(i)}`).join('\n')}` : 'The checks found nothing to fix (overlaps, edges, text that does not fit, contrast, labels, wiring, pictures, canvases).';
     return { success: true, text: `${head}\n${body}`, imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined };
+  }
+
+  /** What the person sees, as they see it (with screen sharing), or the nearest thing den-kit can give. */
+  private async lookSeen(view?: 'plugin' | 'patch' | 'window'): Promise<ToolOutput> {
+    const seen = await this.deps.seen?.(view);
+    if (!seen) return this.look();
+    if (seen.picture) {
+      const p = seen.picture;
+      this.steps.push(`looked at what you see (${view ?? seen.looking})`);
+      const from = p.source === 'shell' ? 'the desktop app' : 'their shared tab';
+      return { success: true, text: `What the person sees now (${view ?? seen.looking}, ${p.width}×${p.height}, from ${from}). ${seen.text}${this.deps.images ? ' The picture is attached.' : ' Your model does not take pictures, so there is none.'}`, imageDataUrl: this.deps.images ? pngDataUrl(p.png) : undefined };
+    }
+    const why = seen.reason ?? 'The person has not shared their screen with you.';
+    if ((view ?? seen.looking) === 'plugin') {
+      const design = await this.look();
+      return { ...design, text: `${why} ${seen.text}\nInstead, the plugin re-drawn at its design size (not their screen):\n${design.text}` };
+    }
+    this.steps.push('could not see the screen');
+    return { success: true, text: `${why} ${seen.text} There is no picture of ${view === 'window' ? 'the window' : 'the patch'}: read the patch with kit_get_patch.` };
   }
 
   // ---- the pod: the screen project ---------------------------------------------------------

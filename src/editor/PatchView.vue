@@ -235,8 +235,16 @@ const offLlmFit = session.onTransaction(tx => {
   lastFit = performance.now();
   setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
 });
-onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); });
-onBeforeUnmount(() => { offLlmFit(); releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); });
+/** What the person sees of the patch (U8b): the zoom and the modules in sight. */
+const viewDetails = () => {
+  const vp = flow.getViewport();
+  const { width, height } = flow.dimensions.value;
+  const x0 = -vp.x / vp.zoom, y0 = -vp.y / vp.zoom, x1 = x0 + width / vp.zoom, y1 = y0 + height / vp.zoom;
+  const inView = Object.values(session.doc.value.nodes).filter(n => here(n) && n.pos.x < x1 && n.pos.x + 160 > x0 && n.pos.y < y1 && n.pos.y + 100 > y0).map(n => n.id);
+  return { zoom: Math.round(vp.zoom * 100) / 100, inView };
+};
+onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); session.viewDetails = viewDetails; });
+onBeforeUnmount(() => { offLlmFit(); releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); if (session.viewDetails === viewDetails) session.viewDetails = null; });
 defineExpose({ openPalette, fit });
 </script>
 

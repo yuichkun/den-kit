@@ -26,6 +26,8 @@ import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
 import type { BridgeClient } from '../ai/bridge-client.ts';
 import type { FastPath } from '../ai/fast-path.ts';
 import type { LlmController } from '../ai/llm.ts';
+import type { Seeing } from '../ai/seeing.ts';
+import { ScreenShare } from './screen-share.ts';
 import type { PodSession } from '../pod/pod-session.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
@@ -94,6 +96,12 @@ export class KitSession {
   llm: LlmController | null = null;
   /** The pod (BrowserPod): the screen project's workbench for the AI and the person; null when not wired (unit tests). */
   pod: PodSession | null = null;
+  /** What the person is looking at (U8b): the view and the plugin's mode (the editor keeps it up to date). */
+  readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
+  /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
+  viewDetails: (() => Partial<Seeing>) | null = null;
+  /** Pictures of den-kit as the person sees it, once they let the AI see the screen (U8b). */
+  readonly screen = markRaw(new ScreenShare());
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
   /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
@@ -356,6 +364,22 @@ export class KitSession {
   }
 
   /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
+  /** What the person is looking at now. */
+  seeingNow(): Seeing { return { ...this.seeing.value, ...(this.viewDetails?.() ?? {}) }; }
+
+  /** Where a view is on the page (CSS pixels): the plugin, the patch, the whole working area, or the window. */
+  viewRect(which: 'plugin' | 'patch' | 'workspace' | 'window'): { x: number; y: number; width: number; height: number } | null {
+    if (typeof document === 'undefined') return null;
+    if (which === 'window') return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+    const selector = which === 'plugin' ? '[data-testid=plugin-view] [data-testid=panel]' : which === 'patch' ? '[data-testid=patch-view]' : '[data-testid=workspace]';
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    // Only what is on screen.
+    const x = Math.max(0, r.left), y = Math.max(0, r.top), right = Math.min(window.innerWidth, r.right), bottom = Math.min(window.innerHeight, r.bottom);
+    return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
+  }
+
   look(options: { picture?: boolean; doc?: PatchDocument } = {}): Promise<LookResult> {
     return lookAt(options.doc ?? this.doc.value, catalog, { generated: this.generated.value, assetUrls: this.assetUrls.value, analyser: probe => probe >= 0 ? this.engine.probeAnalysers[probe] ?? null : this.engine.outAnalyser, picture: options.picture, pod: this.pod });
   }

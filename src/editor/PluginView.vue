@@ -312,8 +312,14 @@ function onEnter(e: KeyboardEvent): boolean {
 }
 // The AI panel offers Enter here before jumping to its prompt; without the panel, the window listener takes it.
 const releaseEnter = claimEnter(onEnter);
-onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); });
-onBeforeUnmount(() => { releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); });
+/** What the person sees of the plugin (U8b): its scale on screen. */
+const viewDetails = () => {
+  const panel = stageEl.value?.querySelector('[data-testid=panel]');
+  const width = panel?.getBoundingClientRect().width;
+  return width ? { scale: Math.round(width / W.value * 100) / 100 } : {};
+};
+onMounted(() => { window.addEventListener('keydown', onKey); window.addEventListener('keydown', onEnter, true); session.viewDetails = viewDetails; });
+onBeforeUnmount(() => { releaseEnter(); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onEnter, true); if (session.viewDetails === viewDetails) session.viewDetails = null; });
 const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const selectionBox = computed(() => { const ids = [...selected.value]; if (ids.length < 2) return null; const rects = ids.map(id => rectOf(id)!).filter(Boolean); const x0 = Math.min(...rects.map(r => r.x)), y0 = Math.min(...rects.map(r => r.y)); return { x: x0, y: y0, w: Math.max(...rects.map(r => r.x + r.w)) - x0, h: Math.max(...rects.map(r => r.y + r.h)) - y0 }; });
 </script>

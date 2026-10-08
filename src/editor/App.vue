@@ -61,6 +61,8 @@ function backToCanvas() { (document.querySelector('[data-testid=patch-view], [da
 
 // ---- full screen: only the plugin -------------------------------------------------------
 const focusMode = ref(false);
+// What the person is looking at goes with every AI request (U8b).
+watchEffect(() => { props.session.seeing.value = { view: view.value, edit: pluginEdit.value, full: focusMode.value }; });
 let aiWasOpen = true;
 async function setFocus(on: boolean) {
   if (on === focusMode.value) return;
