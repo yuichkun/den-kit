@@ -2,7 +2,8 @@
 // sticky note on the plugin, sends a request: the AI gets the marks in words
 // (what each goes around) and the plugin re-drawn with the numbered marks; the
 // marks wait, dimmed, while it works and go when it is done. ⌘Z while drawing
-// takes back a mark, not an edit; Esc puts the pen down. On the patch, a box
+// takes back a mark, not an edit; Esc puts the pen down; a stylus draws where
+// it touches nothing. On the patch, a box
 // around a module with words the fast path knows works like selecting it; an
 // arrow between modules goes to the LLM with the patch drawn plainly. A sketch
 // can also be laid under the plugin as a picture to build on.
@@ -129,6 +130,64 @@ describe('sketching for the AI', () => {
     assert.match(said, /\[den-kit\] The person sketched on the patch; the marks are numbered on the picture \(the patch drawn plainly: modules as named boxes, cables as lines\):\n① red arrow/);
     assert.deepEqual(errors, []);
     assert.deepEqual(h.codex!.violations(), []);
+    await page.close();
+  });
+
+  it('a stylus draws where it touches nothing and works as usual on a knob; the first time it says so; it can be turned off', { timeout: 120000 }, async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await kit(page, k => k.select(['cut1']));
+    await page.click('[data-expose=hz]');
+    await page.click('[data-testid=view-plugin]');
+    await page.locator('[data-testid=plugin-view] [data-widget]').first().waitFor();
+    // A pen stroke (Playwright's mouse is not a pen): down on the element, moves and up on the window.
+    const pen = (selector: string, dx: number, dy: number) => page.evaluate(([sel, x, y]) => {
+      const el = document.querySelector(sel as string)!;
+      const r = el.getBoundingClientRect();
+      const at = (k: number) => ({ pointerType: 'pen', pointerId: 7, isPrimary: true, bubbles: true, cancelable: true, composed: true, clientX: r.left + 12 + (x as number) * k, clientY: r.top + 12 + (y as number) * k });
+      el.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+      for (let k = 1; k <= 6; k++) window.dispatchEvent(new PointerEvent('pointermove', at(k / 6)));
+      window.dispatchEvent(new PointerEvent('pointerup', at(1)));
+    }, [selector, dx, dy]);
+    await pen('[data-testid=plugin-view] [data-widget]', 30, 0);
+    assert.equal(await marks(page, 'plugin').count(), 0, 'on a knob the pen is a pointer');
+    await pen('[data-testid=plugin-view] [data-testid=panel]', 140, 50);
+    assert.equal(await marks(page, 'plugin').count(), 1);
+    assert.equal(await page.locator('[data-testid=toast]', { hasText: 'Your pen draws for the AI' }).count(), 1);
+    await pen('[data-testid=plugin-view] [data-testid=panel]', 60, 90);
+    assert.equal(await page.locator('[data-testid=toast]', { hasText: 'Your pen draws for the AI' }).count(), 1, 'said once');
+    assert.equal(await marks(page, 'plugin').count(), 2);
+    // Off (the sketch bar's “stylus draws”): kept in the browser; the pen is only a pointer.
+    await kit(page, k => { k.stylusDraws.value = false; });
+    await pen('[data-testid=plugin-view] [data-testid=panel]', 80, 20);
+    assert.equal(await marks(page, 'plugin').count(), 2);
+    assert.equal(await page.evaluate(() => localStorage.getItem('den-kit:stylus-draws')), 'off');
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it('from a blank plugin: a box and a note, sent with nothing typed', { timeout: 120000 }, async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
+    await page.click('[data-testid=view-plugin]');
+    const panel = page.locator('[data-testid=plugin-view] [data-testid=panel]');
+    await panel.waitFor();
+    assert.equal(await page.locator('[data-testid=plugin-view] [data-item]').count(), 0, 'nothing on the plugin yet');
+    await page.keyboard.press('p');
+    await page.click('[data-testid=ink-bar] [data-tool=rect]');
+    const b = (await panel.boundingBox())!;
+    await drag(page, [[b.x + b.width * 0.05, b.y + b.height * 0.1], [b.x + b.width * 0.3, b.y + b.height * 0.3], [b.x + b.width * 0.6, b.y + b.height * 0.55]]);
+    await page.click('[data-testid=ink-bar] [data-tool=note]');
+    await page.mouse.click(b.x + b.width * 0.1, b.y + b.height * 0.2);
+    await page.waitForSelector('[data-testid=ink-note-input]');
+    await page.keyboard.type('big waveform here');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Escape');
+    const o = await send(page, '');
+    assert.equal(o.text, 'Do what my sketch shows.');
+    assert.match(o.reply, /^pictures 1 \[image\/png \d+\]; 2 marks: ① red box in empty space \(x \d+, y \d+, \d+×\d+\) \| ② red sticky note “big waveform here” in empty space \(x \d+, y \d+, \d+×\d+\)$/);
+    assert.deepEqual(errors, []);
     await page.close();
   });
 

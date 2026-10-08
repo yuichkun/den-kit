@@ -30,13 +30,19 @@ const line = (out: string, name: string) => out.split('\n').find(l => new RegExp
 
 describe('kit:doctor', () => {
   it('a signed-in Codex passes every check; --deep makes the ping round trip and records it', async () => {
-    const { code, out } = await run('scripts/doctor.ts', codexEnv('home-ok', true), ['--deep']);
+    const { code, out } = await run('scripts/doctor.ts', { ...codexEnv('home-ok', true), KIT_DOCTOR_TOOL_WAIT_MS: '1500' }, ['--deep']);
     expect(line(out, 'Codex CLI')).toMatch(/^PASS.*0\.160\.1 \(KIT_CODEX_BIN\)/);
     expect(line(out, 'CODEX_HOME')).toMatch(/^WARN.*KIT_CODEX_HOME/);
     expect(line(out, 'Codex sign-in')).toMatch(/^PASS.*Logged in using ChatGPT/);
     expect(line(out, 'Codex app-server')).toMatch(/^PASS.*ChatGPT plus · GPT-6\.1-Sol \(sees images\)/);
     expect(line(out, 'Codex isolation')).toMatch(/^PASS\s+Codex isolation\s+no instruction files/);
     expect(line(out, 'Codex live request')).toMatch(/^PASS.*kit_ping round trip · reply “pong”/);
+    // What members, sketches and shared screens need (U8).
+    expect(line(out, 'Codex members')).toMatch(/^PASS.*two requests at once: one finished in [\d.]+ s while the other's tool call was held/);
+    expect(line(out, 'Codex pictures')).toMatch(/^PASS.*with the request and added while it worked: “red blue”/);
+    expect(line(out, 'Codex fork')).toMatch(/^PASS.*copies a conversation/);
+    expect(line(out, 'Codex long tool wait')).toMatch(/^PASS.*a tool call answered after 1\.5 s; the request went on/);
+    expect(line(out, 'Codex token counts')).toMatch(/^PASS.*[\d,]+ tokens for these checks/);
     const recording = line(out, 'Codex recording').replace(/^PASS\s+Codex recording\s+/, '').trim();
     expect(existsSync(join(KIT_ROOT, recording.replace(/^kit\//, '')))).toBe(true);
     rmSync(join(KIT_ROOT, recording.replace(/^kit\//, '')));
@@ -50,6 +56,14 @@ describe('kit:doctor', () => {
     expect(out).toContain('npm run kit:codex:login');
     expect(line(out, 'Codex live request')).toMatch(/^SKIP/);
     expect(code).toBe(1);
+  }, 150000);
+
+  it('--deep: a Codex that cannot copy a conversation is a warning, not a failure (members start from den-kit\'s account)', async () => {
+    const { code, out } = await run('scripts/doctor.ts', { ...codexEnv('home-nofork', true), KIT_DOCTOR_TOOL_WAIT_MS: '300', FAKE_CODEX_FORK: 'refuse' }, ['--deep']);
+    expect(line(out, 'Codex fork')).toMatch(/^WARN.*cannot copy the conversation \(.*no rollout found/);
+    expect(out).toContain('leave KIT_CODEX_FORK unset');
+    expect(line(out, 'Codex members')).toMatch(/^PASS/);
+    expect(code, out).toBe(0);
   }, 150000);
 
   it('instruction files picked up by Codex are reported', async () => {

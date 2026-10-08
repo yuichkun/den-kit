@@ -34,7 +34,7 @@ const all = computed(() => session.marksHere(props.view).length);
     <button type="button" class="tool" title="Rub out the sketch" :disabled="!all" data-testid="ink-clear" @click="session.clearSketch(view)">🗑</button>
     <button type="button" class="tool" :class="{ on: session.inkPinned.value }" title="Keep the marks after the AI is done with them" data-testid="ink-pin" @click="session.inkPinned.value = !session.inkPinned.value">📌</button>
     <button v-if="view === 'plugin'" type="button" class="text-btn" title="Lay the sketch under the plugin as a picture to build on (it stays while you edit, never when playing)" :disabled="!all" data-testid="ink-underlay" @click="emit('underlay')">Lay under</button>
-    <label class="stylus" title="A stylus draws when it touches the view"><input v-model="session.stylusDraws.value" type="checkbox" /> stylus draws</label>
+    <label class="stylus" title="A stylus draws where it touches nothing on the view (on knobs and modules it works as usual)"><input v-model="session.stylusDraws.value" type="checkbox" /> stylus draws</label>
     <span class="count">{{ unsent ? `${unsent} mark${unsent === 1 ? ' goes' : 's go'} with your next request` : 'draw, then ask' }}</span>
     <button type="button" class="text-btn done" data-testid="ink-done" title="Put the pen down (Esc); the marks stay" @click="session.inking.value = null">Done <kbd>Esc</kbd></button>
   </div>

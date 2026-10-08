@@ -1,10 +1,14 @@
 // `npm run kit:doctor`: checks the local setup step by step and says how to fix each problem.
 //   Node, dependencies, ports · Jev (key present, masked; three tiny live requests) ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
-// `npm run kit:doctor -- --deep` also makes one real Codex request with a ping tool and
-// records the whole JSON-RPC conversation to kit/.logs/codex-deep-*.jsonl.
+// `npm run kit:doctor -- --deep` also makes one real Codex request with a ping tool, then
+// tries what members, sketches and shared screens need (U8): two requests at once, a tool
+// call held as long as kit_wait may hold one, pictures with a request and added while it
+// works, a copy of a conversation (thread/fork) and token counts (about two minutes in all).
+// It records the whole JSON-RPC conversation to kit/.logs/codex-deep-*.jsonl.
 // Every run writes its results to kit/.logs/doctor-*.json (secrets masked).
 import { execFile } from 'node:child_process';
+import { crc32, deflateSync } from 'node:zlib';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -13,8 +17,8 @@ import { loadEnvFile, maskSecret } from '../bridge/env.ts';
 import { JevClient, JEV_MODEL } from '../bridge/jev.ts';
 import { RpcPeer } from '../bridge/codex/rpc.ts';
 import { codexEnv, codexHome, codexWorkdir, isProblem, LOGIN_COMMAND, resolveCodex, spawnAppServer, type CodexCommand } from '../bridge/codex/process.ts';
-import { describeRpcError, text, threadStartParams } from '../bridge/codex/client.ts';
-import { CODEX_VERSION, DECLINE, EXPECTED_ITEMS, explainCodexError, type GetAccountResponse, type InitializeResponse, type ModelListResponse, type RpcNotification, type ThreadStartResponse, type TurnError } from '../bridge/codex/protocol.ts';
+import { describeRpcError, forkParams, text, threadStartParams } from '../bridge/codex/client.ts';
+import { CODEX_VERSION, DECLINE, EXPECTED_ITEMS, explainCodexError, type DynamicToolCallParams, type GetAccountResponse, type InitializeResponse, type ModelListResponse, type RpcNotification, type RpcRequest, type ThreadStartResponse, type TurnError, type UserInput } from '../bridge/codex/protocol.ts';
 import { KIT_TOOLS, type ToolSpec } from '../src/ai/llm-spec.ts';
 
 type Status = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
@@ -112,10 +116,15 @@ async function checkCodex() {
   const proc = spawnAppServer(command, { home: home.path, cwd: workdir });
   const notes: RpcNotification[] = [];
   const recording: Array<{ at: number; dir: string; line: string }> = [];
+  /** The U8 checks' threads (their tool calls and turns), and the tokens each thread used so far. */
+  const watches = new Map<string, Watch>();
+  const usage = new Map<string, number>();
   const live = { pinged: 0, declined: [] as string[], items: [] as string[], reply: '', error: null as TurnError | null, done: null as null | ((status: string) => void) };
   const peer: RpcPeer = new RpcPeer(proc.child.stdout, proc.child.stdin, {
     onRequest: r => {
-      const params = (r.params ?? {}) as { tool?: string };
+      const params = (r.params ?? {}) as { tool?: string; threadId?: string };
+      const watched = params.threadId ? watches.get(params.threadId) : undefined;
+      if (watched && r.method === 'item/tool/call') { watched.tool(r); return; }
       if (r.method === 'item/tool/call' && params.tool === 'kit_ping') { live.pinged++; peer.respond(r.id, { contentItems: [{ type: 'inputText', text: 'pong-from-den-kit' }], success: true }); }
       else if (r.method === 'item/tool/call') peer.respond(r.id, { contentItems: [{ type: 'inputText', text: 'Only kit_ping is available.' }], success: false });
       else if (Object.hasOwn(DECLINE, r.method)) { live.declined.push(r.method); peer.respond(r.id, DECLINE[r.method]); }
@@ -125,6 +134,9 @@ async function checkCodex() {
     onNotification: n => {
       notes.push(n);
       const p = (n.params ?? {}) as Record<string, any>;
+      if (n.method === 'thread/tokenUsage/updated' && typeof p.threadId === 'string') usage.set(p.threadId, Number(p.tokenUsage?.total?.totalTokens) || 0);
+      const watched = typeof p.threadId === 'string' ? watches.get(p.threadId) : undefined;
+      if (watched) { watched.note(n.method, p); return; }
       if (n.method === 'item/started' && p.item?.type) live.items.push(p.item.type);
       if (n.method === 'item/completed' && p.item?.type === 'agentMessage') live.reply = String(p.item.text ?? '');
       if (n.method === 'error' && !p.willRetry) live.error = p.error ?? null;
@@ -161,6 +173,7 @@ async function checkCodex() {
       else if (unexpected.length || live.declined.length) report('FAIL', 'Codex live request', `Codex tried other tools: ${[...unexpected, ...live.declined].join(', ')}`, 'den-kit allows only its own tools; send kit/.logs/codex-deep-*.jsonl to the developer.');
       else if (live.pinged !== 1) report('WARN', 'Codex live request', `kit_ping was called ${live.pinged} times (expected once) · ${ms} ms`, 'The model did not follow the instruction exactly; den-kit still works.');
       else report('PASS', 'Codex live request', `${(ms / 1000).toFixed(1)} s · kit_ping round trip · reply “${live.reply.slice(0, 40)}”`);
+      if (status === 'completed') await teamChecks({ peer, workdir, model: wanted || null, images: !!model?.inputModalities.includes('image'), lead: started.thread.id, watches, usage });
     }
     peer.request('thread/unsubscribe', { threadId: started.thread.id }, { timeoutMs: 5000 }).catch(() => {});
   } catch (error) {
@@ -172,5 +185,111 @@ async function checkCodex() {
       const file = join(kit, '.logs', `codex-deep-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`);
       try { mkdirSync(join(kit, '.logs'), { recursive: true }); writeFileSync(file, recording.map(r => JSON.stringify(r)).join('\n') + '\n'); report('PASS', 'Codex recording', file.replace(`${kit}/`, 'kit/')); } catch { /* optional */ }
     }
+  }
+}
+
+// ---- What members, sketches and shared screens need (U8) ---------------------------------------
+interface Watch { tool(r: RpcRequest): void; note(method: string, p: Record<string, any>): void; ended: Promise<string>; status: string | null; reply: string; error: TurnError | null; items: string[] }
+function watching(watches: Map<string, Watch>, id: string, tool: Watch['tool']): Watch {
+  let end!: (status: string) => void;
+  const w: Watch = {
+    tool, ended: new Promise<string>(resolve => { end = resolve; }), status: null, reply: '', error: null, items: [],
+    note(method, p) {
+      if (method === 'item/started' && p.item?.type) w.items.push(p.item.type);
+      if (method === 'item/completed' && p.item?.type === 'agentMessage') w.reply = String(p.item.text ?? '');
+      if (method === 'error' && !p.willRetry) w.error = p.error ?? null;
+      if (method === 'turn/completed') { if (p.turn?.error) w.error = p.turn.error; w.status = String(p.turn?.status ?? 'completed'); end(w.status); }
+    },
+  };
+  watches.set(id, w);
+  return w;
+}
+/** A one-colour PNG (the picture check). */
+function solidPng([r, g, b]: [number, number, number], size = 32): string {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 2; // 8-bit RGB
+  const row = Buffer.alloc(1 + size * 3);
+  for (let i = 0; i < size; i++) row.set([r, g, b], 1 + i * 3);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.concat(Array.from({ length: size }, () => row)))), chunk('IEND', Buffer.alloc(0))]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+async function teamChecks(c: { peer: RpcPeer; workdir: string; model: string | null; images: boolean; lead: string; watches: Map<string, Watch>; usage: Map<string, number> }) {
+  const { peer } = c;
+  /** How long the held tool call waits (kit_wait may hold one up to 75 s). */
+  const WAIT_MS = Number(process.env.KIT_DOCTOR_TOOL_WAIT_MS) || 75000;
+  const PING_RULE = 'This is a den-kit check. Call the kit_ping tool exactly once (no arguments), then reply with the single word: pong.';
+  const PICTURE_RULE = 'This is a den-kit picture check. Call the kit_ping tool exactly once (no arguments). Then reply with the colours of all the pictures you were given, as lowercase colour words separated by spaces (for example: green yellow).';
+  const ping: ToolSpec = { name: 'kit_ping', description: 'Connectivity check: call this once, with no arguments.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } };
+  const pong = (r: RpcRequest) => peer.respond(r.id, { contentItems: [{ type: 'inputText', text: 'pong-from-den-kit' }], success: true });
+  const thread = async (instructions: string) => (await peer.request<ThreadStartResponse>('thread/start', threadStartParams({ model: c.model, cwd: c.workdir, instructions, tools: [ping] }), { timeoutMs: 20000 })).thread.id;
+  const turn = (threadId: string, input: UserInput[]) => peer.request('turn/start', { threadId, input }, { timeoutMs: 20000 });
+  const within = (p: Promise<string>, ms: number) => Promise.race([p, new Promise<string>(resolve => setTimeout(() => resolve('timeout'), ms))]);
+  const why = (w: Watch, status: string) => status === 'timeout' ? 'no answer within 3 minutes' : `${status}: ${explainCodexError(w.error, `Run \`${LOGIN_COMMAND}\` again.`).message}`;
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+  const opened: string[] = [];
+  try {
+    // Members: two requests at once; one holds its tool call as long as a lead waiting for its members may.
+    const [a, b] = await Promise.all([thread(PING_RULE), thread(PING_RULE)]);
+    opened.push(a, b);
+    const held = watching(c.watches, a, r => { setTimeout(() => pong(r), WAIT_MS); });
+    const quick = watching(c.watches, b, r => pong(r));
+    const t0 = Date.now();
+    await Promise.all([turn(a, [text('den-kit connectivity check (member A): please ping.')]), turn(b, [text('den-kit connectivity check (member B): please ping.')])]);
+    const first = await within(quick.ended, 180000);
+    const odd = () => [...new Set([...held.items, ...quick.items].filter(t => !EXPECTED_ITEMS.has(t)))];
+    if (first !== 'completed') report('FAIL', 'Codex members', `the second of two requests at once: ${why(quick, first)}`, 'Members cannot work at the same time: set Members to off in the AI panel (⚙) and tell the developer.');
+    else if (held.status) report('WARN', 'Codex members', 'the second request ended only after the first: they took turns', 'Members would work one after another; den-kit still works (Members off in ⚙ compares).');
+    else report('PASS', 'Codex members', `two requests at once: one finished in ${seconds(Date.now() - t0)} while the other's tool call was held`);
+
+    // Pictures: one with the request, one added while it works (a sketch sent with a request, or while it runs).
+    if (!c.images) report('SKIP', 'Codex pictures', 'the model does not take pictures: sketches and shared screens go as words only');
+    else {
+      const p = await thread(PICTURE_RULE);
+      opened.push(p);
+      let steered: string | null = null;
+      const pictures = watching(c.watches, p, r => {
+        const call = r.params as DynamicToolCallParams;
+        peer.request('turn/steer', { threadId: p, input: [text('Here is one more picture.'), { type: 'image', url: solidPng([0, 0, 255]) }], expectedTurnId: call.turnId }, { timeoutMs: 20000 })
+          .then(() => { steered = 'ok'; }, error => { steered = describeRpcError(error); })
+          .finally(() => pong(r));
+      });
+      await turn(p, [text('den-kit picture check: what colour is this picture?'), { type: 'image', url: solidPng([255, 0, 0]) }]);
+      const done = await within(pictures.ended, 180000);
+      const said = pictures.reply.toLowerCase();
+      if (done !== 'completed') report('FAIL', 'Codex pictures', why(pictures, done), 'Sketches and shared screens cannot reach the AI; send kit/.logs/codex-deep-*.jsonl to the developer.');
+      else if (steered !== 'ok') report('WARN', 'Codex pictures', `a picture added while it worked did not go through (${steered ?? 'the model did not call kit_ping'})`, 'A sketch sent while the AI works may reach it as words only.');
+      else if (said.includes('red') && said.includes('blue')) report('PASS', 'Codex pictures', `with the request and added while it worked: “${pictures.reply.slice(0, 40)}”`);
+      else report('WARN', 'Codex pictures', `the reply did not name both colours: “${pictures.reply.slice(0, 60)}”`, 'The model may not look at every picture; sketches also go as words.');
+    }
+
+    // A copy of a conversation (members that get the whole conversation, with KIT_CODEX_FORK=1).
+    try {
+      const copy = await peer.request<ThreadStartResponse>('thread/fork', forkParams({ threadId: c.lead, model: c.model, cwd: c.workdir, instructions: 'den-kit fork check' }), { timeoutMs: 20000 });
+      opened.push(copy.thread.id);
+      report('PASS', 'Codex fork', 'copies a conversation: KIT_CODEX_FORK=1 lets members that need the whole conversation start from a copy of the lead\'s');
+    } catch (error) {
+      report('WARN', 'Codex fork', `cannot copy the conversation (${describeRpcError(error)})`, 'Nothing to do: such members start from den-kit\'s account of the conversation (leave KIT_CODEX_FORK unset).');
+    }
+
+    // The held tool call: the request goes on after it.
+    const last = await within(held.ended, WAIT_MS + 180000);
+    if (last !== 'completed') report('FAIL', 'Codex long tool wait', `a tool call answered after ${seconds(WAIT_MS)}: ${why(held, last)}`, 'A lead waiting for its members could lose its request: set Members to off (⚙) and tell the developer.');
+    else report('PASS', 'Codex long tool wait', `a tool call answered after ${seconds(WAIT_MS)}; the request went on (kit_wait holds one up to 75 s)`);
+    if (odd().length) report('FAIL', 'Codex members', `Codex tried other tools: ${odd().join(', ')}`, 'den-kit allows only its own tools; send kit/.logs/codex-deep-*.jsonl to the developer.');
+
+    // Token counts (per request and per member in the AI panel).
+    const total = [...c.usage.values()].reduce((sum, n) => sum + n, 0);
+    report(total ? 'PASS' : 'WARN', 'Codex token counts', total ? `${total.toLocaleString('en-US')} tokens for these checks` : 'Codex sent no token counts', total ? undefined : 'The AI panel cannot show tokens per request; everything else works.');
+  } catch (error) {
+    report('FAIL', 'Codex members', describeRpcError(error));
+  } finally {
+    for (const id of opened) peer.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 5000 }).catch(() => {});
   }
 }

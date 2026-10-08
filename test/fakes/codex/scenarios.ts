@@ -2,7 +2,17 @@
 // (ids voice1, osc1, fenv1, fdepth1, cut1, filter1, aenv1, vca1, vel1, mix1,
 // gain1, out1). They drive den-kit's real tools in the browser or the bridge
 // tests; what the tools answer decides what the script does next, like a model.
+import { inflateSync } from 'node:zlib';
 import type { Scenario } from './fake-codex.ts';
+
+/** The colour of a one-colour PNG (the doctor's picture check): what a model would say it sees. */
+function colourOf(url: string): string {
+  const png = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64');
+  const data: Buffer[] = [];
+  for (let i = 8; i + 8 <= png.length;) { const len = png.readUInt32BE(i); if (png.toString('latin1', i + 4, i + 8) === 'IDAT') data.push(png.subarray(i + 8, i + 8 + len)); i += 12 + len; }
+  const [r, g, b] = inflateSync(Buffer.concat(data)).subarray(1, 4);
+  return r! > 200 && g! < 80 && b! < 80 ? 'red' : b! > 200 && r! < 80 && g! < 80 ? 'blue' : `rgb(${r},${g},${b})`;
+}
 
 const BOX_BROKEN = "import { defineSubgraph, type Node } from '@unworklet/core';\nexport default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; bits: Node<'f32'> }) { return { out: i.in.mul( } } }));";
 const BOX_FIXED = "import { defineSubgraph, type Node } from '@unworklet/core';\n// a crude bitcrusher: quantise to 2^bits steps\nexport default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; bits: Node<'f32'> }) { const steps = i.bits.clamp(1, 16).mul(0.6931472).exp(); return { out: i.in.mul(steps).add(0.5).floor().div(steps) }; } }));";
@@ -134,7 +144,19 @@ const scenarios: Scenario[] = [
     async run(t) {
       await t.think();
       const r = await t.call('kit_ping', {});
+      t.usage(1800, 12, 1500);
       await t.say(r.text.includes('pong') ? 'pong' : 'no pong');
+    },
+  },
+  {
+    // npm run kit:doctor -- --deep: a picture with the request, another added (turn/steer) while the ping is out.
+    name: 'doctor-picture',
+    match: /den-kit picture check/i,
+    async run(t) {
+      await t.think();
+      await t.call('kit_ping', {});
+      t.usage(2400, 6, 0);
+      await t.say(t.images.map(colourOf).join(' '));
     },
   },
   {

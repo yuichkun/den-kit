@@ -1,7 +1,7 @@
 // The editing session: the one document the browser owns, its history, the
 // compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
 // through commit() with an author, so humans and AI edit the same way.
-import { shallowRef, ref, computed, markRaw, triggerRef } from 'vue';
+import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
 import { catalog } from '../blocks/index.ts';
 import { currentValues, generate, type Generated } from '../core/codegen.ts';
 import { History, type Author, type Transaction } from '../core/history.ts';
@@ -43,6 +43,8 @@ const AUTOSAVE_KEY = 'den-kit:autosave';
 const CONVERSATION_KEY = 'den-kit:conversation';
 /** My parts: saved parts every patch can place (kept apart from any one patch). */
 export const MY_PARTS_KEY = 'den-kit:my-parts';
+/** Whether a stylus draws where it touches nothing ("off" when the person turned it off). */
+const STYLUS_KEY = 'den-kit:stylus-draws';
 
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 
@@ -114,8 +116,9 @@ export class KitSession {
   readonly inkColor = ref<string>(MARK_COLORS[0]);
   /** Keep marks after the AI has dealt with them. */
   readonly inkPinned = ref(false);
-  /** A stylus draws when it touches a view, without picking the pen first. */
+  /** A stylus draws where it touches nothing on a view, without picking the pen first (kept in the browser). */
   readonly stylusDraws = ref(true);
+  private stylusTold = false;
   /** Marks sent with a request (dimmed until it ends): mark id → request id. */
   readonly sentMarks = shallowRef<Record<string, string>>({});
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
@@ -142,6 +145,8 @@ export class KitSession {
     }, { rotateAfter: options.rotateAfter }));
     this.compiler = markRaw(new CompileClient({ createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never, timeoutMs: options.compileTimeoutMs }));
     this.reloadMyParts();
+    if (this.storage?.getItem(STYLUS_KEY) === 'off') this.stylusDraws.value = false;
+    watch(this.stylusDraws, on => { try { this.storage?.setItem(STYLUS_KEY, on ? 'on' : 'off'); } catch { /* not kept */ } });
   }
 
   // ---- Document lifecycle ----------------------------------------------------
@@ -384,6 +389,12 @@ export class KitSession {
   }
 
   // ---- the sketch (U8c) ----
+  /** The first stroke a stylus draws by itself says so (someone using a pen as their mouse may not want it). */
+  stylusNoticed() {
+    if (this.stylusTold) return;
+    this.stylusTold = true;
+    this.toast('info', 'Your pen draws for the AI where it touches nothing (on knobs and modules it works as usual). Press P and untick “stylus draws” to turn this off.');
+  }
   /** Where marks belong: the plugin is one place; on the patch, the main patch or the part the person is inside. */
   private markPlace(view: SketchView): string { return view === 'patch' ? this.partPath.value.join('/') : ''; }
   /** The marks on a view, where the person is now. */

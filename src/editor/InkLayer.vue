@@ -61,12 +61,17 @@ function down(e: PointerEvent) {
   e.preventDefault(); e.stopPropagation();
   start(e, kind);
 }
-/** A stylus touching the view draws a pen stroke, without picking the pen first. */
+/** Where a stylus touches nothing (the plugin's background, the patch's empty canvas): there it draws. */
+const NOTHING_THERE = props.view === 'plugin' ? '[data-testid=panel]' : '.vue-flow__pane';
+const SOMETHING = '[data-item], .vue-flow__node, .vue-flow__edge, .vue-flow__handle, button, input, textarea, select, [contenteditable], [data-testid=ink-bar]';
+/** A stylus draws a pen stroke where it touches nothing, without picking the pen first (on a knob or a module it works as usual). */
 function stylus(e: PointerEvent) {
   if (e.pointerType !== 'pen' || tool.value || !session.stylusDraws.value || !here.value || draft.value) return;
+  const target = e.target as Element | null;
   const container = svg.value?.closest('[data-testid=plugin-view], [data-testid=patch-view]');
-  if (!container || !container.contains(e.target as Node)) return;
+  if (!target || !container?.contains(target) || !target.closest(NOTHING_THERE) || target.closest(SOMETHING)) return;
   e.preventDefault(); e.stopImmediatePropagation();
+  session.stylusNoticed();
   start(e, 'pen');
 }
 function move(e: PointerEvent) {
