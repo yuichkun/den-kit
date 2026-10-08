@@ -19,6 +19,7 @@ import NumberField from './NumberField.vue';
 import SkinEditor from './SkinEditor.vue';
 import StyleEditor from './StyleEditor.vue';
 import TextStyleEditor from './TextStyleEditor.vue';
+import CodeArea from '../CodeArea.vue';
 
 const emit = defineEmits<{ (e: 'edit-canvas', id: string): void; (e: 'action', name: string): void; (e: 'open-project', path?: string): void }>();
 const session = useSession();
@@ -132,7 +133,7 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
           <div class="row"><label>Picture</label><select :value="element.asset" @change="setEl({ asset: ($event.target as HTMLSelectElement).value })"><option v-for="a in pictures" :key="a.id" :value="a.id">{{ a.name }}</option></select></div>
           <div class="row"><label>Fit</label><select :value="element.fit" @change="setEl({ fit: ($event.target as HTMLSelectElement).value })"><option>contain</option><option>cover</option><option>stretch</option></select></div>
         </template>
-        <textarea v-else-if="element.kind === 'svg'" v-model="textDraft" rows="6" class="code" spellcheck="false" @change="setEl({ svg: textDraft }, 'SVG')" />
+        <CodeArea v-else-if="element.kind === 'svg'" v-model="textDraft" language="xml" rows="6" class="code" @change="setEl({ svg: textDraft }, 'SVG')" />
         <template v-else-if="element.kind === 'led'">
           <div class="row"><label>Lights</label><select :value="element.bind" @change="setEl({ bind: ($event.target as HTMLSelectElement).value }, 'Lamp')"><option value="@level">with the sound</option><option v-for="c in controls" :key="c.id" :value="c.id">with {{ c.label ?? c.id }}</option></select></div>
           <div class="row"><label>Colour</label><ColorField :value="element.color" :clearable="false" @update="(c, done) => c && setEl({ color: c }, 'Lamp colour', done ? undefined : 'led')" /></div>
@@ -216,7 +217,7 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
       </div>
       <div class="section">
         <h3>CSS</h3>
-        <textarea v-model="cssDraft" rows="5" class="code" spellcheck="false" placeholder="dk-knob::part(label) { letter-spacing: .2em }  ·  url(asset:ID) for pictures" data-testid="look-css" @change="commit([{ op: 'setLook', look: { css: cssDraft || null } }], 'CSS')" />
+        <CodeArea v-model="cssDraft" language="css" rows="5" class="code" placeholder="dk-knob::part(label) { letter-spacing: .2em }  ·  url(asset:ID) for pictures" data-testid="look-css" @change="commit([{ op: 'setLook', look: { css: cssDraft || null } }], 'CSS')" />
       </div>
       <div class="section">
         <h3>Reference picture</h3>
@@ -238,7 +239,7 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
 .row input[type=text], .row select { flex: 1; min-width: 0; }
 .xywh { gap: 4px; }
 textarea { width: 100%; resize: vertical; margin: 4px 0; font-size: 13px; }
-.code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.code { margin: 4px 0; border-radius: 4px; --code-font: 12px/1.45 ui-monospace, Menlo, monospace; --code-pad: 5px 7px; --code-resize: vertical; }
 .sub { margin: 8px 0 2px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .grid3 button { padding: 4px 2px; font-size: 12.5px; }

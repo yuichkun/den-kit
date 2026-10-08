@@ -9,6 +9,7 @@ import PluginWindow from '../../plugin/PluginWindow.vue';
 import type { PluginSpec } from '../../plugin/spec.ts';
 import { useSession } from '../context.ts';
 import { controlWriter } from '../play.ts';
+import CodeArea from '../CodeArea.vue';
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -43,7 +44,7 @@ function key(e: KeyboardEvent) {
 const onChange = controlWriter(session);
 const analyser = (probe: number) => probe >= 0 ? session.engine.probeAnalysers[probe] ?? null : session.engine.outAnalyser;
 // Opened from the keyboard (Enter on the canvas): the code takes the keys at once, and gives them back to the plugin view on close.
-const source = ref<HTMLTextAreaElement | null>(null);
+const source = ref<InstanceType<typeof CodeArea> | null>(null);
 onMounted(() => void nextTick(() => source.value?.focus()));
 onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-view]')?.focus());
 </script>
@@ -53,13 +54,13 @@ onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-v
     <div class="modal" data-testid="canvas-editor">
       <header><b>Canvas {{ id }}</b><span class="muted">JavaScript, drawn on a canvas each frame · ⌘/Ctrl+Enter applies · Esc closes</span><span style="flex:1" /><button @click="code = CANVAS_TEMPLATE">Template</button><button class="primary" :disabled="!dirty" data-testid="canvas-apply" @click="apply">Apply</button><button @click="emit('close')">Close</button></header>
       <div class="body">
-        <textarea ref="source" v-model="code" spellcheck="false" data-testid="canvas-source" @keydown="key" />
+        <CodeArea ref="source" v-model="code" language="javascript" data-testid="canvas-source" @keydown="key" />
         <aside>
           <h4>Preview</h4>
           <div class="preview"><PluginWindow v-if="spec" :spec="spec" :analyser="analyser" :asset-urls="session.assetUrls.value" @change="onChange" /></div>
           <div v-if="status" class="issue error" data-testid="canvas-status">{{ status }}</div>
           <h4>Settings (f.props)</h4>
-          <textarea v-model="propsText" class="props" :class="{ bad: !parsedProps }" spellcheck="false" rows="4" />
+          <CodeArea v-model="propsText" language="json" class="props" :class="{ bad: !parsedProps }" rows="4" />
           <h4>What f has</h4>
           <div class="help">f.w, f.h · f.t, f.dt · f.level, f.peak · f.wave, f.spectrum · f.value(id), f.norm(id), f.xy(id), f.on(id), f.range(id) · f.color('accent') · f.props · f.state<br>With pointer(e, f): e.type (down, move, up, wheel, double, leave), e.x, e.y, e.dx, e.dy · f.pointer · f.set(id, value), f.setNorm(id, 0..1) · f.cursor('grab')</div>
         </aside>
@@ -70,11 +71,10 @@ onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-v
 
 <style scoped>
 .body { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
-textarea { resize: none; border: 0; border-radius: 0; font: 12.5px/1.5 ui-monospace, Menlo, monospace; padding: 10px; background: #0f1115; white-space: pre; tab-size: 2; }
 aside { border-left: 1px solid var(--line); padding: 8px; overflow: auto; font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; }
 h4 { margin: 8px 0 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .preview { position: relative; height: 180px; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
-.props { border: 1px solid #333; border-radius: 4px; }
+.props { border: 1px solid #333; border-radius: 4px; --code-pad: 6px 8px; }
 .props.bad { border-color: var(--error); }
 .help { color: var(--muted); line-height: 1.5; }
 </style>

@@ -8,6 +8,8 @@ import { useSession } from './context.ts';
 import { GENERATED_FILES, checkProjectPath } from '../core/project.ts';
 import { templateFiles, withTemplate } from '../pod/template.ts';
 import { PodCheck, secs } from '../pod/pod-check.ts';
+import CodeArea from './CodeArea.vue';
+import { highlight, languageFor } from './highlight.ts';
 
 const props = defineProps<{ /** A file to open (from the inspector's "Open its file"). */ open?: string | null }>();
 const session = useSession();
@@ -139,7 +141,7 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
           <button v-if="!readOnly" class="small primary" :disabled="!dirty" data-testid="file-keep" @click="keep">Keep <kbd>⌘S</kbd></button>
           <button v-if="!readOnly && project?.files[current] !== undefined" class="small" @click="remove">Delete</button>
         </div>
-        <textarea v-model="draft" class="code" spellcheck="false" :readonly="readOnly" data-testid="file-text" @keydown="editorKey" />
+        <CodeArea v-model="draft" class="code" :language="languageFor(current)" :readonly="readOnly" data-testid="file-text" @keydown="editorKey" />
       </div>
       <div class="check" data-testid="pod-check-panel">
         <h3>Pod check</h3>
@@ -156,7 +158,7 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
     <div class="terminal">
       <div ref="shell" class="lines" data-testid="pod-log">
         <div v-for="e in log" :key="e.id" class="entry" :class="[e.who, { failed: !e.running && e.exitCode !== 0 && e.exitCode !== null }]" :data-entry="e.id">
-          <div class="cmd"><span class="who">{{ WHO[e.who] }}</span> <span class="prompt">$</span> {{ e.command }} <span class="exit">{{ e.running ? '…' : e.timedOut ? 'stopped (too long)' : e.exitCode === null ? '' : `exit ${e.exitCode}` }}{{ e.running || !e.ms ? '' : ` · ${secs(e.ms)}` }}</span></div>
+          <div class="cmd"><span class="who">{{ WHO[e.who] }}</span> <span class="prompt">$</span> <span class="c" v-html="highlight(e.command, 'bash')" /> <span class="exit">{{ e.running ? '…' : e.timedOut ? 'stopped (too long)' : e.exitCode === null ? '' : `exit ${e.exitCode}` }}{{ e.running || !e.ms ? '' : ` · ${secs(e.ms)}` }}</span></div>
           <pre v-if="e.output" class="out">{{ e.output.length > 6000 ? `…${e.output.slice(-6000)}` : e.output }}</pre>
         </div>
         <div v-if="!log.length" class="muted small">Commands run in the pod (yours, the AI's and den-kit's) show here with their output.</div>
@@ -183,7 +185,7 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
 .new { display: flex; gap: 4px; margin-top: 8px; } .new input { flex: 1; min-width: 0; font: 12px ui-monospace, Menlo, monospace; }
 .editor { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }
 .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #2c2c2c; font-size: 12.5px; }
-.code { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; border-radius: 0; background: #141414; color: #e6e6e6; font: 12.5px/1.45 ui-monospace, Menlo, monospace; padding: 10px 12px; tab-size: 2; white-space: pre; }
+.code { --code-bg: #141414; --code-fg: #e6e6e6; --code-font: 12.5px/1.45 ui-monospace, Menlo, monospace; --code-pad: 10px 12px; }
 .check { border-left: 1px solid #333; overflow: auto; padding: 8px 10px; font-size: 12.5px; }
 .check h3 { margin: 0 0 4px; font-size: 13px; }
 .step { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px; padding: 4px 0; border-bottom: 1px solid #262626; }

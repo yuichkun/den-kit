@@ -117,6 +117,7 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 - **Voice In** から **Voice Mix** までのモジュールは、声の数だけ複製されます（左上の重なったアイコンで分かります）。
 - フィードバックは **History**（1サンプル遅延）を通すときだけつなげます。
 - **Codebox** には unworklet の core API でコードを書けます。エラーは該当する行に表示されます。
+- コードを表示・編集する場所（Code タブの生成コード、Codebox、キャンバスのコード、Project タブのファイル、インスペクタの SVG と CSS）は、シンタックスハイライトで色分けします（highlight.js。色だけで、LSP はありません）。
 
 **Plugin（プラグインの画面）**：プラグインの画面だけを表示します。DAW の中で見える画面です。
 - 画面はウィンドウの大きさに合わせて拡大縮小します。余白は画面の背景で埋めます。
@@ -402,11 +403,13 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
 1. console.browserpod.io でキーを作り、`kit/.env` に `BROWSERPOD_API_KEY=…` の 1 行を足します（git には入りません）。
    - BrowserPod はブラウザの中で起動するので、このキーは開発サーバー（`npm run kit:dev`）がページに渡します。ビルドしたファイルには入りません。Codex には渡しません。
 2. `npm run kit:dev` を起動し直します。ターミナルに `Pod → BrowserPod, key …` と出ます。
-3. Chrome で開いて音を始めると、初回だけ「pod チェック」が自動で走ります。結果は Project タブで見られます（下の「pod チェック」）。
+3. Chrome で開いて音を始めると、このブラウザで初めてのときだけ、pod が自動で起動します（パッケージのインストールを含めて 1.5〜2.5 分）。進み具合は Project タブで見られます。
+4. Project タブの「Check the pod」を押すと、各段の時間を測るチェックが走ります（下の「pod チェック」）。
 
 **Project タブ**（Patch・Plugin・Code の右）
 - 上の段：pod の状態（off → booting → syncing → installing → starting → ready）と、各段の所要時間（boot、書き込み、npm install、dev サーバー）。「Start the pod」で起動し、「Check the pod」でチェックします。
 - 左：画面プロジェクトのファイル。作品にまだプロジェクトがなければテンプレートを表示します（最初の変更で作品のものになります）。選んで編集し、`⌘S` で作品に入れます（`⌘Z` 1 回で戻ります）。`src/kit/controls.ts` は den-kit がパッチから作るファイルで、読み取り専用です。
+- 中央の編集欄は、ファイルの種類に合わせて色分けします（TypeScript、JavaScript、JSON、CSS、HTML と SVG、Markdown、シェル）。色だけで、補完やエラー表示（LSP）はありません。
 - 右：pod チェックの結果。
 - 下：pod のターミナル。あなた、AI、den-kit 自身のコマンドが、出力・終了コード・所要時間つきで並びます。入力欄から好きなコマンドを打てます（`npm run check`、`git log`、`npm install three` など）。コマンドで変わったファイルは、そのまま作品に入ります（あなたの 1 手として `⌘Z` で戻ります）。
 
@@ -448,7 +451,24 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
 - BrowserPod の料金：起動中の pod 1 つにつき、1 時間 10 トークン（1 時間単位）。無料枠は月 10,000 トークンです。
 - 完成した作品を配るときは、`npm run build` で作った静的ファイルを使えば BrowserPod は要りません（Portal に出す想定）。この PoC には、その書き出しはまだありません。
 - ネイティブバイナリを持つ npm パッケージは、pod では動きません。esbuild と rollup は、テンプレートで WebAssembly 版に置き換えてあります。pod のネットワークは、npm や GitHub など許可された先だけです。
-- このクラウド環境にはキーがないため、本物の BrowserPod では試せていません。テストでは、BrowserPod と同じ口を持つ代役（`test/fakes/pod`）で、den-kit 側（ファイルの同期、コマンド、dev サーバー、コード部品の枠と通信、AI の道具）を確かめています。
+- 使うもの：最新の Chrome（BrowserPod は WebAssembly の resizable memory と `Atomics.waitAsync` を使います。古いブラウザでは「Update Chrome」と出ます）。den-kit のタブは 1 つにしてください。BrowserPod は 1 つのタブでだけ動き、ほかのタブには理由が出ます。
+
+**本物の BrowserPod での確認**（3.4.0、Chrome 155、2026-10-08）
+- 起動
+  - このブラウザで初めて：Ready まで 1.5〜2.5 分（起動 5〜7 秒、書き込みと git 4 秒、npm install 70〜110 秒（回線しだい）、Vite 6 秒）。
+  - 2 回目以降（ディスクはブラウザに残る）：約 10〜14 秒。ページを読み直しても 8〜12 秒。
+- AI がコード部品を作る流れ（AGENTS.md を読む → bash でファイルを書く → `npm run check` と `npm run lint` → 置く → `kit_look`）：pod 側で約 18 秒（模擬 Codex）。
+- コード部品が portal から表示されるまで約 1 秒。ファイルの変更が部品に届くまで約 1 秒。つまみ ↔ 部品の連動、部品のクリック、`⌘Z`（pod のファイルも戻る）も確認しました。
+- pod チェック：9 段すべて成功、計 24〜31 秒（TypeScript 4 秒、ESLint 6 秒、npm install 4 秒、ビルド 6 秒、部品の表示 1 秒、変更が届くまで 2 秒）。
+- three.js：`npm install three` 23 秒、tsc と ESLint が通り、three.js の部品が表示されます（初回は依存の変換で約 14 秒）。
+- 2 つ目のタブ、タブの読み直し、タブを閉じて別のタブで起動、も確認しました。
+
+**BrowserPod の現時点の癖と、den-kit 側の対処**
+- pod の中の Node（22.15）は、クラスの async generator メソッドを正しく動かしません。そのため ESLint 10 がフォルダの中を探せません（「No files matching the pattern」）。テンプレートの `npm run lint` は、ファイルを並べて ESLint に渡します。AGENTS.md にも書いてあります。
+- pod のファイル監視は、dev サーバーが起動したあとに作られたフォルダを見ません。den-kit は起動の前に `src/parts` を作ります。テンプレートの vite.config.ts は、新しいフォルダを 1 秒ごとに探して監視に加えます（`KIT_WATCH_NEW_FOLDERS`）。
+- pod のファイルの時刻は秒単位です。同じ秒のうちに同じファイルを 2 回書くと、2 回目でライブリロードが起きないことがあります。そのときは den-kit が数秒後に部品を読み直します。
+- `run()` が返すのは普通の Promise ではありません。端末の出力は resizable な ArrayBuffer で届きます。den-kit のアダプタが両方を吸収します。
+- テストでは本物の BrowserPod を使いません。代役（`test/fakes/pod`）が、上の癖のうち再現できるもの（Promise でない戻り値、resizable な出力）を同じように返します。
 
 ## 仕組み（要点）
 
@@ -472,7 +492,7 @@ npm run kit:test   # unit（vitest）→ integration（実コンパイル・オ�
 - `test/fakes/codex` の模擬 Codex は、固定した CLI と同じ応答を返します。den-kit が送るメッセージをすべて検査し、筋書きどおりにツールを呼びます。
   - 本物の app-server をネットワークなしで動かして確かめた挙動に合わせてあります（`test/fakes/codex/README.md`）。
   - 落ちる、壊れた行、利用枠切れ、未サインイン、承認要求、質問、割り込みと中断などを再現します。
-- pod には、本物の BrowserPod を使いません（キーがないため）。
+- pod には、本物の BrowserPod を使いません（本物での確認は手作業です。上の「本物の BrowserPod での確認」）。
   - `test/fakes/pod/fake-pod.ts`（テスト専用）は、このマシンの bash・git・Node・npm を、BrowserPod と同じ口で使える代役です。e2e では、AI がこの pod でコード部品を書き、本物の npm install・Vite・tsc・ESLint・git が動きます。
   - `test/fakes/pod/mock-browserpod.ts` は、BrowserPod の API（3.4.0 の型定義）を、このマシンのプロセスとファイルで再現したものです。ドキュメントに書かれていない点は厳しい方に倒して（env は環境を置き換える、出力は文字の途中でも切れる、など）、den-kit の BrowserPod アダプタをそのまま通します。
 - `test/integration/codex-real-offline.test.ts` は、固定した本物の Codex バイナリを、ネットワークを遮断し未サインインの状態で起動します。den-kit が送るパラメータがそのまま受け付けられることを確かめます。モデルは呼びません。

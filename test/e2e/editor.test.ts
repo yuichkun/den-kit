@@ -159,6 +159,9 @@ describe('patch editor', () => {
     await page.locator('.vue-flow__node[data-id="box1"] button.code').click();
     const source = page.locator('[data-testid=codebox-source]');
     await source.fill("import { defineSubgraph, f32, type Node } from '@unworklet/core';\nexport default defineSubgraph((config: { sampleRate: number }) => ({\n  tick(i: { in: Node<'f32'> }) {\n    return { out: i.in.mul('loud') };\n  },\n}));\n");
+    // The code is coloured (keywords, strings), and the colours are the text being edited.
+    await page.waitForSelector('[data-testid=codebox-editor] .paint .hljs-keyword');
+    assert.equal(await page.locator('[data-testid=codebox-editor] .paint').evaluate(e => e.textContent), `${await source.inputValue()}\n`);
     await page.click('[data-testid=codebox-editor] button.primary');
     assert.equal((await waitCompiled(page)).status, 'error');
     await page.locator('[data-testid=codebox-issue]').first().waitFor();
@@ -183,6 +186,8 @@ describe('patch editor', () => {
     const hl = page.locator('[data-testid=code-view] .line.hl');
     await hl.first().waitFor();
     assert.match(await hl.first().innerText(), /filter1/);
+    // The generated processor is coloured, line by line.
+    assert.ok(await page.locator('[data-testid=code-view] .line .hljs-keyword').count() > 10);
     await page.close();
   });
   it('F6 two tabs can both edit (no read-only mode); each autosaves its own changes', async () => {

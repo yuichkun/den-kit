@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { CODEBOX_TEMPLATE } from '../core/codebox.ts';
 import type { PortSpec } from '../core/schema.ts';
 import { useSession } from './context.ts';
+import CodeArea from './CodeArea.vue';
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -29,7 +30,7 @@ const add = (list: PortSpec[], stem: string) => { let k = list.length + 1; while
     <div class="modal" data-testid="codebox-editor">
       <header><b>Codebox {{ id }}</b><span class="muted">unworklet core API · ⌘/Ctrl+Enter applies</span><span style="flex:1" /><button @click="code = CODEBOX_TEMPLATE">Template</button><button class="primary" :disabled="!dirty" @click="apply">Apply</button><button @click="emit('close')">Close</button></header>
       <div class="body">
-        <textarea v-model="code" spellcheck="false" data-testid="codebox-source" @keydown="tab" />
+        <CodeArea v-model="code" language="typescript" data-testid="codebox-source" @keydown="tab" />
         <aside>
           <h4>Inputs</h4>
           <div v-for="(p, i) in inputs" :key="i" class="port"><input v-model="p.id" type="text" /><select v-model="p.type"><option>signal</option><option>gate</option></select><button @click="inputs.splice(i, 1)">×</button></div>
@@ -49,7 +50,6 @@ const add = (list: PortSpec[], stem: string) => { let k = list.length + 1; while
 
 <style scoped>
 .body { display: grid; grid-template-columns: 1fr 260px; min-height: 0; }
-textarea { resize: none; border: 0; border-radius: 0; font: 12.5px/1.5 ui-monospace, Menlo, monospace; padding: 10px; background: #0f1115; white-space: pre; tab-size: 2; }
 aside { border-left: 1px solid var(--line); padding: 8px; overflow: auto; font-size: 12px; }
 h4 { margin: 8px 0 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .port { display: flex; gap: 4px; margin-bottom: 4px; } .port input { width: 90px; }

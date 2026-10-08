@@ -163,6 +163,10 @@ describe('the Project view', () => {
     await page.press('[data-testid=file-text]', 'Control+s');
     await page.waitForFunction(() => (window as any).__kit.doc.value.project.files['note.txt'] === 'hello again\n');
     await page.waitForFunction(async () => (await (window as any).__kit.pod.readFile('note.txt')) === 'hello again\n', null, { timeout: 20000, polling: 300 });
+    // Code is coloured by its kind of file (a text file is not).
+    assert.equal(await page.locator('[data-testid=project-view] .paint span').count(), 0);
+    await page.click('[data-file="src/main.ts"]');
+    await page.waitForSelector('[data-testid=project-view] .paint .hljs-keyword');
     // The pod check: every step, timed.
     await page.click('[data-testid=pod-check]');
     await page.waitForFunction(() => !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') && document.querySelectorAll('[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped').length === 9, null, { timeout: 300000 });
