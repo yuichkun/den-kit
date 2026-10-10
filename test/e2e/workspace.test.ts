@@ -113,16 +113,25 @@ describe('patch keys', () => {
     await page.keyboard.press('Control+a');
     assert.equal(await kit(page, k => k.selection.value.length), await kit(page, k => Object.keys(k.doc.value.nodes).length));
     const zoom = () => page.evaluate(() => Number(/scale\(([\d.]+)\)/.exec((document.querySelector('.vue-flow__transformationpane') as HTMLElement).style.transform)?.[1] ?? 1));
+    const waitZoom = (expected: number, tolerance = 0.00001) => page.waitForFunction(({ expected, tolerance }) => {
+      const pane = document.querySelector('.vue-flow__transformationpane') as HTMLElement;
+      const viewport = document.querySelector('.vue-flow__viewport') as HTMLElement & { __transition?: unknown };
+      const actual = Number(/scale\(([\d.]+)\)/.exec(pane.style.transform)?.[1] ?? 1);
+      // Vue Flow's d3 transition remains on the viewport until the animated
+      // zoom finishes. A second key before that can replace the first step.
+      return !viewport.__transition && Math.abs(actual - expected) < tolerance;
+    }, { expected, tolerance });
     const z0 = await zoom();
     await page.keyboard.press('Control+Equal');
-    await page.waitForTimeout(300);
+    await waitZoom(z0 * 1.2);
     assert.ok(await zoom() > z0);
     await page.keyboard.press('Control+Minus');
+    await waitZoom(z0);
     await page.keyboard.press('Control+Minus');
-    await page.waitForTimeout(300);
+    await waitZoom(z0 / 1.2);
     assert.ok(await zoom() < z0);
     await page.keyboard.press('Shift+Digit1');
-    await page.waitForTimeout(400);
+    await waitZoom(z0, 0.05);
     assert.ok(Math.abs(await zoom() - z0) < 0.05, 'fit brings the whole patch back');
     await page.keyboard.press('Escape');
     assert.equal(await kit(page, k => k.selection.value.length), 0);
