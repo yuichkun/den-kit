@@ -6,8 +6,10 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { packagedMacApp } from './desktop-paths.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const packagedApp = packagedMacApp(root);
 const profile = mkdtempSync(join(tmpdir(), 'den-kit-electron-check-'));
 const real = process.argv.includes('--real');
 const packaged = process.argv.includes('--packaged');
@@ -18,7 +20,7 @@ const imageIndex = process.argv.indexOf('--image');
 const imagePath = imageIndex < 0 ? null : process.argv[imageIndex + 1];
 if (imageIndex >= 0 && (!real || !imagePath || !existsSync(imagePath))) throw new Error('--image requires --real and the path of a PNG explicitly approved for sending to ChatGPT.');
 if (aiPod && (!real || quick)) throw new Error('--ai-pod requires --real without --quick.');
-const operator = JSON.parse(readFileSync(join(root, packaged ? 'release/mac-arm64/den-kit.app/Contents/Resources/operator.json' : '.desktop-build/resources/operator.json'), 'utf8'));
+const operator = JSON.parse(readFileSync(packaged ? join(packagedApp, 'Contents/Resources/operator.json') : join(root, '.desktop-build/resources/operator.json'), 'utf8'));
 let imageCheck: { sha256: string; bytes: number; reply: string; ms: number } | undefined;
 let aiPodCheck: { status: string; reply?: string; ms: number; checks: string[] } | undefined;
 let podDiskCheck: { persistent: boolean; rebootMs: number; packagesReused: boolean } | undefined;
@@ -28,7 +30,7 @@ if (real && existsSync(join(root, '.codex-home/auth.json'))) {
   copyFileSync(join(root, '.codex-home/auth.json'), join(profile, 'codex/auth.json'));
   chmodSync(join(profile, 'codex/auth.json'), 0o600);
 }
-const launch = () => electron.launch({ ...(packaged ? { executablePath: join(root, 'release/mac-arm64/den-kit.app/Contents/MacOS/den-kit') } : {}), args: [...(packaged ? [] : [join(root, '.desktop-build/app')]), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'], cwd: root, env: { ...process.env, KIT_DESKTOP_USER_DATA: profile }, timeout: 60000 });
+const launch = () => electron.launch({ ...(packaged ? { executablePath: join(packagedApp, 'Contents/MacOS/den-kit') } : {}), args: [...(packaged ? [] : [join(root, '.desktop-build/app')]), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'], cwd: root, env: { ...process.env, KIT_DESKTOP_USER_DATA: profile }, timeout: 60000 });
 let app = await launch().catch(error => { rmSync(join(profile, 'codex/auth.json'), { force: true }); throw error; });
 const errors: string[] = [];
 app.process().stderr?.on('data', data => { const line = String(data); if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000)); });
