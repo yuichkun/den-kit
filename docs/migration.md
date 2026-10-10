@@ -36,10 +36,16 @@ AIを使うときは`npm run codex:login`で自分のChatGPTへサインイン�
 
 ## 検証
 
-結果は移行完了時に追記する。自動テストではJev・モデル・BrowserPodは模擬。実際のCodexバイナリのプロトコル確認はネットワークなし・未認証で行う。これは外部サービスの認証済み動作や音の承認を代替しない。音はCANDIDATE、denの4-voice runtimeのNOT_CLEAREDを解除しない。
+- macOS・Node 24.21.0で`npm run build`と`npm test`が成功。単体669件、統合272件、ブラウザ89件、計1,030件がすべて通過。
+- 統合テストには、npm版denとのbass・percussion・pad・chorus・rhythmic delayの5種類のサンプル単位の一致を含む。
+- GitHubから`/private/tmp/den-kit-reproduction`へ新しくcloneし、通常の`npm ci`・ビルド・doctorを確認。den本体の隣接checkoutなしで、ブラウザで48 kHzの演奏、パッチの書き出し・再読込、Patch／Pluginの切替を確認。ブラウザの例外なし。
+- 履歴のtree一致・作者と日時・秘密の除外・独立依存・差分を別のエージェントが読み取りレビューし、移行を妨げる指摘なし。
+- 独立化の[全差分とCI](https://github.com/yuichkun/den-kit/pull/1)。CIはUbuntuでも新規インストール・ビルド・全テストを実行する。
+
+自動テストではJev・モデル・BrowserPodは模擬。実際のCodexバイナリのプロトコル確認はネットワークなし・未認証で行う。これは外部サービスの認証済み動作や音の承認を代替しない。音はCANDIDATE、denの4-voice runtimeのNOT_CLEAREDを解除しない。
 
 ## この移行のあと
 
 [GEN-657](https://linear.app/escentier/issue/GEN-657)で正式版を基本的に作り直す。余湖さんが基本構造・全体の体験設計・エンジニアリングを持ち、そのあとトシがクリエイターとして使いにくいところを直す。細かい担当箇所は固定していない。
 
-移行元ブランチはpublic repoへの保存と再現確認後に削除する。削除結果は完了時に追記する。移行元の手元にある未追跡ファイルや個人設定は削除しない。
+移行元ブランチは、このrepoのmainへの保存と再現確認後に削除する。削除の完了証跡は[GEN-654](https://linear.app/escentier/issue/GEN-654)に記録する。移行元の手元にある未追跡ファイルや個人設定は削除しない。
