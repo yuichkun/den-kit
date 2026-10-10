@@ -68,7 +68,10 @@ describe('the pod: a free environment for the AI', () => {
     const frame = await partFrame(page, 'meter');
     const height = () => frame.evaluate(() => document.getElementById('meter-bar')!.style.height);
     const norm = () => kit(page, k => { const n = k.doc.value.nodes.knob1; const v = n.values.value, min = n.config.min, max = n.config.max; return Math.log(v / min) / Math.log(max / min); });
-    assert.equal(await height(), `${Math.round((await norm()) * 100)}%`);
+    const initialHeight = `${Math.round((await norm()) * 100)}%`;
+    // The ready message precedes the first animation frame that draws the controls.
+    await frame.waitForFunction(h => document.getElementById('meter-bar')?.style.height === h, initialHeight);
+    assert.equal(await height(), initialHeight);
     // The knob moves (the person turns it): the part follows.
     await kit(page, k => k.commit([{ op: 'setValue', node: 'knob1', port: 'value', value: 200 }], { label: 'turn' }));
     await frame.waitForFunction(h => document.getElementById('meter-bar')!.style.height === h, `${Math.round((await norm()) * 100)}%`);
