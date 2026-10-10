@@ -37,7 +37,7 @@ AI の認証や外部サービスのキーがなくても、パッチング・�
 - 保存先は `~/Library/Application Support/den-kit/`。作品・素材・pod の永続ディスクは同じ保存先と固定のローカルorigin（`http://127.0.0.1:5247`）を使います。設定は `settings.json`、認証は `codex/` に保存します。アプリ本体を置き換えてもこのフォルダーは置き換えません。ポート使用中は別originへ移さず、起動エラーにします。
 - アプリはproduction renderer、ローカルのAIブリッジ、固定版Codexを同梱します。rendererはNode／IPCの直接アクセスを持たず、コード部品のiframeにはアプリ用APIも渡しません。画面画像はden-kit自身のウィンドウだけを取得できます。
 - **正式版では AI への音声入力を提供しません。** Electron アプリでは文字入力を使います。ブラウザ試作の音声認識コードは残っていますが、正式版の要件には含めません。
-- 現時点はローカル確認用の未署名・未公証のアプリです。署名・公証・GitHub Releases・自動更新は **GEN-665**。正式公開とユーザー確認は実装・検証から分けます。
+- 2026-10-10に[PR #2](https://github.com/yuichkun/den-kit/pull/2)で生成したmacOS arm64の0.1.0アプリは、ローカル確認用の未署名・未公証版です。署名・公証・GitHub Releases・自動更新は **GEN-665**。正式公開と余湖さんによる成果物の確認は実装・検証から分けます。
 
 `npm run desktop:check` はproduction相当の `.app` で、空の専用プロファイルを使ってネイティブのサインイン開始／キャンセル、設定保存、画面取得、保存・再起動を検証します。`npm run desktop:check -- --real` は開発用の `.codex-home/auth.json` を専用プロファイルへ一時コピーし、ChatGPTによる小さな編集・取り消し、本物のBrowserPodの9項目、コード部品の表示とiframe隔離、再起動後のpodディスクとインストール済みパッケージの保持も検証します。`--ai-pod` を加えると、AIが実際に部品を書き、型チェック・lint・ビルドを通して画面に置き、ボタンでつまみを操作するところまで検証します。ChatGPTの利用枠とBrowserPodを使います。認証コピーは終了時に削除し、認証情報を配布物へ含めません。画像の送信は既定では行いません。`--real --image /絶対パス/承認済み.png` を明示した場合だけ、別途送信の許可を得た検証用画像（部品のボタンに200が表示される画面）をChatGPTへ送り、画像だけからその数値を読めることと作品を変更しないことを確認します。
 
@@ -457,7 +457,7 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
 - three.js：`npm install three` 23 秒、tsc と ESLint が通り、three.js の部品が表示されます（初回は依存の変換で約 14 秒）。
 - 2 つ目のタブ、タブの読み直し、タブを閉じて別のタブで起動、も確認しました。
 
-**BrowserPod の現時点の癖と、den-kit 側の対処**
+**BrowserPod SDK 3.4.0 の制約と、den-kit 側の対処**
 - pod の中の Node（22.15）は、クラスの async generator メソッドを正しく動かしません。そのため ESLint 10 がフォルダの中を探せません（「No files matching the pattern」）。テンプレートの `npm run lint` は、ファイルを並べて ESLint に渡します。AGENTS.md にも書いてあります。
 - pod のファイル監視は、dev サーバーが起動したあとに作られたフォルダを見ません。den-kit は起動の前に `src/parts` を作ります。テンプレートの vite.config.ts は、新しいフォルダを 1 秒ごとに探して監視に加えます（`KIT_WATCH_NEW_FOLDERS`）。
 - pod のファイルの時刻は秒単位です。同じ秒のうちに同じファイルを 2 回書くと、2 回目でライブリロードが起きないことがあります。そのときは den-kit が数秒後に部品を読み直します。
