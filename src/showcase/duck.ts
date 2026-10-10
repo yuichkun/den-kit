@@ -1,4 +1,4 @@
-// お題 9 — 弾いている間は引っ込んで、弾き止めると広がるディレイ。計測器みたいな画面で、沈んだ量をメーターで見せて。
+// Evaluation prompt 9 — A delay that ducks while playing and blooms afterward, with an instrument-style display and a gain reduction meter.
 // A delay whose echoes duck under what you play (a ducker keyed by the dry
 // input) and bloom when you stop. A bench instrument: phosphor scope, a ladder
 // meter of how far the echoes sink, every value in numbers.

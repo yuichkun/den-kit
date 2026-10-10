@@ -227,7 +227,7 @@ defineExpose({ focus });
     <ol ref="list" class="history" data-testid="ai-history" @scroll="onScroll">
       <li v-if="!turns.length" class="empty" data-testid="ai-empty">
         <p>Say what you want, in your words.</p>
-        <p class="examples">“brighter” · “リリース長く” · “add reverb” · “ベース作って” · “wobble the cutoff” · “write a bitcrusher”</p>
+        <p class="examples">“brighter” · “longer release” · “add reverb” · “make a bass” · “wobble the cutoff” · “write a bitcrusher”</p>
         <dl class="keys">
           <dt><kbd>Enter</kbd></dt><dd>type a request</dd>
           <template v-if="voice.supported"><dt><kbd>Space</kbd></dt><dd>hold and talk</dd></template>

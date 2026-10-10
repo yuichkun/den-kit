@@ -1,4 +1,4 @@
-// お題 5 — 70 年代のテープエコー。針の VU メーターと、回るリール。
+// Evaluation prompt 5 — A 1970s tape echo, with a needle VU meter and spinning reels.
 // The input is driven onto the "tape" (soft saturation), echoed by two
 // playback heads (the right one 1.5× the left, like a multi-head machine)
 // through a darkening feedback loop with wow, plus a little tape hiss. The VU

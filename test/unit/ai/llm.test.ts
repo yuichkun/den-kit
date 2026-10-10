@@ -273,7 +273,7 @@ describe('when something does not work', () => {
 });
 
 describe('the prompt sends every request to the LLM', () => {
-  it.each(['write a granular codebox', 'brighter', 'リリース長く', '戻して', 'もっと', 'パーツにして', '8本重ねて'])('%s waits for the LLM instead of editing locally', text => {
+  it.each(['write a granular codebox', 'brighter', 'longer release', 'undo that', 'more', 'make it a part', 'layer eight copies'])('%s waits for the LLM instead of editing locally', text => {
     const before = snapshot();
     const undoSteps = session.history.size;
     const o: Outcome = requests.run(text);
@@ -286,9 +286,9 @@ describe('the prompt sends every request to the LLM', () => {
   it('a short request while the LLM works steers the running request and preserves the patch', () => {
     const before = snapshot();
     const busy = requests.run('slow please');
-    const added = requests.run('リリース長く');
+    const added = requests.run('longer release');
     expect(added).toMatchObject({ status: 'thinking', route: 'llm' });
-    expect(t.last('llm.steer')).toMatchObject({ id: added.id, target: busy.id, text: expect.stringMatching(/リリース長く$/) });
+    expect(t.last('llm.steer')).toMatchObject({ id: added.id, target: busy.id, text: expect.stringMatching(/longer release$/) });
     t.event(added.id, { kind: 'steered', target: busy.id });
     expect(line(added.id)).toMatchObject({ status: 'merged', route: 'llm' });
     expect(line(busy.id).status).toBe('thinking');
@@ -309,7 +309,7 @@ describe('the prompt sends every request to the LLM', () => {
   it('a missing LLM controller fails without changing the patch; blank input sends no request', () => {
     session.llm = null;
     const before = snapshot();
-    expect(requests.run('戻して')).toMatchObject({ status: 'failed', route: 'llm', message: expect.stringMatching(/Connect ChatGPT/) });
+    expect(requests.run('undo that')).toMatchObject({ status: 'failed', route: 'llm', message: expect.stringMatching(/Connect ChatGPT/) });
     expect(requests.run('  ')).toMatchObject({ status: 'nothing', route: 'none', text: '' });
     expect(t.sent).toEqual([]);
     expect(snapshot()).toBe(before);

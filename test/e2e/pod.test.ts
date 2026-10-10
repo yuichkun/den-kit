@@ -40,9 +40,9 @@ describe('the pod: a free environment for the AI', () => {
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     const before = await snapshot(page);
-    const line = await ask(page, 'コード部品を作って');
+    const line = await ask(page, 'make a code part');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, 'コード部品「meter」を作ってプラグインに置きました', JSON.stringify(line));
+    assert.equal(line.label, 'Created a meter code part and placed it on the plugin', JSON.stringify(line));
     assert.ok(line.steps.some((s: string) => /^ran `npm run check && npm run lint`$/.test(s)), line.steps.join(' | '));
     // What the command changed is said once: the files kept in the work.
     assert.ok(line.steps.some((s: string) => /^ran `mkdir -p src\/parts && cat > src\/parts\/meter\.ts …` · kept \d+ files in the work ✓$/.test(s)), line.steps.join(' | '));
@@ -60,7 +60,7 @@ describe('the pod: a free environment for the AI', () => {
     // The pod's git has the request as a commit.
     await page.waitForFunction(() => (window as any).__kit.pod.log.value.length > 0);
     const gitLog = await kit(page, async k => (await k.pod.bash('git log --oneline', { who: 'den-kit' })).output);
-    assert.match(gitLog, /den-kit AI: コード部品「meter」を作ってプラグインに置きました/);
+    assert.match(gitLog, /den-kit AI: Created a meter code part and placed it on the plugin/);
 
     // On the plugin: the part's page from the pod's dev server, drawing the knob.
     await page.click('[data-testid=ai-show-plugin]');
@@ -148,9 +148,9 @@ export default part({ mount(root, kit) {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
-    const line = await ask(page, '壊れた部品を直して');
+    const line = await ask(page, 'fix the broken part');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, '壊れた部品を直しました', JSON.stringify(line));
+    assert.equal(line.label, 'Fixed the broken part', JSON.stringify(line));
     const looks = h.codex!.replies().filter(r => /Looked at the plugin/.test(JSON.stringify(r))).map(r => JSON.stringify(r));
     assert.match(looks.at(-2)!, /The code part oops1 fails: mount: Error: oops: the canvas is missing/);
     assert.doesNotMatch(looks.at(-1)!, /oops1 fails/);

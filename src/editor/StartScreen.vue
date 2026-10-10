@@ -91,7 +91,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
       <div class="brand"><span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit</div>
       <button v-if="isDesktop" class="start-settings" data-testid="start-settings" @click="emit('settings')">Settings · ChatGPT sign-in</button>
       <h1>What do you want to make?</h1>
-      <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “ベース作って” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" />
+      <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “make a bass” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" />
       <div class="or">or start from a work <span class="hint">← → ↑ ↓ choose · Tab: the look · Enter: start</span></div>
       <div class="works" role="listbox">
         <button v-for="(b, i) in built" :key="b.work.id" type="button" class="work" :class="{ current: i === work && section !== 'describe' && section !== 'sounds', picked: i === work }" role="option" :aria-selected="i === work" :data-work="b.work.id" @mouseenter="work = i; section = section === 'describe' && !text ? 'works' : section" @click="work = i; start('work', { work: b.work, look: chosenLook })">

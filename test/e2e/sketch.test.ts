@@ -65,7 +65,7 @@ describe('sketching for the AI', () => {
     const panel = (await page.locator('[data-testid=plugin-view] [data-testid=panel]').boundingBox())!;
     await page.mouse.click(panel.x + panel.width * 0.6, panel.y + panel.height * 0.55);
     await page.waitForSelector('[data-testid=ink-note-input]');
-    await page.keyboard.type('ここに波形表示');
+    await page.keyboard.type('put a waveform here');
     await page.keyboard.press('Enter');
     assert.equal(await marks(page, 'plugin').count(), 2);
     assert.match((await page.locator('[data-testid=ai-sketch-chip]').textContent())!, /2 marks on the plugin/);
@@ -78,7 +78,7 @@ describe('sketching for the AI', () => {
     await page.waitForFunction(() => document.querySelectorAll('[data-ink=plugin] .mark.sent').length === 2, null, { timeout: 30000 });
     const o = await sending;
     assert.equal(o.route, 'llm');
-    assert.match(o.reply, /^pictures 1 \[image\/(png|jpeg) \d+\]; 2 marks: ① red pen loop around [a-z0-9]+ \(knob “[^”]+”\) \(x -?\d+, y -?\d+, \d+×\d+\) \| ② yellow sticky note “ここに波形表示” in empty space \(x \d+, y \d+, \d+×\d+\)$/);
+    assert.match(o.reply, /^pictures 1 \[image\/(png|jpeg) \d+\]; 2 marks: ① red pen loop around [a-z0-9]+ \(knob “[^”]+”\) \(x -?\d+, y -?\d+, \d+×\d+\) \| ② yellow sticky note “put a waveform here” in empty space \(x \d+, y \d+, \d+×\d+\)$/);
     assert.ok(o.reply.includes(`around ${knobId} (knob`), o.reply);
     // What den-kit sent: the words, and the plugin re-drawn with the marks.
     const said = h.codex!.records().filter(r => r.scenario === 'sketch').map(r => String(r.text)).at(-1)!;

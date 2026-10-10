@@ -50,8 +50,8 @@ describe('voice input (hold Space)', () => {
     await page.keyboard.down('Space');
     await page.waitForFunction(() => (window as unknown as K).__speech.started === 1);
     assert.match(await page.getAttribute('[data-testid=ai-input]', 'placeholder') ?? '', /Listening/);
-    await page.evaluate(() => (window as unknown as K).__speech.say('明るく'));
-    await page.waitForFunction(() => (document.querySelector('[data-testid=ai-input]') as HTMLInputElement).value === '明るく');
+    await page.evaluate(() => (window as unknown as K).__speech.say('brighter'));
+    await page.waitForFunction(() => (document.querySelector('[data-testid=ai-input]') as HTMLInputElement).value === 'brighter');
     await page.waitForTimeout(300);
     await page.keyboard.up('Space');
     await page.waitForSelector('[data-testid=ai-result][data-status=applied]', { timeout: 10000 });
@@ -73,15 +73,15 @@ describe('voice input (hold Space)', () => {
     assert.equal(await page.inputValue('[data-testid=ai-input]'), 'more reverb', 'taps type spaces in the prompt');
     assert.equal(await page.evaluate(() => (window as unknown as K).__speech.started), 0);
     // Holding Space in the prompt talks even though it has text; what was said is sent.
-    await holdAndSay(page, 'リリース長く');
-    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('リリース長く') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
+    await holdAndSay(page, 'longer release');
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('longer release') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
     assert.equal(await page.inputValue('[data-testid=ai-input]'), '', 'the prompt is cleared for the next request');
     // Second and third requests, by voice again (focus is still in the prompt, then on the canvas).
-    await holdAndSay(page, '明るく');
-    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('明るく') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
+    await holdAndSay(page, 'brighter');
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('brighter') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') === 'applied', null, { timeout: 10000 });
     await page.locator('[data-testid=ai-input]').blur();
-    await holdAndSay(page, 'もっと揺らして');
-    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('もっと揺らして') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') !== 'working', null, { timeout: 10000 });
+    await holdAndSay(page, 'more wobble');
+    await page.waitForFunction(() => document.querySelector('[data-testid=ai-result]')?.textContent?.includes('more wobble') && document.querySelector('[data-testid=ai-result]')?.getAttribute('data-status') !== 'working', null, { timeout: 10000 });
     assert.equal(await page.evaluate(() => (window as unknown as K).__speech.started), 3);
     assert.equal(await page.locator('[data-testid=ai-history] .turn').count(), 3, 'the requests stay visible above the prompt');
     await page.close();

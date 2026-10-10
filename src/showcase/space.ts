@@ -1,4 +1,4 @@
-// お題 8 — 宇宙っぽい空間系エフェクト。星空の見た目で、音に合わせて粒が動く。
+// Evaluation prompt 8 — A space-themed ambience effect, with a starfield look and particles that move with the sound.
 // A slow, deep chorus (the drift) into echoes that bounce left and right, into
 // a very long, dark reverb. A canvas fills the sky with dust that drifts
 // out from the middle: louder sound sends it faster, and each grain glows with

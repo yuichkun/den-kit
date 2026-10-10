@@ -1,42 +1,42 @@
-# den-kit 試作の移行（GEN-654）
+# den-kit prototype migration (GEN-654)
 
-2026-10-10。正式版への作り直しを始める前に、トシがパッチング・エディターの体験を触って考えられる状態を作るための移行。
+2026-10-10. This migration makes the patching and editor experience available for Toshi to try and evaluate before the work on the production version begins.
 
-## 引き継いだもの
+## Preserved content
 
-- 移行元：`yuichkun/den` の `claude/awesome-darwin-csz4kc`、`d9db3a4ffe3b89279512f4750e2f8cec3b41250c` の `kit/`。
-- `git subtree split --prefix=kit` で47コミットを切り出し、den-kitのルートに置いた。作者・作者日時・メッセージ・変更内容を引き継いだ。パスと親の履歴が変わるため、コミットIDは変わる。[全コミットの対応表](migration-history.json)に元と移行後のIDを記録した。
-- 移行直後のtreeは移行元の`kit/`のtreeと完全に一致した。以後の独立化の変更は別コミット。
-- `.env`・`.codex-home`・`.logs`は作業コピーにも履歴にも持ち込んでいない。移行した履歴878個の固有blobを認証キー・秘密鍵の代表的パターンで走査し、該当なし。旧U2の削除済みコミットを復元していない。
-- MIT OR Apache-2.0。denと同じライセンス文を収録した。作品集の素材の出典は`public/showcase/SOURCES.md`。
+- Source: `kit/` in `yuichkun/den`, branch `claude/awesome-darwin-csz4kc`, commit `d9db3a4ffe3b89279512f4750e2f8cec3b41250c`.
+- `git subtree split --prefix=kit` extracted 47 commits into the den-kit root. Authors, author dates, messages, and changes were preserved. Commit IDs changed because paths and parent history changed. The [complete commit mapping](migration-history.json) records the original and migrated IDs.
+- The tree immediately after migration exactly matched the source `kit/` tree. Changes to make the repository independent were committed separately.
+- `.env`, `.codex-home`, and `.logs` were excluded from both the working copy and history. All 878 unique blobs in the migrated history were scanned for common authentication key and private key patterns, with no matches. Deleted commits from the former U2 work were not restored.
+- MIT OR Apache-2.0. The repository includes the same license texts as den. Showcase asset attribution is in `public/showcase/SOURCES.md`.
 
-## 独立化の差分
+## Changes for repository independence
 
-- `@denaudio/den@0.1.0`・`@unworklet/core@0.4.1`・`@unworklet/offline@0.4.1`を固定依存として追加。Playwrightもden側から借りず、このrepoで固定した。
-- ViteとTypeScriptからdenソースへのaliasを除去。ブロック一覧とテストのregistryは、インストールしたdenの公開exportsを読む。workletとcodeboxの型もこのrepoの依存から用意する。
-- doctorはnpm版denの版と、den・den-kitが同じunworkletを読むことを確認する。
-- 起動・診断・サインイン・Jev評価の案内を、このrepoのコマンドとパスへ変更。関連テストの案内文期待値も対応。作品データ形式は維持。
-- npm版denの全exportsをViteで事前最適化し、初回読込後のページ再読込を防止。BrowserPodのHOMEを読む前は`/`から実行し、テストの子プロセス失敗も正しく伝播させる。Mac/Linuxの選択キーとsedの違いをテストで吸収。
-- 再現確認で見つかった既存不具合を最小修正：起動後1.5秒以内に矢印でノードを動かしても、一続きの移動を1回のUndoにまとめる。
-- 音を起動した最初の鍵盤を取りこぼさないよう、ロード中の押下状態はノードの開始後に再送する。
-- `.gitignore`、Node 24の指定、ライセンス、履歴対応表、再現手順、CIを追加。
+- Added pinned dependencies on `@denaudio/den@0.1.0`, `@unworklet/core@0.4.1`, and `@unworklet/offline@0.4.1`. Playwright is also pinned in this repository instead of being borrowed from den.
+- Removed aliases to the den source from Vite and TypeScript. The block catalog and test registry use the installed den package's public exports. Worklet and codebox types also come from this repository's dependencies.
+- The doctor checks the installed npm version of den and verifies that den and den-kit resolve the same unworklet package.
+- Updated startup, diagnostics, sign-in, and Jev evaluation instructions to use this repository's commands and paths. Updated related test expectations for those instructions. The work document format was preserved.
+- Preoptimized all npm den exports in Vite to prevent a page reload after the initial load. BrowserPod commands run from `/` before reading its HOME. Test child process failures propagate correctly. Tests account for selection key and sed differences between macOS and Linux.
+- Applied a minimal fix to an existing bug found during reproduction: consecutive arrow-key node movements are grouped into one Undo operation even within 1.5 seconds of startup.
+- Key states pressed during loading are resent after the node starts, so the first key that starts audio is not lost.
+- Added `.gitignore`, a Node 24 requirement, licenses, the commit mapping, reproduction instructions, and CI.
 
-## 触りはじめる
+## Getting started
 
-Electron版のビルド・起動とブラウザでの開発手順は[README](../README.md)に記載する。den本体のcloneは不要。Electron版のChatGPTサインインはアプリの設定画面から行い、BrowserPodはビルド時に運営キーを同梱する。利用者のBrowserPodキー設定は不要。
+The [README](../README.md) describes building and running the Electron app and developing in a browser. A clone of den is not required. Sign in to ChatGPT through the Electron app's settings. The operator's BrowserPod key is bundled at build time; users do not need to configure a BrowserPod key.
 
-## 移行の検証記録（2026-10-10、GEN-654）
+## Migration verification record (2026-10-10, GEN-654)
 
-- macOS・Node 24.21.0で`npm run build`と`npm test`が成功。単体669件、統合272件、ブラウザ89件、計1,030件がすべて通過。
-- 統合テストには、npm版denとのbass・percussion・pad・chorus・rhythmic delayの5種類のサンプル単位の一致を含む。
-- GitHubから`/private/tmp/den-kit-reproduction`へ新しくcloneし、通常の`npm ci`・ビルド・doctorを確認。den本体の隣接checkoutなしで、ブラウザで48 kHzの演奏、パッチの書き出し・再読込、Patch／Pluginの切替を確認。ブラウザの例外なし。
-- 履歴のtree一致・作者と日時・秘密の除外・独立依存・差分を別のエージェントが読み取りレビューし、移行を妨げる指摘なし。
-- 独立化の[全差分とCI](https://github.com/yuichkun/den-kit/pull/1)。CIはUbuntuでも新規インストール・ビルド・全テストを実行する。
+- `npm run build` and `npm test` passed on macOS with Node 24.21.0. All 1,030 tests passed: 669 unit tests, 272 integration tests, and 89 browser tests.
+- Integration tests include sample-by-sample agreement with the npm den package for five examples: bass, percussion, pad, chorus, and rhythmic delay.
+- A fresh GitHub clone at `/private/tmp/den-kit-reproduction` passed a normal `npm ci`, build, and doctor check. Browser checks confirmed 48 kHz playback, patch export and reload, and switching between Patch and Plugin without an adjacent den checkout. No browser exceptions occurred.
+- Another agent performed a read-only review of tree equality, authors and dates, secret exclusion, independent dependencies, and the diff, with no findings that blocked migration.
+- The [complete independence diff and CI](https://github.com/yuichkun/den-kit/pull/1) are available in PR #1. CI also performs a fresh install, build, and complete test run on Ubuntu.
 
-自動テストではJev・モデル・BrowserPodは模擬。実際のCodexバイナリのプロトコル確認はネットワークなし・未認証で行う。これは外部サービスの認証済み動作や音の承認を代替しない。音はCANDIDATE、denの4-voice runtimeのNOT_CLEAREDを解除しない。
+These automated tests mocked Jev, models, and BrowserPod. Protocol checks against the actual Codex binary ran offline and without authentication. Those checks do not replace authenticated external-service verification or approval of the audio. Audio remains CANDIDATE; the den four-voice runtime's NOT_CLEARED status was not lifted.
 
-## この移行のあと
+## Follow-up work
 
-[GEN-657](https://linear.app/escentier/issue/GEN-657)で正式版を基本的に作り直す。余湖さんが基本構造・全体の体験設計・エンジニアリングを持ち、そのあとトシがクリエイターとして使いにくいところを直す。細かい担当箇所は固定していない。
+[GEN-657](https://linear.app/escentier/issue/GEN-657) covers a substantial rebuild for the production version. Yuichi Yogo owns the foundation, overall experience design, and engineering. Toshi then addresses usability problems from a creator's perspective. Detailed ownership boundaries have not been fixed.
 
-移行元ブランチは、このrepoのmainへの保存と再現確認後に削除する。削除の完了証跡は[GEN-654](https://linear.app/escentier/issue/GEN-654)に記録する。移行元の手元にある未追跡ファイルや個人設定は削除しない。
+The source branch is to be deleted after its contents are preserved on this repository's main branch and reproduction is verified. Evidence of completed deletion is recorded in [GEN-654](https://linear.app/escentier/issue/GEN-654). Untracked files and personal settings in the local source checkout are not deleted.

@@ -1,4 +1,4 @@
-// お題 7 — カセット風のローファイ。codebox でビットを落とし、ヨレとヒスを足す。手書きのラベル。
+// Evaluation prompt 7 — Cassette-style lo-fi. Reduce bit depth in codebox and add wow, flutter, and hiss, with a handwritten label.
 // A codebox crushes the sound (holds a sample every `rate` Hz, rounds it to
 // `bits`), a short modulated delay makes it waver like a stretched tape, a
 // lowpass dulls it and hiss is mixed in. The screen is a page of a scrapbook:

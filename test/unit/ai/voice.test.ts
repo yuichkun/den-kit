@@ -37,15 +37,15 @@ describe('VoiceInput', () => {
     expect(v.start()).toBe(true);
     expect(v.state.value).toBe('listening');
     expect(rec()).toMatchObject({ lang: 'ja-JP', continuous: true, interimResults: true });
-    rec().hear('明る');
-    expect(v.heard.value).toBe('明る');
+    rec().hear('bright');
+    expect(v.heard.value).toBe('bright');
     clock = 900;
     v.stop();
     expect(v.state.value).toBe('finishing');
     expect(rec().stopped).toBe(1);
-    rec().hear('明るく', true);
+    rec().hear('brighter', true);
     rec().end();
-    expect(sent).toEqual(['明るく']);
+    expect(sent).toEqual(['brighter']);
     expect(v.state.value).toBe('idle');
     rec().end();
     expect(sent).toHaveLength(1);
@@ -53,13 +53,13 @@ describe('VoiceInput', () => {
 
   it('uses the interim text when no final result arrives', () => {
     const { v, sent, rec } = voice();
-    v.start(); rec().hear('リリース長く'); clock = 600; v.stop(); rec().end();
-    expect(sent).toEqual(['リリース長く']);
+    v.start(); rec().hear('longer release'); clock = 600; v.stop(); rec().end();
+    expect(sent).toEqual(['longer release']);
   });
 
   it('a tap shorter than the minimum hold sends nothing', () => {
     const { v, sent, rec } = voice();
-    v.start(); rec().hear('あ'); clock = 100; v.stop();
+    v.start(); rec().hear('a'); clock = 100; v.stop();
     expect(rec().aborted).toBe(1);
     expect(v.state.value).toBe('idle');
     expect(sent).toEqual([]);
@@ -75,7 +75,7 @@ describe('VoiceInput', () => {
 
   it.each([['not-allowed', /blocked/], ['audio-capture', /No microphone/], ['network', /server/], ['something-new', /something-new/]])('error %s is reported and nothing is sent', (code, message) => {
     const { v, sent, rec } = voice();
-    v.start(); rec().hear('明るく'); rec().onerror?.({ error: code }); clock = 800; v.stop(); rec().hear('明るく', true); rec().end();
+    v.start(); rec().hear('brighter'); rec().onerror?.({ error: code }); clock = 800; v.stop(); rec().hear('brighter', true); rec().end();
     expect(sent).toEqual([]);
     expect(v.error.value).toMatch(message);
     expect(v.state.value).toBe('idle');
@@ -83,33 +83,33 @@ describe('VoiceInput', () => {
 
   it('cancel (Escape / window blur) sends nothing, and the old recognizer cannot send later', () => {
     const { v, sent } = voice();
-    v.start(); const old = recs.at(-1)!; old.hear('明るく');
+    v.start(); const old = recs.at(-1)!; old.hear('brighter');
     v.cancel();
     expect(old.aborted).toBe(1);
     v.start(); const fresh = recs.at(-1)!;
-    old.hear('暗く', true); old.end();
+    old.hear('darker', true); old.end();
     expect(sent).toEqual([]);
     expect(v.state.value).toBe('listening');
-    fresh.hear('リバーブ足して', true); clock = 1000; v.stop(); fresh.end();
-    expect(sent).toEqual(['リバーブ足して']);
+    fresh.hear('add reverb', true); clock = 1000; v.stop(); fresh.end();
+    expect(sent).toEqual(['add reverb']);
   });
 
   it('stops on its own after the maximum time and sends what it heard', () => {
     vi.useFakeTimers();
     const { v, sent, rec } = voice({ maxMs: 2000 });
-    v.start(); rec().hear('もっと揺らして'); clock = 2000;
+    v.start(); rec().hear('more wobble'); clock = 2000;
     vi.advanceTimersByTime(2000);
     expect(rec().stopped).toBe(1);
     rec().end();
-    expect(sent).toEqual(['もっと揺らして']);
+    expect(sent).toEqual(['more wobble']);
   });
 
   it('a recognizer that never ends is given up on, keeping what was heard', () => {
     vi.useFakeTimers();
     const { v, sent, rec } = voice({ finishTimeoutMs: 1000 });
-    v.start(); rec().hear('明るく'); clock = 800; v.stop();
+    v.start(); rec().hear('brighter'); clock = 800; v.stop();
     vi.advanceTimersByTime(1000);
-    expect(sent).toEqual(['明るく']);
+    expect(sent).toEqual(['brighter']);
     expect(v.state.value).toBe('idle');
   });
 

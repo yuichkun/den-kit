@@ -34,13 +34,13 @@ describe('RpcPeer', () => {
   it('reassembles lines split anywhere, including inside a UTF-8 character, and accepts CRLF', async () => {
     const { input, peer, notifications } = pair();
     void peer;
-    const line = Buffer.from('{"method":"item/agentMessage/delta","params":{"delta":"フィルターを揺らしました"}}\r\n');
-    const cut = line.indexOf(0xe3) + 1; // inside the first Japanese character
+    const line = Buffer.from('{"method":"item/agentMessage/delta","params":{"delta":"Filter wobble — café"}}\r\n');
+    const cut = line.indexOf(0xe2) + 1; // inside the three-byte em dash
     input.write(line.subarray(0, cut)); await tick();
     input.write(line.subarray(cut, cut + 7)); await tick();
     input.write(line.subarray(cut + 7));
     await tick();
-    expect(notifications).toEqual([{ method: 'item/agentMessage/delta', params: { delta: 'フィルターを揺らしました' } }]);
+    expect(notifications).toEqual([{ method: 'item/agentMessage/delta', params: { delta: 'Filter wobble — café' } }]);
   });
 
   it('skips blank and malformed lines and keeps going', async () => {

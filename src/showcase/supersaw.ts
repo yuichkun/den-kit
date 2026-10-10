@@ -1,4 +1,4 @@
-// お題 12 — スーパーソー。ノコギリ波を 7 本、少しずつずらして重ねる。デチューンと広がりをつまみで。
+// Evaluation prompt 12 — A supersaw. Layer seven slightly offset sawtooth waves, with detune and width knobs.
 // One saw is a part (Saw): it reads its copy number, so copy k of 7 plays a
 // little off the note — spread evenly from flat to sharp by Detune, plus a
 // small fixed drift of its own. Used ×7 in every voice, its thick cable goes

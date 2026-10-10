@@ -33,7 +33,7 @@ describe('an LLM request with members', () => {
     await page.waitForFunction(() => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === 'acid team please' && !o.live && o.status !== 'thinking'; }, null, { timeout: 120000 });
     const line = await kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, agents: o.agents, tokens: o.tokens }; });
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, 'アシッドベースとネオンの画面を作りました');
+    assert.equal(line.label, 'Built an acid bass and a neon screen');
     assert.deepEqual(line.agents.map((a: any) => [a.id, a.name, a.status]), [['m1', 'Sound', 'done'], ['m2', 'Screen', 'done']]);
     assert.equal(line.tokens, 6400 + 8600 + 3300);
     assert.ok(line.steps.includes('members: Sound, Screen'), line.steps.join(' | '));

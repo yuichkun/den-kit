@@ -28,11 +28,11 @@ describe('what a mark is about', () => {
     const readings = readMarks({ view: 'plugin', marks: [
       mark({ kind: 'rect', rect: { x: 10, y: 90, w: 100, h: 110 } }, 1),
       mark({ kind: 'note', rect: { x: 130, y: 120, w: 60, h: 40 }, text: 'bigger' }, 2),
-      mark({ kind: 'note', rect: { x: 400, y: 240, w: 200, h: 100 }, text: 'ここに波形表示' }, 3),
+      mark({ kind: 'note', rect: { x: 400, y: 240, w: 200, h: 100 }, text: 'put a waveform here' }, 3),
     ] }, targets);
     expect(readings[0]).toMatchObject({ encloses: ['knob1'], touches: [] });
     expect(readings[1]).toMatchObject({ encloses: [], touches: ['knob2'], text: 'bigger' });
-    expect(readings[2]).toMatchObject({ empty: true, text: 'ここに波形表示' });
+    expect(readings[2]).toMatchObject({ empty: true, text: 'put a waveform here' });
   });
   it('an arrow joins the things at its ends (or near them)', () => {
     const [r] = readMarks({ view: 'patch', marks: [mark({ kind: 'arrow', from: [60, 150], to: [215, 140] })] }, targets);
@@ -52,14 +52,14 @@ describe('the marks in words', () => {
   it('one numbered line per mark, with what it is about', () => {
     const sketch = { view: 'plugin' as const, marks: [
       mark({ kind: 'pen', points: circle(110, 145, 110), width: 4 }, 1),
-      mark({ kind: 'note', rect: { x: 400, y: 240, w: 200, h: 100 }, text: 'ここに波形表示', color: '#ffd166' }, 2),
+      mark({ kind: 'note', rect: { x: 400, y: 240, w: 200, h: 100 }, text: 'put a waveform here', color: '#ffd166' }, 2),
       mark({ kind: 'arrow', from: [60, 150], to: [215, 140], color: '#4cc9f0' }, 3),
     ] };
     const text = sketchText(sketch, readMarks(sketch, targets), targets, { width: 720, height: 440 });
     expect(text).toBe([
       'The person sketched on the plugin (720×440 design pixels); the marks are numbered on the picture:',
       '① red pen loop around knob1 (knob “Cutoff”), knob2 (knob “Resonance”); also touching title1 (text “ACID”) (x -2, y 33, 224×224)',
-      '② yellow sticky note “ここに波形表示” in empty space (x 400, y 240, 200×100)',
+      '② yellow sticky note “put a waveform here” in empty space (x 400, y 240, 200×100)',
       '③ blue arrow from knob1 (knob “Cutoff”) to knob2 (knob “Resonance”)',
     ].join('\n'));
   });
@@ -95,7 +95,7 @@ describe('the sketch, drawn for the AI', () => {
   it('wraps notes at spaces, and anywhere in words without them', () => {
     const w = (s: string) => s.length * 10;
     expect(wrapText(w, 'put a waveform here', 80)).toEqual(['put a', 'waveform', 'here']);
-    expect(wrapText(w, 'ここに波形表示を置く', 40)).toEqual(['ここに波', '形表示を', '置く']);
+    expect(wrapText(w, 'waveform☕', 40)).toEqual(['wave', 'form', '☕']);
     expect(wrapText(w, 'two\nlines', 200)).toEqual(['two', 'lines']);
   });
   it('numbers sit where they sit on screen; the picture holds the modules and marks with a margin', () => {

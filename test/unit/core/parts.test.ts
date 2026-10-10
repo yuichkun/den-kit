@@ -93,7 +93,7 @@ describe('making a part from modules', () => {
     const r = apply(bass(), { op: 'makePart', ids: ['osc1', 'filter1'] });
     expect(r.doc.parts[Object.keys(r.doc.parts)[0]!]!.name).toMatch(/Oscillator|Lowpass/);
     expect(partIdFor({ parts: {} }, 'Rain drop')).toBe('rainDrop');
-    expect(partIdFor({ parts: {} }, '雨粒')).toBe('part');
+    expect(partIdFor({ parts: {} }, '☔')).toBe('part');
     expect(partIdFor({ parts: { rain: {} as never } }, 'Rain')).toBe('rain2');
     expect(partIdFor({ parts: {} }, '808 kick')).toBe('kick');
   });

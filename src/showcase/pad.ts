@@ -1,4 +1,4 @@
-// お題 2 — ゆっくり揺れながら広がるパッド。夕焼けの見た目で、XY で明るさと揺れを動かす。
+// Evaluation prompt 2 — A slowly moving, expansive pad. A sunset look, with brightness and movement on XY controls.
 // Two detuned saws per voice through a lowpass that opens slowly after each
 // chord (the bloom), swayed by a slow free-running LFO; a chorus and a long
 // reverb spread it. The XY pad plays it: across = brightness, up = sway (how

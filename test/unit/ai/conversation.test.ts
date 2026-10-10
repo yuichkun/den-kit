@@ -27,8 +27,8 @@ const historicalLine = (id: string, text: string, route: 'lexicon' | 'jev' | 'je
 
 describe('what the LLM is told about the conversation', () => {
   it('one line per request, with the result, what it was about, and an undo', () => {
-    expect(lineForAi({ id: 'a', text: '明るく', status: 'applied', route: 'lexicon', ms: 3, label: 'brightness up ×medium → filter1', undone: true, attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }] }))
-      .toBe('- earlier request: “明るく” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)');
+    expect(lineForAi({ id: 'a', text: 'brighter', status: 'applied', route: 'lexicon', ms: 3, label: 'brightness up ×medium → filter1', undone: true, attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }] }))
+      .toBe('- earlier request: “brighter” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)');
     expect(lineForAi({ id: 'b', text: 'explain', status: 'reply', route: 'llm', ms: 9, reply: 'An oscillator\ngoes into a filter.' })).toBe('- LLM request: “explain” → answered: An oscillator goes into a filter.');
     expect(lineForAi({ id: 'c', text: '???', status: 'nothing', route: 'none', ms: 1, message: 'Not sure what to change.' })).toBe('- earlier request: “???” → nothing changed (Not sure what to change.)');
   });
@@ -59,7 +59,7 @@ describe('saving the conversation', () => {
     const first = makeSession(storage);
     first.restore('bass');
     const requests1 = new AiRequests(first);
-    const oldLines = [historicalLine('lex', 'リリース長く'), historicalLine('jev', 'open the tone', 'jev'), historicalLine('target', 'this filter', 'jev-target')];
+    const oldLines = [historicalLine('lex', 'longer release'), historicalLine('jev', 'open the tone', 'jev'), historicalLine('target', 'this filter', 'jev-target')];
     for (const line of oldLines) requests1.upsert(line);
     requests1.persist();
     first.saveNow();
@@ -80,7 +80,7 @@ describe('saving the conversation', () => {
     const first = makeSession(storage);
     first.restore('bass');
     first.requests = new AiRequests(first);
-    const earlier = historicalLine('old', 'リリース長く');
+    const earlier = historicalLine('old', 'longer release');
     first.requests.upsert(earlier);
     const latest = first.requests.run('brighter');
     expect(first.loadConversation()).toBeNull();
@@ -102,7 +102,7 @@ describe('saving the conversation', () => {
     const before = JSON.stringify(session.doc.value);
     expect(requests.history.value).toEqual([]);
     storage.failWrites = true;
-    expect(requests.run('リリース長く').status).toBe('failed');
+    expect(requests.run('longer release').status).toBe('failed');
     expect(() => requests.persist()).not.toThrow();
     expect(JSON.stringify(session.doc.value)).toBe(before);
   });
@@ -117,16 +117,16 @@ describe('conversation lifecycle and historical edits', () => {
   });
 
   it('an AI-authored replacement keeps the conversation; opening a patch folds its lines into earlier', () => {
-    requests.upsert(historicalLine('old', 'リリース長く'));
+    requests.upsert(historicalLine('old', 'longer release'));
     const conversation = session.conversation.value;
     session.replace(starter('pad', catalog), 'AI patch', true, { kind: 'ai-llm', take: 'rq-new' });
-    requests.upsert({ id: 'rq-new', text: 'パッド作って', status: 'applied', route: 'llm', ms: 10 });
+    requests.upsert({ id: 'rq-new', text: 'build a pad', status: 'applied', route: 'llm', ms: 10 });
     expect(session.conversation.value).toBe(conversation);
-    expect(requests.history.value.map(o => o.text)).toEqual(['リリース長く', 'パッド作って']);
+    expect(requests.history.value.map(o => o.text)).toEqual(['longer release', 'build a pad']);
     session.loadStarter('bass');
     expect(session.conversation.value).not.toBe(conversation);
     expect(requests.history.value).toEqual([]);
-    expect(requests.earlier.value.map(o => o.text)).toEqual(['リリース長く', 'パッド作って']);
+    expect(requests.earlier.value.map(o => o.text)).toEqual(['longer release', 'build a pad']);
   });
 
   it.each(['lexicon', 'jev'] as const)('undo and redo of a historical %s edit update its conversation line', handler => {
@@ -180,19 +180,19 @@ describe('the LLM is told what happened', () => {
   const startText = () => String(transport.last('llm.start')!.text);
 
   it('a new conversation includes historical lines; later turns include only new history and hand edits', async () => {
-    requests.upsert(historicalLine('old-lex', 'リリース長く'));
+    requests.upsert(historicalLine('old-lex', 'longer release'));
     const first = requests.run('now add a wobble');
-    expect(startText()).toMatch(/Earlier in this conversation[^\n]*:\n- earlier request: “リリース長く” → [^\n]+\n/);
+    expect(startText()).toMatch(/Earlier in this conversation[^\n]*:\n- earlier request: “longer release” → [^\n]+\n/);
     transport.event(first.id, { kind: 'thread', thread: 'th1', fresh: false });
     transport.done(first.id);
     await new Promise(r => setTimeout(r, 5));
-    requests.upsert(historicalLine('old-jev', '明るく', 'jev'));
+    requests.upsert(historicalLine('old-jev', 'brighter', 'jev'));
     session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.4 }], { label: 'Panel Gain' });
     requests.run('more of that');
     const text = startText();
     expect(transport.last('llm.start')!.thread).toBe('th1');
-    expect(text).toMatch(/Since your last turn:\n- earlier request: “明るく” → /);
-    expect(text).not.toMatch(/リリース長く|now add a wobble/);
+    expect(text).toMatch(/Since your last turn:\n- earlier request: “brighter” → /);
+    expect(text).not.toMatch(/longer release|now add a wobble/);
     expect(text).toMatch(/The person edited by hand since your last turn: Panel Gain\./);
     expect(text.endsWith('\n\nmore of that')).toBe(true);
   });
@@ -209,7 +209,7 @@ describe('the LLM is told what happened', () => {
   });
 
   it('opening a patch starts a new Codex conversation and does not retell historical lines', () => {
-    requests.upsert(historicalLine('old-lex', 'リリース長く'));
+    requests.upsert(historicalLine('old-lex', 'longer release'));
     const o = requests.run('explain');
     transport.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
     transport.done(o.id);
@@ -217,7 +217,7 @@ describe('the LLM is told what happened', () => {
     requests.run('explain again');
     expect(transport.last('llm.forget')).toEqual({ t: 'llm.forget', thread: 'th1' });
     expect(transport.last('llm.start')!.thread).toBeUndefined();
-    expect(startText()).not.toMatch(/リリース長く|Earlier in this conversation/);
+    expect(startText()).not.toMatch(/longer release|Earlier in this conversation/);
   });
 
   it('a completed short prompt continues the same Codex thread', () => {

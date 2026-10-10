@@ -37,7 +37,7 @@ describe('the AI panel', () => {
       assert.ok(dock.width <= viewport.width * 0.37 + 1, 'gives way on a narrow window');
       // Requests and answers stay inside the panel, in readable type.
       await page.keyboard.press('Control+k');
-      await page.keyboard.type('リリース長く');
+      await page.keyboard.type('longer release');
       await page.keyboard.press('Enter');
       await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
       const line = await box(page, '[data-testid=ai-result]');
@@ -61,7 +61,7 @@ describe('the AI panel', () => {
     const release = await kit(page, k => k.doc.value.nodes.aenv1.values.release);
     await page.keyboard.press('Enter'); // Enter anywhere jumps to the prompt
     assert.equal(await active(page), 'textarea[ai-input]');
-    await page.keyboard.type('リリース長く');
+    await page.keyboard.type('longer release');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
     assert.equal(await active(page), 'textarea[ai-input]', 'ready for the next request');
@@ -240,9 +240,9 @@ describe('the start screen', () => {
     assert.equal(await kit(page, k => k.doc.value.revision), before);
     // Described in words: a new patch, and the request goes to the AI.
     await page.keyboard.press('Control+Alt+KeyN');
-    await page.keyboard.type('ベース作って');
+    await page.keyboard.type('build a bass');
     await page.keyboard.press('Enter');
-    const line = await settled(page, 'ベース作って');
+    const line = await settled(page, 'build a bass');
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.ok(await kit(page, k => Object.values<any>(k.doc.value.nodes).some((n: any) => n.type === 'kit.voiceIn')));
     assert.ok(await page.isVisible('[data-testid=ai-dock]'));

@@ -1,4 +1,4 @@
-// お題 1 — アシッドベース。黒地に蛍光グリーン 1 色で、カットオフとレゾナンスを大きく。
+// Evaluation prompt 1 — Acid bass. Fluorescent green on black, with large cutoff and resonance controls.
 // A mono saw/square bass through a driven ladder filter with a snappy envelope
 // and glide; the screen is one colour on black, two big knobs, no pictures.
 import type { Catalog } from '../core/catalog.ts';

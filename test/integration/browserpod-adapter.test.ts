@@ -87,9 +87,9 @@ describe('BrowserPod adapter (against a stand-in with BrowserPod\'s API)', () =>
   });
   it('output in pieces that split lines and characters, progress lines, and a look-alike marker', async () => {
     const pieces: string[] = [];
-    const r = await host.run("printf 'こんにちは、世界\\n'; printf '[1/2]\\r[2/2]\\n'; echo '<<den-kit-exit:fake:0>>'; exit 4", { cwd: home, onOutput: t => pieces.push(t) });
+    const r = await host.run("printf 'Hello, café☕ world\\n'; printf '[1/2]\\r[2/2]\\n'; echo '<<den-kit-exit:fake:0>>'; exit 4", { cwd: home, onOutput: t => pieces.push(t) });
     expect(r.exitCode).toBe(4);
-    expect(r.output).toBe('こんにちは、世界\n[2/2]\n<<den-kit-exit:fake:0>>');
+    expect(r.output).toBe('Hello, café☕ world\n[2/2]\n<<den-kit-exit:fake:0>>');
     expect(pieces.length).toBeGreaterThan(3);
     expect(pieces.join('')).not.toMatch(/�/);
   });

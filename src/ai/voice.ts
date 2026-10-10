@@ -167,9 +167,9 @@ export class VoiceInput {
 }
 
 const LANG_KEY = 'den-kit:voice-lang';
-export const VOICE_LANGS = { 'ja-JP': '日本語', 'en-US': 'English' } as const;
+export const VOICE_LANGS = { 'ja-JP': 'Japanese', 'en-US': 'English' } as const;
 
-/** Japanese unless English was chosen in the drawer (English words like “reverb” still come through as リバーブ). */
+/** Japanese unless English was chosen in the drawer (English words like “reverb” are still transcribed phonetically in Japanese). */
 function defaultLang() {
   try { const saved = globalThis.localStorage?.getItem(LANG_KEY); if (saved && saved in VOICE_LANGS) return saved; } catch { /* storage blocked */ }
   return 'ja-JP';

@@ -38,13 +38,13 @@ const scenarios: Scenario[] = [
   // interpreter: the page must send every request through the bridge first.
   {
     name: 'parameter-edit',
-    match: text => /^(リリース長く|もっと|明るく|brighter|レゾナンス上げて)$/.test(text.split('\n\n').at(-1) ?? ''),
+    match: text => /^(longer release|more|brighter|more resonance)$/.test(text.split('\n\n').at(-1) ?? ''),
     async run(t) {
       await t.think();
       await t.call('kit_get_patch', {});
       const request = t.text.split('\n\n').at(-1);
-      const [node, port, value] = request === 'レゾナンス上げて' ? ['filter1', 'resonance', 3]
-        : request === 'リリース長く' || request === 'もっと' ? ['aenv1', 'release', request === 'もっと' ? 1.2 : 0.6]
+      const [node, port, value] = request === 'more resonance' ? ['filter1', 'resonance', 3]
+        : request === 'longer release' || request === 'more' ? ['aenv1', 'release', request === 'more' ? 1.2 : 0.6]
         : ['cut1', 'hz', 2400];
       await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node, port, value }] });
       await t.call('kit_finish', { summary: `Set ${node}.${port} to ${value}.` });
@@ -52,10 +52,10 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'screen-edit',
-    match: text => /^(アクセントを赤にして|もう少し暗く)$/.test(text.split('\n\n').at(-1) ?? ''),
+    match: text => /^(make the accent red|make it a little darker)$/.test(text.split('\n\n').at(-1) ?? ''),
     async run(t) {
       await t.call('kit_get_plugin', {});
-      const red = t.text.split('\n\n').at(-1) === 'アクセントを赤にして';
+      const red = t.text.split('\n\n').at(-1) === 'make the accent red';
       await t.call('kit_apply_ops', { ops: [{ op: 'setLook', look: { tokens: red ? { accent: '#ff4d4d' } : { bg: '#050506' } } }] });
       await t.call('kit_look', {});
       await t.call('kit_finish', { summary: red ? 'accent colour → red' : 'darker screen' });
@@ -63,7 +63,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'new-bass',
-    match: text => text.split('\n\n').at(-1) === 'ベース作って',
+    match: text => text.split('\n\n').at(-1) === 'build a bass',
     async run(t) {
       await t.call('kit_get_patch', {});
       const edit = await t.call('kit_apply_ops', { ops: [
@@ -149,7 +149,7 @@ const scenarios: Scenario[] = [
   {
     // The pod: the model reads the guide, writes a code part with bash, checks it with tsc and ESLint, puts it on the plugin, looks.
     name: 'code-part',
-    match: /コード部品|a code part/i,
+    match: /a code part/i,
     async run(t) {
       await t.think();
       const plugin = await t.call('kit_get_plugin', {});
@@ -164,14 +164,14 @@ const scenarios: Scenario[] = [
       const placed = await t.call('kit_apply_ops', { ops: [{ op: 'addElement', element: { id: 'meter1', kind: 'code', part: 'meter', rect: { x: 400, y: 40, w: 60, h: 160 }, props: { color: 'accent' } } }] });
       if (!placed.success) { await t.say(`Placing failed: ${placed.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: place failed', info: 'other' }; }
       const seen = await t.call('kit_look', {});
-      await t.call('kit_finish', { summary: /code part meter1[^\n]*fails/.test(seen.text) ? `コード部品が動いていません: ${seen.text.slice(0, 200)}` : 'コード部品「meter」を作ってプラグインに置きました' });
+      await t.call('kit_finish', { summary: /code part meter1[^\n]*fails/.test(seen.text) ? `The code part is not running: ${seen.text.slice(0, 200)}` : 'Created a meter code part and placed it on the plugin' });
       await t.say('Done.');
     },
   },
   {
     // A broken code part: the model sees the error from the plugin, fixes the file, and the part runs.
     name: 'code-part-fix',
-    match: /壊れた部品|broken part/i,
+    match: /broken part/i,
     async run(t) {
       await t.think();
       await t.call('kit_write_file', { path: 'src/parts/oops.ts', content: "import { part } from '../kit';\nexport default part({ mount(root) { throw new Error('oops: the canvas is missing'); } });\n" });
@@ -180,7 +180,7 @@ const scenarios: Scenario[] = [
       if (!/oops: the canvas is missing/.test(first.text)) { await t.say(`The look did not report the error: ${first.text.slice(0, 400)}`); return { status: 'failed', message: 'scenario: no error seen', info: 'other' }; }
       await t.call('kit_write_file', { path: 'src/parts/oops.ts', content: "import { part } from '../kit';\nexport default part({ mount(root) { root.textContent = 'fixed'; } });\n" });
       const second = await t.call('kit_look', {});
-      await t.call('kit_finish', { summary: /oops1[^\n]*fails/.test(second.text) ? 'まだ壊れています' : '壊れた部品を直しました' });
+      await t.call('kit_finish', { summary: /oops1[^\n]*fails/.test(second.text) ? 'It is still broken' : 'Fixed the broken part' });
       await t.say('Done.');
     },
   },
@@ -208,7 +208,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'wobble',
-    match: /wobble|揺らして/i,
+    match: /wobble/i,
     async run(t) {
       await t.think();
       const patch = await t.call('kit_get_patch', {});
@@ -224,14 +224,14 @@ const scenarios: Scenario[] = [
       ] });
       if (!/Compiled OK/.test(edit.text)) { await t.say(`The edit did not compile: ${edit.text.slice(0, 200)}`); return; }
       const heard = await t.call('kit_listen', { phrase: 'bass', seconds: 2 });
-      await t.call('kit_finish', { summary: t.text.match(/[ぁ-んァ-ン一-龯]/) ? 'LFOでカットオフを揺らしました' : `Added an LFO that wobbles the cutoff${heard.success ? ' (checked by listening)' : ''}.` });
+      await t.call('kit_finish', { summary: `Added an LFO that wobbles the cutoff${heard.success ? ' (checked by listening)' : ''}.` });
       await t.say('Done.');
     },
   },
   {
     // A screen built the way a model would: read, brief, edit, look, fix what the look found, look again.
     name: 'screen',
-    match: /画面を作って|design (?:the|a) (?:plugin )?screen/i,
+    match: /design (?:the|a) (?:plugin )?screen/i,
     async run(t) {
       await t.think();
       const plugin = await t.call('kit_get_plugin', {});
@@ -255,14 +255,14 @@ const scenarios: Scenario[] = [
       if (/text2 .*hard to read/.test(seen.text)) fixes.push({ op: 'updateElement', id: 'text2', set: { textStyle: { size: 12, color: 'muted', align: 'left' } } });
       if (fixes.length) await t.call('kit_apply_ops', { ops: fixes });
       const again = await t.call('kit_look', {});
-      await t.call('kit_finish', { summary: /found nothing to fix/.test(again.text) ? `夜のドライブ風の画面を作りました（チェックで ${fixes.length} 件直しました）` : `Made a screen; still to fix: ${again.text.slice(0, 160)}` });
+      await t.call('kit_finish', { summary: /found nothing to fix/.test(again.text) ? `Built a night-drive screen (fixed ${fixes.length} issues found by the checks)` : `Made a screen; still to fix: ${again.text.slice(0, 160)}` });
       await t.say('Done.');
     },
   },
   {
     // Parts the way a model would use them: make the core of the sound a part, use it again with its own setting, listen.
     name: 'parts',
-    match: /パーツにして.*重ね|make .* a part and layer/i,
+    match: /make .* a part and layer/i,
     async run(t) {
       await t.think();
       const patch = await t.call('kit_get_patch', {});
@@ -281,13 +281,13 @@ const scenarios: Scenario[] = [
       ] });
       if (!/Compiled OK/.test(layered.text)) { await t.say(`Layering failed: ${layered.text.slice(0, 300)}`); return { status: 'failed', message: 'scenario: layering failed', info: 'other' }; }
       const heard = await t.call('kit_listen', { phrase: 'bass', seconds: 1.5 });
-      await t.call('kit_finish', { summary: !heard.success || /"silent":true/.test(heard.text) ? '重ねましたが、音が出ていません' : 'パーツ「Core」にして、もう1つ重ねました' });
+      await t.call('kit_finish', { summary: !heard.success || /"silent":true/.test(heard.text) ? 'Layered the sound, but it is silent' : 'Made a Core part and layered another instance' });
       await t.say('Done.');
     },
   },
   {
     name: 'stacks',
-    match: /スーパーソー|supersaw/i,
+    match: /supersaw/i,
     async run(t) {
       await t.think();
       const patch = await t.call('kit_get_patch', {});
@@ -304,13 +304,13 @@ const scenarios: Scenario[] = [
       const patched = await t.call('kit_get_patch', {});
       const heard = await t.call('kit_listen', { phrase: 'bass', seconds: 1.5 });
       const silent = !heard.success || /"silent":true/.test(heard.text);
-      await t.call('kit_finish', { summary: silent ? '重ねましたが、音が出ていません' : /×7/.test(patched.text) ? 'ノコギリ波を7本重ねて、少しずつずらしました' : '重ねたはずが ×7 が見えません' });
+      await t.call('kit_finish', { summary: silent ? 'Layered the sound, but it is silent' : /×7/.test(patched.text) ? 'Layered seven saw waves and slightly detuned each one' : 'Expected a stack, but the patch does not show ×7' });
       await t.say('Done.');
     },
   },
   {
     name: 'explain',
-    match: /how does|explain|説明|仕組み/i,
+    match: /how does|explain/i,
     async run(t) {
       const patch = await t.call('kit_get_patch', {});
       await t.say(patch.success ? 'An oscillator goes through a filter whose cutoff follows an envelope, then an amp envelope.' : 'I could not read the patch.');
@@ -318,7 +318,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'codebox',
-    match: /bitcrush|codebox|コードボックス/i,
+    match: /bitcrush|codebox/i,
     async run(t) {
       await t.call('kit_get_patch', {});
       await t.call('kit_apply_ops', { ops: [
@@ -338,13 +338,13 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'slow',
-    match: /slow|ゆっくり/i,
+    match: /slow/i,
     async run(t) {
       await t.call('kit_get_patch', {});
       await t.think();
       const steer = await t.waitForSteer(15000);
       if (t.interrupted) return;
-      const hz = steer && /dark|暗/i.test(steer) ? 150 : steer && /brighter/i.test(steer) ? 2400 : 700;
+      const hz = steer && /dark/i.test(steer) ? 150 : steer && /brighter/i.test(steer) ? 2400 : 700;
       await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: hz }] });
       await t.call('kit_finish', { summary: steer ? `Took “${steer}” into account: base cutoff ${hz} Hz.` : `Base cutoff ${hz} Hz.` });
     },
@@ -465,7 +465,7 @@ const scenarios: Scenario[] = [
       let waited = await t.call('kit_wait', {});
       for (let i = 0; i < 6 && /Still working/.test(waited.text); i++) waited = await t.call('kit_wait', {});
       await t.call('kit_look', {});
-      await t.call('kit_finish', { summary: /m1 “Sound” — done[\s\S]*m2 “Screen” — done/.test(waited.text) ? 'アシッドベースとネオンの画面を作りました' : `members did not both finish: ${waited.text.slice(0, 200)}` });
+      await t.call('kit_finish', { summary: /m1 “Sound” — done[\s\S]*m2 “Screen” — done/.test(waited.text) ? 'Built an acid bass and a neon screen' : `members did not both finish: ${waited.text.slice(0, 200)}` });
       await t.say('Done.');
     },
   },
