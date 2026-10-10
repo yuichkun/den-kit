@@ -1,4 +1,4 @@
-// `kit:doctor` and `kit:codex:login` as the user runs them, against the fakes
+// `doctor` and `codex:login` as the user runs them, against the fakes
 // (fake Jev over HTTP, fake Codex CLI through KIT_CODEX_BIN).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
@@ -28,7 +28,7 @@ function codexEnv(name: string, signedIn: boolean) {
 }
 const line = (out: string, name: string) => out.split('\n').find(l => new RegExp(`^(PASS|WARN|FAIL|SKIP)\\s+${name}\\b`).test(l)) ?? `(no ${name} line)\n${out}`;
 
-describe('kit:doctor', () => {
+describe('doctor', () => {
   it('a signed-in Codex passes every check; --deep makes the ping round trip and records it', async () => {
     const { code, out } = await run('scripts/doctor.ts', { ...codexEnv('home-ok', true), KIT_DOCTOR_TOOL_WAIT_MS: '1500' }, ['--deep']);
     expect(line(out, 'Codex CLI')).toMatch(/^PASS.*0\.160\.1 \(KIT_CODEX_BIN\)/);
@@ -53,7 +53,7 @@ describe('kit:doctor', () => {
   it('not signed in: one FAIL that says what to run', async () => {
     const { code, out } = await run('scripts/doctor.ts', codexEnv('home-out', false));
     expect(line(out, 'Codex sign-in')).toMatch(/^FAIL.*Not logged in/);
-    expect(out).toContain('npm run kit:codex:login');
+    expect(out).toContain('npm run codex:login');
     expect(line(out, 'Codex live request')).toMatch(/^SKIP/);
     expect(code).toBe(1);
   }, 150000);
@@ -72,7 +72,7 @@ describe('kit:doctor', () => {
   }, 150000);
 });
 
-describe('kit:codex:login', () => {
+describe('codex:login', () => {
   it('creates CODEX_HOME (Codex refuses a missing one) and signs in', async () => {
     const home = join(dir, 'fresh-home');
     const { code, out } = await run('scripts/codex-login.ts', { KIT_CODEX_BIN: FAKE_CODEX, KIT_CODEX_HOME: home });

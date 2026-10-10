@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { loadEnvFile, maskSecret } from '../../../bridge/env.ts';
 import { codexEnv } from '../../../bridge/codex/process.ts';
 
-describe('kit/.env loading', () => {
+describe('.env loading', () => {
   it('reads KEY=VALUE lines, strips quotes and export, ignores comments, and never overrides the environment', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kit-env-'));
     const file = join(dir, '.env');

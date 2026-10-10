@@ -61,7 +61,7 @@ describe.skipIf(isProblem(command))('the real pinned Codex app-server (offline)'
     try {
       await client.start();
       expect(client.status).toMatchObject({ state: 'login', model: expect.any(String), images: true });
-      expect(client.status.fix).toContain('npm run kit:codex:login');
+      expect(client.status.fix).toContain('npm run codex:login');
     } finally {
       await client.stop();
       rmSync(dir, { recursive: true, force: true });

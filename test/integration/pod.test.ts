@@ -168,7 +168,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
 describe('pod session without a pod', () => {
   it('says why and how to fix it, and refuses commands', async () => {
     const kit = session(starter('bass', catalog));
-    const pod = new PodSession(kit, { kind: null, create: () => Promise.reject(new Error('no')), reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in kit/.env' });
+    const pod = new PodSession(kit, { kind: null, create: () => Promise.reject(new Error('no')), reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in .env' });
     expect(pod.state.value).toBe('unavailable');
     expect(pod.fix.value).toContain('BROWSERPOD_API_KEY');
     await expect(pod.bash('ls', { who: 'ai' })).rejects.toThrow(/off: no API key/);

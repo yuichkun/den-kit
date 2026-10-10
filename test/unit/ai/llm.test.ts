@@ -267,9 +267,9 @@ describe('when something does not work', () => {
   });
 
   it('Codex not signed in: the line says what to run', () => {
-    t.status.value = { ...t.status.value, codex: { state: 'login', fix: 'Run `npm run kit:codex:login` once.' } };
+    t.status.value = { ...t.status.value, codex: { state: 'login', fix: 'Run `npm run codex:login` once.' } };
     const o = llm.run('wobble');
-    expect(o).toMatchObject({ status: 'failed', message: expect.stringMatching(/not signed in.*kit:codex:login/) });
+    expect(o).toMatchObject({ status: 'failed', message: expect.stringMatching(/not signed in.*codex:login/) });
     expect(t.sent).toEqual([]);
   });
 });
@@ -295,9 +295,9 @@ describe('hand-off from the fast path', () => {
   });
 
   it('without the LLM the line says why, in one line and with nothing to pick', async () => {
-    t.status.value = { ...t.status.value, codex: { state: 'error', detail: 'Codex stopped unexpectedly.', fix: 'Run `npm run kit:doctor`.' } };
+    t.status.value = { ...t.status.value, codex: { state: 'error', detail: 'Codex stopped unexpectedly.', fix: 'Run `npm run doctor`.' } };
     const o = await fast.run('write a granular codebox');
-    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*kit:doctor/) });
+    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*doctor/) });
     expect(Object.keys(o)).not.toContain('chips');
   });
 });

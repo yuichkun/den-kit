@@ -240,7 +240,7 @@ export class LlmController {
     if (!this.bridge.online) return 'The LLM is not available: the AI bridge is not connected.';
     const c = this.bridge.status.value?.codex;
     if (!c || c.state === 'off') return `The LLM is off${c?.detail ? `: ${c.detail}` : '.'}`;
-    if (c.state === 'login') return `The LLM is not available: Codex is not signed in. ${c.fix ?? 'Run `npm run kit:codex:login`.'}`;
+    if (c.state === 'login') return `The LLM is not available: Codex is not signed in. ${c.fix ?? 'Run `npm run codex:login`.'}`;
     if (c.state === 'starting') return 'The LLM is still starting; try again in a moment.';
     return `The LLM is not available: ${c.detail ?? 'Codex reported an error'}.${c.fix ? ` ${c.fix}` : ''}`;
   }

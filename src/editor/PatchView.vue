@@ -128,7 +128,7 @@ function nudge(dx: number, dy: number) {
   const ids = session.selection.value.filter(id => doc.nodes[id]);
   if (!ids.length) return;
   // Repeated arrow presses are one undo step.
-  if (performance.now() - nudgeAt > 1500) nudgeGesture = `nudge-${Date.now()}`;
+  if (!nudgeGesture || performance.now() - nudgeAt > 1500) nudgeGesture = `nudge-${Date.now()}`;
   nudgeAt = performance.now();
   const r = session.commit(ids.map(id => ({ op: 'move' as const, node: id, pos: { x: doc.nodes[id]!.pos.x + dx, y: doc.nodes[id]!.pos.y + dy } })), { label: 'Nudge', gesture: nudgeGesture });
   if (!r.ok) session.toast('warn', r.error.message);

@@ -38,7 +38,7 @@ describe('BridgeClient', () => {
     const c = new BridgeClient({ token: null });
     c.start();
     expect(c.state.value).toBe('disabled');
-    expect(c.detail.value).toMatch(/kit:dev/);
+    expect(c.detail.value).toMatch(/dev/);
     const r = await c.askJev(request);
     expect(!r.ok && r.error.kind).toBe('off');
   });

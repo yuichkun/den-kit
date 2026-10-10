@@ -8,8 +8,8 @@ const bridgeTitle = computed(() => b.state.value === 'online' ? 'AI bridge conne
 const jev = computed(() => {
   const s = b.status.value?.jev;
   if (b.state.value !== 'online' || !s) return null;
-  if (s.state === 'off') return { cls: 'off', text: 'Jev off', title: s.detail ?? 'Set TYPESAFE_API_KEY in kit/.env and restart kit:dev.' };
-  if (s.state === 'error') return { cls: 'error', text: s.detail === 'auth' ? 'Jev key ✕' : 'Jev ✕', title: s.detail === 'auth' ? 'Jev rejected the API key (401). Fix TYPESAFE_API_KEY in kit/.env and restart kit:dev.' : `Jev unreachable (${s.detail ?? 'error'}). Fast path uses the lexicon only.` };
+  if (s.state === 'off') return { cls: 'off', text: 'Jev off', title: s.detail ?? 'Set TYPESAFE_API_KEY in .env and restart dev.' };
+  if (s.state === 'error') return { cls: 'error', text: s.detail === 'auth' ? 'Jev key ✕' : 'Jev ✕', title: s.detail === 'auth' ? 'Jev rejected the API key (401). Fix TYPESAFE_API_KEY in .env and restart dev.' : `Jev unreachable (${s.detail ?? 'error'}). Fast path uses the lexicon only.` };
   if (s.state === 'unknown') return { cls: 'wait', text: 'Jev …', title: `Warming up ${s.model ?? ''}` };
   return { cls: 'ok', text: s.lastMs ? `Jev ${s.lastMs} ms` : 'Jev', title: `${s.model ?? 'Jev'} ready` };
 });

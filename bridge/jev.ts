@@ -34,7 +34,7 @@ export class JevClient {
     // Real Jev answered in 160–360 ms for the full question set; 1.2 s leaves room for one slow reply.
     this.defaultBudgetMs = options.defaultBudgetMs ?? 1200;
     this.maxBudgetMs = options.maxBudgetMs ?? 8000;
-    this.status = this.apiKey ? { state: 'unknown', model: this.model, budgetMs: this.defaultBudgetMs } : { state: 'off', detail: 'TYPESAFE_API_KEY is not set (put it in kit/.env).' };
+    this.status = this.apiKey ? { state: 'unknown', model: this.model, budgetMs: this.defaultBudgetMs } : { state: 'off', detail: 'TYPESAFE_API_KEY is not set (put it in .env).' };
   }
   get enabled() { return !!this.apiKey && this.status.detail !== 'auth'; }
 
@@ -43,7 +43,7 @@ export class JevClient {
     const ms = () => Math.round(performance.now() - started);
     const fail = (kind: JevErrorKind, message: string, extra: { status?: number; retryAfterMs?: number } = {}): JevResult => ({ ok: false, error: { kind, message, ...extra }, ms: ms() });
     if (!this.apiKey) return fail('off', 'Jev is off: TYPESAFE_API_KEY is not set.');
-    if (this.status.state === 'error' && this.status.detail === 'auth') return fail('auth', 'Jev rejected the API key (401). Fix TYPESAFE_API_KEY and restart kit:dev.');
+    if (this.status.state === 'error' && this.status.detail === 'auth') return fail('auth', 'Jev rejected the API key (401). Fix TYPESAFE_API_KEY and restart dev.');
     const questions = Object.values(request.questions ?? {});
     if (!questions.length) return fail('invalid', 'No questions.');
     const total = estimateTokens({ state: request.state, questions: request.questions });

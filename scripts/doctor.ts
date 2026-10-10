@@ -1,15 +1,16 @@
-// `npm run kit:doctor`: checks the local setup step by step and says how to fix each problem.
+// `npm run doctor`: checks the local setup step by step and says how to fix each problem.
 //   Node, dependencies, ports · Jev (key present, masked; three tiny live requests) ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
-// `npm run kit:doctor -- --deep` also makes one real Codex request with a ping tool, then
+// `npm run doctor -- --deep` also makes one real Codex request with a ping tool, then
 // tries what members, sketches and shared screens need (U8): two requests at once, a tool
 // call held as long as kit_wait may hold one, pictures with a request and added while it
 // works, a copy of a conversation (thread/fork) and token counts (about two minutes in all).
-// It records the whole JSON-RPC conversation to kit/.logs/codex-deep-*.jsonl.
-// Every run writes its results to kit/.logs/doctor-*.json (secrets masked).
+// It records the whole JSON-RPC conversation to .logs/codex-deep-*.jsonl.
+// Every run writes its results to .logs/doctor-*.json (secrets masked).
 import { execFile } from 'node:child_process';
+import { findPackageJSON } from 'node:module';
 import { crc32, deflateSync } from 'node:zlib';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -25,23 +26,31 @@ type Status = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
 const deep = process.argv.includes('--deep');
 const kit = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 loadEnvFile(join(kit, '.env'));
-const den = dirname(kit);
 const results: Array<{ status: Status; name: string; detail: string; fix?: string }> = [];
 const report = (status: Status, name: string, detail: string, fix?: string) => { results.push({ status, name, detail, fix }); };
 const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 
 // 1. Node
-const [major, minor] = process.versions.node.split('.').map(Number) as [number, number];
-if (major >= 24 || (major === 22 && minor >= 18)) report(major >= 24 ? 'PASS' : 'WARN', 'Node.js', `v${process.versions.node}`, major >= 24 ? undefined : 'den targets Node 24 (see .node-version); 22.18+ works for den-kit.');
+const major = Number(process.versions.node.split('.')[0]);
+if (major === 24) report('PASS', 'Node.js', `v${process.versions.node}`);
 else report('FAIL', 'Node.js', `v${process.versions.node}`, 'Install Node 24 (e.g. `fnm install 24` or `nvm install 24`).');
 
 // 2. Dependencies
-const core = join(den, 'node_modules/@unworklet/core/package.json');
-if (!existsSync(core)) report('FAIL', 'den dependencies', 'missing node_modules at the repo root', 'Run `npm ci` in the den repo root.');
+const core = join(kit, 'node_modules/@unworklet/core/package.json');
+if (!existsSync(core)) report('FAIL', 'den-kit dependencies', 'missing node_modules at the repo root', 'Run `npm ci` in the den-kit repo root.');
 else { const v = json(core).version; report(v === '0.4.1' ? 'PASS' : 'FAIL', '@unworklet/core', v, v === '0.4.1' ? undefined : 'den-kit is pinned to unworklet 0.4.1: run `npm ci` at the repo root.'); }
-if (existsSync(join(kit, '@unworklet')) || existsSync(join(kit, 'node_modules/@unworklet/core'))) report('FAIL', 'single @unworklet/core', 'kit/node_modules has its own copy', 'Delete kit/node_modules/@unworklet and run `npm run kit:setup`.');
+try {
+  const denEntry = fileURLToPath(import.meta.resolve('@denaudio/den'));
+  const denPackage = json(join(dirname(denEntry), '..', 'package.json'));
+  report(denPackage.version === '0.1.0' ? 'PASS' : 'FAIL', '@denaudio/den', denPackage.version, 'Run `npm ci` in the den-kit repo root.');
+  const ownCore = realpathSync(findPackageJSON('@unworklet/core', import.meta.url)!);
+  const denCore = realpathSync(findPackageJSON('@unworklet/core', import.meta.resolve('@denaudio/den'))!);
+  report(ownCore === denCore ? 'PASS' : 'FAIL', 'single @unworklet/core', ownCore === denCore ? 'den and den-kit resolve the same installed module' : 'den and den-kit resolve different copies', 'Run `npm ci` in the den-kit repo root.');
+} catch {
+  report('FAIL', '@denaudio/den', 'the npm package or its core dependency is missing', 'Run `npm ci` in the den-kit repo root.');
+}
 for (const [name, path] of [['vue', 'node_modules/vue/package.json'], ['@vue-flow/core', 'node_modules/@vue-flow/core/package.json'], ['vite', 'node_modules/vite/package.json']] as const) {
-  report(existsSync(join(kit, path)) ? 'PASS' : 'FAIL', name, existsSync(join(kit, path)) ? json(join(kit, path)).version : 'not installed', 'Run `npm run kit:setup` from the repo root.');
+  report(existsSync(join(kit, path)) ? 'PASS' : 'FAIL', name, existsSync(join(kit, path)) ? json(join(kit, path)).version : 'not installed', 'Run `npm ci` from the repo root.');
 }
 
 // 3. Ports (editor and AI bridge)
@@ -49,12 +58,12 @@ const portFree = (port: number) => new Promise<boolean>(resolve => { const s = c
 for (const [name, env, fallback] of [['editor port', 'KIT_PORT', 5180], ['AI bridge port', 'KIT_BRIDGE_PORT', 5181]] as const) {
   const port = Number(process.env[env] ?? fallback);
   const free = await portFree(port);
-  report(free ? 'PASS' : 'WARN', `${name} ${port}`, free ? 'free' : 'in use', free ? undefined : `Another kit:dev may be running; stop it or set ${env}.`);
+  report(free ? 'PASS' : 'WARN', `${name} ${port}`, free ? 'free' : 'in use', free ? undefined : `Another dev may be running; stop it or set ${env}.`);
 }
 
-// 4. Jev (TypeSafe System One): key from the environment or kit/.env, never printed.
+// 4. Jev (TypeSafe System One): key from the environment or .env, never printed.
 const key = process.env.TYPESAFE_API_KEY;
-if (!key) report('WARN', 'Jev key', 'not set — the fast path will use the built-in lexicon only', 'Add `TYPESAFE_API_KEY=…` to kit/.env (this file is git-ignored), then rerun `npm run kit:doctor`.');
+if (!key) report('WARN', 'Jev key', 'not set — the fast path will use the built-in lexicon only', 'Add `TYPESAFE_API_KEY=…` to .env (this file is git-ignored), then rerun `npm run doctor`.');
 else {
   report('PASS', 'Jev key', maskSecret(key));
   const jev = new JevClient({ apiKey: key, baseUrl: process.env.KIT_JEV_BASE });
@@ -66,7 +75,7 @@ else {
     if (r.ok) { times.push(r.ms); warning ??= r.modelWarning; } else failure = `${r.error.kind}: ${r.error.message}`;
   }
   if (failure) {
-    const fix = /^auth/.test(failure) ? 'The key was rejected: check TYPESAFE_API_KEY in kit/.env (no quotes or spaces).'
+    const fix = /^auth/.test(failure) ? 'The key was rejected: check TYPESAFE_API_KEY in .env (no quotes or spaces).'
       : /^(network|timeout)/.test(failure) ? 'Check the network / proxy; den-kit still works with the lexicon only.'
       : /^busy/.test(failure) ? 'Jev is rate-limited or overloaded right now; try again in a minute.' : undefined;
     report('FAIL', 'Jev request', failure, fix);
@@ -85,7 +94,7 @@ for (const r of results) console.log(`${r.status.padEnd(4)}  ${r.name.padEnd(wid
 const failed = results.filter(r => r.status === 'FAIL').length;
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 try { mkdirSync(join(kit, '.logs'), { recursive: true }); writeFileSync(join(kit, '.logs', `doctor-${stamp}.json`), JSON.stringify({ at: new Date().toISOString(), deep, node: process.versions.node, platform: `${process.platform}-${process.arch}`, results }, null, 1)); } catch { /* the report is optional */ }
-console.log(failed ? `\n${failed} problem(s) to fix.` : `\nAll checks passed. Start with \`npm run kit:dev\`.${deep ? '' : ' (Add `-- --deep` to try one real Codex request.)'}`);
+console.log(failed ? `\n${failed} problem(s) to fix.` : `\nAll checks passed. Start with \`npm run dev\`.${deep ? '' : ' (Add `-- --deep` to try one real Codex request.)'}`);
 process.exit(failed ? 1 : 0);
 
 // ---- Codex ---------------------------------------------------------------------------------------
@@ -105,9 +114,9 @@ async function checkCodex() {
   mkdirSync(home.path, { recursive: true }); // Codex refuses a CODEX_HOME that does not exist
   const env = codexEnv(home.path);
   const version = await run(command, ['--version'], env);
-  if (!version.out.includes(`codex-cli ${CODEX_VERSION}`)) { report('FAIL', 'Codex CLI', version.out.split('\n')[0] || `exit ${version.code}`, `den-kit is pinned to ${CODEX_VERSION}: run \`npm run kit:setup\`.`); return; }
-  report('PASS', 'Codex CLI', `${CODEX_VERSION} (${command.source === 'kit' ? 'kit/node_modules' : 'KIT_CODEX_BIN'})`);
-  report(home.isolated ? 'PASS' : 'WARN', 'CODEX_HOME', home.isolated ? 'kit/.codex-home (separate from your own ~/.codex)' : `${home.path} (KIT_CODEX_HOME)`, home.isolated ? undefined : 'Your own Codex settings apply (MCP servers, skills, AGENTS.md); unset KIT_CODEX_HOME to keep den-kit isolated.');
+  if (!version.out.includes(`codex-cli ${CODEX_VERSION}`)) { report('FAIL', 'Codex CLI', version.out.split('\n')[0] || `exit ${version.code}`, `den-kit is pinned to ${CODEX_VERSION}: run \`npm ci\`.`); return; }
+  report('PASS', 'Codex CLI', `${CODEX_VERSION} (${command.source === 'kit' ? 'node_modules' : 'KIT_CODEX_BIN'})`);
+  report(home.isolated ? 'PASS' : 'WARN', 'CODEX_HOME', home.isolated ? '.codex-home (separate from your own ~/.codex)' : `${home.path} (KIT_CODEX_HOME)`, home.isolated ? undefined : 'Your own Codex settings apply (MCP servers, skills, AGENTS.md); unset KIT_CODEX_HOME to keep den-kit isolated.');
   const login = await run(command, ['login', 'status'], env);
   if (login.code !== 0) report('FAIL', 'Codex sign-in', login.out.split('\n')[0] || 'not signed in', `Run \`${LOGIN_COMMAND}\` (opens ChatGPT sign-in), then rerun the doctor.`);
   else report('PASS', 'Codex sign-in', login.out.split('\n')[0]!);
@@ -158,10 +167,10 @@ async function checkCodex() {
     const started = await peer.request<ThreadStartResponse>('thread/start', threadStartParams({ model: wanted || null, cwd: workdir, instructions: deep ? 'This is a den-kit connectivity check. Call the kit_ping tool exactly once (no arguments), then reply with the single word: pong.' : 'den-kit doctor', tools: deep ? [ping] : KIT_TOOLS }), { timeoutMs: 20000 });
     await new Promise(r => setTimeout(r, 200));
     const ignored = notes.filter(n => n.method === 'warning' && /unrecognized configuration/i.test(JSON.stringify(n.params)));
-    if (started.instructionSources.length) report(home.isolated ? 'FAIL' : 'WARN', 'Codex isolation', `instruction files loaded: ${started.instructionSources.join(', ')}`, home.isolated ? 'Remove AGENTS.md (or other instruction files) from kit/.codex-home.' : 'They come from your KIT_CODEX_HOME.');
+    if (started.instructionSources.length) report(home.isolated ? 'FAIL' : 'WARN', 'Codex isolation', `instruction files loaded: ${started.instructionSources.join(', ')}`, home.isolated ? 'Remove AGENTS.md (or other instruction files) from .codex-home.' : 'They come from your KIT_CODEX_HOME.');
     else report(ignored.length ? 'WARN' : 'PASS', 'Codex isolation', `no instruction files · working dir outside the repo · sandbox ${started.sandbox.type} · approvals ${String(started.approvalPolicy)}${ignored.length ? ' · some settings were ignored' : ''}`, ignored.length ? JSON.stringify(ignored[0]!.params).slice(0, 200) : undefined);
     if (!account.account) report('SKIP', 'Codex live request', 'sign in first');
-    else if (!deep) report('SKIP', 'Codex live request', 'run `npm run kit:doctor -- --deep` to make one real request (uses a little of your ChatGPT usage)');
+    else if (!deep) report('SKIP', 'Codex live request', 'run `npm run doctor -- --deep` to make one real request (uses a little of your ChatGPT usage)');
     else {
       const t0 = Date.now();
       const finished = new Promise<string>(resolve => { live.done = resolve; });
@@ -170,7 +179,7 @@ async function checkCodex() {
       const ms = Date.now() - t0;
       const unexpected = [...new Set(live.items.filter(t => !EXPECTED_ITEMS.has(t)))];
       if (status !== 'completed') report('FAIL', 'Codex live request', status === 'timeout' ? 'no answer within 3 minutes' : `${status}: ${explainCodexError(live.error, `Run \`${LOGIN_COMMAND}\` again.`).message}`, explainCodexError(live.error, `Run \`${LOGIN_COMMAND}\` again.`).fix);
-      else if (unexpected.length || live.declined.length) report('FAIL', 'Codex live request', `Codex tried other tools: ${[...unexpected, ...live.declined].join(', ')}`, 'den-kit allows only its own tools; send kit/.logs/codex-deep-*.jsonl to the developer.');
+      else if (unexpected.length || live.declined.length) report('FAIL', 'Codex live request', `Codex tried other tools: ${[...unexpected, ...live.declined].join(', ')}`, 'den-kit allows only its own tools; send .logs/codex-deep-*.jsonl to the developer.');
       else if (live.pinged !== 1) report('WARN', 'Codex live request', `kit_ping was called ${live.pinged} times (expected once) · ${ms} ms`, 'The model did not follow the instruction exactly; den-kit still works.');
       else report('PASS', 'Codex live request', `${(ms / 1000).toFixed(1)} s · kit_ping round trip · reply “${live.reply.slice(0, 40)}”`);
       if (status === 'completed') await teamChecks({ peer, workdir, model: wanted || null, images: !!model?.inputModalities.includes('image'), lead: started.thread.id, watches, usage });
@@ -183,7 +192,7 @@ async function checkCodex() {
     await proc.stop();
     if (deep && recording.length) {
       const file = join(kit, '.logs', `codex-deep-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`);
-      try { mkdirSync(join(kit, '.logs'), { recursive: true }); writeFileSync(file, recording.map(r => JSON.stringify(r)).join('\n') + '\n'); report('PASS', 'Codex recording', file.replace(`${kit}/`, 'kit/')); } catch { /* optional */ }
+      try { mkdirSync(join(kit, '.logs'), { recursive: true }); writeFileSync(file, recording.map(r => JSON.stringify(r)).join('\n') + '\n'); report('PASS', 'Codex recording', file.replace(`${kit}/`, '')); } catch { /* optional */ }
     }
   }
 }
@@ -263,7 +272,7 @@ async function teamChecks(c: { peer: RpcPeer; workdir: string; model: string | n
       await turn(p, [text('den-kit picture check: what colour is this picture?'), { type: 'image', url: solidPng([255, 0, 0]) }]);
       const done = await within(pictures.ended, 180000);
       const said = pictures.reply.toLowerCase();
-      if (done !== 'completed') report('FAIL', 'Codex pictures', why(pictures, done), 'Sketches and shared screens cannot reach the AI; send kit/.logs/codex-deep-*.jsonl to the developer.');
+      if (done !== 'completed') report('FAIL', 'Codex pictures', why(pictures, done), 'Sketches and shared screens cannot reach the AI; send .logs/codex-deep-*.jsonl to the developer.');
       else if (steered !== 'ok') report('WARN', 'Codex pictures', `a picture added while it worked did not go through (${steered ?? 'the model did not call kit_ping'})`, 'A sketch sent while the AI works may reach it as words only.');
       else if (said.includes('red') && said.includes('blue')) report('PASS', 'Codex pictures', `with the request and added while it worked: “${pictures.reply.slice(0, 40)}”`);
       else report('WARN', 'Codex pictures', `the reply did not name both colours: “${pictures.reply.slice(0, 60)}”`, 'The model may not look at every picture; sketches also go as words.');
@@ -282,7 +291,7 @@ async function teamChecks(c: { peer: RpcPeer; workdir: string; model: string | n
     const last = await within(held.ended, WAIT_MS + 180000);
     if (last !== 'completed') report('FAIL', 'Codex long tool wait', `a tool call answered after ${seconds(WAIT_MS)}: ${why(held, last)}`, 'A lead waiting for its members could lose its request: set Members to off (⚙) and tell the developer.');
     else report('PASS', 'Codex long tool wait', `a tool call answered after ${seconds(WAIT_MS)}; the request went on (kit_wait holds one up to 75 s)`);
-    if (odd().length) report('FAIL', 'Codex members', `Codex tried other tools: ${odd().join(', ')}`, 'den-kit allows only its own tools; send kit/.logs/codex-deep-*.jsonl to the developer.');
+    if (odd().length) report('FAIL', 'Codex members', `Codex tried other tools: ${odd().join(', ')}`, 'den-kit allows only its own tools; send .logs/codex-deep-*.jsonl to the developer.');
 
     // Token counts (per request and per member in the AI panel).
     const total = [...c.usage.values()].reduce((sum, n) => sum + n, 0);

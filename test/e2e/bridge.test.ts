@@ -62,7 +62,7 @@ describe('without a bridge', () => {
     assert.equal((await waitCompiled(page)).status, 'ok');
     assert.equal(await bridgeState(page), 'disabled');
     assert.match(await page.textContent('[data-testid=ai-status]') ?? '', /AI offline/);
-    assert.match(await kit(page, k => k.bridge.detail.value), /kit:dev/);
+    assert.match(await kit(page, k => k.bridge.detail.value), /dev/);
     assert.deepEqual(errors, []);
     await page.close();
   });

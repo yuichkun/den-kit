@@ -127,10 +127,10 @@ describe('the pod: a free environment for the AI', () => {
     await page.waitForSelector('[data-testid=code-part-state]');
     await page.waitForSelector('[data-prop=color]', { timeout: 20000 });
     // The person's own command: what it changes lands as their undo step.
-    const r = await kit(page, async k => { const out = await k.pod.runForYou("sed -i 's/Colour/Color/' src/parts/wave.ts && grep -c Color src/parts/wave.ts"); return { exit: out.result.exitCode, output: out.result.output, changed: out.changed }; });
+    const r = await kit(page, async k => { const out = await k.pod.runForYou("sed 's/Colour/Color/' src/parts/wave.ts > src/parts/wave.ts.tmp && mv src/parts/wave.ts.tmp src/parts/wave.ts && grep -c Color src/parts/wave.ts"); return { exit: out.result.exitCode, output: out.result.output, changed: out.changed }; });
     assert.deepEqual(r, { exit: 0, output: '1', changed: ['src/parts/wave.ts'] });
     assert.match(await kit(page, k => k.doc.value.project.files['src/parts/wave.ts']), /label: 'Color'/);
-    assert.equal(await kit(page, k => k.history.peek()?.label), 'Terminal: sed -i \'s/Colour/Color/\' src/parts/wave.ts && grep -c Color src/parts/wave.ts'.slice(0, 70));
+    assert.equal(await kit(page, k => k.history.peek()?.label), 'Terminal: sed \'s/Colour/Color/\' src/parts/wave.ts > src/parts/wave.ts.tmp && mv src/parts/wave.ts.tmp src/parts/wave.ts && grep -c Color src/parts/wave.ts'.slice(0, 70));
     // ⌘Z: the edit goes, then the part and its project.
     await kit(page, k => { k.undo(); k.undo(); });
     assert.equal(await kit(page, k => k.doc.value.project ?? null), null);

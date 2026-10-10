@@ -147,15 +147,25 @@ export class AudioEngine {
     if (node.events.kitHealth) node.events.kitHealth.on(() => { if (this.current?.node === node || this.incoming === node) this.onHealth(); });
     this.attachProbes(node, info.probes);
     const live: Live = { node, gain, artifact, info, ctx };
-    // Re-send held notes so a structural edit while playing keeps sounding.
-    if (info.voices) for (const [note, velocity] of this.held) node.midi.midi?.send({ type: 'noteOn', channel: 0, note, velocity } as never);
-    await wait(6); // ~2 render quanta for the new node to start
+    // Wall time is not audio time: a newly resumed device may take longer to start rendering.
+    const rendered = ctx.currentTime + 256 / ctx.sampleRate;
+    const renderDeadline = performance.now() + 3000;
+    while (ctx.state === 'running' && ctx.currentTime < rendered && serial === this.loadSerial && this.ctx === ctx) {
+      if (performance.now() >= renderDeadline) {
+        if (this.incoming === node) this.incoming = null;
+        node.dispose(); gain.disconnect(); this.stats.disposed++;
+        throw new Error('The audio device did not start rendering.');
+      }
+      await wait(4);
+    }
     if (serial !== this.loadSerial || this.ctx !== ctx) { if (this.incoming === node) this.incoming = null; node.dispose(); this.stats.disposed++; return; }
     const now = ctx.currentTime, fade = this.options.crossfadeMs / 1000;
     gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + fade);
     const previous = this.current;
     this.current = live;
     this.incoming = null;
+    // Send held notes once the new node has started, including keys pressed while it was loading.
+    if (info.voices) for (const [note, velocity] of this.held) node.midi.midi?.send({ type: 'noteOn', channel: 0, note, velocity } as never);
     this.stats.swaps++;
     this.retryAfterChange(); // a new patch gets a fresh chance if the old one had to be muted
     if (previous) {

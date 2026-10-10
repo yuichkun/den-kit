@@ -128,7 +128,7 @@ describe('pod tools', () => {
   });
   it('without a pod (no key), the tools say why and how to fix it, and change nothing', async () => {
     const { pod, state } = fakePod({});
-    state.off = { reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in kit/.env' };
+    state.off = { reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in .env' };
     const { ws, landed } = workspace(pod);
     const r = await ws.call('kit_bash', { command: 'ls' });
     expect(r.success).toBe(false);

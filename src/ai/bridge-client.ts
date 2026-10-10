@@ -23,7 +23,7 @@ export interface SocketLike {
 }
 
 export interface BridgeClientOptions {
-  /** Per-launch token injected by `kit:dev` (virtual:kit-bridge); null when no bridge was started. */
+  /** Per-launch token injected by `dev` (virtual:kit-bridge); null when no bridge was started. */
   token: string | null;
   url?: string;
   tab?: string;
@@ -88,7 +88,7 @@ export class BridgeClient {
   codexRetry() { return this.post({ t: 'codex.retry' }); }
 
   start() {
-    if (!this.token) { this.state.value = 'disabled'; this.detail.value = 'AI offline: start the editor with `npm run kit:dev` to enable the AI bridge.'; return; }
+    if (!this.token) { this.state.value = 'disabled'; this.detail.value = 'AI offline: start the editor with `npm run dev` to enable the AI bridge.'; return; }
     this.stopped = false;
     this.open();
   }
@@ -165,10 +165,10 @@ export class BridgeClient {
       this.socket = null;
       this.failAll('network', 'The AI bridge disconnected.');
       if (this.stopped) return;
-      if (event.code === CLOSE.badOrigin) { this.refuse('AI bridge refused this page (origin). Open the editor at the address `npm run kit:dev` prints.'); return; }
-      if (event.code === CLOSE.protocol) { this.refuse(`AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run kit:dev\`.`); return; }
+      if (event.code === CLOSE.badOrigin) { this.refuse('AI bridge refused this page (origin). Open the editor at the address `npm run dev` prints.'); return; }
+      if (event.code === CLOSE.protocol) { this.refuse(`AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run dev\`.`); return; }
       if (event.code === CLOSE.badToken) { void this.refreshToken(); return; }
-      this.scheduleRetry(welcomed ? 'AI bridge disconnected; reconnecting…' : 'AI offline: the bridge is not running (start the editor with `npm run kit:dev`).');
+      this.scheduleRetry(welcomed ? 'AI bridge disconnected; reconnecting…' : 'AI offline: the bridge is not running (start the editor with `npm run dev`).');
     };
   }
 
@@ -191,7 +191,7 @@ export class BridgeClient {
     this.retryTimer = setTimeout(() => { this.retryTimer = null; this.open(); }, wait);
   }
 
-  /** Reconnect now (e.g. after the user restarted kit:dev). */
+  /** Reconnect now (e.g. after the user restarted dev). */
   retryNow() { if (this.state.value === 'online' || this.stopped) return; this.attempt = 0; this.scheduleRetry(this.detail.value, 0); }
 
   private post(message: ClientMessage): boolean {

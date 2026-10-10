@@ -218,7 +218,7 @@ export class CodexClient {
     const command = this.options.command ?? resolveCodex(this.options.kitRoot, this.options.env);
     if (isProblem(command)) { this.setStatus({ state: 'error', detail: command.error, fix: command.fix }); return; }
     if (command.source === 'kit' && command.version !== CODEX_VERSION) {
-      this.setStatus({ state: 'error', detail: `Codex ${command.version} is installed; den-kit is pinned to ${CODEX_VERSION}.`, fix: 'Run `npm run kit:setup` from the repo root.' });
+      this.setStatus({ state: 'error', detail: `Codex ${command.version} is installed; den-kit is pinned to ${CODEX_VERSION}.`, fix: 'Run `npm ci` from the repo root.' });
       return;
     }
     const started = Date.now();
@@ -243,7 +243,7 @@ export class CodexClient {
       if (this.proc !== proc) return;
       const model = this.chooseModel(models?.data ?? []);
       const base = { model: model.label, images: model.images };
-      this.record('boot', { generation, ms: Date.now() - started, userAgent: init.userAgent, home: this.home.isolated ? 'kit/.codex-home' : 'custom', account: account.account?.type ?? null, model: model.label });
+      this.record('boot', { generation, ms: Date.now() - started, userAgent: init.userAgent, home: this.home.isolated ? '.codex-home' : 'custom', account: account.account?.type ?? null, model: model.label });
       if (!account.account && account.requiresOpenaiAuth !== false) {
         this.setStatus({ state: 'login', detail: 'Codex is not signed in.', fix: `Run \`${LOGIN_COMMAND}\` once in another terminal (it opens ChatGPT sign-in); den-kit picks it up by itself.`, ...base });
         this.watchAuth();
@@ -320,7 +320,7 @@ export class CodexClient {
     this.failures++;
     const last = stderr.split('\n').filter(Boolean).pop();
     if (this.failures > this.restartPolicy.maxFailures) {
-      this.setStatus({ state: 'error', detail: `${detail}${last ? ` (${last.slice(0, 160)})` : ''}`, fix: 'Run `npm run kit:doctor` to see why, then click the Codex status to retry.' });
+      this.setStatus({ state: 'error', detail: `${detail}${last ? ` (${last.slice(0, 160)})` : ''}`, fix: 'Run `npm run doctor` to see why, then click the Codex status to retry.' });
       return;
     }
     const delay = Math.min(this.restartPolicy.maxMs, this.restartPolicy.baseMs * 2 ** (this.failures - 1));

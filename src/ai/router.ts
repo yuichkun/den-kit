@@ -15,7 +15,7 @@ import { buildTemplate, TEMPLATES, TEMPLATE_INFO, type TemplateId } from './temp
 import { planLook } from './look-intents.ts';
 
 export interface RouterSettings { tau: number; tauJa: number }
-/** From the second kit:eval:jev run (36/36 right; Japanese answers down to 70%). */
+/** From the second eval:jev run (36/36 right; Japanese answers down to 70%). */
 export const DEFAULT_ROUTER_SETTINGS: RouterSettings = { tau: 0.6, tauJa: 0.7 };
 
 export interface RouteContext { doc: PatchDocument; catalog: Catalog; selection: readonly string[] }

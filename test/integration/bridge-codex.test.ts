@@ -76,7 +76,7 @@ describe('Codex start-up and status', () => {
   it('not signed in: `login` with the command to run; a request says so; the login is picked up by itself', async () => {
     const { bridge, fake } = await setup({ signedIn: false });
     expect(fake.client.status).toMatchObject({ state: 'login' });
-    expect(fake.client.status.fix).toContain('npm run kit:codex:login');
+    expect(fake.client.status.fix).toContain('npm run codex:login');
     const s = await tab(bridge);
     start(s, 'r1', 'wobble the cutoff');
     const done = doneOf((await collect(s, 'r1')).events)!;
@@ -90,7 +90,7 @@ describe('Codex start-up and status', () => {
     const { fake } = await setup({ env: { FAKE_CODEX_FAULT: 'crash-on-start' } });
     await until(() => fake.client.status.state === 'error', 8000);
     expect(fake.client.status.detail).toMatch(/stopped unexpectedly/);
-    expect(fake.client.status.fix).toMatch(/kit:doctor/);
+    expect(fake.client.status.fix).toMatch(/doctor/);
     expect(fake.client.stats.boots).toBe(4); // first start + 3 restarts
   });
 
@@ -188,7 +188,7 @@ describe('a turn', () => {
     start(s, 'r1', 'usage limit please');
     expect(doneOf((await collect(s, 'r1')).events)).toMatchObject({ status: 'failed', error: { code: 'usageLimitExceeded', fix: expect.stringMatching(/limit to reset/) } });
     start(s, 'r2', 'unauthorized please');
-    expect(doneOf((await collect(s, 'r2')).events)).toMatchObject({ status: 'failed', error: { code: 'unauthorized', fix: expect.stringMatching(/kit:codex:login/) } });
+    expect(doneOf((await collect(s, 'r2')).events)).toMatchObject({ status: 'failed', error: { code: 'unauthorized', fix: expect.stringMatching(/codex:login/) } });
   });
 
   it('an error Codex will retry is progress, not failure', async () => {

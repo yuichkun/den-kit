@@ -138,7 +138,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run kit:doctor -- --deep
+    // npm run doctor -- --deep
     name: 'doctor-ping',
     match: /connectivity check/i,
     async run(t) {
@@ -149,7 +149,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run kit:doctor -- --deep: a picture with the request, another added (turn/steer) while the ping is out.
+    // npm run doctor -- --deep: a picture with the request, another added (turn/steer) while the ping is out.
     name: 'doctor-picture',
     match: /den-kit picture check/i,
     async run(t) {

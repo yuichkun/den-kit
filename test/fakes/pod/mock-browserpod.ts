@@ -72,7 +72,10 @@ export class MockBrowserPod {
       }
     };
     child.stdout!.on('data', out); child.stderr!.on('data', out);
-    return new Promise(resolve => child.on('close', () => { this.children.delete(child); resolve({}); }));
+    return new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', () => { this.children.delete(child); resolve({}); });
+    });
   }
 
   onPortal(cb: (args: { url: string; port: number }) => void): void { this.portalListeners.push(cb); }
