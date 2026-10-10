@@ -1,4 +1,4 @@
-// The screen project a work starts with (kit/pod-template: Vite, TypeScript,
+// The screen project a work starts with (pod-template: Vite, TypeScript,
 // ESLint, den-kit's SDK for code parts, and a guide for the AI), and the one file
 // den-kit writes from the patch on every change: src/kit/controls.ts, the
 // controls a part can read and move, with their ranges, as code (so a wrong id

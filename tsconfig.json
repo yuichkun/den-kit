@@ -11,12 +11,24 @@
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
-    "types": ["node", "vite/client"],
-    "paths": {
-      "@denaudio/den": ["../src/index.ts"],
-      "@denaudio/den/*": ["../src/*.ts"]
-    }
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker.ImportScripts"
+    ],
+    "types": [
+      "node",
+      "vite/client"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "bridge/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "env.d.ts", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "bridge/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "env.d.ts",
+    "vite.config.ts"
+  ]
 }

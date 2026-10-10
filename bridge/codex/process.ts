@@ -1,8 +1,8 @@
 // Finding and running the pinned Codex CLI (`@openai/codex` 0.160.1 in
-// kit/node_modules). The native binary is started directly (not through the npm
+// node_modules). The native binary is started directly (not through the npm
 // launcher) so there is one child process to stop, and it is isolated from the
 // user's own Codex setup and from the den repository:
-//   CODEX_HOME  kit/.codex-home (KIT_CODEX_HOME=~/.codex opts into the user's own)
+//   CODEX_HOME  .codex-home (KIT_CODEX_HOME=~/.codex opts into the user's own)
 //   cwd         <os tmpdir>/den-kit-codex/<hash>, outside any git repository, so
 //               Codex finds no AGENTS.md
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -22,15 +22,15 @@ const TRIPLES: Record<string, string> = {
   'win32-x64': 'x86_64-pc-windows-msvc', 'win32-arm64': 'aarch64-pc-windows-msvc',
 };
 
-/** The codex binary to run: KIT_CODEX_BIN (tests: a script run with Node), else the pinned package in kit/node_modules. */
+/** The codex binary to run: KIT_CODEX_BIN (tests: a script run with Node), else the pinned package in node_modules. */
 export function resolveCodex(kitRoot: string, env: NodeJS.ProcessEnv = process.env): CodexCommand | CodexProblem {
   const override = env.KIT_CODEX_BIN;
   if (override) {
-    if (!existsSync(override)) return { error: `KIT_CODEX_BIN points to ${override}, which does not exist.`, fix: 'Unset KIT_CODEX_BIN to use the pinned codex in kit/node_modules.' };
+    if (!existsSync(override)) return { error: `KIT_CODEX_BIN points to ${override}, which does not exist.`, fix: 'Unset KIT_CODEX_BIN to use the pinned codex in node_modules.' };
     return /\.(ts|mjs|js)$/.test(override) ? { command: process.execPath, args: [override], source: 'KIT_CODEX_BIN', version: null } : { command: override, args: [], source: 'KIT_CODEX_BIN', version: null };
   }
   const pkg = join(kitRoot, 'node_modules/@openai/codex/package.json');
-  if (!existsSync(pkg)) return { error: 'Codex is not installed in kit/node_modules.', fix: 'Run `npm run kit:setup` from the repo root (it installs the pinned @openai/codex).' };
+  if (!existsSync(pkg)) return { error: 'Codex is not installed in node_modules.', fix: 'Run `npm ci` from the repo root (it installs the pinned @openai/codex).' };
   const version = String(JSON.parse(readFileSync(pkg, 'utf8')).version);
   const key = `${process.platform}-${process.arch}`;
   const triple = TRIPLES[key];
@@ -39,7 +39,7 @@ export function resolveCodex(kitRoot: string, env: NodeJS.ProcessEnv = process.e
   try { vendor = join(dirname(createRequire(pkg).resolve(`@openai/codex-${key}/package.json`)), 'vendor'); }
   catch { vendor = join(dirname(pkg), 'vendor'); }
   const binary = join(vendor, triple, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex');
-  if (!existsSync(binary)) return { error: `The Codex binary for ${key} is missing (optional dependency @openai/codex-${key}).`, fix: 'Run `npm run kit:setup` again (npm must install optional dependencies; do not use --omit=optional).' };
+  if (!existsSync(binary)) return { error: `The Codex binary for ${key} is missing (optional dependency @openai/codex-${key}).`, fix: 'Run `npm ci` again (npm must install optional dependencies; do not use --omit=optional).' };
   return { command: binary, args: [], source: 'kit', version };
 }
 
@@ -61,7 +61,7 @@ export function codexWorkdir(kitRoot: string): string {
 }
 
 /** How the user signs Codex in for den-kit (scripts/codex-login.ts creates CODEX_HOME first; Codex refuses a missing one). */
-export const LOGIN_COMMAND = 'npm run kit:codex:login';
+export const LOGIN_COMMAND = 'npm run codex:login';
 
 /** The environment Codex runs with: the user's (network, proxies, HOME) minus den-kit's own secrets. */
 export function codexEnv(home: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

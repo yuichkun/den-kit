@@ -1,4 +1,4 @@
-// Minimal KEY=VALUE loader for kit/.env (never committed). Existing environment wins.
+// Minimal KEY=VALUE loader for .env (never committed). Existing environment wins.
 import { existsSync, readFileSync } from 'node:fs';
 
 export function loadEnvFile(path: string, env: NodeJS.ProcessEnv = process.env): string[] {

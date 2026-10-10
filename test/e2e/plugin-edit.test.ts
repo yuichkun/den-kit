@@ -38,7 +38,7 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.type('text');
     await page.keyboard.press('Enter');
     await page.waitForSelector('.text-edit');
-    await page.keyboard.press('Control+KeyA');
+    await page.keyboard.press('ControlOrMeta+KeyA');
     await page.keyboard.type('Hello');
     await page.keyboard.press('Control+Enter');
     await page.waitForSelector('.text-edit', { state: 'detached' });

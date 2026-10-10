@@ -9,15 +9,18 @@ den のブロックを Bitwig Grid のようにパッチングし、そのグラ
 
 ## はじめかた（Mac）
 
-den リポジトリのルートで次を実行します。
+Node.js 24 を使い、この den-kit リポジトリのルートで次を実行します。den 本体の clone やビルドは不要です。公開済みの `@denaudio/den@0.1.0` と unworklet 0.4.1 を npm からインストールします。
 
 ```sh
-npm ci                   # den 本体の依存
-npm run kit:setup        # kit の依存（固定した Codex CLI を含む）を入れ、den をビルド
-npm run kit:codex:login  # 初回だけ：LLM 用に Codex へ ChatGPT でサインイン（下の「LLM の経路」）
-npm run kit:doctor       # 環境の確認（失敗した項目には直し方が出ます）
-npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
+npm ci              # den・unworklet・固定した Codex CLI を含む依存
+npm run codex:login  # 初回だけ：LLM 用に Codex へ ChatGPT でサインイン（下の「LLM の経路」）
+npm run doctor       # 環境の確認（失敗した項目には直し方が出ます）
+npm run dev          # http://127.0.0.1:5180/ を Chrome で開く
 ```
+
+AI の認証や外部サービスのキーがなくても、パッチング・演奏・画面編集・作品集・保存と読み込みは使えます。AI を起動せずに試すときは `KIT_CODEX=off npm run dev`。初回の Codex サインインと Jev／BrowserPod のキーは各自で設定し、ほかの人の認証情報は共有しません。
+
+試作を履歴付きで den から独立させたリポジトリです。正式版への作り直しは別の工程です。[移行の記録](docs/migration.md)を参照してください。
 
 - 音は 48 kHz で動かします。出力デバイスが 44.1 kHz のときは、「Audio MIDI 設定」で 48 kHz に変えてください。48 kHz でない場合は、画面にその旨が表示されます。
 - はじめて開いたときは、スタート画面（What do you want to make?）が出ます。作りたいものを書いて Enter を押すか、矢印キーで作品集から選んで Enter を押します。`Tab` で「Look」の列に移ると、別の作品の見た目を着せてから始められます。選ぶと音も始まります。
@@ -27,12 +30,12 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 ## AI の速い経路（CP2a）
 
 **準備（初回だけ）**
-1. `kit/.env` を作り、`TYPESAFE_API_KEY=…` の 1 行を書きます。このファイルは git に入りません。キーはブリッジ（Node）だけが読み、ブラウザには渡しません。
-2. `npm run kit:doctor` で「Jev key」と「Jev request」が PASS になることを確かめます。Jev への小さな要求を 3 回送り、所要時間を表示します。
-3. `npm run kit:eval:jev` で、英語と日本語の例文（`kit/scripts/eval-jev.fixtures.json`）を本物の Jev に解かせます。正答率と τ の表が出ます。τ を決める目安にします。結果は `kit/.logs/` に保存されます。
+1. `.env` を作り、`TYPESAFE_API_KEY=…` の 1 行を書きます。このファイルは git に入りません。キーはブリッジ（Node）だけが読み、ブラウザには渡しません。
+2. `npm run doctor` で「Jev key」と「Jev request」が PASS になることを確かめます。Jev への小さな要求を 3 回送り、所要時間を表示します。
+3. `npm run eval:jev` で、英語と日本語の例文（`scripts/eval-jev.fixtures.json`）を本物の Jev に解かせます。正答率と τ の表が出ます。τ を決める目安にします。結果は `.logs/` に保存されます。
 
 **使い方**
-- `npm run kit:dev` を起動すると、AI ブリッジ（127.0.0.1:5181）も一緒に起動します。AI パネルの上に `Jev 230 ms` のような状態が出ます。
+- `npm run dev` を起動すると、AI ブリッジ（127.0.0.1:5181）も一緒に起動します。AI パネルの上に `Jev 230 ms` のような状態が出ます。
 - 画面右の AI パネルの入力欄に依頼を書いて Enter を押します（どこにいても `Enter` か `⌘K` で入力欄に移ります）。例：「明るく」「リリース長く」「もっと揺らして」「リバーブ足して」「ベース作って」「a bit darker」「add reverb」。
 - 変更はすぐに適用されます。パネルに依頼と結果（変えた値・経路・かかった時間）が並びます。入力欄は送るたびに空になるので、そのまま次の依頼を続けられます。`Esc` で入力欄から出ると、パッチやプラグインのキー操作に戻ります。
 - 気に入らなければ、普通の取り消しと同じく `⌘Z` で戻します。AI の変更 1 回分が 1 回で戻り、履歴には「undone」と出ます。
@@ -44,22 +47,22 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 - 選択肢は出しません。自信が τ に届かないとき、対象のモジュールが絞れないとき、コードを書く・配線を組み替える・仕組みを聞くなど速い経路で扱えない依頼は、そのまま LLM に回ります（次の節）。LLM が使えないときは、理由と直し方を 1 行で出します。
 - Jev が考えている間にパッチが変わったときは、いまのパッチでもう一度 Jev に聞きます（古い答えでは変えません）。
 - ⚙ で開発用の引き出しが開きます。τ（英語・日本語）、Jev の持ち時間、音声の言語、Jev の使用の有無を変えられます。直近の依頼の記録（経路・確信度・時間）も見られます。
-  - 既定値は、2 回目の `kit:eval:jev`（36 本すべて正解、応答 160〜360 ms）をもとに決めています：τ は英語 0.60・日本語 0.70、Jev の持ち時間は 1.2 秒。
-- 記録は `kit/.logs/trace-*.jsonl`（依頼ごとの経路・確信度・時間・取り消し）と `kit/.logs/jev-*.jsonl` に書かれます。
+  - 既定値は、2 回目の `eval:jev`（36 本すべて正解、応答 160〜360 ms）をもとに決めています：τ は英語 0.60・日本語 0.70、Jev の持ち時間は 1.2 秒。
+- 記録は `.logs/trace-*.jsonl`（依頼ごとの経路・確信度・時間・取り消し）と `.logs/jev-*.jsonl` に書かれます。
 - キーがない、Jev に届かない、ブリッジがないときも、語彙表の操作と CP1 の機能はそのまま使えます。
 
 ## LLM の経路（CP2b）
 
 **準備（初回だけ）**
-1. `npm run kit:codex:login` を実行します。ブラウザで ChatGPT のサインインが開きます。
-   - ログインは den-kit 専用の `kit/.codex-home` に保存されます（git には入りません）。普段の `~/.codex` の設定・MCP・AGENTS.md は混ざりません。
-   - いつもの Codex の設定をそのまま使いたいときは、`kit/.env` に `KIT_CODEX_HOME=~/.codex` と書きます。
-2. `npm run kit:doctor -- --deep` で、Codex の版・サインイン・分離（指示ファイルを読んでいないこと）と、実際の 1 往復を確かめます。
+1. `npm run codex:login` を実行します。ブラウザで ChatGPT のサインインが開きます。
+   - ログインは den-kit 専用の `.codex-home` に保存されます（git には入りません）。普段の `~/.codex` の設定・MCP・AGENTS.md は混ざりません。
+   - いつもの Codex の設定をそのまま使いたいときは、`.env` に `KIT_CODEX_HOME=~/.codex` と書きます。
+2. `npm run doctor -- --deep` で、Codex の版・サインイン・分離（指示ファイルを読んでいないこと）と、実際の 1 往復を確かめます。
    - 1 往復では、ping ツールを 1 回呼ばせます。ChatGPT の利用枠を少しだけ使います。
    - 続けて、メンバー・スケッチ・画面共有（U8）に要ることも確かめます（全部で約 2 分）。同時に 2 つの依頼、75 秒待たせたツール呼び出しのあとも依頼が続くこと、依頼と一緒に送る絵と作業中に足す絵、会話の写し（fork）、トークン数。
    - Codex 0.160.1 では、会話の写し（fork）だけが WARN になります（den-kit の会話は写せないため）。den-kit は要約で代わりをするので、直すことはありません。
-   - やり取りはすべて `kit/.logs/codex-deep-*.jsonl` に記録されます。うまくいかないときは、このファイルを共有してください。
-3. `npm run kit:dev` を起動し、右上に緑の `● LLM` が出れば準備完了です。`kit:dev` の起動中にサインインしても、自動で反映されます。
+   - やり取りはすべて `.logs/codex-deep-*.jsonl` に記録されます。うまくいかないときは、このファイルを共有してください。
+3. `npm run dev` を起動し、右上に緑の `● LLM` が出れば準備完了です。`dev` の起動中にサインインしても、自動で反映されます。
 
 **使い方**
 - 速い経路で扱えない依頼は、自動で LLM に回ります。たとえば次のような依頼です。
@@ -82,7 +85,7 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
   - `LLM: sign in`：サインインが必要です（ポイントすると手順が出ます）。
   - `LLM ✕`：エラーです。クリックすると Codex を再起動します。
   - `LLM 72%`：利用枠の使用率が 50% を超えたときに出ます。
-- 設定（`kit/.env`）
+- 設定（`.env`）
   - `KIT_CODEX_MODEL`：モデルを指定します。既定は Codex の既定のモデルです。
   - `KIT_CODEX_EFFORT`：推論の深さです（`low` / `medium` / `high` など）。既定はモデルの既定です。
   - `KIT_CODEX=off`：LLM を使いません。
@@ -93,11 +96,11 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 - LLM が使えるのは den-kit のツール（`kit_*`）だけです。
   - シェル、ファイル、Web 検索、アプリ連携、プラグイン、サブエージェントは無効にしています。
   - 承認を求める要求は、すべて断ります。
-- 作業ディレクトリはリポジトリの外（一時フォルダ）に置きます。den の AGENTS.md は読みません。
+- 作業ディレクトリはリポジトリの外（一時フォルダ）に置きます。den-kit の AGENTS.md は読みません。
 - ツールはブラウザの中で動きます。ブリッジは 127.0.0.1 だけで待ち受けます。
 - 記録
-  - `kit/.logs/codex-*.jsonl`：起動、依頼の結果、断った要求
-  - `kit/.logs/trace-*.jsonl`：`kind: llm` の行
+  - `.logs/codex-*.jsonl`：起動、依頼の結果、断った要求
+  - `.logs/trace-*.jsonl`：`kind: llm` の行
 
 ## 画面
 
@@ -402,9 +405,9 @@ npm run kit:dev          # http://127.0.0.1:5180/ を Chrome で開く
 den-kit の AI に、Claude Code と同じように自由に動ける環境を渡す試作です。ブラウザのタブの中で動く Linux 環境（BrowserPod）に、作品ごとの画面用 Web プロジェクト（Vite + TypeScript、ESLint、git）を置きます。AI はそこで bash、ファイルの読み書き、npm、tsc、eslint、git をそのまま使い、作った「コード部品」がプラグイン画面の上で動きます。サーバーも、あなたの Mac のファイルも使いません。
 
 **準備（初回だけ）**
-1. console.browserpod.io でキーを作り、`kit/.env` に `BROWSERPOD_API_KEY=…` の 1 行を足します（git には入りません）。
-   - BrowserPod はブラウザの中で起動するので、このキーは開発サーバー（`npm run kit:dev`）がページに渡します。ビルドしたファイルには入りません。Codex には渡しません。
-2. `npm run kit:dev` を起動し直します。ターミナルに `Pod → BrowserPod, key …` と出ます。
+1. console.browserpod.io でキーを作り、`.env` に `BROWSERPOD_API_KEY=…` の 1 行を足します（git には入りません）。
+   - BrowserPod はブラウザの中で起動するので、このキーは開発サーバー（`npm run dev`）がページに渡します。ビルドしたファイルには入りません。Codex には渡しません。
+2. `npm run dev` を起動し直します。ターミナルに `Pod → BrowserPod, key …` と出ます。
 3. Chrome で開いて音を始めると、このブラウザで初めてのときだけ、pod が自動で起動します（パッケージのインストールを含めて 1.5〜2.5 分）。進み具合は Project タブで見られます。
 4. Project タブの「Check the pod」を押すと、各段の時間を測るチェックが走ります（下の「pod チェック」）。
 
@@ -446,7 +449,7 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
   7. git
   8. コード部品の読み込み
   9. 編集が部品に届くまで
-- 結果は「Copy」でテキストにできます。ブリッジのログ（`kit/.logs`）にも残ります。
+- 結果は「Copy」でテキストにできます。ブリッジのログ（`.logs`）にも残ります。
 
 **知っておくこと**
 - 作品（パッチのファイル）が持つのは、プロジェクトのソースだけです。node_modules・dist・.git は pod の中にだけあります。pod のディスクは、このブラウザ（IndexedDB）に残ります。
@@ -497,7 +500,7 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
 - 設定（⚙）
   - Members：the AI decides（既定）／off（1 人で。比べるとき用）
   - Members are told：リードに任せる（既定）／brief／full／bare（比べるとき用）
-- 記録：依頼ごとに、最初の変更までの時間、全体の時間、同時に動いた数、トークン数（メンバー別も）を `kit/.logs/trace-*.jsonl` に書きます。
+- 記録：依頼ごとに、最初の変更までの時間、全体の時間、同時に動いた数、トークン数（メンバー別も）を `.logs/trace-*.jsonl` に書きます。
 - full のメンバーは、den-kit がまとめた会話の要約から始めます。
   - Codex の会話の写し（`thread/fork`）は、Codex 0.160.1 では使えません。den-kit の会話は保存しない設定（ephemeral）で、写す元の記録がないためです（2026-10-08、Mac の `doctor --deep`：「no rollout found」）。
   - `KIT_CODEX_FORK=1` は、将来の版で試すための設定です。いまは off のままにしてください（オンにしても、写せなければ要約に戻ります）。
@@ -547,7 +550,8 @@ den-kit の AI に、Claude Code と同じように自由に動ける環境を�
 ## テスト
 
 ```sh
-npm run kit:test   # unit（vitest）→ integration（実コンパイル・オフライン描画・ブリッジ）→ e2e（Playwright + Chromium）
+npx playwright install chromium  # 初回だけ：e2e 用のブラウザ
+npm test          # unit（vitest）→ integration（実コンパイル・オフライン描画・ブリッジ）→ e2e（Playwright + Chromium）
 ```
 
 テストでは本物の Jev と本物のモデルを使いません。

@@ -181,7 +181,7 @@ describe('LLM path, not signed in', () => {
     await prompt(page, 'write a bitcrusher in a codebox');
     const line = await settled(page, 'write a bitcrusher in a codebox', 15000);
     assert.equal(line.status, 'nothing');
-    assert.match(line.message, /not signed in.*kit:codex:login/);
+    assert.match(line.message, /not signed in.*codex:login/);
     s.codex!.signIn();
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     assert.deepEqual(errors, []);

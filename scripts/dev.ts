@@ -1,4 +1,4 @@
-// `npm run kit:dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
+// `npm run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
 // for the editor (127.0.0.1:5180), in one process. The bridge starts first and the
 // page receives its per-launch token through virtual:kit-bridge.
 import { createServer } from 'vite';
@@ -38,7 +38,7 @@ try {
   });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(/EADDRINUSE/.test(message) ? `Bridge port ${bridgePort} is busy (another kit:dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run kit:dev.` : `Could not start the AI bridge: ${message}`);
+  console.error(/EADDRINUSE/.test(message) ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run dev.` : `Could not start the AI bridge: ${message}`);
   process.exit(1);
 }
 process.env.KIT_BRIDGE_TOKEN = bridge.token;
@@ -49,9 +49,9 @@ try {
   await server.listen();
   const jev = bridge.status().jev;
   console.log(`\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`);
-  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in kit/.env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs kit/.logs`);
+  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in .env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs .logs`);
   // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.
-  console.log(`  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in kit/.env to give the AI a pod: bash, git, Node, npm)'}`);
+  console.log(`  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in .env to give the AI a pod: bash, git, Node, npm)'}`);
   if (codex) {
     // Start Codex after the editor is up; its state shows in the editor (and here).
     let last = '';
@@ -68,6 +68,6 @@ try {
 } catch (error) {
   await bridge.close();
   const message = error instanceof Error ? error.message : String(error);
-  console.error(/EADDRINUSE|already in use/i.test(message) ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run kit:dev.` : message);
+  console.error(/EADDRINUSE|already in use/i.test(message) ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run dev.` : message);
   process.exit(1);
 }

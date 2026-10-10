@@ -50,10 +50,10 @@ export interface PageFacts {
 /** Why this tab is not cross-origin isolated, and what fixes it (the checks in the order that decides). */
 export function isolationProblem(f: PageFacts): { reason: string; fix: string } {
   const origin = new URL(f.href).origin;
-  if (!f.secure) return { reason: `${origin} is not a secure address, so the browser ignores the isolation headers`, fix: 'Open http://127.0.0.1:5180/ (or http://localhost:5180/) on the Mac running `npm run kit:dev`, not a network address.' };
+  if (!f.secure) return { reason: `${origin} is not a secure address, so the browser ignores the isolation headers`, fix: 'Open http://127.0.0.1:5180/ (or http://localhost:5180/) on the Mac running `npm run dev`, not a network address.' };
   if (f.framed) return { reason: 'den-kit is shown inside another page (an app\'s preview or a frame), which cannot be isolated', fix: `Open ${origin}/ in a tab of its own (Chrome recommended).` };
-  if (!f.headers) return { reason: 'den-kit could not read its own page from the server', fix: 'Check that `npm run kit:dev` is still running, then reload.' };
-  if (f.headers.coop !== 'same-origin' || !/^(require-corp|credentialless)$/.test(f.headers.coep ?? '')) return { reason: `the server sends COOP "${f.headers.coop ?? 'none'}" and COEP "${f.headers.coep ?? 'none'}" with this page`, fix: `Another server may be answering on ${origin}: stop it, start \`npm run kit:dev\` (from the den folder, on this branch) and reload.` };
+  if (!f.headers) return { reason: 'den-kit could not read its own page from the server', fix: 'Check that `npm run dev` is still running, then reload.' };
+  if (f.headers.coop !== 'same-origin' || !/^(require-corp|credentialless)$/.test(f.headers.coep ?? '')) return { reason: `the server sends COOP "${f.headers.coop ?? 'none'}" and COEP "${f.headers.coep ?? 'none'}" with this page`, fix: `Another server may be answering on ${origin}: stop it, start \`npm run dev\` (from the den-kit folder) and reload.` };
   if (f.serviceWorker) return { reason: 'a service worker left on this address by another app answers den-kit\'s page without its isolation headers', fix: `Reload: den-kit removes it. If this stays, open Chrome DevTools ▸ Application ▸ Service workers, press Unregister for ${origin}, then reload.` };
   return { reason: 'the server sends the isolation headers, but this tab was not isolated', fix: `Open ${origin}/ in an incognito window (⇧⌘N). If it works there, a browser extension changes den-kit's headers: turn it off for 127.0.0.1.` };
 }
@@ -123,7 +123,7 @@ const promise = <T>(work: () => PromiseLike<T> | T): Promise<T> => { try { retur
 export const plainBytes = (data: ArrayBuffer | ArrayBufferView): Uint8Array => (ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data)).slice();
 
 const KEY_PROBLEM = /api ?key|auth|401|403|token|credential/i;
-const KEY_FIX = 'Check BROWSERPOD_API_KEY in kit/.env (a key from console.browserpod.io) and the network; after changing the key, restart `npm run kit:dev` and reload the page.';
+const KEY_FIX = 'Check BROWSERPOD_API_KEY in .env (a key from console.browserpod.io) and the network; after changing the key, restart `npm run dev` and reload the page.';
 /** How long den-kit waits for BrowserPod to start before saying so (it keeps starting; asking again waits for the same start). */
 export const BOOT_LIMIT_MS = 300_000;
 
@@ -148,7 +148,7 @@ async function startBoot(options: BrowserPodOptions & { testing?: BootTesting })
   if (!await claimPod()) throw new PodUnavailable('Another den-kit tab is using the pod (BrowserPod runs in one tab at a time).', 'Close the other den-kit tab, then press Start the pod here.');
   options.log?.('Loading BrowserPod (rt.browserpod.io)…');
   let mod: typeof import('@leaningtech/browserpod');
-  try { mod = await (options.testing?.load ?? (() => import('@leaningtech/browserpod')))(); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in kit/.'); }
+  try { mod = await (options.testing?.load ?? (() => import('@leaningtech/browserpod')))(); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in the den-kit repo.'); }
   if (!mod.BrowserPod) throw new PodUnavailable('The BrowserPod runtime could not be loaded from rt.browserpod.io.', 'Check the network connection, then reload.');
   let fail!: (error: PodUnavailable) => void;
   const failed = new Promise<never>((_, reject) => { fail = reject; });
@@ -220,7 +220,7 @@ export class BrowserPodHost implements PodHost {
    */
   async init() {
     const nonce = newNonce();
-    const r = await this.exec(['-c', `env 2>/dev/null || export -p; printf '\\n${exitMarker(nonce)}%d>>\\n' $?`], nonce, { timeoutMs: 60_000 }, null);
+    const r = await this.exec(['-c', `env 2>/dev/null || export -p; printf '\\n${exitMarker(nonce)}%d>>\\n' $?`], nonce, { cwd: '/', timeoutMs: 60_000 }, null);
     this.base = parseEnv(r.output);
     if (this.base.HOME?.startsWith('/')) this.home = this.base.HOME; else this.base.HOME = this.home;
     // Without one, the usual places (Node and npm live in one of them).

@@ -29,7 +29,7 @@ export interface HarnessOptions {
   jevKey?: string | null;
   /** How the fake Jev answers (default: position-biased, i.e. an unsure model). */
   jevAnswerer?: Answerer;
-  /** Warm Jev up at bridge start like kit:dev does (learns a bad key early). */
+  /** Warm Jev up at bridge start like dev does (learns a bad key early). */
   warmUp?: boolean;
   /** Run the LLM path against the fake Codex app-server (never the real one). */
   codex?: boolean | { signedIn?: boolean; env?: Record<string, string>; timeouts?: Record<string, number> };

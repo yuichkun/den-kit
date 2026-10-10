@@ -81,7 +81,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const codex = options.codex;
   const llmGraceMs = options.llmGraceMs ?? 30000;
-  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'kit:dev was started with KIT_CODEX=off.' } });
+  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'dev was started with KIT_CODEX=off.' } });
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
   const broadcastStatus = () => { const s = status(); for (const t of tabs) send(t.socket, { t: 'status', status: s }); };
   const unsubscribeCodex = codex?.onStatus(() => broadcastStatus());
@@ -173,7 +173,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       if (!tab) {
         if (parsed.t !== 'hello') { socket.close(CLOSE.protocol, 'hello first'); return; }
         if (parsed.token !== token) { socket.close(CLOSE.badToken, 'bad token'); return; }
-        if (parsed.protocol !== PROTOCOL_VERSION) { send(socket, { t: 'error', message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart kit:dev` }); socket.close(CLOSE.protocol, 'protocol mismatch'); return; }
+        if (parsed.protocol !== PROTOCOL_VERSION) { send(socket, { t: 'error', message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart dev` }); socket.close(CLOSE.protocol, 'protocol mismatch'); return; }
         clearTimeout(helloTimer);
         // The same tab on a new socket (a reconnect that beat the old socket's close): the new one wins.
         const previous = connected(parsed.tab);

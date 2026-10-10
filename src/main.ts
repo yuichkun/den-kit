@@ -21,17 +21,17 @@ const number = (key: string) => query.has(key) && Number.isFinite(Number(query.g
 const session = new KitSession({ compileTimeoutMs: number('compileTimeout'), rotateAfter: number('rotateAfter') });
 // Nothing saved yet (the very first launch): open on the start screen.
 const firstRun = !session.restore('bass') && !query.has('noStart');
-// The local AI bridge (started by `kit:dev`); without it the editor runs as in CP1 and shows "AI offline".
+// The local AI bridge (started by `dev`); without it the editor runs as in CP1 and shows "AI offline".
 session.bridge = new BridgeClient({ token: bridgeConfig.token });
 session.bridge.start();
 session.fast = new FastPath(session);
 session.llm = new LlmController(session, session.fast, session.bridge);
-// The pod: BrowserPod when kit/.env has BROWSERPOD_API_KEY; the e2e harness's stand-in when it sets one up (tests only).
+// The pod: BrowserPod when .env has BROWSERPOD_API_KEY; the e2e harness's stand-in when it sets one up (tests only).
 const pod: PodFactory = podConfig.fakeUrl
   ? { kind: 'fake', create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!) }
   : podConfig.apiKey
     ? { kind: 'browserpod', create: async progress => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey: podConfig.apiKey!, storageKey: 'den-kit', log: progress }) }
-    : { kind: null, create: () => Promise.reject(new Error('No pod.')), reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in kit/.env (a key from console.browserpod.io), then restart `npm run kit:dev`.' };
+    : { kind: null, create: () => Promise.reject(new Error('No pod.')), reason: 'The pod (BrowserPod) is off: no API key.', fix: 'Put BROWSERPOD_API_KEY=… in .env (a key from console.browserpod.io), then restart `npm run dev`.' };
 session.pod = new PodSession(session, pod);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.
 (window as unknown as { __kit: KitSession }).__kit = session;

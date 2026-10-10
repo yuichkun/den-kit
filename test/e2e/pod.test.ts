@@ -68,7 +68,10 @@ describe('the pod: a free environment for the AI', () => {
     const frame = await partFrame(page, 'meter');
     const height = () => frame.evaluate(() => document.getElementById('meter-bar')!.style.height);
     const norm = () => kit(page, k => { const n = k.doc.value.nodes.knob1; const v = n.values.value, min = n.config.min, max = n.config.max; return Math.log(v / min) / Math.log(max / min); });
-    assert.equal(await height(), `${Math.round((await norm()) * 100)}%`);
+    const initialHeight = `${Math.round((await norm()) * 100)}%`;
+    // The ready message precedes the first animation frame that draws the controls.
+    await frame.waitForFunction(h => document.getElementById('meter-bar')?.style.height === h, initialHeight);
+    assert.equal(await height(), initialHeight);
     // The knob moves (the person turns it): the part follows.
     await kit(page, k => k.commit([{ op: 'setValue', node: 'knob1', port: 'value', value: 200 }], { label: 'turn' }));
     await frame.waitForFunction(h => document.getElementById('meter-bar')!.style.height === h, `${Math.round((await norm()) * 100)}%`);
@@ -127,10 +130,10 @@ describe('the pod: a free environment for the AI', () => {
     await page.waitForSelector('[data-testid=code-part-state]');
     await page.waitForSelector('[data-prop=color]', { timeout: 20000 });
     // The person's own command: what it changes lands as their undo step.
-    const r = await kit(page, async k => { const out = await k.pod.runForYou("sed -i 's/Colour/Color/' src/parts/wave.ts && grep -c Color src/parts/wave.ts"); return { exit: out.result.exitCode, output: out.result.output, changed: out.changed }; });
+    const r = await kit(page, async k => { const out = await k.pod.runForYou("sed 's/Colour/Color/' src/parts/wave.ts > src/parts/wave.ts.tmp && mv src/parts/wave.ts.tmp src/parts/wave.ts && grep -c Color src/parts/wave.ts"); return { exit: out.result.exitCode, output: out.result.output, changed: out.changed }; });
     assert.deepEqual(r, { exit: 0, output: '1', changed: ['src/parts/wave.ts'] });
     assert.match(await kit(page, k => k.doc.value.project.files['src/parts/wave.ts']), /label: 'Color'/);
-    assert.equal(await kit(page, k => k.history.peek()?.label), 'Terminal: sed -i \'s/Colour/Color/\' src/parts/wave.ts && grep -c Color src/parts/wave.ts'.slice(0, 70));
+    assert.equal(await kit(page, k => k.history.peek()?.label), 'Terminal: sed \'s/Colour/Color/\' src/parts/wave.ts > src/parts/wave.ts.tmp && mv src/parts/wave.ts.tmp src/parts/wave.ts && grep -c Color src/parts/wave.ts'.slice(0, 70));
     // ⌘Z: the edit goes, then the part and its project.
     await kit(page, k => { k.undo(); k.undo(); });
     assert.equal(await kit(page, k => k.doc.value.project ?? null), null);

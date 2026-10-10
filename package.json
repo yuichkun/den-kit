@@ -4,7 +4,7 @@
   "type": "module",
   "description": "den-kit PoC: patch den blocks in a graph editor, with AI collaboration (GEN-648).",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "node scripts/dev.ts",
@@ -42,7 +42,10 @@
     "@vue-flow/core": "1.48.2",
     "highlight.js": "11.12.0",
     "vue": "3.5.43",
-    "ws": "8.22.0"
+    "ws": "8.22.0",
+    "@denaudio/den": "0.1.0",
+    "@unworklet/core": "0.4.1",
+    "@unworklet/offline": "0.4.1"
   },
   "devDependencies": {
     "@types/node": "24.19.1",
@@ -52,9 +55,15 @@
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "4.1.11",
-    "vue-tsc": "3.3.12"
+    "vue-tsc": "3.3.12",
+    "playwright": "1.60.0"
   },
   "optionalDependencies": {
     "@openai/codex": "0.160.1"
+  },
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuichkun/den-kit.git"
   }
 }

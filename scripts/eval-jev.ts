@@ -1,4 +1,4 @@
-// `npm run kit:eval:jev`: ask the real Jev (key from kit/.env) every fixture in
+// `npm run eval:jev`: ask the real Jev (key from .env) every fixture in
 // eval-jev.fixtures.json with exactly the questions the fast path sends, and
 // print accuracy, latency and a τ table (how much gets applied, and how much of
 // that is right) for English and Japanese. Used to choose τ at CP2a.
@@ -21,7 +21,7 @@ interface Fixture { text: string; starter?: StarterId; expect: Expect; alsoOk?: 
 const kit = dirname(dirname(fileURLToPath(import.meta.url)));
 loadEnvFile(join(kit, '.env'));
 const key = process.env.TYPESAFE_API_KEY;
-if (!key) { console.error('TYPESAFE_API_KEY is not set. Put it in kit/.env (git-ignored) and run again.'); process.exit(1); }
+if (!key) { console.error('TYPESAFE_API_KEY is not set. Put it in .env (git-ignored) and run again.'); process.exit(1); }
 const fixtures = JSON.parse(readFileSync(new URL('./eval-jev.fixtures.json', import.meta.url), 'utf8')) as Fixture[];
 const only = process.argv.slice(2).join(' ').trim();
 const jev = new JevClient({ apiKey: key, baseUrl: process.env.KIT_JEV_BASE });
