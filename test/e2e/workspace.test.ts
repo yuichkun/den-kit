@@ -2,7 +2,7 @@
 // goes by keyboard (request, stop, undo, back to the canvas), nothing ever asks
 // you to choose, the patch keys (⌘A, nudge, fit, zoom), the plugin view that
 // scales to its window (Patch ⇄ Plugin, Play ⇄ Edit, full screen) and the start
-// screen that appears only when asked for. Fake Jev and fake Codex only.
+// screen that appears only when asked for. Fake Codex only.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -13,8 +13,8 @@ const box = async (page: Page, selector: string) => (await page.locator(selector
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 const active = (page: Page) => page.evaluate(() => { const el = document.activeElement as HTMLElement | null; return el ? `${el.tagName.toLowerCase()}${el.dataset.testid ? `[${el.dataset.testid}]` : ''}` : ''; });
 async function settled(page: Page, text: string, timeout = 30000) {
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
-  return kit(page, k => k.fast.history.value.at(-1));
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
+  return kit(page, k => k.requests.history.value.at(-1));
 }
 /** Four knobs on the plugin (one transaction). */
 const KNOBS = `k => {
@@ -75,12 +75,12 @@ describe('the AI panel', () => {
     await page.close();
   });
 
-  it('never a choice: what the fast path is not sure about goes to the LLM by itself; Esc stops it; no buttons to pick', async () => {
+  it('requests go to the LLM without choosing a route; Esc stops it; no buttons to pick', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     await page.keyboard.press('Control+k');
-    await page.keyboard.type('make it pop somehow'); // the default fake Jev is unsure
+    await page.keyboard.type('make it pop somehow');
     await page.keyboard.press('Enter');
     const line = await settled(page, 'make it pop somehow');
     assert.equal(line.route, 'llm', JSON.stringify(line));

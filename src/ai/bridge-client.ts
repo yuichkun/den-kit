@@ -1,8 +1,7 @@
 // Browser side of the local AI bridge. Keeps one WebSocket open with backoff,
-// pairs requests with replies, and degrades to "AI offline" without ever
-// blocking the editor: every request resolves (never rejects) with a result.
+// forwards LLM events, and degrades to "AI offline" without blocking the editor.
 import { shallowRef, ref } from 'vue';
-import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type JevRequest, type JevResult, type LlmRole, type ServerMessage, type ToolOutput } from './protocol.ts';
+import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type LlmRole, type ServerMessage, type ToolOutput } from './protocol.ts';
 
 /** How an LLM turn starts besides its text: the role (tools), pictures, a member's copy of the lead's conversation. */
 export interface LlmStartOptions { role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }
@@ -31,11 +30,7 @@ export interface BridgeClientOptions {
   /** Re-read the token after a bridge restart (GET /__kit/token through the Vite proxy). */
   fetchToken?: () => Promise<string | null>;
   backoff?: { baseMs: number; maxMs: number };
-  /** Extra time the browser waits beyond a request's own budget before giving up on the bridge. */
-  replyMarginMs?: number;
 }
-
-interface Pending { resolve: (r: JevResult) => void; timer: ReturnType<typeof setTimeout>; started: number }
 
 const OPEN = 1;
 
@@ -49,14 +44,11 @@ export class BridgeClient {
   private stopped = true;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private pending = new Map<string, Pending>();
-  private serial = 0;
   private readonly url: string;
   private readonly tab: string;
   private readonly createSocket: (url: string) => SocketLike;
   private readonly fetchToken: () => Promise<string | null>;
   private readonly backoff: { baseMs: number; maxMs: number };
-  private readonly replyMarginMs: number;
   private statusListeners = new Set<(s: BridgeStatus) => void>();
   private llmListeners = new Set<(m: LlmInbound) => void>();
 
@@ -67,11 +59,9 @@ export class BridgeClient {
     this.createSocket = options.createSocket ?? (url => new WebSocket(url) as unknown as SocketLike);
     this.fetchToken = options.fetchToken ?? defaultFetchToken;
     this.backoff = options.backoff ?? { baseMs: 500, maxMs: 10000 };
-    this.replyMarginMs = options.replyMarginMs ?? 1500;
   }
 
   get online() { return this.state.value === 'online'; }
-  get jevReady() { return this.online && !!this.status.value && this.status.value.jev.state !== 'off' && !(this.status.value.jev.state === 'error' && this.status.value.jev.detail === 'auth'); }
   onStatus(listener: (s: BridgeStatus) => void) { this.statusListeners.add(listener); return () => this.statusListeners.delete(listener); }
   /** Codex is signed in and running. */
   get codexReady() { return this.online && this.status.value?.codex.state === 'ok'; }
@@ -99,29 +89,10 @@ export class BridgeClient {
     this.retryTimer = null;
     const s = this.socket; this.socket = null;
     if (s) { s.onclose = null; s.close(1000, 'stopped'); }
-    this.failAll('network', 'The AI bridge connection was closed.');
     this.state.value = 'offline';
   }
 
   telemetry(record: Record<string, unknown>) { this.post({ t: 'telemetry', record }); }
-
-  /** Ask Jev through the bridge. Always resolves; when the bridge is unavailable the result says why. */
-  askJev(request: JevRequest, options: { budgetMs?: number; signal?: AbortSignal } = {}): Promise<JevResult> {
-    const started = performance.now();
-    if (!this.online) return Promise.resolve({ ok: false, error: { kind: this.state.value === 'disabled' ? 'off' : 'network', message: this.detail.value || 'The AI bridge is not connected.' }, ms: 0 });
-    if (options.signal?.aborted) return Promise.resolve({ ok: false, error: { kind: 'cancelled', message: 'Cancelled.' }, ms: 0 });
-    const id = `j${++this.serial}`;
-    return new Promise<JevResult>(resolve => {
-      const budget = options.budgetMs ?? this.status.value?.jev.budgetMs ?? 1200;
-      const timer = setTimeout(() => this.settle(id, { ok: false, error: { kind: 'timeout', message: 'The AI bridge did not answer in time.' }, ms: Math.round(performance.now() - started) }), budget + this.replyMarginMs);
-      this.pending.set(id, { resolve, timer, started });
-      options.signal?.addEventListener('abort', () => {
-        this.post({ t: 'jev.cancel', id });
-        this.settle(id, { ok: false, error: { kind: 'cancelled', message: 'Cancelled.' }, ms: Math.round(performance.now() - started) });
-      }, { once: true });
-      if (!this.post({ t: 'jev.ask', id, request, budgetMs: options.budgetMs })) this.settle(id, { ok: false, error: { kind: 'network', message: 'The AI bridge is not connected.' }, ms: 0 });
-    });
-  }
 
   // ---- connection ------------------------------------------------------------
   private open() {
@@ -149,11 +120,9 @@ export class BridgeClient {
           for (const l of this.llmListeners) l({ t: 'welcome', running: message.running ?? [] });
           return;
         case 'status': this.setStatus(message.status); return;
-        case 'jev.result': this.settle(message.id, message.result); return;
         case 'llm.event': case 'tool.call': for (const l of this.llmListeners) l(message); return;
         case 'error':
-          if (message.ref && this.pending.has(message.ref)) this.settle(message.ref, { ok: false, error: { kind: 'invalid', message: message.message }, ms: 0 });
-          else if (message.ref) for (const l of this.llmListeners) l({ t: 'error', message: message.message, ref: message.ref });
+          if (message.ref) for (const l of this.llmListeners) l({ t: 'error', message: message.message, ref: message.ref });
           else if (!welcomed) this.detail.value = message.message;
           else console.warn(`[den-kit] bridge: ${message.message}`);
           return;
@@ -163,7 +132,6 @@ export class BridgeClient {
     socket.onclose = event => {
       if (this.socket !== socket) return;
       this.socket = null;
-      this.failAll('network', 'The AI bridge disconnected.');
       if (this.stopped) return;
       if (event.code === CLOSE.badOrigin) { this.refuse('AI bridge refused this page (origin). Open the editor at the address `npm run dev` prints.'); return; }
       if (event.code === CLOSE.protocol) { this.refuse(`AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run dev\`.`); return; }
@@ -205,17 +173,6 @@ export class BridgeClient {
     for (const l of this.statusListeners) l(status);
   }
 
-  private settle(id: string, result: JevResult) {
-    const p = this.pending.get(id);
-    if (!p) return; // late or duplicate reply
-    this.pending.delete(id);
-    clearTimeout(p.timer);
-    p.resolve(result);
-  }
-
-  private failAll(kind: 'network', message: string) {
-    for (const [id, p] of [...this.pending]) this.settle(id, { ok: false, error: { kind, message }, ms: Math.round(performance.now() - p.started) });
-  }
 }
 
 function defaultUrl() {

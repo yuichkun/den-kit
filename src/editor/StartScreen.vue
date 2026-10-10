@@ -13,8 +13,10 @@ import { pluginSpec } from '../plugin/build.ts';
 import PluginWindow from '../plugin/PluginWindow.vue';
 import { WORKS, type Work } from '../showcase/index.ts';
 import { useSession } from './context.ts';
+import { desktop } from '../desktop/api.ts';
 
-const emit = defineEmits<{ (e: 'close', asked: boolean): void }>();
+const emit = defineEmits<{ (e: 'close', asked: boolean): void; (e: 'settings'): void }>();
+const isDesktop = !!desktop();
 const session = useSession();
 const SOUNDS: Record<StarterId, string> = { bass: 'Bass', percussion: 'Percussion', pad: 'Pad', chorus: 'Chorus', rhythmic: 'Rhythmic delay' };
 type Section = 'describe' | 'works' | 'looks' | 'sounds';
@@ -45,7 +47,7 @@ async function start(kind: 'describe' | 'work' | 'sound', options: { work?: Work
   else session.replace(emptyDocument(request ? request.slice(0, 40) : 'Untitled'), 'New patch');
   const asked = (kind === 'describe' || part) && !!request;
   emit('close', asked);
-  if (asked) await session.fast?.run(request, { via: 'typed' });
+  if (asked) await session.requests?.run(request, { via: 'typed' });
 }
 function enter() {
   if (section.value === 'describe' && text.value.trim()) return start('describe');
@@ -87,6 +89,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   <div class="start-screen" data-testid="start-screen">
     <div ref="sheet" class="sheet">
       <div class="brand"><span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit</div>
+      <button v-if="isDesktop" class="start-settings" data-testid="start-settings" @click="emit('settings')">Settings · ChatGPT sign-in</button>
       <h1>What do you want to make?</h1>
       <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “ベース作って” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" />
       <div class="or">or start from a work <span class="hint">← → ↑ ↓ choose · Tab: the look · Enter: start</span></div>
@@ -115,6 +118,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
 .start-screen { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: start center; background: #0b0b0bf2; backdrop-filter: blur(4px); overflow: auto; }
 .sheet { width: min(1180px, 94vw); padding: 24px 0 32px; }
 .brand { display: inline-flex; align-items: center; gap: 8px; color: #ddd; font-weight: 700; letter-spacing: .08em; margin-bottom: 12px; }
+.start-settings { float: right; color: #bbb; border: 1px solid #444; background: #222; padding: 7px 12px; border-radius: 6px; }
 h1 { margin: 0 0 16px; font-size: 30px; font-weight: 400; color: #f4f4f4; }
 .describe { width: 100%; font-size: 18px; padding: 13px 16px; border-radius: 10px; border: 1px solid #4a4a4a; background: #141414; color: #f4f4f4; outline: none; }
 .describe:focus, .describe.current { border-color: var(--accent); box-shadow: 0 0 0 3px #ff9c1a26; }

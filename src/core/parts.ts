@@ -513,7 +513,7 @@ export function expandedId(doc: PatchDocument, path: readonly NodeId[], node: No
   return [...path.map(seg), seg(node)].join('_');
 }
 
-// ---- what one place in the patch looks like (for the fast path) ------------------------------
+// ---- what one place in the patch looks like ------------------------------
 
 /**
  * The patch as seen from one place: the main patch (its modules and the

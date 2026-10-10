@@ -1,127 +1,13 @@
-// Copies (×N) and the AI: fast-path words set a count on the selection
-// ("7本重ねて", "stack 8", "もっと重ねて"), spread its main free knob
-// ("ばらつかせて", "detune it") or make the copies the same again; nothing is
-// guessed without a selection. The LLM gets setCount / setSpread, the rules for
-// copies, sees ×N, the spreads and the estimated load, and never the nodes that
-// expansion makes.
-import { beforeEach, describe, expect, it } from 'vitest';
-import { FastPath } from '../../../src/ai/fast-path.ts';
-import { parseRequest, readNumber } from '../../../src/ai/lexicon.ts';
+// LLM tools preserve copies, spread and estimated load without expanding nodes.
+import { describe, expect, it } from 'vitest';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
-import { KitSession } from '../../../src/editor/session.ts';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { MAX_COUNT } from '../../../src/core/schema.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { validate } from '../../../src/core/validate.ts';
 import { analyse } from '../../../src/core/analysis.ts';
 import { checkPlugin } from '../../../src/plugin/checks.ts';
-import { stubBridge } from '../../helpers/fake-bridge.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
-
-const makeSession = () => new KitSession({
-  storage: null,
-  createWorker: () => ({ postMessage() {}, terminate() {}, onmessage: null, onerror: null, onmessageerror: null }) as never,
-  engine: { setParam() {}, unload() {}, running: false } as never,
-});
-
-describe('the words', () => {
-  it.each([
-    ['7本重ねて', 7], ['8個並べて', 8], ['十六本重ねて', 16], ['三十二個に増やして', 32], ['×32にして', 32], ['x8', 8], ['５つ重ねて', 5],
-    ['stack 7', 7], ['stack it 12 times', 12], ['16 copies', 16], ['layer it 3 deep', 3],
-    ['重ねるのをやめて', 1], ['一本に戻して', 1], ['unstack it', 1],
-  ])('%s → ×%i', (text, count) => {
-    const lex = parseRequest(text);
-    expect(lex.items).toEqual([expect.objectContaining({ kind: 'stack', count })]);
-    expect(lex.full).toBe(true);
-  });
-  it.each([
-    ['もっと重ねて', { more: true }], ['more copies', { more: true }],
-    ['ばらつかせて', { spread: 'more' }], ['デチューンして', { spread: 'more' }], ['detune it', { spread: 'more' }], ['spread them out', { spread: 'more' }],
-    ['ばらつきを減らして', { spread: 'less' }], ['less detune', { spread: 'less' }],
-    ['ばらつきをなくして', { spread: 'off' }], ['no spread', { spread: 'off' }],
-  ])('%s', (text, item) => {
-    const lex = parseRequest(text);
-    expect(lex.items).toEqual([expect.objectContaining({ kind: 'stack', ...item })]);
-  });
-  it('numbers in kanji', () => {
-    expect([readNumber('七'), readNumber('十'), readNumber('十六'), readNumber('三十二'), readNumber('百二十八'), readNumber('64'), readNumber('x')]).toEqual([7, 10, 16, 32, 128, 64, undefined]);
-  });
-  it('other requests are not about copies', () => {
-    for (const text of ['リリース長く', 'リバーブを足して', 'more bass', 'mix 2', '2倍にして', '音量を3dB増やして', 'リリースを2秒に増やして', 'max out the cutoff', 'xy pad']) {
-      expect(parseRequest(text).items.some(i => i.kind === 'stack'), text).toBe(false);
-    }
-  });
-});
-
-describe('the fast path with copies', () => {
-  let session: KitSession, fast: FastPath;
-  beforeEach(() => {
-    session = makeSession();
-    session.loadStarter('bass');
-    session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-    fast = new FastPath(session);
-  });
-  it('「8本重ねて」 stacks the selection (one ⌘Z takes it back); without one, or on something that cannot be stacked, it says what to do', async () => {
-    const before = session.doc.value;
-    const none = await fast.run('8本重ねて');
-    expect(none.status).toBe('nothing');
-    expect(none.message).toMatch(/Select the module or part to stack/);
-    session.select(['voice1']);
-    const voice = await fast.run('8本重ねて');
-    expect(voice.status).toBe('nothing');
-    expect(voice.message).toMatch(/cannot run as copies/);
-    session.select(['osc1']);
-    const stacked = await fast.run('8本重ねて');
-    expect(stacked.status).toBe('applied');
-    expect(session.doc.value.nodes.osc1!.count).toBe(8);
-    const more = await fast.run('もっと重ねて');
-    expect(more.status).toBe('applied');
-    expect(session.doc.value.nodes.osc1!.count).toBe(16);
-    const huge = await fast.run('stack 500');
-    expect(huge.status).toBe('applied');
-    expect(session.doc.value.nodes.osc1!.count).toBe(MAX_COUNT);
-    const one = await fast.run('重ねるのをやめて');
-    expect(one.status).toBe('applied');
-    expect(session.doc.value.nodes.osc1!.count).toBeUndefined();
-    for (let i = 0; i < 4; i++) session.undo();
-    expect({ ...session.doc.value, revision: 0 }).toEqual({ ...before, revision: 0 });
-  });
-  it('「4本重ねてばらつかせて」 stacks and spreads the main free knob; more and less scale the spread, and it can be taken away', async () => {
-    session.select(['filter1']);
-    const r = await fast.run('4本重ねてばらつかせて');
-    expect(r.status).toBe('applied');
-    const node = () => session.doc.value.nodes.filter1!;
-    expect(node().count).toBe(4);
-    // The cutoff comes from a cable, so the free knob is the resonance.
-    expect(Object.keys(node().spread ?? {})).toEqual(['resonance']);
-    const first = node().spread!.resonance!.amount!;
-    expect(first).toBeGreaterThan(0);
-    await fast.run('もっとばらつかせて');
-    expect(node().spread!.resonance!.amount!).toBeCloseTo(first * 1.6, 2);
-    await fast.run('ばらつきを減らして');
-    expect(node().spread!.resonance!.amount!).toBeLessThan(first * 1.6);
-    await fast.run('ばらつきをなくして');
-    expect(node().spread).toBeUndefined();
-    const nothing = await fast.run('ばらつきを減らして');
-    expect(nothing.status).toBe('nothing');
-  });
-  it('spreading a single module asks to stack it first', async () => {
-    session.select(['filter1']);
-    const r = await fast.run('ばらつかせて');
-    expect(r.status).toBe('nothing');
-    expect(r.message).toMatch(/stack it first/);
-  });
-  it('「パーツにして8本重ねて」 makes a part of the selection and stacks the new part', async () => {
-    session.select(['osc1', 'filter1']);
-    const r = await fast.run('パーツにして8本重ねて');
-    expect(r.status).toBe('applied');
-    const use = Object.values(session.doc.value.nodes).find(n => n.type === 'kit.part')!;
-    expect(use.count).toBe(8);
-    expect(validate(session.doc.value, catalog).issues.filter(i => i.severity === 'error')).toEqual([]);
-  });
-});
 
 describe('the LLM and copies', () => {
   it('the tools and the rules teach copies; the block list leaves out what expansion makes', async () => {

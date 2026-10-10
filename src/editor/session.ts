@@ -24,7 +24,7 @@ import { AssetStore } from '../plugin/asset-store.ts';
 import { lookAt, type LookResult } from '../plugin/look.ts';
 import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
 import type { BridgeClient } from '../ai/bridge-client.ts';
-import type { FastPath } from '../ai/fast-path.ts';
+import type { AiRequests } from '../ai/requests.ts';
 import type { LlmController } from '../ai/llm.ts';
 import type { Seeing } from '../ai/seeing.ts';
 import { MARK_COLORS, type Box, type Mark, type SketchView } from '../ai/sketch.ts';
@@ -95,8 +95,8 @@ export class KitSession {
   readonly compiler: CompileClient;
   /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
   bridge: BridgeClient | null = null;
-  /** The fast AI path (lexicon + Jev); null when not wired (unit tests). */
-  fast: FastPath | null = null;
+  /** The LLM request history; null when not wired (unit tests). */
+  requests: AiRequests | null = null;
   /** The LLM path (Codex through the bridge); null when not wired. */
   llm: LlmController | null = null;
   /** The pod (BrowserPod): the screen project's workbench for the AI and the person; null when not wired (unit tests). */
@@ -649,6 +649,7 @@ export class KitSession {
     this.saveTimer = setTimeout(() => this.saveNow(), 800);
   }
   saveNow() {
+    this.requests?.persist();
     if (!this.storage) return;
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     try { this.storage.setItem(AUTOSAVE_KEY, JSON.stringify(makeSaveRecord(this.doc.value))); }

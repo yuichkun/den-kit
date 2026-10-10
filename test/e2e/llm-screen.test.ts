@@ -22,8 +22,8 @@ describe('the LLM builds the plugin screen', () => {
     await page.keyboard.press('Control+k');
     await page.keyboard.type('画面を作って');
     await page.keyboard.press('Shift+Enter');
-    await page.waitForFunction(() => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === '画面を作って' && !o.live && o.status !== 'thinking'; }, null, { timeout: 120000 });
-    const line = await kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, screen: o.screen }; });
+    await page.waitForFunction(() => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === '画面を作って' && !o.live && o.status !== 'thinking'; }, null, { timeout: 120000 });
+    const line = await kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, screen: o.screen }; });
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.equal(line.label, '夜のドライブ風の画面を作りました（チェックで 2 件直しました）');
     assert.equal(line.screen, true);
@@ -60,18 +60,18 @@ describe('the LLM builds the plugin screen', () => {
     await page.close();
   });
 
-  it('quick screen edits from the prompt: words, one ⌘Z each; "darker" means the screen while it is being edited', { timeout: 120000 }, async () => {
+  it('screen edit requests use the LLM; one ⌘Z undoes each edit and the sound stays unchanged', { timeout: 120000 }, async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     const ask = async (text: string) => {
       await page.keyboard.press('Control+k');
       await page.keyboard.type(text);
       await page.keyboard.press('Enter');
-      await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && o.status !== 'working'; }, text);
-      return kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, route: o.route, label: o.label, screen: o.screen }; });
+      await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text);
+      return kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, route: o.route, label: o.label, screen: o.screen }; });
     };
     const red = await ask('アクセントを赤にして');
-    assert.deepEqual(red, { status: 'applied', route: 'lexicon', label: 'accent colour → red', screen: true });
+    assert.deepEqual(red, { status: 'applied', route: 'llm', label: 'accent colour → red', screen: true });
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ff4d4d');
     await page.click('[data-testid=ai-show-plugin]');
     await page.waitForSelector('[data-testid=plugin-view]');
@@ -91,4 +91,3 @@ describe('the LLM builds the plugin screen', () => {
     await page.close();
   });
 });
-

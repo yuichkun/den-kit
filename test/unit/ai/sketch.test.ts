@@ -63,7 +63,7 @@ describe('the marks in words', () => {
       '③ blue arrow from knob1 (knob “Cutoff”) to knob2 (knob “Resonance”)',
     ].join('\n'));
   });
-  it('only loops and boxes around things can go the fast way (they point like a selection)', () => {
+  it('only loops and boxes around things identify a selection without additional instructions', () => {
     expect(onlyPointing(readMarks({ view: 'plugin', marks: [mark({ kind: 'rect', rect: { x: 10, y: 90, w: 100, h: 110 } })] }, targets))).toBe(true);
     expect(onlyPointing(readMarks({ view: 'plugin', marks: [mark({ kind: 'note', rect: { x: 10, y: 90, w: 100, h: 110 }, text: 'x' })] }, targets))).toBe(false);
     expect(onlyPointing([])).toBe(false);

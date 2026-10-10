@@ -1,5 +1,7 @@
 {
   "name": "den-kit",
+  "version": "0.1.0",
+  "author": "Yuichi Yogo",
   "private": true,
   "type": "module",
   "description": "den-kit PoC: patch den blocks in a graph editor, with AI collaboration (GEN-648).",
@@ -15,12 +17,16 @@
     "test:integration": "vitest run --project integration",
     "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.ts",
     "build": "npm run check && vite build",
+    "desktop:build": "npm run build && node scripts/build-desktop.ts",
+    "desktop:run": "node scripts/run-desktop.ts",
+    "desktop:icons": "node scripts/generate-icons.ts",
+    "desktop:check": "node scripts/check-desktop.ts --packaged",
+    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac",
     "doctor": "node scripts/doctor.ts",
-    "codex:login": "node scripts/codex-login.ts",
-    "fake:jev": "node test/fakes/jev/fake-jev.ts",
-    "eval:jev": "node scripts/eval-jev.ts"
+    "codex:login": "node scripts/codex-login.ts"
   },
   "dependencies": {
+    "@denaudio/den": "0.1.0",
     "@fontsource/baloo-2": "5.3.0",
     "@fontsource/bebas-neue": "5.3.0",
     "@fontsource/caveat": "5.3.0",
@@ -38,25 +44,26 @@
     "@fontsource/saira-stencil-one": "5.3.0",
     "@fontsource/share-tech-mono": "5.3.0",
     "@leaningtech/browserpod": "3.4.0",
+    "@unworklet/core": "0.4.1",
+    "@unworklet/offline": "0.4.1",
     "@vue-flow/background": "1.3.2",
     "@vue-flow/core": "1.48.2",
     "highlight.js": "11.12.0",
     "vue": "3.5.43",
-    "ws": "8.22.0",
-    "@denaudio/den": "0.1.0",
-    "@unworklet/core": "0.4.1",
-    "@unworklet/offline": "0.4.1"
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/node": "24.19.1",
     "@types/ws": "8.18.2",
     "@vitejs/plugin-vue": "6.0.9",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
+    "playwright": "1.60.0",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "4.1.11",
-    "vue-tsc": "3.3.12",
-    "playwright": "1.60.0"
+    "vue-tsc": "3.3.12"
   },
   "optionalDependencies": {
     "@openai/codex": "0.160.1"

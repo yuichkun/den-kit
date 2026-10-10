@@ -1,5 +1,5 @@
-// Compact English description of a patch for AI context (Jev state and LLM
-// tools). Deterministic and size-bounded: Jev prefers short, relevant state.
+// Compact English description of a patch for LLM tools.
+// Deterministic and size-bounded, to keep the request context concise.
 import type { Catalog } from './catalog.ts';
 import { formatCpu } from './cost.ts';
 import { formatIssue, type Issue } from './issues.ts';

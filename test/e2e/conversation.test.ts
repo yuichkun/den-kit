@@ -26,7 +26,7 @@ async function emptyPointNear(page: Page, id: string): Promise<{ x: number; y: n
 }
 
 let h: Harness;
-before(async () => { h = await startHarness(); });
+before(async () => { h = await startHarness({ codex: true }); });
 after(async () => { await h?.close(); });
 
 describe('the patch canvas', () => {
@@ -88,8 +88,8 @@ describe('attachments and the conversation', () => {
     await page.keyboard.press('Control+k');
     await page.keyboard.type('レゾナンス上げて');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => (window as any).__kit.fast.history.value.at(-1)?.status === 'applied');
-    const line = await kit(page, k => k.fast.history.value.at(-1));
+    await page.waitForFunction(() => (window as any).__kit.requests.history.value.at(-1)?.status === 'applied');
+    const line = await kit(page, k => k.requests.history.value.at(-1));
     assert.deepEqual(line.attached.map((a: { id: string }) => a.id), ['filter1']);
     await page.waitForSelector('[data-testid=ai-result] [data-testid=ai-attached]');
     assert.deepEqual(errors, []);
@@ -102,17 +102,22 @@ describe('attachments and the conversation', () => {
     await page.keyboard.press('Control+k');
     await page.keyboard.type('リリース長く');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => (window as any).__kit.fast.history.value.at(-1)?.status === 'applied');
+    await page.waitForFunction(() => (window as any).__kit.requests.history.value.at(-1)?.status === 'applied');
     await page.keyboard.press('Control+k');
     await page.keyboard.type('もっと');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => (window as any).__kit.fast.history.value.at(-1)?.repeats === 'リリース長く');
-    await page.waitForSelector('[data-testid=ai-result] .again');
+    await page.waitForFunction(() => { const o = (window as any).__kit.requests.history.value.at(-1); return o?.text === 'もっと' && o.status === 'applied'; });
+    assert.deepEqual(await kit(page, k => k.requests.history.value.map((o: { route: string }) => o.route)), ['llm', 'llm']);
+    const followUp = String(h.codex!.records().filter(r => r.scenario === 'parameter-edit').at(-1)!.text);
+    assert.match(followUp, /もっと$/);
+    const starts = h.codex!.sent('turn/start').slice(-2) as Array<{ params: { threadId: string } }>;
+    assert.equal(starts[1]!.params.threadId, starts[0]!.params.threadId, 'a follow-up continues the same LLM conversation');
+    assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), 1.2);
     // Reload (keep the storage this time): the patch and its conversation come back.
-    await page.evaluate(() => { (window as any).__kit.fast.persist(); (window as any).__kit.saveNow(); sessionStorage.setItem('kit-e2e-keep', '1'); });
+    await page.evaluate(() => { (window as any).__kit.requests.persist(); (window as any).__kit.saveNow(); sessionStorage.setItem('kit-e2e-keep', '1'); });
     await page.reload();
-    await page.waitForFunction(() => (window as any).__kit?.fast?.history.value.length === 2, null, { timeout: 60000 });
-    assert.deepEqual(await kit(page, k => k.fast.history.value.map((o: { text: string }) => o.text)), ['リリース長く', 'もっと']);
+    await page.waitForFunction(() => (window as any).__kit?.requests?.history.value.length === 2, null, { timeout: 60000 });
+    assert.deepEqual(await kit(page, k => k.requests.history.value.map((o: { text: string }) => o.text)), ['リリース長く', 'もっと']);
     await page.waitForSelector('[data-testid=ai-history] >> text=リリース長く');
     // Another patch: a new conversation; the old lines fold away, marked as unseen by the AI.
     await page.click('[data-testid=start-overlay]').catch(() => undefined);
@@ -121,7 +126,7 @@ describe('attachments and the conversation', () => {
     await page.click('[data-work=acid]');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
     await page.waitForSelector('[data-testid=ai-earlier]');
-    assert.equal(await kit(page, k => k.fast.history.value.length), 0);
+    assert.equal(await kit(page, k => k.requests.history.value.length), 0);
     assert.match(await page.locator('[data-testid=ai-earlier]').innerText(), /2 requests \(the AI does not see these\)/);
     assert.deepEqual(errors, []);
     await page.close();

@@ -1,5 +1,5 @@
 // `npm run doctor`: checks the local setup step by step and says how to fix each problem.
-//   Node, dependencies, ports · Jev (key present, masked; three tiny live requests) ·
+//   Node, dependencies, ports ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
 // `npm run doctor -- --deep` also makes one real Codex request with a ping tool, then
 // tries what members, sketches and shared screens need (U8): two requests at once, a tool
@@ -14,8 +14,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadEnvFile, maskSecret } from '../bridge/env.ts';
-import { JevClient, JEV_MODEL } from '../bridge/jev.ts';
+import { loadEnvFile } from '../bridge/env.ts';
 import { RpcPeer } from '../bridge/codex/rpc.ts';
 import { codexEnv, codexHome, codexWorkdir, isProblem, LOGIN_COMMAND, resolveCodex, spawnAppServer, type CodexCommand } from '../bridge/codex/process.ts';
 import { describeRpcError, forkParams, text, threadStartParams } from '../bridge/codex/client.ts';
@@ -61,31 +60,7 @@ for (const [name, env, fallback] of [['editor port', 'KIT_PORT', 5180], ['AI bri
   report(free ? 'PASS' : 'WARN', `${name} ${port}`, free ? 'free' : 'in use', free ? undefined : `Another dev may be running; stop it or set ${env}.`);
 }
 
-// 4. Jev (TypeSafe System One): key from the environment or .env, never printed.
-const key = process.env.TYPESAFE_API_KEY;
-if (!key) report('WARN', 'Jev key', 'not set — the fast path will use the built-in lexicon only', 'Add `TYPESAFE_API_KEY=…` to .env (this file is git-ignored), then rerun `npm run doctor`.');
-else {
-  report('PASS', 'Jev key', maskSecret(key));
-  const jev = new JevClient({ apiKey: key, baseUrl: process.env.KIT_JEV_BASE });
-  const times: number[] = [];
-  let failure: string | undefined;
-  let warning: string | undefined;
-  for (let i = 0; i < 3 && !failure; i++) {
-    const r = await jev.ask({ state: 'den-kit doctor', questions: { ping: { type: 'noul', instructions: 'Is this message a connectivity check?' } } }, { budgetMs: 8000 });
-    if (r.ok) { times.push(r.ms); warning ??= r.modelWarning; } else failure = `${r.error.kind}: ${r.error.message}`;
-  }
-  if (failure) {
-    const fix = /^auth/.test(failure) ? 'The key was rejected: check TYPESAFE_API_KEY in .env (no quotes or spaces).'
-      : /^(network|timeout)/.test(failure) ? 'Check the network / proxy; den-kit still works with the lexicon only.'
-      : /^busy/.test(failure) ? 'Jev is rate-limited or overloaded right now; try again in a minute.' : undefined;
-    report('FAIL', 'Jev request', failure, fix);
-  } else {
-    const sorted = [...times].sort((a, b) => a - b);
-    report(warning ? 'WARN' : 'PASS', 'Jev request', `${JEV_MODEL} · ${times.join(' / ')} ms (median ${sorted[1]} ms)`, warning);
-  }
-}
-
-// 5. Codex (the LLM path)
+// 4. Codex (the LLM path)
 if (process.env.KIT_CODEX === 'off') report('SKIP', 'Codex', 'KIT_CODEX=off');
 else await checkCodex();
 

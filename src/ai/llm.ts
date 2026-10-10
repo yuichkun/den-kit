@@ -1,13 +1,13 @@
-// The LLM path (layer 2). A request goes to Codex through the bridge; Codex
+// The LLM request controller. A request goes to Codex through the bridge; Codex
 // works on the live patch with the kit_* tools, which run here in the browser
 // (src/ai/llm-workspace.ts). Each edit is tried on a copy first; one that
 // validates and compiles lands at once, so the user sees and hears the request
 // being built. The steps of one request undo together (one ⌘Z). The user keeps
 // playing and editing meanwhile; an edit that no longer fits goes back to Codex.
 //
-// One request runs at a time. Another request that needs the LLM while it works
+// One request runs at a time. Another request sent while it works
 // is steered into the running turn; follow-ups continue the same conversation
-// (one per opened patch, shared with the fast path: each request tells Codex
+// (one per opened patch, shared with the request controller: each request tells Codex
 // what happened since its last turn, and a new Codex conversation is told what
 // came before). What the person attached (the selection) comes along by id.
 // Esc stops it (what already landed stays, ⌘Z takes it back). Loading another
@@ -30,7 +30,7 @@ import type { Intent } from '../core/ops.ts';
 import { CompileClient, CompileFailure, compileInputs, type WorkerLike } from '../compile/compile-client.ts';
 import { RenderClient, type RenderWorkerLike } from '../compile/render-client.ts';
 import type { BridgeClient, LlmInbound } from './bridge-client.ts';
-import type { AgentLane, FastPath, Outcome } from './fast-path.ts';
+import type { AgentLane, AiRequests, Outcome } from './requests.ts';
 import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type Team, type WorkspaceDeps } from './llm-workspace.ts';
 import { handEdits } from './plugin-tools.ts';
@@ -207,14 +207,14 @@ export class LlmController {
   private compilers = new Map<string, CompileClient>();
   private renderer: RenderClient | null = null;
   readonly session: KitSession;
-  private readonly fast: FastPath;
+  private readonly requests: AiRequests;
   private readonly bridge: LlmTransport;
   private readonly options: LlmOptions;
   private readonly stopWatching: Array<() => void> = [];
 
-  constructor(session: KitSession, fast: FastPath, bridge: LlmTransport, options: LlmOptions = {}) {
+  constructor(session: KitSession, requests: AiRequests, bridge: LlmTransport, options: LlmOptions = {}) {
     this.session = session;
-    this.fast = fast;
+    this.requests = requests;
     this.bridge = bridge;
     this.options = options;
     const storage = options.storage === undefined ? browserStorage() : options.storage;
@@ -247,22 +247,22 @@ export class LlmController {
 
   /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
   run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; /** The person's rough sketch (U8c). */ sketch?: SentSketch } = {}): Outcome {
-    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.fast.where(), ...(options.sketch ? { sketch: options.sketch } : {}) };
+    const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.requests.where(), ...(options.sketch ? { sketch: options.sketch } : {}) };
     // The marks stay (dimmed) while the request runs.
     if (options.sketch?.ids?.length) this.session.markSent(options.sketch.ids, line.id);
     const taken = this.take(line);
     if (taken) return taken;
     this.session.releaseSent(line.id, true);
     const failed: Outcome = { ...line, status: 'failed', message: this.reason() };
-    this.fast.upsert(failed);
+    this.requests.upsert(failed);
     return failed;
   }
 
-  /** Take over a prompt line the fast path could not handle; null when the LLM is not available. */
+  /** Send a prompt with its attachments and sketch; null when the LLM is not available. */
   take(line: Outcome): Outcome | null {
     if (!line.text || !this.ready) return null;
     if (this.turn && !this.turn.stopping) return this.steer(line);
-    if (this.turn) { const waiting = { ...line, status: 'thinking' as const, route: 'llm' as const, live: true, message: 'waits for the running request to stop…' }; this.queue.push(waiting); this.fast.upsert(waiting); return waiting; }
+    if (this.turn) { const waiting = { ...line, status: 'thinking' as const, route: 'llm' as const, live: true, message: 'waits for the running request to stop…' }; this.queue.push(waiting); this.requests.upsert(waiting); return waiting; }
     return this.start(line);
   }
 
@@ -325,7 +325,7 @@ export class LlmController {
     turn.lead = this.makeAgent(turn, { id: 'lead', key: line.id, role, name: 'Lead', color: 'var(--accent)' });
     this.turn = turn;
     this.busy.value = true;
-    this.fast.upsert(turn.line);
+    this.requests.upsert(turn.line);
     // Instructions are sent every time: a bridge that lost the conversation starts a new one with them.
     const text = this.compose(line.text, false, line);
     this.lastLine = line.id;
@@ -358,13 +358,13 @@ export class LlmController {
       // The lead's turn is over while its members work: what the person adds goes to its next turn.
       this.addition(turn, line);
       const merged: Outcome = { ...line, status: 'merged', route: 'llm', live: false, message: '→ added to the running request' };
-      this.fast.upsert(merged);
+      this.requests.upsert(merged);
       this.step(turn, turn.lead, `you added: “${line.text.slice(0, 60)}”`);
       return merged;
     }
     const steer: Outcome = { ...line, status: 'thinking', route: 'llm', live: true, message: 'adding this to the running request…' };
     this.steering.set(steer.id, steer);
-    this.fast.upsert(steer);
+    this.requests.upsert(steer);
     this.wake(turn, 'steer'); // a lead waiting for its members reads it at once
     if (!this.bridge.llmSteer(steer.id, turn.lead.key, this.compose(line.text, true, line), imagesOf(line.sketch?.parts).images)) this.later(steer);
     return steer;
@@ -383,14 +383,14 @@ export class LlmController {
     if (line.sketch?.ids?.length) this.session.markSent(line.sketch.ids, line.id);
     const waiting: Outcome = { ...line, status: 'thinking', live: true, message: 'waits for the running request…' };
     this.queue.push(waiting);
-    this.fast.upsert(waiting);
+    this.requests.upsert(waiting);
     if (!this.turn) this.next();
   }
 
   private next() {
     const line = this.queue.shift();
     if (!line) return;
-    if (!this.ready) { this.session.releaseSent(line.id, true); this.fast.upsert({ ...line, status: 'failed', live: false, message: this.reason() }); this.next(); return; }
+    if (!this.ready) { this.session.releaseSent(line.id, true); this.requests.upsert({ ...line, status: 'failed', live: false, message: this.reason() }); this.next(); return; }
     this.start(line);
   }
 
@@ -401,9 +401,9 @@ export class LlmController {
     if (steering) return `[den-kit] The user adds, while you work:${attached}${where}\n\n${text}`;
     const parts = [`[den-kit] You edit the live patch; each edit that checks out lands at once${this.thread ? '. It may have changed since your last turn, so read it again' : ''}.`];
     // What happened that this conversation's LLM has not seen: the whole recent story for a new conversation,
-    // otherwise the requests after its last one (the fast path handled them) and the person's own edits.
+    // otherwise the requests after its last one (the request controller handled them) and the person's own edits.
     // (Lines added to a running request were seen by it; a line still working has no result yet.)
-    const lines = this.fast.history.value.filter(o => o.id !== line.id);
+    const lines = this.requests.history.value.filter(o => o.id !== line.id);
     const at = this.thread && this.lastLine ? lines.findIndex(o => o.id === this.lastLine) : -1;
     const unseen = (at >= 0 ? lines.slice(at + 1) : lines.slice(-RECAP_LINES)).filter(o => o.status !== 'working' && o.status !== 'merged');
     if (unseen.length) parts.push(`[den-kit] ${this.thread ? 'Since your last turn' : 'Earlier in this conversation (you were not there; this is what happened)'}:\n${unseen.map(lineForAi).join('\n')}`);
@@ -554,7 +554,7 @@ export class LlmController {
     }
     turn.seam ??= seamOf(doc, this.session.catalog);
     const seam = seamText(doc, this.session.catalog, turn.seam);
-    const recent = this.fast.history.value.filter(o => o.id !== turn.id && o.status !== 'working' && o.status !== 'merged' && o.status !== 'thinking');
+    const recent = this.requests.history.value.filter(o => o.id !== turn.id && o.status !== 'working' && o.status !== 'merged' && o.status !== 'thinking');
     const started: string[] = [];
     // All of them first, so each knows who else works meanwhile.
     const fresh = parsed.briefs.map(brief => {
@@ -712,7 +712,7 @@ export class LlmController {
   private steerEvent(line: Outcome, event: LlmEvent) {
     if (event.kind === 'steered') {
       this.steering.delete(line.id);
-      this.fast.upsert({ ...line, status: 'merged', live: false, message: '→ added to the running request' });
+      this.requests.upsert({ ...line, status: 'merged', live: false, message: '→ added to the running request' });
       if (this.turn) this.step(this.turn, this.turn.lead, `you added: “${line.text.slice(0, 60)}”`);
     } else if (event.kind === 'done') {
       // The lead's turn ended first: with members still working the words go to its next turn; otherwise they run next.
@@ -720,7 +720,7 @@ export class LlmController {
       if (turn && turn.leadEnded && !turn.stopping) {
         this.steering.delete(line.id);
         this.addition(turn, line);
-        this.fast.upsert({ ...line, status: 'merged', live: false, message: '→ added to the running request' });
+        this.requests.upsert({ ...line, status: 'merged', live: false, message: '→ added to the running request' });
       } else this.later(line);
     }
   }
@@ -858,7 +858,7 @@ export class LlmController {
     const tokens = agents.reduce((n, a) => n + (a.usage?.total ?? 0), 0);
     const line: Outcome = { ...turn.line, live: false, activity: undefined, ...(tokens ? { tokens } : {}), ...patch };
     turn.line = line;
-    this.fast.upsert(line);
+    this.requests.upsert(line);
     const end = performance.now();
     const work = agents.reduce((n, a) => n + ((a.ended ?? end) - a.started), 0);
     this.bridge.telemetry({
@@ -900,7 +900,7 @@ export class LlmController {
   private update(turn: Turn, patch: Partial<Outcome>) {
     if (this.turn !== turn) return;
     turn.line = { ...turn.line, ...patch, ms: Math.round(performance.now() - turn.started) };
-    this.fast.upsert(turn.line);
+    this.requests.upsert(turn.line);
   }
 }
 

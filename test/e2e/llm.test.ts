@@ -9,21 +9,21 @@ import type { Page } from 'playwright';
 import { openKit, outputPeak, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
-const lines = (page: Page) => kit(page, k => k.fast.history.value.map((o: any) => ({ id: o.id, text: o.text, status: o.status, route: o.route, label: o.label, message: o.message, note: o.note, steps: o.steps, reply: o.reply, undone: o.undone, fix: o.fix })));
+const lines = (page: Page) => kit(page, k => k.requests.history.value.map((o: any) => ({ id: o.id, text: o.text, status: o.status, route: o.route, label: o.label, message: o.message, note: o.note, steps: o.steps, reply: o.reply, undone: o.undone, fix: o.fix })));
 const lineFor = async (page: Page, text: string) => (await lines(page)).filter((l: { text: string }) => l.text === text).at(-1);
 
 async function ready(page: Page) {
   await waitCompiled(page);
   await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
 }
-/** Type into the prompt; Shift+Enter sends straight to the LLM. */
+/** Type into the prompt; Enter and Shift+Enter both send to the LLM. */
 async function prompt(page: Page, text: string, toLlm = false) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press(toLlm ? 'Shift+Enter' : 'Enter');
 }
 async function settled(page: Page, text: string, timeout = 90000) {
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
   return lineFor(page, text);
 }
 const sendCount = (h: Harness, method: string) => h.codex!.sent(method).length;
@@ -39,7 +39,7 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /LLM/);
     const before = await kit(page, k => JSON.stringify(Object.keys(k.doc.value.nodes).sort()));
     // Record, for every LLM step that lands, whether its request was still running.
-    await kit(page, k => { (window as any).__landedLive = []; k.onTransaction((tx: any) => { if (tx.author.kind === 'ai-llm') (window as any).__landedLive.push(k.fast.history.value.find((o: any) => o.id === tx.author.take)?.live); }); });
+    await kit(page, k => { (window as any).__landedLive = []; k.onTransaction((tx: any) => { if (tx.author.kind === 'ai-llm') (window as any).__landedLive.push(k.requests.history.value.find((o: any) => o.id === tx.author.take)?.live); }); });
     await prompt(page, 'wobble the cutoff', true);
     await page.waitForSelector('[data-route=llm] [data-testid=ai-activity]', { timeout: 15000 });
     const line = await settled(page, 'wobble the cutoff');
@@ -114,17 +114,18 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
     await page.close();
   });
 
-  it('a request typed while the LLM works is added to it', { timeout: 120000 }, async () => {
+  it('a short edit typed with Enter while the LLM works is added to it', { timeout: 120000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
     await prompt(page, 'slow please', true);
     await page.waitForFunction(() => /thinking/.test(document.querySelector('[data-route=llm] [data-testid=ai-activity]')?.textContent ?? ''), null, { timeout: 15000 });
-    await prompt(page, 'make it darker', true);
-    const merged = await settled(page, 'make it darker', 20000);
+    await prompt(page, 'brighter');
+    const merged = await settled(page, 'brighter', 20000);
+    assert.equal(merged.route, 'llm');
     assert.equal(merged.status, 'merged');
     const line = await settled(page, 'slow please', 30000);
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 150);
+    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 2400);
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -180,7 +181,7 @@ describe('LLM path, not signed in', () => {
     assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /sign in/);
     await prompt(page, 'write a bitcrusher in a codebox');
     const line = await settled(page, 'write a bitcrusher in a codebox', 15000);
-    assert.equal(line.status, 'nothing');
+    assert.equal(line.status, 'failed');
     assert.match(line.message, /not signed in.*codex:login/);
     s.codex!.signIn();
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });

@@ -18,7 +18,7 @@
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
 //   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -106,6 +106,7 @@ const refuse = (id: unknown, message: string) => write({ error: { code: -32600, 
 if (env.FAKE_CODEX_FAULT === 'garbage') { process.stdout.write('this is not json\n{"half": \n\n[1,2,3]\n'); }
 
 let initialized = false, sawInitialized = false;
+let login: { id: string; timer?: ReturnType<typeof setTimeout> } | null = null;
 let serial = 0;
 const pending = new Map<string | number, { resolve: (v: unknown) => void; method: string; turn: TurnState | null }>();
 /** Requests the fake resolved itself (turn ended): a reply crossing that on the wire is a benign race. */
@@ -303,6 +304,29 @@ async function handle(message: Record<string, unknown>) {
   if (!initialized || !sawInitialized) { refuse(id, 'Not initialized'); return; }
   switch (method) {
     case 'account/read': respond(id, signedIn() ? { account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' }, requiresOpenaiAuth: true, workspaceRouting: null } : { account: null, requiresOpenaiAuth: true, workspaceRouting: null }); return;
+    case 'account/login/start': {
+      if (params.type !== 'chatgpt') { violation('den-kit must sign in with ChatGPT, not an API key', params); refuse(id, 'unsupported login'); return; }
+      const loginId = randomUUID();
+      login = { id: loginId };
+      respond(id, { type: 'chatgpt', loginId, authUrl: `https://auth.openai.com/oauth/authorize?state=${loginId}` });
+      if (env.FAKE_CODEX_LOGIN === 'success') login.timer = setTimeout(() => {
+        if (login?.id !== loginId) return;
+        writeFileSync(join(home!, 'auth.json'), '{"fake":true}');
+        notify('account/login/completed', { loginId, success: true, error: null });
+        notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
+        login = null;
+      }, 80);
+      return;
+    }
+    case 'account/login/cancel': {
+      if (login && login.id === params.loginId) { if (login.timer) clearTimeout(login.timer); login = null; }
+      respond(id, { status: 'canceled' });
+      notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Canceled' });
+      return;
+    }
+    case 'account/logout':
+      rmSync(join(home!, 'auth.json'), { force: true });
+      respond(id, {}); notify('account/updated', { authMode: null, planType: null }); return;
     case 'model/list': respond(id, { data: MODELS, nextCursor: null }); return;
     case 'account/rateLimits/read':
       if (!signedIn()) { refuse(id, 'codex account authentication required to read rate limits'); return; }

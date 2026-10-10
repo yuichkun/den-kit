@@ -17,8 +17,8 @@ async function ask(page: Page, text: string, timeout = 300000) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press('Shift+Enter');
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout });
-  return kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, message: o.message }; });
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout });
+  return kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, message: o.message }; });
 }
 async function partFrame(page: Page, part: string, timeout = 60000): Promise<Frame> {
   const end = Date.now() + timeout;
@@ -90,6 +90,57 @@ describe('the pod: a free environment for the AI', () => {
     await page.waitForFunction(async () => (await (window as any).__kit.pod.readFile('src/parts/meter.ts')) === null, null, { timeout: 20000, polling: 500 });
     assert.deepEqual(errors, []);
     assert.deepEqual(h.codex!.violations(), []);
+    await page.close();
+  });
+
+  it('a code part notifies its subscribers for external moves, its own set and setNorm, without repeating the host acknowledgment', { timeout: 120000 }, async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    const created = await kit(page, k => {
+      const files = Object.fromEntries(k.pod.wanted());
+      delete files['src/kit/controls.ts'];
+      const result = k.commit([
+      { op: 'addNode', node: { id: 'watchknob', type: 'ui.knob', config: { min: 0, max: 100, scale: 'linear' }, values: { value: 10 } } },
+      { op: 'setProjectFiles', files: { ...files, 'src/parts/subscribed.ts': `import { part } from '../kit';
+export default part({ mount(root, kit) {
+  const display = root.appendChild(document.createElement('output'));
+  display.id = 'subscribed-value';
+  let calls = 0;
+  const update = () => { display.textContent = String(kit.value('watchknob')); display.dataset.norm = String(kit.norm('watchknob')); display.dataset.calls = String(++calls); };
+  update();
+  const stop = kit.on('watchknob', update);
+  const set = root.appendChild(document.createElement('button')); set.id = 'self-set'; set.textContent = 'set'; set.onclick = () => kit.set('watchknob', 120);
+  const norm = root.appendChild(document.createElement('button')); norm.id = 'self-norm'; norm.textContent = 'norm'; norm.onclick = () => kit.setNorm('watchknob', 0.5);
+  return stop;
+} });\n` } },
+      { op: 'addElement', element: { id: 'subscribe1', kind: 'code', part: 'subscribed', rect: { x: 20, y: 20, w: 240, h: 100 }, props: {} } },
+      ]);
+      return { ok: result.ok, error: result.error?.message };
+    });
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    await page.click('[data-testid=view-plugin]');
+    await page.waitForSelector('[data-element=subscribe1] [data-code-state=ready]', { timeout: 60000 });
+    const f = await partFrame(page, 'subscribed');
+    const displayed = async (value: number, norm: number, calls: number) => {
+      await f.waitForFunction(v => document.getElementById('subscribed-value')?.textContent === String(v), value, { timeout: 5000 });
+      assert.equal(await f.locator('#subscribed-value').getAttribute('data-norm'), String(norm));
+      assert.equal(await f.locator('#subscribed-value').getAttribute('data-calls'), String(calls));
+    };
+    await displayed(10, 0.1, 1);
+    await kit(page, k => k.commit([{ op: 'setValue', node: 'watchknob', port: 'value', value: 30 }]));
+    await displayed(30, 0.3, 2);
+    await f.click('#self-set');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.watchknob.values.value === 100);
+    await displayed(100, 1, 3);
+    await f.click('#self-set');
+    await page.waitForTimeout(300);
+    await displayed(100, 1, 3);
+    await f.click('#self-norm');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.watchknob.values.value === 50);
+    await displayed(50, 0.5, 4);
+    await page.waitForTimeout(300);
+    await displayed(50, 0.5, 4);
+    assert.deepEqual(errors, []);
     await page.close();
   });
 

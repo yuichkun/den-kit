@@ -1,5 +1,5 @@
 // Local AI bridge: one WebSocket per browser tab, bound to 127.0.0.1 only.
-// It holds the secrets (Jev key, the Codex login), talks to the outside
+// It holds the Codex login, talks to the outside
 // services and writes JSONL telemetry. The patch itself lives in the browser:
 // the LLM's tool calls are sent to the tab that started the request.
 //
@@ -11,17 +11,15 @@
 // Trust model: a connection must come from the Vite page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
 // is closed with a code that says why (see CLOSE in src/ai/protocol.ts).
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CLOSE, MAX_FRAME_BYTES, PROTOCOL_VERSION, WS_PATH, parseClientMessage, type BridgeStatus, type ClientMessage, type ServerMessage } from '../src/ai/protocol.ts';
-import { JevClient } from './jev.ts';
 import { Telemetry } from './telemetry.ts';
 import type { CodexClient, TurnSink } from './codex/client.ts';
 
 export const BRIDGE_VERSION = 'den-kit-bridge/1';
 export const TOKEN_PATH = '/__kit/token';
-export const MAX_PENDING_PER_TAB = 8;
 const MAX_TELEMETRY_BYTES = 64 * 1024;
 
 export interface BridgeOptions {
@@ -29,20 +27,19 @@ export interface BridgeOptions {
   token?: string;
   /** Page origins allowed to connect, e.g. http://127.0.0.1:5180 (both 127.0.0.1 and localhost are added for each port). */
   origins?: string[];
-  jev?: JevClient;
   telemetry?: Telemetry;
   helloTimeoutMs?: number;
   heartbeatMs?: number;
-  /** Send one tiny Jev request at startup to warm the connection and learn whether the key works. */
-  warmUp?: boolean;
   /** The LLM path (Codex app-server); the bridge stops it on close. */
   codex?: CodexClient;
   /** How long a disconnected tab keeps its LLM requests and conversations. */
   llmGraceMs?: number;
   log?: (line: string) => void;
+  /** Packaged desktop app: serve its built renderer from the same loopback origin. */
+  handleHttp?: (req: IncomingMessage, res: ServerResponse) => void;
 }
 
-interface Tab { socket: WebSocket; id: string; tab: string; alive: boolean; pending: Map<string, AbortController> }
+interface Tab { socket: WebSocket; id: string; tab: string; alive: boolean }
 
 export interface Bridge {
   readonly port: number;
@@ -71,7 +68,6 @@ const isLoopbackHost = (host: string | undefined) => !!host && /^(127\.0\.0\.1|l
 
 export async function createBridge(options: BridgeOptions = {}): Promise<Bridge> {
   const token = options.token ?? randomBytes(24).toString('base64url');
-  const jev = options.jev ?? new JevClient();
   const telemetry = options.telemetry;
   const helloTimeoutMs = options.helloTimeoutMs ?? 5000;
   const log = options.log ?? (() => {});
@@ -81,7 +77,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const codex = options.codex;
   const llmGraceMs = options.llmGraceMs ?? 30000;
-  const status = (): BridgeStatus => ({ jev: { ...jev.status }, codex: codex ? codex.status : { state: 'off', detail: 'dev was started with KIT_CODEX=off.' } });
+  const status = (): BridgeStatus => ({ codex: codex ? codex.status : { state: 'off', detail: 'dev was started with KIT_CODEX=off.' } });
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
   const broadcastStatus = () => { const s = status(); for (const t of tabs) send(t.socket, { t: 'status', status: s }); };
   const unsubscribeCodex = codex?.onStatus(() => broadcastStatus());
@@ -149,6 +145,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ token, protocol: PROTOCOL_VERSION }));
       return;
     }
+    if (options.handleHttp) { options.handleHttp(req, res); return; }
     res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
   });
 
@@ -178,7 +175,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         // The same tab on a new socket (a reconnect that beat the old socket's close): the new one wins.
         const previous = connected(parsed.tab);
         if (previous) { tabs.delete(previous); previous.socket.close(CLOSE.replaced, 'replaced by a newer connection'); }
-        tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true, pending: new Map() };
+        tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true };
         tabs.add(tab);
         socket.on('pong', () => { if (tab) tab.alive = true; });
         const mine = [...running.get(parsed.tab) ?? []].map(key => key.slice(parsed.tab.length + SEP.length));
@@ -191,8 +188,6 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
     socket.on('close', () => {
       clearTimeout(helloTimer);
       if (!tab) return;
-      for (const controller of tab.pending.values()) controller.abort();
-      tab.pending.clear();
       if (!tabs.delete(tab)) return; // already replaced by a newer socket of the same tab
       leave(tab.tab);
     });
@@ -209,7 +204,6 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         telemetry?.write('trace', { tab: tab.tab, ...message.record });
         return;
       }
-      case 'jev.cancel': tab.pending.get(message.id)?.abort(); return;
       case 'llm.start': {
         if (!codex) { llmOff(tab.socket, message.id); return; }
         const key = keyOf(tab.tab, message.id);
@@ -240,20 +234,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         return;
       }
       case 'codex.retry': void codex?.retry(); return;
-      case 'jev.ask': {
-        if (tab.pending.has(message.id)) { send(tab.socket, { t: 'error', message: `duplicate request id ${message.id}`, ref: message.id }); return; }
-        if (tab.pending.size >= MAX_PENDING_PER_TAB) { send(tab.socket, { t: 'jev.result', id: message.id, result: { ok: false, error: { kind: 'busy', message: 'Too many Jev requests in flight from this tab.' }, ms: 0 } }); return; }
-        const controller = new AbortController();
-        tab.pending.set(message.id, controller);
-        const before = jev.status.state + (jev.status.detail ?? '');
-        void jev.ask(message.request, { budgetMs: message.budgetMs, signal: controller.signal }).then(result => {
-          tab.pending.delete(message.id);
-          telemetry?.write('jev', { tab: tab.tab, id: message.id, ok: result.ok, ms: result.ms, questions: Object.keys(message.request.questions), ...(result.ok ? { model: result.response.model, usage: result.response.usage } : { error: result.error.kind, status: result.error.status }) });
-          send(tab.socket, { t: 'jev.result', id: message.id, result });
-          if (jev.status.state + (jev.status.detail ?? '') !== before) broadcastStatus();
-        });
-        return;
-      }
+
     }
   }
 
@@ -273,24 +254,17 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
 
-  if (options.warmUp && jev.enabled) {
-    void jev.warmUp().then(result => {
-      log(result.ok ? `Jev ready (${result.ms} ms)` : `Jev warm-up failed: ${result.error.message}`);
-      broadcastStatus();
-    });
-  }
-
   return {
     port, token, server, status,
     setOrigins(next) { origins = expandOrigins(next); },
-    tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: t.pending.size })),
+    tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: running.get(t.tab)?.size ?? 0 })),
     async close() {
       clearInterval(heartbeat);
       for (const a of away.values()) clearTimeout(a.timer);
       away.clear();
       unsubscribeCodex?.();
       await codex?.stop();
-      for (const t of tabs) { for (const c of t.pending.values()) c.abort(); t.socket.terminate(); }
+      for (const t of tabs) t.socket.terminate();
       tabs.clear();
       wss.close();
       await new Promise<void>(resolve => server.close(() => resolve()));

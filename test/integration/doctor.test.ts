@@ -1,17 +1,24 @@
-// `doctor` and `codex:login` as the user runs them, against the fakes
-// (fake Jev over HTTP, fake Codex CLI through KIT_CODEX_BIN).
+// `doctor` and `codex:login` against the fake Codex CLI through KIT_CODEX_BIN.
+// An HTTP trap verifies that retired Jev environment settings never trigger a request.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startFakeJev, type FakeJev } from '../fakes/jev/fake-jev.ts';
+import { createServer, type Server } from 'node:http';
 import { FAKE_CODEX, KIT_ROOT, fakeCodexEnv } from '../helpers/fake-codex.ts';
 
-let jev: FakeJev;
+let legacyEndpoint: Server;
+let legacyUrl: string;
+let legacyCalls = 0;
 let dir: string;
-beforeAll(async () => { jev = await startFakeJev({ key: 'doctor-key' }); dir = mkdtempSync(join(tmpdir(), 'kit-doctor-')); });
-afterAll(async () => { await jev.close(); rmSync(dir, { recursive: true, force: true }); });
+beforeAll(async () => {
+  dir = mkdtempSync(join(tmpdir(), 'kit-doctor-'));
+  legacyEndpoint = createServer((_request, response) => { legacyCalls++; response.writeHead(500); response.end('Retired service must not be called.'); });
+  await new Promise<void>(resolve => legacyEndpoint.listen(0, '127.0.0.1', resolve));
+  legacyUrl = `http://127.0.0.1:${(legacyEndpoint.address() as { port: number }).port}`;
+});
+afterAll(async () => { await new Promise<void>(resolve => legacyEndpoint.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); });
 
 function run(script: string, env: Record<string, string>, args: string[] = []): Promise<{ code: number; out: string }> {
   return new Promise(resolve => {
@@ -24,7 +31,7 @@ function codexEnv(name: string, signedIn: boolean) {
   const home = join(dir, name);
   mkdirSync(home, { recursive: true });
   if (signedIn) writeFileSync(join(home, 'auth.json'), '{"fake":true}');
-  return { KIT_CODEX_BIN: FAKE_CODEX, KIT_CODEX_HOME: home, TYPESAFE_API_KEY: 'doctor-key', KIT_JEV_BASE: jev.url, ...fakeCodexEnv(join(dir, `${name}.jsonl`)) };
+  return { KIT_CODEX_BIN: FAKE_CODEX, KIT_CODEX_HOME: home, TYPESAFE_API_KEY: 'doctor-key', KIT_JEV_BASE: legacyUrl, ...fakeCodexEnv(join(dir, `${name}.jsonl`)) };
 }
 const line = (out: string, name: string) => out.split('\n').find(l => new RegExp(`^(PASS|WARN|FAIL|SKIP)\\s+${name}\\b`).test(l)) ?? `(no ${name} line)\n${out}`;
 
@@ -46,7 +53,8 @@ describe('doctor', () => {
     const recording = line(out, 'Codex recording').replace(/^PASS\s+Codex recording\s+/, '').trim();
     expect(existsSync(join(KIT_ROOT, recording.replace(/^kit\//, '')))).toBe(true);
     rmSync(join(KIT_ROOT, recording.replace(/^kit\//, '')));
-    expect(line(out, 'Jev request')).toMatch(/^PASS/);
+    expect(out).not.toMatch(/Jev|doctor-key/);
+    expect(legacyCalls).toBe(0);
     expect(code, out).toBe(0);
   }, 150000);
 

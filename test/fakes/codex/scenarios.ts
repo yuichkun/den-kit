@@ -34,6 +34,53 @@ export default part({
 `;
 
 const scenarios: Scenario[] = [
+  // These are scripted LLM replies for browser regression tests, not a local
+  // interpreter: the page must send every request through the bridge first.
+  {
+    name: 'parameter-edit',
+    match: text => /^(リリース長く|もっと|明るく|brighter|レゾナンス上げて)$/.test(text.split('\n\n').at(-1) ?? ''),
+    async run(t) {
+      await t.think();
+      await t.call('kit_get_patch', {});
+      const request = t.text.split('\n\n').at(-1);
+      const [node, port, value] = request === 'レゾナンス上げて' ? ['filter1', 'resonance', 3]
+        : request === 'リリース長く' || request === 'もっと' ? ['aenv1', 'release', request === 'もっと' ? 1.2 : 0.6]
+        : ['cut1', 'hz', 2400];
+      await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node, port, value }] });
+      await t.call('kit_finish', { summary: `Set ${node}.${port} to ${value}.` });
+    },
+  },
+  {
+    name: 'screen-edit',
+    match: text => /^(アクセントを赤にして|もう少し暗く)$/.test(text.split('\n\n').at(-1) ?? ''),
+    async run(t) {
+      await t.call('kit_get_plugin', {});
+      const red = t.text.split('\n\n').at(-1) === 'アクセントを赤にして';
+      await t.call('kit_apply_ops', { ops: [{ op: 'setLook', look: { tokens: red ? { accent: '#ff4d4d' } : { bg: '#050506' } } }] });
+      await t.call('kit_look', {});
+      await t.call('kit_finish', { summary: red ? 'accent colour → red' : 'darker screen' });
+    },
+  },
+  {
+    name: 'new-bass',
+    match: text => text.split('\n\n').at(-1) === 'ベース作って',
+    async run(t) {
+      await t.call('kit_get_patch', {});
+      const edit = await t.call('kit_apply_ops', { ops: [
+        { op: 'addNode', node: { id: 'voice1', type: 'kit.voiceIn' } },
+        { op: 'addNode', node: { id: 'osc1', type: 'den.oscillator', config: { waveform: 'saw' } } },
+        { op: 'addNode', node: { id: 'mix1', type: 'kit.voiceMix' } },
+        { op: 'addNode', node: { id: 'gain1', type: 'kit.gain', values: { gain: 0.1 } } },
+        { op: 'addNode', node: { id: 'out1', type: 'kit.out' } },
+        { op: 'connect', from: { node: 'voice1', port: 'pitch' }, to: { node: 'osc1', port: 'frequency' } },
+        { op: 'connect', from: { node: 'osc1', port: 'out' }, to: { node: 'mix1', port: 'in' } },
+        { op: 'connect', from: { node: 'mix1', port: 'out' }, to: { node: 'gain1', port: 'in' } },
+        { op: 'connect', from: { node: 'gain1', port: 'out' }, to: { node: 'out1', port: 'left' } },
+      ] });
+      if (!edit.success) { await t.say(`Building failed: ${edit.text}`); return; }
+      await t.call('kit_finish', { summary: 'Built a bass patch.' });
+    },
+  },
   // Members first: their text quotes the person's request, which other scenarios would match.
   {
     name: 'team-sound',
@@ -297,7 +344,7 @@ const scenarios: Scenario[] = [
       await t.think();
       const steer = await t.waitForSteer(15000);
       if (t.interrupted) return;
-      const hz = steer && /dark|暗/i.test(steer) ? 150 : 700;
+      const hz = steer && /dark|暗/i.test(steer) ? 150 : steer && /brighter/i.test(steer) ? 2400 : 700;
       await t.call('kit_apply_ops', { ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: hz }] });
       await t.call('kit_finish', { summary: steer ? `Took “${steer}” into account: base cutoff ${hz} Hz.` : `Base cutoff ${hz} Hz.` });
     },

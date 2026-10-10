@@ -3,7 +3,6 @@
 // canned results; the browser's real tools are covered in llm-workspace and e2e.
 import { afterEach, describe, expect, it } from 'vitest';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { JevClient } from '../../bridge/jev.ts';
 import { PROTOCOL_VERSION, WS_PATH, type LlmEvent, type ServerMessage, type ToolOutput } from '../../src/ai/protocol.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
@@ -15,7 +14,7 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
 async function setup(options: { signedIn?: boolean; env?: Record<string, string>; client?: Partial<CodexClientOptions>; graceMs?: number; start?: boolean } = {}) {
   const fake = fakeCodex(options);
-  const bridge = await createBridge({ origins: [ORIGIN], jev: new JevClient(), codex: fake.client, llmGraceMs: options.graceMs ?? 30000 });
+  const bridge = await createBridge({ origins: [ORIGIN], codex: fake.client, llmGraceMs: options.graceMs ?? 30000 });
   cleanups.push(async () => { await bridge.close(); await fake.cleanup(); });
   if (options.start !== false) await fake.client.start();
   return { fake, bridge };
@@ -434,7 +433,7 @@ describe('tabs coming and going', () => {
   });
 
   it('without Codex the bridge says the LLM path is off', async () => {
-    const bridge = await createBridge({ origins: [ORIGIN], jev: new JevClient() });
+    const bridge = await createBridge({ origins: [ORIGIN] });
     cleanups.push(() => bridge.close());
     const s = await tab(bridge);
     expect(bridge.status().codex.state).toBe('off');

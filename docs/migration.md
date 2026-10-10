@@ -23,18 +23,9 @@
 
 ## 触りはじめる
 
-Node.js 24を用意し、このrepoで実行する。den本体のcloneは不要。
+Electron版のビルド・起動とブラウザでの開発手順は[README](../README.md)に記載する。den本体のcloneは不要。Electron版のChatGPTサインインはアプリの設定画面から行い、BrowserPodはビルド時に運営キーを同梱する。利用者のBrowserPodキー設定は不要。
 
-```sh
-npm ci
-KIT_CODEX=off npm run dev
-```
-
-Chromeで <http://127.0.0.1:5180/> を開く。音声は48 kHz。作品集から始め、Patchで音を編集し、PluginのEditで画面を編集できる。保存・読み込み・マイパーツも使える。
-
-AIを使うときは`npm run codex:login`で自分のChatGPTへサインインし、`npm run doctor`で確認する。Jev／BrowserPodも自分のキーを`.env`に設定する。キーがなくても手での制作は動く。秘密・認証・個人のログは共有しない。
-
-## 検証
+## 移行の検証記録（2026-10-10、GEN-654）
 
 - macOS・Node 24.21.0で`npm run build`と`npm test`が成功。単体669件、統合272件、ブラウザ89件、計1,030件がすべて通過。
 - 統合テストには、npm版denとのbass・percussion・pad・chorus・rhythmic delayの5種類のサンプル単位の一致を含む。

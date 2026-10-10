@@ -7,7 +7,7 @@ import type { BridgeStatus, LlmEvent, ToolOutput, TokenUsage } from '../../src/a
 
 export class FakeLlmTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({ jev: { state: 'ok' }, codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' } });
+  readonly status = shallowRef<BridgeStatus>({ codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' } });
   sent: Array<Record<string, unknown>> = [];
   results: Array<{ id: string; callId: string; output: ToolOutput }> = [];
   telemetryRecords: Array<Record<string, unknown>> = [];

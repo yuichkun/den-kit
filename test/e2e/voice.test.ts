@@ -25,7 +25,7 @@ const FAKE = `
 const NO_SPEECH = `delete window.webkitSpeechRecognition; delete window.SpeechRecognition; window.webkitSpeechRecognition = undefined; window.SpeechRecognition = undefined;`;
 
 let h: Harness;
-before(async () => { h = await startHarness(); });
+before(async () => { h = await startHarness({ codex: true }); });
 after(async () => { await h?.close(); });
 
 async function open(initScript = FAKE) {

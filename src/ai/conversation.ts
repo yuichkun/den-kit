@@ -1,10 +1,7 @@
-// The conversation about the patch being worked on: one per opened patch,
-// shared by the fast path and the LLM. The prompt's lines are kept with the
-// autosave (a reload goes on where it was); the LLM is told, with each request,
-// what happened since its last turn (requests the fast path handled, the
-// person's own edits) and, when its conversation is new, what came before.
+// One saved conversation per opened patch. The prompt history survives reloads,
+// and the LLM receives prior requests and the person's hand edits as context.
 import type { Transaction } from '../core/history.ts';
-import type { Outcome, OutcomeStatus, RouteKind } from './fast-path.ts';
+import type { Outcome, OutcomeStatus, RouteKind } from './requests.ts';
 import { sketchSummary } from './sketch.ts';
 
 /** Lines kept per conversation (oldest drop first). */
@@ -54,7 +51,7 @@ export function readSavedLines(raw: readonly unknown[]): Outcome[] {
 
 /** One line of the conversation as the LLM reads it. */
 export function lineForAi(o: Outcome): string {
-  const who = o.route === 'llm' ? 'LLM request' : 'fast path';
+  const who = o.route === 'llm' ? 'LLM request' : 'earlier request';
   const result = o.status === 'applied' ? o.label ?? 'applied'
     : o.status === 'reply' ? `answered${o.reply ? `: ${clip(o.reply.replace(/\s+/g, ' '), 120)}` : ''}`
     : o.status === 'nothing' ? `nothing changed${o.message ? ` (${clip(o.message, 90)})` : ''}`
@@ -81,16 +78,4 @@ export function handEditsSince(entries: readonly Transaction[], since: number, m
   if (!counts.size) return null;
   const parts = [...counts].map(([label, n]) => `${clip(label, 60)}${n > 1 ? ` ×${n}` : ''}`);
   return parts.length > max ? `${parts.slice(0, max).join(', ')} and ${parts.length - max} more` : parts.join(', ');
-}
-
-/** "もっと" / "もう少し" / "more": do the last fast-path change again. "戻して" / "undo": take the last AI change back. */
-export type FollowUp = { kind: 'more'; prefix: string } | { kind: 'undo' };
-const MORE = /^(?:(もっと|さらに|更に|もうちょっと|もうちょい|もう少し|もうすこし)|(?:もう(?:一回|一度|1回)|again|more|a (?:little|bit) more|even more|a touch more))[!！。．.、,\s]*(?:お願い|please|して|やって)?[!！。．.\s]*$/i;
-const UNDO = /^(?:戻して|元に戻して|もとに戻して|やっぱり(?:戻して|やめて|なし)|取り消して|undo(?: that)?|revert(?: that)?|take (?:it|that) back)[!！。．.\s]*$/i;
-export function followUp(text: string): FollowUp | null {
-  const t = text.trim();
-  if (UNDO.test(t)) return { kind: 'undo' };
-  const m = MORE.exec(t);
-  if (m) return { kind: 'more', prefix: m[1] && /少し|すこし|ちょっと|ちょい/.test(m[1]) ? 'もう少し' : m[1] ? 'もっと' : '' };
-  return null;
 }

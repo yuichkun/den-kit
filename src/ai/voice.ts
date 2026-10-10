@@ -3,6 +3,7 @@
 // transcribed on Google's servers. Every failure becomes a short message; the
 // editor never depends on it.
 import { ref } from 'vue';
+import { desktop } from '../desktop/api.ts';
 
 /** The subset of SpeechRecognition the AI bar uses (tests pass a fake). */
 export interface RecognitionLike {
@@ -20,7 +21,9 @@ export interface RecognitionLike {
 
 export type VoiceState = 'idle' | 'listening' | 'finishing';
 
-export const VOICE_UNSUPPORTED = 'Voice input needs Chrome (this browser has no speech recognition).';
+export const VOICE_UNSUPPORTED = desktop()
+  ? 'Voice input is not available in this desktop build. You can type your request instead.'
+  : 'Voice input needs Chrome (this browser has no speech recognition).';
 const ERRORS: Record<string, string> = {
   'not-allowed': 'Microphone access is blocked. Allow it from the icon at the left of the address bar, then try again.',
   'service-not-allowed': 'Microphone access is blocked. Allow it from the icon at the left of the address bar, then try again.',
@@ -32,6 +35,8 @@ export const NOTHING_HEARD = 'Didn’t catch anything. Hold Space while you spea
 
 /** The browser's recognizer, if there is one. */
 export function browserRecognition(): (() => RecognitionLike) | null {
+  // Electron exposes this API but cannot use Chrome's Google speech service.
+  if (desktop()) return null;
   const w = globalThis as unknown as { SpeechRecognition?: new () => RecognitionLike; webkitSpeechRecognition?: new () => RecognitionLike };
   const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
   return Ctor ? () => new Ctor() : null;

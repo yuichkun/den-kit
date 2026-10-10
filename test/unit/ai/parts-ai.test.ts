@@ -1,14 +1,10 @@
-// Parts and the AI: fast-path words make, unpack and detach parts; inside a
-// part, requests are about it (a knob that is a parameter moves the use the
-// person came through, never the shared default); the LLM gets the part tools,
-// is told where the person is, and what it makes lands with the ids it tried.
-import { beforeEach, describe, expect, it } from 'vitest';
+// Part views and LLM tools preserve scoped parameters and edits.
+import { describe, expect, it } from 'vitest';
 import { shallowRef } from 'vue';
-import { FastPath } from '../../../src/ai/fast-path.ts';
+import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
 import type { BridgeStatus, LlmEvent } from '../../../src/ai/protocol.ts';
-import { parseRequest } from '../../../src/ai/lexicon.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { KitSession } from '../../../src/editor/session.ts';
@@ -19,8 +15,6 @@ import { partStarter, starter } from '../../../src/core/starters.ts';
 import { validate } from '../../../src/core/validate.ts';
 import { analyse } from '../../../src/core/analysis.ts';
 import { checkPlugin } from '../../../src/plugin/checks.ts';
-import { stubBridge } from '../../helpers/fake-bridge.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
 
 const makeSession = () => new KitSession({
   storage: null,
@@ -29,7 +23,7 @@ const makeSession = () => new KitSession({
 });
 class FakeTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({ jev: { state: 'off' }, codex: { state: 'ok', images: false, model: 'm' } });
+  readonly status = shallowRef<BridgeStatus>({ codex: { state: 'ok', images: false, model: 'm' } });
   sent: Array<Record<string, unknown>> = [];
   private listeners = new Set<(m: LlmInbound) => void>();
   get codexReady() { return this.online; }
@@ -46,75 +40,7 @@ class FakeTransport {
   last(t: string) { return [...this.sent].reverse().find(m => m.t === t); }
 }
 
-describe('the words', () => {
-  it.each([
-    ['これをパーツにして', 'make'], ['パーツ化して', 'make'], ['ひとまとめにして', 'make'], ['make this a part', 'make'], ['turn these into a part', 'make'],
-    ['ほどいて', 'unpack'], ['このパーツをほどいて', 'unpack'], ['unpack it', 'unpack'], ['break it apart', 'unpack'],
-    ['切り離して', 'detach'], ['detach this', 'detach'], ['give it its own copy', 'detach'],
-  ])('%s', (text, action) => {
-    const lex = parseRequest(text);
-    expect(lex.items).toEqual([expect.objectContaining({ kind: 'part', action })]);
-    expect(lex.full).toBe(true);
-  });
-  it('other requests are not about parts', () => {
-    for (const text of ['パーツの音を明るく', 'ベース作って', 'more bass', 'リリース長く']) expect(parseRequest(text).items.some(i => i.kind === 'part')).toBe(false);
-  });
-});
-
-describe('the fast path with parts', () => {
-  let session: KitSession, fast: FastPath;
-  beforeEach(() => {
-    session = makeSession();
-    session.loadStarter('bass');
-    session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-    fast = new FastPath(session);
-  });
-  it('パーツにして makes a part of the selection (one ⌘Z takes it back); without a selection it says what to do', async () => {
-    const before = session.doc.value;
-    const none = await fast.run('パーツにして');
-    expect(none.status).toBe('nothing');
-    expect(none.message).toMatch(/Select the modules/);
-    session.select(['osc1', 'filter1']);
-    const made = await fast.run('パーツにして');
-    expect(made.status).toBe('applied');
-    expect(Object.keys(session.doc.value.parts)).toHaveLength(1);
-    const use = Object.values(session.doc.value.nodes).find(n => n.type === 'kit.part')!;
-    session.select([use.id]);
-    const own = await fast.run('切り離して');
-    expect(own.status).toBe('nothing'); // used once: already its own
-    const unpacked = await fast.run('ほどいて');
-    expect(unpacked.status).toBe('applied');
-    expect(session.doc.value.parts).toEqual({});
-    session.undo(); session.undo();
-    expect({ ...session.doc.value, revision: 0 }).toEqual({ ...before, revision: 0 });
-  });
-  it('in the main patch, a request reaches a part through its parameters, never the knobs inside it', async () => {
-    const r = session.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]);
-    expect(r.ok).toBe(true);
-    const use = r.ok ? r.created[0]! : '';
-    expect(session.doc.value.parts.tone!.params.map(p => p.id)).toEqual(['hz', 'resonance']);
-    const hz = session.doc.value.nodes[use]!.values.hz as number;
-    const out = await fast.run('明るく');
-    expect(out.status).toBe('applied');
-    expect(session.doc.value.nodes[use]!.values.hz).toBeGreaterThan(hz);
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(hz); // the default inside is untouched
-  });
-  it('inside a part, a request is about it: a knob that is a parameter moves the use the person came through', async () => {
-    const r = session.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]);
-    const use = r.ok ? r.created[0]! : '';
-    session.commit([{ op: 'setValue', node: use, port: 'hz', value: 600 }]);
-    session.enterPart(use);
-    const out = await fast.run('明るく');
-    expect(out.status).toBe('applied');
-    expect(out.where).toEqual({ path: [use], part: 'tone', name: 'Tone' });
-    const after = session.doc.value.nodes[use]!.values.hz as number;
-    expect(after).toBeGreaterThan(600); // from the use's own value, not the default (300)
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(300);
-    // A knob inside that is not a parameter is shared: it moves for every use.
-    session.leavePart();
-    const view = partView(session.doc.value, []);
-    expect(Object.keys(view.nodes)).not.toContain('cut1');
-  });
+describe('part views', () => {
   it('a part view shows the use\'s values; edits planned on it go to the use', () => {
     let doc = applyIntents(starter('bass', catalog), [{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }], catalog).doc;
     doc = applyIntents(doc, [{ op: 'setValue', node: 'tone1', port: 'resonance', value: 3 }], catalog).doc;
@@ -142,10 +68,9 @@ describe('the LLM and parts', () => {
   it('a request made inside a part tells the LLM which part and which use', async () => {
     const session = makeSession();
     session.loadStarter('bass');
-    session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-    const fast = new FastPath(session);
+    const requests = new AiRequests(session);
     const t = new FakeTransport();
-    const llm = new LlmController(session, fast, t as unknown as LlmTransport);
+    const llm = new LlmController(session, requests, t as unknown as LlmTransport);
     session.llm = llm;
     session.commit([{ op: 'makePart', ids: ['osc1', 'filter1'], name: 'Drop' }]);
     session.enterPart('drop1');

@@ -53,6 +53,8 @@ export interface CodexClientOptions {
   timeouts?: Partial<Timeouts>;
   restart?: Partial<{ baseMs: number; maxMs: number; maxFailures: number }>;
   authPollMs?: number;
+  /** Desktop UI supplies its own sign-in instructions instead of a terminal command. */
+  loginInstruction?: string;
   /** Turns running at once across the bridge (a lead and its members count each). */
   maxTurns?: number;
 }
@@ -165,6 +167,10 @@ export class CodexClient {
   private readonly timeouts: Timeouts;
   private readonly restartPolicy: { baseMs: number; maxMs: number; maxFailures: number };
   readonly stats = { boots: 0, exits: 0, turns: 0, toolCalls: 0, declined: 0, unexpectedItems: 0, malformed: 0 };
+  private modelCatalog: Model[] = [];
+  private loginId: string | null = null;
+  private signInState: 'idle' | 'waiting' | 'complete' | 'error' = 'idle';
+  private signInError: string | undefined;
 
   constructor(options: CodexClientOptions) {
     this.options = options;
@@ -178,6 +184,42 @@ export class CodexClient {
 
   get status(): CodexStatus { return { ...this.statusValue }; }
   get ready() { return this.statusValue.state === 'ok' && !!this.peer; }
+  get busy() { return this.turns.size > 0; }
+  get models(): Model[] { return this.modelCatalog.map(m => ({ ...m })); }
+  get login() { return { state: this.signInState, error: this.signInError }; }
+
+  /** Existing Codex sign-in, hosted by the bundled app-server. Tokens never enter the renderer. */
+  async signIn(): Promise<string> {
+    if (this.busy) throw new Error('Finish the current AI request before signing in.');
+    await this.start();
+    if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
+    if (this.loginId) await this.cancelSignIn();
+    const response = await this.peer.request<{ type: string; loginId: string; authUrl: string }>('account/login/start', { type: 'chatgpt' }, { timeoutMs: this.timeouts.requestMs });
+    if (response.type !== 'chatgpt' || typeof response.loginId !== 'string' || typeof response.authUrl !== 'string') throw new Error('Codex returned an unsupported sign-in response.');
+    this.loginId = response.loginId;
+    this.signInState = 'waiting'; this.signInError = undefined;
+    return response.authUrl;
+  }
+  async cancelSignIn() {
+    const id = this.loginId;
+    this.loginId = null; this.signInState = 'idle'; this.signInError = undefined;
+    if (id && this.peer) await this.peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+  }
+  async signOut() {
+    if (this.busy) throw new Error('Finish the current AI request before signing out.');
+    await this.cancelSignIn();
+    if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
+    await this.peer.request('account/logout', undefined, { timeoutMs: this.timeouts.requestMs });
+    await this.retry();
+  }
+  async configure(settings: { model: string; effort: string; fork: boolean }) {
+    if (this.busy) throw new Error('Finish the current AI request before changing settings.');
+    if (this.loginId) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
+    this.options.model = settings.model || undefined;
+    this.options.effort = settings.effort || undefined;
+    this.options.fork = settings.fork;
+    await this.retry();
+  }
   onStatus(listener: (status: CodexStatus) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 
   /** Start (or keep) the app-server; resolves when the state settles (ok, login or error). */
@@ -242,10 +284,11 @@ export class CodexClient {
       const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs }).catch(error => { this.log(`codex: model/list failed: ${describeRpcError(error)}`); return null; });
       if (this.proc !== proc) return;
       const model = this.chooseModel(models?.data ?? []);
+      this.modelCatalog = (models?.data ?? []).filter(m => !m.hidden);
       const base = { model: model.label, images: model.images };
       this.record('boot', { generation, ms: Date.now() - started, userAgent: init.userAgent, home: this.home.isolated ? '.codex-home' : 'custom', account: account.account?.type ?? null, model: model.label });
       if (!account.account && account.requiresOpenaiAuth !== false) {
-        this.setStatus({ state: 'login', detail: 'Codex is not signed in.', fix: `Run \`${LOGIN_COMMAND}\` once in another terminal (it opens ChatGPT sign-in); den-kit picks it up by itself.`, ...base });
+        this.setStatus({ state: 'login', detail: 'Codex is not signed in.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\` once in another terminal (it opens ChatGPT sign-in); den-kit picks it up by itself.`, ...base });
         this.watchAuth();
         return;
       }
@@ -660,6 +703,13 @@ export class CodexClient {
         return;
       }
       case 'account/rateLimits/updated': this.updateRateLimit((p as { rateLimits?: RateLimitSnapshot }).rateLimits); return;
+      case 'account/login/completed': {
+        if (p.loginId !== this.loginId || !this.loginId) return;
+        this.loginId = null;
+        this.signInState = p.success ? 'complete' : 'error';
+        this.signInError = p.success ? undefined : String(p.error ?? 'Sign-in did not complete.');
+        return;
+      }
       case 'account/updated': if (this.statusValue.state === 'login') void this.retry(); return;
       case 'thread/closed': { const id = p.threadId; if (typeof id === 'string') { const thread = this.threads.get(id); if (thread?.turn) this.finish(thread.turn, 'failed', { message: 'Codex closed the conversation.', code: 'closed' }); this.threads.delete(id); } return; }
       case 'warning': case 'configWarning': case 'deprecationNotice': {

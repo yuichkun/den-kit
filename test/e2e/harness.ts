@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { createServer, type ViteDevServer } from 'vite';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { JevClient } from '../../bridge/jev.ts';
-import { startFakeJev, type Answerer, type FakeJev } from '../fakes/jev/fake-jev.ts';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 
@@ -18,19 +16,13 @@ export function chromiumPath(): string | undefined {
   return undefined;
 }
 
-export interface Harness { server: ViteDevServer; browser: Browser; url: string; bridge: Bridge | null; jev: FakeJev | null; codex: FakeCodex | null; pod: FakePod | null; close(): Promise<void> }
+export interface Harness { server: ViteDevServer; browser: Browser; url: string; bridge: Bridge | null; codex: FakeCodex | null; pod: FakePod | null; close(): Promise<void> }
 
 export interface HarnessOptions {
   port?: number;
   env?: Record<string, string>;
-  /** Start the AI bridge (default true) wired to a fake Jev (never the real service). */
+  /** Start the local AI bridge (default true). */
   bridge?: boolean;
-  /** Key the bridge sends; the fake accepts only 'e2e-key'. null runs with Jev off. */
-  jevKey?: string | null;
-  /** How the fake Jev answers (default: position-biased, i.e. an unsure model). */
-  jevAnswerer?: Answerer;
-  /** Warm Jev up at bridge start like dev does (learns a bad key early). */
-  warmUp?: boolean;
   /** Run the LLM path against the fake Codex app-server (never the real one). */
   codex?: boolean | { signedIn?: boolean; env?: Record<string, string>; timeouts?: Record<string, number> };
   /** A pod for the screen project: the test stand-in (this machine's bash and npm), never BrowserPod. Off: no pod (as without a key). */
@@ -40,17 +32,14 @@ export interface HarnessOptions {
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   for (const [k, v] of Object.entries(options.env ?? {})) process.env[k] = v;
   let bridge: Bridge | null = null;
-  let jev: FakeJev | null = null;
   let codex: FakeCodex | null = null;
   if (options.bridge !== false) {
-    jev = await startFakeJev({ key: 'e2e-key', answerer: options.jevAnswerer });
-    const key = options.jevKey === undefined ? 'e2e-key' : options.jevKey;
     if (options.codex) {
       const c = options.codex === true ? {} : options.codex;
       codex = fakeCodex({ signedIn: c.signedIn, env: c.env, client: c.timeouts ? { timeouts: c.timeouts } : {} });
       await codex.client.start();
     }
-    bridge = await createBridge({ jev: new JevClient({ apiKey: key ?? undefined, baseUrl: jev.url }), warmUp: options.warmUp, codex: codex?.client });
+    bridge = await createBridge({ codex: codex?.client });
     process.env.KIT_BRIDGE_TOKEN = bridge.token;
     process.env.KIT_BRIDGE_PORT = String(bridge.port);
   } else {
@@ -66,7 +55,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   bridge?.setOrigins([new URL(url).origin]);
   const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
   // close() uses the fields, so a test that replaces h.bridge (restart) still cleans up the live one.
-  const h: Harness = { server, browser, url, bridge, jev, codex, pod, async close() { await h.browser.close(); await h.server.close(); await h.bridge?.close(); await h.jev?.close(); await h.codex?.cleanup(); await h.pod?.close(); } };
+  const h: Harness = { server, browser, url, bridge, codex, pod, async close() { await h.browser.close(); await h.server.close(); await h.bridge?.close(); await h.codex?.cleanup(); await h.pod?.close(); } };
   return h;
 }
 

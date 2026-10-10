@@ -1,7 +1,7 @@
 // What the person points at when they ask: the selected modules, controls,
 // cables and things on the plugin screen ride along with the request
 // ("this one is too bright"). The AI panel shows them above the prompt; the
-// LLM gets them by id with a few words each, and the fast path aims at them.
+// LLM gets them by id with a few words each.
 import type { Catalog } from '../core/catalog.ts';
 import type { PatchDocument } from '../core/schema.ts';
 

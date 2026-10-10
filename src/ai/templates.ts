@@ -1,13 +1,12 @@
-// Templates for "make a bass" style requests: whole patches built from the
+// Presets for the manual starter menu: whole patches built from the
 // den starters (CANDIDATE sound) plus a few value changes per preset, each with
 // a first plugin screen (its name, knobs for its main parameters, a keyboard).
-// Slots (brighter, longer release, …) are applied afterwards as ordinary intents.
 import type { Catalog } from '../core/catalog.ts';
 import { applyIntents, type Intent } from '../core/ops.ts';
 import { starter, type StarterId } from '../core/starters.ts';
 import type { PatchDocument } from '../core/schema.ts';
 import { controlFor } from '../plugin/controls.ts';
-import { aspectById, candidates, chooseTargets } from './intents.ts';
+import { starterParameter } from './starter-parameters.ts';
 
 export const TEMPLATES = ['bass', 'pad', 'lead', 'pluck', 'keys', 'perc'] as const;
 export type TemplateId = typeof TEMPLATES[number];
@@ -62,11 +61,8 @@ const MAIN: ReadonlyArray<[string, string]> = [['brightness', 'Tone'], ['resonan
 export function starterScreen(doc: PatchDocument, catalog: Catalog, title: string): Intent[] {
   const picked: Array<{ node: string; port: string; label: string }> = [];
   for (const [id, label] of MAIN) {
-    const aspect = aspectById(id);
-    if (!aspect || picked.length >= 6) continue;
-    const list = candidates(doc, catalog, aspect).filter(c => !doc.nodes[c.node]?.type.startsWith('ui.'));
-    const choice = chooseTargets(aspect, list);
-    const target = choice.kind === 'one' ? choice.targets[0] : choice.kind === 'ambiguous' ? choice.candidates[0] : undefined;
+    if (picked.length >= 6) break;
+    const target = starterParameter(doc, catalog, id);
     if (target && !picked.some(p => p.node === target.node && p.port === target.port)) picked.push({ node: target.node, port: target.port, label });
   }
   const instrument = Object.values(doc.nodes).some(n => n.type === 'kit.voiceIn');

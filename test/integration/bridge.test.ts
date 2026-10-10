@@ -1,27 +1,24 @@
-// Bridge over real sockets: who may connect, the hello handshake, Jev round trips
-// through the fake Jev, cancellation, telemetry, and the token endpoint.
+// Bridge over real sockets: connection policy, the hello handshake, rejected
+// retired messages, local telemetry, heartbeat, and the token endpoint.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { JevClient } from '../../bridge/jev.ts';
 import { Telemetry } from '../../bridge/telemetry.ts';
 import { CLOSE, PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../src/ai/protocol.ts';
-import { startFakeJev, type FakeJev } from '../fakes/jev/fake-jev.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';
 
 const ORIGIN = 'http://127.0.0.1:5180';
-let fake: FakeJev;
 let logs: string;
 const bridges: Bridge[] = [];
-beforeAll(async () => { fake = await startFakeJev({ key: 'k' }); logs = mkdtempSync(join(tmpdir(), 'kit-bridge-')); });
-afterAll(async () => { await fake.close(); rmSync(logs, { recursive: true, force: true }); });
-afterEach(async () => { fake.faults = []; while (bridges.length) await bridges.pop()!.close(); });
+beforeAll(() => { logs = mkdtempSync(join(tmpdir(), 'kit-bridge-')); });
+afterAll(() => { rmSync(logs, { recursive: true, force: true }); });
+afterEach(async () => { while (bridges.length) await bridges.pop()!.close(); });
 
 async function bridge(extra: Parameters<typeof createBridge>[0] = {}) {
-  const b = await createBridge({ origins: [ORIGIN], jev: new JevClient({ apiKey: 'k', baseUrl: fake.url }), telemetry: new Telemetry(logs), ...extra });
+  const b = await createBridge({ origins: [ORIGIN], telemetry: new Telemetry(logs), ...extra });
   bridges.push(b);
   return b;
 }
@@ -35,7 +32,6 @@ async function hello(b: Bridge, origin = ORIGIN, tab = tabSerial++ ? `tab-${tabS
   expect(welcome.t).toBe('welcome');
   return s;
 }
-const ask = { state: { request: 'brighter' }, questions: { route: { type: 'choice', instructions: 'Route?', criteria: { a: 'A', b: 'B' } } } };
 const until = async (fn: () => boolean, ms = 2000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('condition not met'); await new Promise(r => setTimeout(r, 10)); } };
 
 describe('connection policy', () => {
@@ -94,12 +90,12 @@ describe('connection policy', () => {
 });
 
 describe('messages', () => {
-  it('welcome carries the status; Jev is off without a key; codex is off until CP2b', async () => {
-    const b = await bridge({ jev: new JevClient({}) });
+  it('welcome carries only Codex status, off when no Codex client is configured', async () => {
+    const b = await bridge();
     const s = await connect(wsUrl(b), ORIGIN);
     s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: b.token, tab: 't' });
     const welcome = await s.next() as Extract<ServerMessage, { t: 'welcome' }>;
-    expect(welcome.status.jev.state).toBe('off');
+    expect(Object.keys(welcome.status)).toEqual(['codex']);
     expect(welcome.status.codex.state).toBe('off');
     s.send({ t: 'status.get', id: 's1' });
     const status = await s.next();
@@ -124,84 +120,35 @@ describe('messages', () => {
     s.ws.close();
   });
 
-  it('round-trips a Jev request', async () => {
+  it('rejects retired Jev request and cancellation messages without disconnecting', async () => {
     const b = await bridge();
     const s = await hello(b);
-    s.send({ t: 'jev.ask', id: 'q1', request: ask, budgetMs: 1000 });
-    const r = await s.next();
-    expect(r.t).toBe('jev.result');
-    if (r.t === 'jev.result') { expect(r.id).toBe('q1'); expect(r.result.ok).toBe(true); }
+    for (const t of ['jev.ask', 'jev.cancel']) {
+      s.send({ t, id: 'retired', request: { state: 'brighter', questions: {} } });
+      const error = await s.nextOf('error');
+      expect(error.message).toMatch(/unknown message type/);
+      expect(b.tabs()).toMatchObject([{ pending: 0 }]);
+    }
+    s.send({ t: 'status.get', id: 'after-retired' });
+    expect((await s.nextOf('status')).id).toBe('after-retired');
     s.ws.close();
   });
 
-  it('reports Jev failures as results and broadcasts status changes', async () => {
-    const b = await bridge({ jev: new JevClient({ apiKey: 'wrong', baseUrl: fake.url }) });
+  it('writes local telemetry as JSONL without the bridge token and refuses oversized records', async () => {
+    const b = await bridge({ token: 'private-bridge-token' });
     const s = await hello(b);
-    const other = await hello(b);
-    s.send({ t: 'jev.ask', id: 'q1', request: ask });
-    const messages = [await s.next(), await s.next()];
-    const result = messages.find(m => m.t === 'jev.result');
-    expect(result?.t === 'jev.result' && !result.result.ok && result.result.error.kind).toBe('auth');
-    const status = messages.find(m => m.t === 'status');
-    expect(status?.t === 'status' && status.status.jev.state).toBe('error');
-    const pushed = await other.next();
-    expect(pushed.t === 'status' && pushed.status.jev.state).toBe('error');
-    s.ws.close(); other.ws.close();
-  });
-
-  it('cancels on request and when the tab disconnects', async () => {
-    const b = await bridge();
-    const s = await hello(b);
-    fake.faults = [{ delayMs: 400 }];
-    s.send({ t: 'jev.ask', id: 'slow', request: ask, budgetMs: 2000 });
-    await until(() => b.tabs()[0]?.pending === 1);
-    s.send({ t: 'jev.cancel', id: 'slow' });
-    const r = await s.next();
-    expect(r.t === 'jev.result' && !r.result.ok && r.result.error.kind).toBe('cancelled');
-    fake.faults = [{ delayMs: 400 }];
-    s.send({ t: 'jev.ask', id: 'slow2', request: ask, budgetMs: 2000 });
-    await until(() => b.tabs()[0]?.pending === 1);
-    s.ws.close();
-    await until(() => b.tabs().length === 0);
-  });
-
-  it('rejects duplicate ids and caps requests in flight per tab', async () => {
-    const b = await bridge();
-    const s = await hello(b);
-    fake.faults = Array.from({ length: 10 }, () => ({ delayMs: 300 }));
-    s.send({ t: 'jev.ask', id: 'd', request: ask, budgetMs: 2000 });
-    s.send({ t: 'jev.ask', id: 'd', request: ask, budgetMs: 2000 });
-    const dup = await s.next();
-    expect(dup.t === 'error' && dup.ref).toBe('d');
-    for (let i = 0; i < 8; i++) s.send({ t: 'jev.ask', id: `n${i}`, request: ask, budgetMs: 2000 });
-    const busy = await s.next();
-    expect(busy.t === 'jev.result' && busy.id === 'n7' && !busy.result.ok && busy.result.error.kind).toBe('busy');
-    s.ws.close();
-  });
-
-  it('writes telemetry as JSONL, never the key, and refuses oversized records', async () => {
-    const b = await bridge();
-    const s = await hello(b);
-    s.send({ t: 'telemetry', record: { kind: 'route', request: 'brighter', ms: 12 } });
-    s.send({ t: 'jev.ask', id: 'q', request: ask });
-    await s.nextOf('jev.result');
+    s.send({ t: 'telemetry', record: { kind: 'request', route: 'llm', ms: 12 } });
+    // A status response proves the earlier telemetry frame was handled.
+    s.send({ t: 'status.get', id: 'after-telemetry' });
+    await s.nextOf('status');
     s.send({ t: 'telemetry', record: { blob: 'x'.repeat(70 * 1024) } });
     expect((await s.nextOf('error')).message).toMatch(/too large/);
     const files = readdirSync(logs);
-    const trace = readFileSync(join(logs, files.find(f => f.startsWith('trace-'))!), 'utf8').trim().split('\n').map(l => JSON.parse(l));
-    expect(trace.at(-1)).toMatchObject({ tab: expect.stringMatching(/^tab-/), kind: 'route', request: 'brighter' });
-    const jev = readFileSync(join(logs, files.find(f => f.startsWith('jev-'))!), 'utf8');
-    expect(jev).toContain('"ok":true');
-    expect(jev).not.toContain('Bearer');
-    s.ws.close();
-  });
-
-  it('warm-up updates the status and pushes it to open tabs', async () => {
-    fake.faults = [{ delayMs: 200 }];
-    const b = await bridge({ warmUp: true });
-    const s = await hello(b);
-    const pushed = await s.next();
-    expect(pushed.t === 'status' && pushed.status.jev.state).toBe('ok');
+    const raw = readFileSync(join(logs, files.find(f => f.startsWith('trace-'))!), 'utf8');
+    const trace = raw.trim().split('\n').map(l => JSON.parse(l));
+    expect(trace.at(-1)).toMatchObject({ tab: expect.stringMatching(/^tab-/), kind: 'request', route: 'llm' });
+    expect(raw).not.toContain(b.token);
+    expect(files.some(f => f.startsWith('jev-'))).toBe(false);
     s.ws.close();
   });
 

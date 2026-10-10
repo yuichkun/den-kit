@@ -138,7 +138,7 @@ export function explainCodexError(error: TurnError | null | undefined, loginHint
   const code = typeof info === 'string' ? info : info && typeof info === 'object' ? Object.keys(info)[0] ?? 'other' : 'other';
   const message = error?.message || 'The LLM turn failed.';
   switch (code) {
-    case 'usageLimitExceeded': return { code, message: 'Your ChatGPT plan’s Codex usage limit is reached.', fix: 'Wait for the limit to reset (see the AI status), or use the fast path meanwhile.' };
+    case 'usageLimitExceeded': return { code, message: 'Your ChatGPT plan’s Codex usage limit is reached.', fix: 'Wait for the limit to reset (see the AI status), or keep editing by hand meanwhile.' };
     case 'rateLimitExceeded': case 'serverOverloaded': return { code, message: 'The model is busy right now.', fix: 'Try again in a minute.' };
     case 'unauthorized': return { code, message: 'Codex is not signed in (or the login expired).', fix: loginHint };
     case 'contextWindowExceeded': return { code, message: 'The conversation got too long for the model.', fix: 'Start fresh: the next request opens a new conversation.' };
