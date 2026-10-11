@@ -179,6 +179,7 @@ export class CodexClient {
   private modelCatalog: Model[] = [];
   private loginId: string | null = null;
   private canceling: Promise<void> | null = null;
+  private discardCanceledAccount = false;
   private pendingCancellation: { state: 'idle' | 'error'; error?: string } | null = null;
   private accountChangedDuringCancellation = false;
   private signInState: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error' = 'idle';
@@ -254,7 +255,16 @@ export class CodexClient {
     }
   }
   async cancelSignIn() {
-    if (this.canceling) return this.canceling;
+    if (this.canceling) {
+      if (this.discardCanceledAccount) return this.canceling;
+      // A queued user click can join cleanup started by a confirmation error.
+      // Upgrade that transaction instead of losing the explicit cancellation.
+      this.discardCanceledAccount = true;
+      this.pendingCancellation = { state: 'idle' };
+      writeFileSync(this.cancellationFile, 'pending\n', { mode: 0o600 });
+      this.finishSignIn('idle');
+      return this.canceling;
+    }
     const id = this.loginId, peer = this.peer;
     const starting = this.signInState === 'starting';
     this.finishSignIn('idle');
@@ -266,21 +276,25 @@ export class CodexClient {
   private cancelLogin(peer: RpcPeer, id: string | null, discardAccount = false): Promise<void> {
     if (this.canceling) return this.canceling;
     if (this.peer !== peer && !discardAccount) return Promise.resolve();
+    this.discardCanceledAccount = discardAccount || !!this.pendingCancellation;
     // Explicit cancellation withdraws the sign-in. A failed confirmation merely
     // ends its callback flow: an already saved account can still be rechecked.
     if (discardAccount) this.pendingCancellation ??= { state: this.signInState === 'error' ? 'error' : 'idle', error: this.signInError };
     this.stopAuthWatch();
     const task = (async () => {
       try {
-        if (discardAccount) writeFileSync(this.cancellationFile, 'pending\n', { mode: 0o600 });
-        let restart = discardAccount || !id;
+        if (this.discardCanceledAccount) writeFileSync(this.cancellationFile, 'pending\n', { mode: 0o600 });
+        let restart = !id;
         try {
           if (id) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
         } catch (error) { restart = true; this.log(`codex: canceling sign-in by restarting: ${describeRpcError(error)}`); }
         if (this.stopped) return;
         // boot() removes credentials saved before cancellation completed,
         // after the old process can no longer write them again.
-        if (restart && (discardAccount || this.peer === peer)) await this.retry();
+        const discardBeforeRestart = this.discardCanceledAccount;
+        if ((restart || discardBeforeRestart) && (discardBeforeRestart || this.peer === peer)) await this.retry();
+        // Explicit cancellation may also arrive after that boot read its account.
+        if (this.discardCanceledAccount && !discardBeforeRestart && this.pendingCancellation) await this.retry();
         if (this.pendingCancellation) throw new Error('The canceled account could not be cleared.');
       } catch (error) {
         if (this.stopped) return;
@@ -290,11 +304,13 @@ export class CodexClient {
       }
     })().finally(() => {
       if (this.canceling !== task) return;
+      const discard = this.discardCanceledAccount;
+      this.discardCanceledAccount = false;
       this.canceling = null;
       this.setStatus(this.statusValue);
       const changed = this.accountChangedDuringCancellation;
       this.accountChangedDuringCancellation = false;
-      if (changed && !discardAccount && !this.pendingCancellation && !this.stopped) void this.refreshAccount(true);
+      if (changed && !discard && !this.pendingCancellation && !this.stopped) void this.refreshAccount(true);
     });
     this.canceling = task;
     return task;

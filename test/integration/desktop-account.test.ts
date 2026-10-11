@@ -334,6 +334,35 @@ describe('desktop ChatGPT account', () => {
     expect(f.sent('account/login/start')).toHaveLength(0);
   });
 
+  it('honors explicit cancellation that joins cleanup started by a confirmation error', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once', FAKE_CODEX_CANCEL: 'delay' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.sent('account/login/cancel').length === 1);
+    expect(f.client.login.state).toBe('canceling');
+    const statuses: string[] = [];
+    f.client.onStatus(status => statuses.push(status.state));
+    await f.client.cancelSignIn();
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    expect(statuses).not.toContain('ok');
+    expect(f.sent('account/logout')).toHaveLength(1);
+    await f.client.retry();
+    expect(f.client.chatGPTSignedIn).toBe(false);
+  });
+
+  it('keeps repeated explicit cancellation idempotent while the replacement process finishes booting', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_MODELS_DELAY_MS: '150' } });
+    await f.client.start(); await f.client.signIn();
+    const canceled = f.client.cancelSignIn();
+    await until(() => f.sent('model/list').length === 2);
+    await Promise.all([canceled, f.client.cancelSignIn()]);
+    expect(f.client.stats.boots).toBe(2);
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.status.state).toBe('login');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+  });
+
   it('keeps an in-progress sign-in alive when settings are requested', async () => {
     const f = setup({ signedIn: false }); await f.client.start(); await f.client.signIn();
     await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow('Complete or cancel');

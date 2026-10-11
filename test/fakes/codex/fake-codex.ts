@@ -369,7 +369,10 @@ async function handle(message: Record<string, unknown>) {
       chatGPTLoginCompleted = false;
       rmSync(join(home!, 'auth.json'), { force: true });
       respond(id, {}); notify('account/updated', { authMode: null, planType: null }); return;
-    case 'model/list': respond(id, { data: MODELS, nextCursor: null }); return;
+    case 'model/list':
+      if (env.FAKE_CODEX_MODELS_DELAY_MS) setTimeout(() => respond(id, { data: MODELS, nextCursor: null }), Number(env.FAKE_CODEX_MODELS_DELAY_MS));
+      else respond(id, { data: MODELS, nextCursor: null });
+      return;
     case 'account/rateLimits/read':
       if (!signedIn()) { refuse(id, 'codex account authentication required to read rate limits'); return; }
       respond(id, { ordinaryUsageAllowed: true, rateLimits: { limitId: 'codex', limitName: null, normalModelSlug: null, primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 7200 }, secondary: { usedPercent: 3, windowDurationMins: 10080, resetsAt: null }, credits: null, individualLimit: null, spendControlReached: null, planType: 'plus', rateLimitReachedType: null }, rateLimitsByLimitId: null, rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null });
