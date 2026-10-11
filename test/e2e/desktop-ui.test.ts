@@ -105,7 +105,7 @@ describe('desktop interface', () => {
       await page.selectOption('[data-testid=desktop-model]', 'gpt-6-luna');
       await page.selectOption('[data-testid=desktop-effort]', 'low');
       await page.click('[data-testid=desktop-settings-save]');
-      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] [role=status]')?.textContent?.includes('Saved'));
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] .actions [role=status]')?.textContent?.includes('Saved'));
       assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.saved), [{ model: 'gpt-6-luna', effort: 'low', fork: true }]);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await page.click('[data-testid=desktop-settings-open]');
