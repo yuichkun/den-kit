@@ -77,7 +77,7 @@ onBeforeUnmount(() => { disposed = true; if (timer) clearInterval(timer); window
         <div class="actions">
           <button v-if="controls?.signIn" :disabled="busy || info.aiBusy" data-testid="desktop-sign-in" @click="action(() => api.signIn(), 'sign-in')">Sign in with ChatGPT</button>
           <button v-if="controls?.reconnect" :disabled="busy || info.aiBusy" data-testid="desktop-reconnect" @click="reconnect">Reconnect AI</button>
-          <template v-if="controls?.cancel"><span v-if="info.login === 'waiting'">Complete sign-in in your browser.</span><button :disabled="busy" @click="action(() => api.cancelSignIn(), 'sign-in')">Cancel sign-in</button></template>
+          <template v-if="controls?.cancel"><span v-if="info.login === 'waiting'">Complete sign-in in your browser.</span><button :disabled="busy || info.login === 'canceling'" @click="action(() => api.cancelSignIn(), 'sign-in')">Cancel sign-in</button></template>
           <template v-if="controls?.signOut"><button :disabled="busy" @click="action(() => api.openUsage(), 'usage')">Manage usage</button><button :disabled="busy || info.aiBusy" data-testid="desktop-sign-out" @click="action(() => api.signOut(), 'sign-out')">Sign out</button></template>
         </div>
         <p v-if="info.loginError" class="settings-error">{{ settingsError(info.loginError, 'sign-in') }}</p>

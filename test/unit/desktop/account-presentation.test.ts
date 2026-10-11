@@ -5,9 +5,9 @@ import type { DesktopInfo } from '../../../src/desktop/api.ts';
 const account = (login: DesktopInfo['login'], state: DesktopInfo['codex']['state'], signedIn = false) => ({ login, codex: { state }, chatGPTSignedIn: signedIn, aiBusy: false });
 
 describe('ChatGPT account presentation', () => {
-  it.each(['starting', 'waiting', 'checking'] as const)('offers cancellation and locks settings during %s', login => {
+  it.each(['starting', 'waiting', 'checking', 'canceling'] as const)('offers cancellation and locks settings during %s', login => {
     expect(accountActions(account(login, 'login'), false)).toMatchObject({ cancel: true, locked: true, signIn: false, signOut: false, reconnect: false });
-    expect(accountStatus('login', login)).toMatch(/Starting|Waiting|Confirming/);
+    expect(accountStatus('login', login)).toMatch(/Starting|Waiting|Confirming|Canceling/);
   });
 
   it('unlocks a failed sign-in, including a failed account check with an existing account', () => {

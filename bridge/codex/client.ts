@@ -178,6 +178,7 @@ export class CodexClient {
   readonly stats = { boots: 0, exits: 0, turns: 0, toolCalls: 0, declined: 0, unexpectedItems: 0, malformed: 0 };
   private modelCatalog: Model[] = [];
   private loginId: string | null = null;
+  private canceling: Promise<void> | null = null;
   private signInState: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error' = 'idle';
   private signInError: string | undefined;
   private chatGPTAccount = false;
@@ -202,12 +203,13 @@ export class CodexClient {
   get ready() { return this.statusValue.state === 'ok' && !!this.peer; }
   get busy() { return this.turns.size > 0; }
   get models(): Model[] { return this.modelCatalog.map(m => ({ ...m })); }
-  get login() { return { state: this.signInState, error: this.signInError }; }
+  get login() { return { state: this.canceling ? 'canceling' as const : this.signInState, error: this.signInError }; }
   private get signingIn() { return this.signInState === 'starting' || this.signInState === 'waiting' || this.signInState === 'checking'; }
 
   /** Existing Codex sign-in, hosted by the bundled app-server. Tokens never enter the renderer. */
   async signIn(): Promise<string> {
     if (this.busy) throw new Error('Finish the current AI request before signing in.');
+    await this.canceling;
     await this.start();
     if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
     if (this.signingIn) await this.cancelSignIn();
@@ -220,13 +222,13 @@ export class CodexClient {
       if (this.authAttempt !== attempt) return;
       const id = this.loginId;
       this.finishSignIn('error', 'ChatGPT sign-in timed out. Try signing in again.');
-      if (id && this.peer === peer) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
+      if (this.peer === peer) void this.cancelLogin(peer, id);
     }, this.options.loginTimeoutMs ?? 5 * 60_000);
     this.loginTimer.unref?.();
     try {
       const response = await peer.request<{ type: string; loginId: string; authUrl: string }>('account/login/start', { type: 'chatgpt' }, { timeoutMs: this.timeouts.requestMs });
       if (this.authAttempt !== attempt || this.peer !== peer) {
-        if (response.loginId) void peer.request('account/login/cancel', { loginId: response.loginId }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
+        if (response.loginId) void this.cancelLogin(peer, response.loginId);
         throw new Error('ChatGPT sign-in was canceled or interrupted. Try again.');
       }
       if (response.type !== 'chatgpt' || typeof response.loginId !== 'string' || typeof response.authUrl !== 'string') throw new Error('Codex returned an unsupported sign-in response.');
@@ -239,14 +241,37 @@ export class CodexClient {
       if (early) this.loginCompleted(early);
       return response.authUrl;
     } catch (error) {
-      if (this.authAttempt === attempt) this.finishSignIn('error', `ChatGPT sign-in could not start: ${describeRpcError(error)}`);
+      if (this.authAttempt === attempt) {
+        this.finishSignIn('error', `ChatGPT sign-in could not start: ${describeRpcError(error)}`);
+        void this.cancelLogin(peer, null);
+      }
       throw error;
     }
   }
   async cancelSignIn() {
+    if (this.canceling) return this.canceling;
     const id = this.loginId, peer = this.peer;
+    const starting = this.signInState === 'starting';
     this.finishSignIn('idle');
-    if (id && peer) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+    if (peer && (id || starting)) await this.cancelLogin(peer, id);
+  }
+
+  /** Retain the cancellation transaction until the server acknowledges it or
+   * its process is stopped. New sign-ins must not overlap an abandoned flow. */
+  private cancelLogin(peer: RpcPeer, id: string | null): Promise<void> {
+    if (this.canceling) return this.canceling;
+    const task = (async () => {
+      try {
+        if (!id) throw new Error('The sign-in ID was not received.');
+        await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+      } catch (error) {
+        if (this.peer !== peer || this.stopped) return;
+        this.log(`codex: canceling sign-in by restarting: ${describeRpcError(error)}`);
+        await this.retry();
+      }
+    })().finally(() => { if (this.canceling === task) this.canceling = null; });
+    this.canceling = task;
+    return task;
   }
   async signOut() {
     if (this.busy) throw new Error('Finish the current AI request before signing out.');
@@ -257,7 +282,7 @@ export class CodexClient {
   }
   async configure(settings: { model: string; effort: string; fork: boolean }) {
     if (this.busy) throw new Error('Finish the current AI request before changing settings.');
-    if (this.signingIn) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
+    if (this.signingIn || this.canceling) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     this.options.model = settings.model || undefined;
     this.options.effort = settings.effort || undefined;
     this.options.fork = settings.fork;
@@ -381,7 +406,7 @@ export class CodexClient {
       if (this.signingIn && (!confirming || refresh.again)) return;
       if (this.signingIn) {
         const id = this.loginId;
-        if (id) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
+        if (id) void this.cancelLogin(peer, id);
         this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Reconnect and try again.');
         this.setStatus({ state: 'error', detail: 'ChatGPT sign-in could not be confirmed.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
       }

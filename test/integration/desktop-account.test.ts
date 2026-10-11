@@ -260,6 +260,29 @@ describe('desktop ChatGPT account', () => {
     expect(f.sent('account/login/cancel')).toHaveLength(1);
   });
 
+  it.each(['error', 'hang'])('ends the OAuth process after cancellation fails (%s) before allowing a new sign-in', async fault => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_CANCEL: fault }, client: { timeouts: { requestMs: 200 } } });
+    await f.client.start(); await f.client.signIn();
+    const cancel = f.client.cancelSignIn();
+    expect(f.client.login.state).toBe('canceling');
+    const next = f.client.signIn();
+    expect(f.sent('account/login/start')).toHaveLength(1);
+    await cancel; await next;
+    expect(f.client.stats.boots).toBe(2);
+    expect(f.sent('account/login/start')).toHaveLength(2);
+    expect(f.client.login.state).toBe('waiting');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+  });
+
+  it('also stops an expired OAuth flow when its cancellation request hangs', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_CANCEL: 'hang' }, client: { loginTimeoutMs: 100, timeouts: { requestMs: 200 } } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.stats.boots === 2 && f.client.login.state === 'error');
+    expect(f.client.status.state).toBe('login');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.login.error).toMatch(/timed out/);
+  });
+
   it('keeps an in-progress sign-in alive when settings are requested', async () => {
     const f = setup({ signedIn: false }); await f.client.start(); await f.client.signIn();
     await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow('Complete or cancel');

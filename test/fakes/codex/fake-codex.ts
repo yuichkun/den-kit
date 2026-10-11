@@ -355,6 +355,8 @@ async function handle(message: Record<string, unknown>) {
       return;
     }
     case 'account/login/cancel': {
+      if (env.FAKE_CODEX_CANCEL === 'hang') return;
+      if (env.FAKE_CODEX_CANCEL === 'error') { refuse(id, 'Cancellation failed'); return; }
       if (login && login.id === params.loginId) { if (login.timer) clearTimeout(login.timer); login = null; }
       respond(id, { status: 'canceled' });
       notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Canceled' });

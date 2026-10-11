@@ -1,12 +1,13 @@
 import type { CodexStatus } from '../ai/protocol.ts';
 import type { DesktopInfo } from './api.ts';
 
-export const signInPending = (login: DesktopInfo['login']) => ['starting', 'waiting', 'checking'].includes(login);
+export const signInPending = (login: DesktopInfo['login']) => ['starting', 'waiting', 'checking', 'canceling'].includes(login);
 
 export function accountStatus(state: CodexStatus['state'], login: DesktopInfo['login'], signedIn = false): string {
   if (login === 'starting') return 'Starting sign-in…';
   if (login === 'waiting') return 'Waiting for sign-in';
   if (login === 'checking') return 'Confirming your account…';
+  if (login === 'canceling') return 'Canceling sign-in…';
   switch (state) {
     case 'ok': return signedIn ? 'Signed in' : 'Not signed in';
     case 'login': return 'Not signed in';
