@@ -17,6 +17,7 @@ let codex: CodexClient;
 let settings: DesktopSettings;
 let operator: OperatorConfig = {};
 let quitting = false;
+let shutdownComplete = false;
 
 // One stable application identity and storage root for development, installed versions and updates.
 app.setName('den-kit');
@@ -132,7 +133,7 @@ async function start() {
   window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== APP_ORIGIN) event.preventDefault(); });
   window.once('ready-to-show', () => window?.show());
   // Save before macOS destroys the renderer when the person closes the window.
-  window.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
+  window.on('close', event => { if (!shutdownComplete) { event.preventDefault(); if (!quitting) app.quit(); } });
   window.on('closed', () => { window = null; });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'den-kit', submenu: [{ role: 'about' }, { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => window?.webContents.send('den-kit:open-settings') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
@@ -146,15 +147,21 @@ async function start() {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
-  if (quitting || !bridge) return;
-  event.preventDefault(); quitting = true;
+  if (shutdownComplete || !bridge) return;
+  event.preventDefault();
+  if (quitting) return;
+  quitting = true;
   // Capture/save state while the renderer is still alive, then close Codex and the local listener.
   void (async () => {
+    let podFlushError: unknown;
     if (window && !window.isDestroyed()) {
       await window.webContents.executeJavaScript('window.__kit?.saveNow()').catch(() => undefined);
+      await window.webContents.executeJavaScript('window.__kit?.pod?.flush()').catch(error => { podFlushError = error; });
       await window.webContents.session.flushStorageData();
     }
     await bridge?.close();
+    if (podFlushError) throw podFlushError;
+    shutdownComplete = true;
     app.quit();
   })().catch(() => app.exit(1));
 });

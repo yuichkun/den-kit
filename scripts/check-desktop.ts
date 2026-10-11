@@ -48,10 +48,14 @@ let app = await launch().catch(error => { rmSync(join(profile, 'codex/auth.json'
 const errors: string[] = [];
 app.process().stderr?.on('data', data => { const line = String(data); if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000)); });
 try {
-  const page = await app.firstWindow();
+  let page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, { timeout: 60000 });
   await page.waitForFunction(async () => ['login', 'ok', 'error'].includes((await window.denKitShell!.info()).codex.state), undefined, { timeout: 60000 });
+  assert.deepEqual(await page.evaluate(() => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    return { state: k.screen.state.value, source: k.screen.source };
+  }), { state: 'off', source: null });
   await page.waitForTimeout(3000);
   const facts = await page.evaluate(async () => {
     const info = await window.denKitShell!.info();
@@ -97,9 +101,29 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] [role=status]')?.textContent?.includes('Saved'));
   assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
   await page.getByRole('button', { name: 'Close settings' }).click();
-  const picture = await page.evaluate(() => window.denKitShell!.capturePage({ x: 0, y: 0, width: 400, height: 300 }));
-  console.log(JSON.stringify({ capturePage: picture.startsWith('data:image/png;'), errors }));
-  assert.ok(picture.startsWith('data:image/png;'));
+  const offCapture = () => page.evaluate(async () => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    try { await k.screen.picture({ x: 0, y: 0, width: 400, height: 300 }); return 'captured'; }
+    catch (error) { return error instanceof Error ? error.message : String(error); }
+  });
+  assert.match(await offCapture(), /not shared/i);
+  const historyBeforeCapture = await page.evaluate(() => (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.requests!.history.value.length);
+  await page.click('[data-testid=ai-screen]');
+  assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'true');
+  const picture = await page.evaluate(async () => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    const image = await k.screen.picture({ x: 0, y: 0, width: 400, height: 300 });
+    return { source: image.source, width: image.width, height: image.height, bytes: image.data.length };
+  });
+  assert.equal(picture.source, 'shell'); assert.equal(picture.width, 400); assert.equal(picture.height, 300); assert.ok(picture.bytes > 0);
+  await page.click('[data-testid=ai-screen]');
+  assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'false');
+  assert.deepEqual(await page.evaluate(() => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    return { state: k.screen.state.value, source: k.screen.source, requests: k.requests!.history.value.length };
+  }), { state: 'off', source: null, requests: historyBeforeCapture });
+  assert.match(await offCapture(), /not shared/i);
+  console.log(JSON.stringify({ capturePage: picture, sharing: 'explicitly enabled and stopped', errors }));
   assert.equal(await page.locator('[data-testid=ai-mic]').count(), 0);
   assert.equal(await page.locator('[data-testid=ai-voice-lang]').count(), 0);
   assert.equal(await page.locator('[data-testid=ai-input]').getAttribute('placeholder'), 'Ask anything');
@@ -184,6 +208,47 @@ try {
     const check = await page.locator('[data-testid=pod-check-panel]').innerText();
     console.log(JSON.stringify({ podCheck: check }));
     assert.match(check, /Every step passed/);
+    const previewBeforeReopen = await page.evaluate(async marker => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+      const pod = k.pod!;
+      const current = (pod as unknown as { dev: import('../src/pod/host.ts').PodProcess }).dev;
+      if (!current.running) throw new Error('The recovery check requires a running isolated preview.');
+      const host = await pod.ensure();
+      // Close immediately after a fresh write so the app's actual shutdown must flush the disk.
+      const written = await host.run(`printf %s '${marker}' > .den-kit-electron-check`, { cwd: host.home });
+      if (written.exitCode !== 0) throw new Error('The isolated recovery disk marker could not be saved.');
+      const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
+      const before = { document: JSON.stringify(k.doc.value), requests: k.requests!.history.value.length, disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut } };
+      // A failed-but-running preview requires reopening the isolated app, not another process.
+      pod.state.value = 'failed';
+      return before;
+    }, diskMarker);
+    console.log(JSON.stringify({ recoveryMarkerBeforeClose: previewBeforeReopen.disk }));
+    assert.equal(previewBeforeReopen.disk.exitCode, 0); assert.equal(previewBeforeReopen.disk.output, diskMarker);
+    assert.equal(await page.locator('[data-testid=pod-start]').count(), 0);
+    assert.match(await page.locator('[data-testid=pod-recovery]').innerText(), /Close and reopen den-kit/);
+    await app.close(); app = await launch();
+    app.process().stderr?.on('data', data => { const line = String(data); if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000)); });
+    page = await app.firstWindow();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, { timeout: 60000 });
+    assert.deepEqual(await page.evaluate(() => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+      return { state: k.screen.state.value, source: k.screen.source };
+    }), { state: 'off', source: null });
+    await page.evaluate(() => (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.engine.setVolume(0));
+    if (await page.locator('[data-testid=start-overlay]').count()) await page.click('[data-testid=start-overlay]');
+    const previewAfterReopen = await page.evaluate(async marker => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+      const host = await k.pod!.ensure();
+      const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
+      return { document: JSON.stringify(k.doc.value), requests: k.requests!.history.value.length, ready: k.pod!.state.value === 'ready', persistent: disk.exitCode === 0 && disk.output.trim() === marker, disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut }, packagesReused: k.pod!.log.value.some(entry => entry.command === 'npm install' && entry.output.includes('packages are up to date')) };
+    }, diskMarker);
+    console.log(JSON.stringify({ recoveryAfterReopen: { ready: previewAfterReopen.ready, disk: previewAfterReopen.disk, markerMatches: previewAfterReopen.persistent, packagesReused: previewAfterReopen.packagesReused, workMatches: JSON.stringify(JSON.parse(previewAfterReopen.document)) === JSON.stringify(JSON.parse(previewBeforeReopen.document)), requests: previewAfterReopen.requests } }));
+    assert.deepEqual(JSON.parse(previewAfterReopen.document), JSON.parse(previewBeforeReopen.document));
+    assert.equal(previewAfterReopen.requests, previewBeforeReopen.requests);
+    assert.equal(previewAfterReopen.ready, true); assert.equal(previewAfterReopen.persistent, true); assert.equal(previewAfterReopen.packagesReused, true);
+    console.log(JSON.stringify({ projectRecovery: 'reopened the isolated app; work and installed packages were preserved, and screen sharing stayed off' }));
     await page.click('[data-testid=view-patch]');
     await page.evaluate(() => ((window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit).select(['cut1']));
     await page.click('[data-expose=hz]');

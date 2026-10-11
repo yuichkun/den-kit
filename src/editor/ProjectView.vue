@@ -94,7 +94,7 @@ const WHO: Record<string, string> = { ai: 'AI', you: 'you', 'den-kit': 'den-kit'
 const state = computed(() => pod?.state.value ?? 'unavailable');
 const STATE_LABEL = { off: 'Not started', unavailable: 'Unavailable', booting: 'Preparing', syncing: 'Preparing', installing: 'Preparing', starting: 'Starting', ready: 'Ready', failed: 'Needs attention' };
 const timings = computed(() => { const t = pod?.timings.value ?? {}; return [t.bootMs !== undefined && `boot ${secs(t.bootMs)}`, t.syncMs !== undefined && `write ${secs(t.syncMs)}`, t.installMs !== undefined && `npm install ${secs(t.installMs)}`, t.devMs !== undefined && `dev server ${secs(t.devMs)}`].filter(Boolean).join(' · '); });
-function start() { pod?.ensure().catch(() => undefined); }
+function start() { (state.value === 'failed' || state.value === 'unavailable' ? pod?.retry() : pod?.ensure())?.catch(() => undefined); }
 async function runCheck() {
   if (!pod) return;
   await check.run(pod);
@@ -119,9 +119,9 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
       <b>Project tools</b>
       <span class="state" data-testid="pod-state" :data-state="state">{{ STATE_LABEL[state] }}</span>
       <span class="message" data-testid="pod-message">{{ pod?.message.value }}</span>
-      <span v-if="pod?.fix.value" class="fix" data-testid="pod-fix">{{ pod.fix.value }}</span>
+      <span v-if="pod?.recovery || pod?.fix.value" class="fix" data-testid="pod-fix"><span v-if="pod?.recovery" data-testid="pod-recovery">{{ pod.recovery }}</span><template v-else>{{ pod?.fix.value }}</template></span>
       <span class="spacer" />
-      <button v-if="pod?.available && (!pod.booted || state === 'failed' || state === 'unavailable')" class="small" data-testid="pod-start" @click="start">{{ state === 'failed' || state === 'unavailable' ? 'Retry project tools' : 'Start project tools' }}</button>
+      <button v-if="pod?.available && (state === 'failed' || state === 'unavailable' ? pod.retryable : !pod.booted)" class="small" data-testid="pod-start" @click="start">{{ state === 'failed' || state === 'unavailable' ? 'Retry project tools' : 'Start project tools' }}</button>
     </div>
     <div class="cols">
       <div class="files" data-testid="project-files">

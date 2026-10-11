@@ -18,7 +18,7 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
 
 function nativeAPI(token: string, initial: DesktopInfo): string {
   return `(() => {
-    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [] };
+    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [], captures: [], holdCapture: false, finishCapture: null, captureResult: null };
     window.denKitShell = {
       runtime: { token: ${JSON.stringify(token)}, apiKey: null },
       info: async () => structuredClone(fixture.info),
@@ -36,7 +36,16 @@ function nativeAPI(token: string, initial: DesktopInfo): string {
         return structuredClone(fixture.info);
       },
       openUsage: async () => { fixture.calls.push('openUsage'); },
-      capturePage: async () => 'data:image/png;base64,',
+      capturePage: async rect => {
+        fixture.captures.push(structuredClone(rect));
+        const canvas = document.createElement('canvas');
+        canvas.width = rect.width; canvas.height = rect.height;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#202830'; context.fillRect(0, 0, canvas.width, canvas.height);
+        const image = canvas.toDataURL('image/png');
+        if (fixture.holdCapture) return new Promise(resolve => { fixture.finishCapture = () => resolve(image); });
+        return image;
+      },
     };
   })();`;
 }
@@ -162,6 +171,75 @@ describe('desktop interface', () => {
       await page.click('[data-testid=ai-status-codex]');
       await page.locator('[data-testid=desktop-settings]').waitFor();
       assert.equal(await page.locator('[data-testid=desktop-sign-in]').isVisible(), true);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('shares the app window only after the eye is enabled and discards a capture stopped in flight', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    try {
+      const requestsBefore = h.codex!.sent('turn/start').length;
+      const sharing = () => page.evaluate(() => ({ state: (window as any).__kit.screen.state.value, source: (window as any).__kit.screen.source, captures: (window as any).__desktopTest.captures.length }));
+      const tryPicture = () => page.evaluate(async () => {
+        try { await (window as any).__kit.screen.picture({ x: 0, y: 0, width: 80, height: 60 }); return 'captured'; }
+        catch (error) { return error instanceof Error ? error.message : String(error); }
+      });
+      assert.deepEqual(await sharing(), { state: 'off', source: null, captures: 0 });
+      assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'false');
+      assert.match(await tryPicture(), /not shared/i);
+      assert.equal((await sharing()).captures, 0, 'An off screen must not call the native capture API.');
+
+      await page.click('[data-testid=ai-screen]');
+      assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'true');
+      assert.deepEqual(await sharing(), { state: 'on', source: 'shell', captures: 0 });
+      const picture = await page.evaluate(async () => {
+        const image = await (window as any).__kit.screen.picture({ x: 0, y: 0, width: 80, height: 60 });
+        return { source: image.source, width: image.width, height: image.height, bytes: image.data.length };
+      });
+      assert.equal(picture.source, 'shell'); assert.equal(picture.width, 80); assert.equal(picture.height, 60); assert.ok(picture.bytes > 0);
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.captures), [{ x: 0, y: 0, width: 80, height: 60 }]);
+      await page.click('[data-testid=ai-screen]');
+      assert.deepEqual(await sharing(), { state: 'off', source: null, captures: 1 });
+      assert.match(await tryPicture(), /not shared/i);
+      assert.equal((await sharing()).captures, 1);
+
+      await page.click('[data-testid=ai-screen]');
+      await page.evaluate(() => {
+        const fixture = (window as any).__desktopTest;
+        fixture.holdCapture = true;
+        void (window as any).__kit.screen.picture({ x: 0, y: 0, width: 80, height: 60 }).then(
+          () => { fixture.captureResult = 'captured'; },
+          (error: unknown) => { fixture.captureResult = error instanceof Error ? error.message : String(error); },
+        );
+      });
+      await page.waitForFunction(() => typeof (window as any).__desktopTest.finishCapture === 'function');
+      await page.click('[data-testid=ai-screen]');
+      await page.evaluate(() => (window as any).__desktopTest.finishCapture());
+      await page.waitForFunction(() => (window as any).__desktopTest.captureResult !== null);
+      assert.match(await page.evaluate(() => (window as any).__desktopTest.captureResult), /not shared|stopped/i);
+      assert.deepEqual(await sharing(), { state: 'off', source: null, captures: 2 });
+      assert.equal(h.codex!.sent('turn/start').length, requestsBefore, 'Toggling screen sharing must not send an AI request.');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('offers reopening instead of a retry when a failed project preview is still running', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    try {
+      await page.evaluate(() => {
+        const pod = (window as any).__kit.pod;
+        pod.factory.kind = 'fake';
+        pod.host = { kind: 'fake' };
+        pod.dev = { name: 'dev', running: true, done: new Promise(() => undefined), output: () => '' };
+        pod.state.value = 'failed';
+        pod.message.value = 'The project preview did not become ready in time.';
+      });
+      await page.click('[data-testid=view-project]');
+      await page.locator('[data-testid=project-view]').waitFor();
+      assert.equal(await page.locator('[data-testid=pod-start]').count(), 0);
+      assert.match(await page.locator('[data-testid=pod-recovery]').innerText(), /Close and reopen den-kit/);
+      assert.equal(await page.evaluate(() => (window as any).__kit.pod.dev.running), true);
+      assert.equal(await page.locator('[data-testid=project-diagnostics]').getAttribute('open'), null);
       assert.deepEqual(errors, []);
     } finally { await page.close(); }
   });

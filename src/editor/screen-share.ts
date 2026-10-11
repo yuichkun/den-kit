@@ -2,9 +2,10 @@
 // lets the AI see the screen (a click; the browser asks to share this tab, and
 // shows that it is shared), den-kit keeps the tab's video and takes a frame
 // when the AI looks; a Capture Handle check makes sure it is den-kit's own tab.
-// In a desktop shell (Electron, or a runtime like it) that offers
-// window.denKitShell.capturePage(rect), pictures need no permission. Nothing
-// leaves the page except the pictures sent to the AI with a request.
+// In a desktop shell, sharing also starts off and needs the person's explicit
+// click. Capturing den-kit's own window needs no OS permission, but stopping
+// sharing prevents new captures and discards pictures still being prepared.
+// Nothing leaves the page except the pictures sent to the AI with a request.
 import { ref } from 'vue';
 import { randomId } from '../core/schema.ts';
 import { cropRect } from '../ai/seeing.ts';
@@ -28,19 +29,24 @@ export class ScreenShare {
   stub: ((rect: PageRect, maxSide: number) => Promise<Picture>) | null = null;
   private track: MediaStreamTrack | null = null;
   private video: HTMLVideoElement | null = null;
+  private captureEpoch = 0;
 
   constructor() {
-    if (shell()) this.state.value = 'on';
-    else if (!ScreenShare.supported()) { this.state.value = 'unsupported'; this.message.value = 'This browser cannot share a tab (Chrome or Edge on a computer can).'; }
+    if (!shell() && !ScreenShare.supported()) { this.state.value = 'unsupported'; this.message.value = 'This browser cannot share a tab (Chrome or Edge on a computer can).'; }
   }
   static supported(): boolean { return typeof navigator !== 'undefined' && !!navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function'; }
 
   /** Where pictures come from now (null: nowhere: the person has not shared the screen). */
-  get source(): 'tab' | 'shell' | null { return this.stub ? 'tab' : shell() ? 'shell' : this.state.value === 'on' && this.track ? 'tab' : null; }
+  get source(): 'tab' | 'shell' | null { return this.stub ? 'tab' : this.state.value !== 'on' ? null : shell() ? 'shell' : this.track ? 'tab' : null; }
 
-  /** Ask to share this tab (call it from a click). Resolves true when den-kit can take pictures. */
+  /** Enable sharing from an explicit click; browsers ask for this tab. */
   async start(): Promise<boolean> {
     if (this.source) return true;
+    if (shell()) {
+      this.captureEpoch++;
+      this.state.value = 'on'; this.message.value = '';
+      return true;
+    }
     if (!ScreenShare.supported()) { this.state.value = 'unsupported'; return false; }
     this.state.value = 'asking';
     this.message.value = 'Choose “this tab” in the browser’s dialog.';
@@ -83,16 +89,25 @@ export class ScreenShare {
   }
 
   private ended() {
+    this.captureEpoch++;
     this.track = null;
     if (this.video) { this.video.srcObject = null; this.video = null; }
-    if (!shell()) { this.state.value = ScreenShare.supported() ? 'off' : 'unsupported'; this.message.value = ''; }
+    this.state.value = shell() || ScreenShare.supported() ? 'off' : 'unsupported'; this.message.value = '';
   }
 
   /** A picture of a part of the page (CSS pixels), as the person sees it, at most maxSide pixels on its long side. */
   async picture(rect: PageRect, maxSide = 1280): Promise<Picture> {
     if (this.stub) return this.stub(rect, maxSide);
     const s = shell();
-    if (s) return fromDataUrl(await s.capturePage(roundRect(rect)), maxSide, 'shell');
+    if (s) {
+      if (this.state.value !== 'on') throw new Error('The screen is not shared.');
+      const epoch = this.captureEpoch;
+      const url = await s.capturePage(roundRect(rect));
+      this.requireCapture(epoch);
+      const picture = await fromDataUrl(url, maxSide, 'shell');
+      this.requireCapture(epoch);
+      return picture;
+    }
     if (!this.track) throw new Error('The screen is not shared.');
     const frame = await this.frame();
     try {
@@ -102,6 +117,10 @@ export class ScreenShare {
       const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
       return { data: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: c.dw, height: c.dh, source: 'tab' };
     } finally { frame.close(); }
+  }
+
+  private requireCapture(epoch: number) {
+    if (this.state.value !== 'on' || this.captureEpoch !== epoch) throw new Error('The screen is not shared.');
   }
 
   private async frame(): Promise<ImageBitmap> {

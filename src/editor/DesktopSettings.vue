@@ -69,7 +69,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); window.removeEventListe
         <h3>AI settings</h3>
         <label>Model<select v-model="model" data-testid="desktop-model" :disabled="locked" @change="changeModel"><option value="">Default</option><option v-for="m in info.models" :key="m.id" :value="m.id">{{ m.name }}</option></select></label>
         <label>Reasoning effort<select v-model="effort" data-testid="desktop-effort" :disabled="locked" @change="saved = false"><option value="">Default</option><option v-for="e in efforts" :key="e" :value="e">{{ effortLabel(e) }}</option></select></label>
-        <div class="actions"><button :disabled="locked" data-testid="desktop-settings-save" @click="save">{{ busy ? 'Saving…' : 'Save settings' }}</button><span v-if="saved" role="status">Saved. Your next AI request will use these settings.</span></div>
+        <div class="actions"><button :disabled="locked" data-testid="desktop-settings-save" @click="save">Save settings</button><span v-if="saved" role="status">Saved. Your next AI request will use these settings.</span></div>
         <p v-if="info.aiBusy" class="help">You can change AI settings when the current request finishes.</p>
         <p v-else-if="info.login === 'waiting'" class="help">Complete or cancel sign-in before changing AI settings.</p>
         <footer>den-kit {{ info.version }}</footer>
