@@ -118,6 +118,14 @@ The local packaging command creates an **unsigned, unnotarized** app. Automatic
 updates and Windows app packaging are not available. The desktop app uses text
 input for AI requests.
 
+To test a fresh installation, quit den-kit and run `npm run desktop:clean`.
+This permanently deletes `~/Library/Application Support/den-kit/`, including
+ChatGPT sign-in, the autosaved work, conversations, imported assets, project
+disks and installed dependencies, settings, and caches. Export any work you want
+to keep first. The command refuses to delete data while den-kit is running.
+Use `npm run desktop:clean -- --dry-run` to print the target without deleting it.
+The app bundle, exported files, and repository `.env` are preserved.
+
 ## Basic workflow
 
 1. Choose an example on the start screen, or open a new work.

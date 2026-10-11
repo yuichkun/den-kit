@@ -19,6 +19,7 @@
     "build": "npm run check && vite build",
     "desktop:build": "npm run build && node scripts/build-desktop.ts",
     "desktop:run": "node scripts/run-desktop.ts",
+    "desktop:clean": "node scripts/clean-desktop.ts",
     "desktop:icons": "node scripts/generate-icons.ts",
     "desktop:check": "node scripts/check-desktop.ts --packaged",
     "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac",
