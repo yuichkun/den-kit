@@ -164,6 +164,20 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.stats.boots).toBe(1);
   });
 
+  it.each(['ok', 'error'])('honors an account update queued during a failing confirmation (%s)', async result => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: `overlap-${result}` } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === (result === 'ok' ? 'complete' : 'error'));
+    // Boot, pre-completion poll, failed confirmation, and notification-triggered confirmation.
+    expect(f.sent('account/read').length).toBeGreaterThanOrEqual(4);
+    expect(f.client.ready).toBe(result === 'ok');
+    if (result === 'ok') {
+      expect(f.sent('account/login/cancel')).toHaveLength(0);
+      expect(f.client.login.error).toBeUndefined();
+    } else await until(() => f.sent('account/login/cancel').length === 1);
+    expect(f.client.stats.boots).toBe(1);
+  });
+
   it('expires an unfinished browser sign-in and allows another attempt', async () => {
     const f = setup({ signedIn: false, client: { loginTimeoutMs: 160 } });
     await f.client.start(); await f.client.signIn();

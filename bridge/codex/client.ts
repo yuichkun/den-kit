@@ -323,15 +323,17 @@ export class CodexClient {
     if (!this.loginId || this.loginId !== result.loginId) return;
     if (!result.success) { this.finishSignIn('error', result.error ?? 'ChatGPT sign-in did not complete. Try again.'); return; }
     this.signInState = 'checking';
-    void this.refreshAccount();
+    void this.refreshAccount(true);
   }
 
-  private refreshAccount(): Promise<void> {
+  private refreshAccount(accountChanged = false): Promise<void> {
     const peer = this.peer;
     const attempt = this.authAttempt;
     if (!peer || this.signInState === 'starting') return Promise.resolve();
     if (this.accountRefreshing?.peer === peer && this.accountRefreshing.attempt === attempt) {
-      this.accountRefreshing.again = true;
+      // Timer ticks share the pending read. Only new account evidence queues
+      // another read, so a slow failing RPC cannot perpetually extend itself.
+      this.accountRefreshing.again ||= accountChanged;
       return this.accountRefreshing.promise;
     }
     const refresh = { peer, attempt, again: false, promise: Promise.resolve() };
@@ -348,6 +350,7 @@ export class CodexClient {
         let model = { label: this.statusValue.model, images: this.statusValue.images };
         if (chatGPT && (!this.chatGPTAccount || this.signingIn)) {
           confirming = true;
+          if (this.signingIn) this.signInState = 'checking';
           const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs });
           if (!current()) return;
           this.modelCatalog = models.data.filter(m => !m.hidden);
@@ -375,7 +378,7 @@ export class CodexClient {
       this.log(`codex: account refresh failed: ${describeRpcError(error)}`);
       // Before OAuth completes, a failed poll says nothing about the browser
       // login. Keep its ID and deadline so it can complete or be canceled.
-      if (this.signingIn && !confirming) return;
+      if (this.signingIn && (!confirming || refresh.again)) return;
       if (this.signingIn) {
         const id = this.loginId;
         if (id) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
@@ -385,9 +388,8 @@ export class CodexClient {
     }).finally(() => {
       if (this.accountRefreshing !== refresh) return;
       this.accountRefreshing = null;
-      // OAuth may have completed while a pre-completion poll was still pending.
-      // Its failure cannot consume the confirmation queued by that notification.
-      if (refresh.again && current() && this.signInState === 'checking') void this.refreshAccount();
+      // A failed read cannot consume account evidence received while it was pending.
+      if (refresh.again && current()) void this.refreshAccount();
     });
     return refresh.promise;
   }
@@ -915,7 +917,7 @@ export class CodexClient {
         if (typeof p.loginId === 'string') this.loginCompleted({ loginId: p.loginId, success: p.success === true, ...(p.error ? { error: String(p.error) } : {}) });
         return;
       }
-      case 'account/updated': void this.refreshAccount(); return;
+      case 'account/updated': void this.refreshAccount(true); return;
       case 'thread/closed': { const id = p.threadId; if (typeof id === 'string') { const thread = this.threads.get(id); if (thread?.turn) this.finish(thread.turn, 'failed', { message: 'Codex closed the conversation.', code: 'closed' }); this.threads.delete(id); } return; }
       case 'warning': case 'configWarning': case 'deprecationNotice': {
         const message = String(p.message ?? p.summary ?? '').slice(0, 300);

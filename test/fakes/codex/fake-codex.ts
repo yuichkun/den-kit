@@ -319,6 +319,13 @@ async function handle(message: Record<string, unknown>) {
         setTimeout(() => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' }), 120);
         return;
       }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM?.startsWith('overlap-') && !confirmationFailed) {
+        confirmationFailed = true;
+        setTimeout(() => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' }), 40);
+        setTimeout(() => refuse(id, 'Delayed confirmation failure'), 120);
+        return;
+      }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'overlap-error') { refuse(id, 'Account confirmation failed again'); return; }
       const reply = () => respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'delay') setTimeout(reply, 150);
       else reply();
