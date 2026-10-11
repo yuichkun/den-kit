@@ -105,7 +105,6 @@ export class PodSession {
   get kind() { return this.host?.kind ?? this.factory.kind; }
   get booted(): boolean { return !!this.host; }
   get retryable(): boolean { return this.available && (this.state.value === 'failed' || this.state.value === 'unavailable') && !this.dev?.running; }
-  get recovery(): string | undefined { return this.state.value === 'failed' && this.dev?.running ? 'Close and reopen den-kit, then try again.' : undefined; }
 
   /** Flush an existing pod's disk before its renderer closes; never boot or wait on its command queue. */
   async flush(): Promise<void> {
@@ -400,7 +399,7 @@ export class PodSession {
     this.timings.value = { ...this.timings.value, devMs: Math.round(performance.now() - started) };
     if (this.portal.value) { this.set('ready', 'Ready.'); this.progress(entry, `\n(dev server at ${this.portal.value})\n`); }
     else if (!dev.running) this.set('failed', 'The project preview stopped before it was ready.', 'Ask the AI to check the project, or inspect the terminal output.');
-    else this.set('failed', 'The project preview did not become ready in time.', 'Ask the AI to check the project, or inspect the terminal output.');
+    else this.set('failed', 'The project preview did not become ready in time.', 'Close and reopen den-kit, then try again.');
   }
 
   /** Commit the project in the pod (one commit per AI request; nothing to commit is fine). */

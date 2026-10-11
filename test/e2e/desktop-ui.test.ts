@@ -223,7 +223,7 @@ describe('desktop interface', () => {
     } finally { await page.close(); }
   });
 
-  it('offers reopening instead of a retry when a failed project preview is still running', async () => {
+  it('offers reopening instead of a retry after a live preview startup timeout', async () => {
     const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
     try {
       await page.evaluate(() => {
@@ -233,11 +233,12 @@ describe('desktop interface', () => {
         pod.dev = { name: 'dev', running: true, done: new Promise(() => undefined), output: () => '' };
         pod.state.value = 'failed';
         pod.message.value = 'The project preview did not become ready in time.';
+        pod.fix.value = 'Close and reopen den-kit, then try again.';
       });
       await page.click('[data-testid=view-project]');
       await page.locator('[data-testid=project-view]').waitFor();
       assert.equal(await page.locator('[data-testid=pod-start]').count(), 0);
-      assert.match(await page.locator('[data-testid=pod-recovery]').innerText(), /Close and reopen den-kit/);
+      assert.match(await page.locator('[data-testid=pod-fix]').innerText(), /Close and reopen den-kit/);
       assert.equal(await page.evaluate(() => (window as any).__kit.pod.dev.running), true);
       assert.equal(await page.locator('[data-testid=project-diagnostics]').getAttribute('open'), null);
       assert.deepEqual(errors, []);

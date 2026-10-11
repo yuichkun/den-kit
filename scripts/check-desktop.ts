@@ -219,14 +219,16 @@ try {
       if (written.exitCode !== 0) throw new Error('The isolated recovery disk marker could not be saved.');
       const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
       const before = { document: JSON.stringify(k.doc.value), requests: k.requests!.history.value.length, disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut } };
-      // A failed-but-running preview requires reopening the isolated app, not another process.
+      // Simulate a preview startup timeout on the isolated running process.
       pod.state.value = 'failed';
+      pod.message.value = 'The project preview did not become ready in time.';
+      pod.fix.value = 'Close and reopen den-kit, then try again.';
       return before;
     }, diskMarker);
     console.log(JSON.stringify({ recoveryMarkerBeforeClose: previewBeforeReopen.disk }));
     assert.equal(previewBeforeReopen.disk.exitCode, 0); assert.equal(previewBeforeReopen.disk.output, diskMarker);
     assert.equal(await page.locator('[data-testid=pod-start]').count(), 0);
-    assert.match(await page.locator('[data-testid=pod-recovery]').innerText(), /Close and reopen den-kit/);
+    assert.match(await page.locator('[data-testid=pod-fix]').innerText(), /Close and reopen den-kit/);
     await app.close(); app = await launch();
     app.process().stderr?.on('data', data => { const line = String(data); if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000)); });
     page = await app.firstWindow();

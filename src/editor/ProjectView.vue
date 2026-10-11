@@ -119,7 +119,7 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
       <b>Project tools</b>
       <span class="state" data-testid="pod-state" :data-state="state">{{ STATE_LABEL[state] }}</span>
       <span class="message" data-testid="pod-message">{{ pod?.message.value }}</span>
-      <span v-if="pod?.recovery || pod?.fix.value" class="fix" data-testid="pod-fix"><span v-if="pod?.recovery" data-testid="pod-recovery">{{ pod.recovery }}</span><template v-else>{{ pod?.fix.value }}</template></span>
+      <span v-if="pod?.fix.value" class="fix" data-testid="pod-fix">{{ pod.fix.value }}</span>
       <span class="spacer" />
       <button v-if="pod?.available && (state === 'failed' || state === 'unavailable' ? pod.retryable : !pod.booted)" class="small" data-testid="pod-start" @click="start">{{ state === 'failed' || state === 'unavailable' ? 'Retry project tools' : 'Start project tools' }}</button>
     </div>
