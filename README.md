@@ -176,6 +176,9 @@ The workspace provides `npm run check`, `npm run lint`, and `npm run build`.
   features, and only one den-kit tab can own its workspace at a time.
 - Native npm binaries do not run inside BrowserPod; use browser-compatible or
   WebAssembly packages for code parts.
+- Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
+  dynamic `import()` can still load and execute remote JavaScript. Imported
+  works and AI-generated Canvas code can therefore make network requests.
 - Works can be exported as editable JSON, but not as standalone DAW plugins or
   self-contained web instruments. `npm run build` builds the den-kit renderer,
   not a distributable instrument.
