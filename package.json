@@ -4,7 +4,7 @@
   "author": "Yuichi Yogo",
   "private": true,
   "type": "module",
-  "description": "den-kit PoC: patch den blocks in a graph editor, with AI collaboration (GEN-648).",
+  "description": "Visual editor for instruments and effects built from den blocks.",
   "engines": {
     "node": ">=24 <25"
   },
