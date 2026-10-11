@@ -53,12 +53,18 @@ export interface CodexClientOptions {
   timeouts?: Partial<Timeouts>;
   restart?: Partial<{ baseMs: number; maxMs: number; maxFailures: number }>;
   authPollMs?: number;
+  /** Maximum time to complete browser sign-in, including account confirmation. */
+  loginTimeoutMs?: number;
   /** Desktop UI supplies its own sign-in instructions instead of a terminal command. */
   loginInstruction?: string;
   /** Turns running at once across the bridge (a lead and its members count each). */
   maxTurns?: number;
 }
 interface Timeouts {
+  /** A continuous run of connection failures must end, even if Codex retries forever. */
+  retryMs: number;
+  /** No model progress, excluding time spent waiting for a tool or user answer. */
+  idleMs: number;
   /** First start creates CODEX_HOME state and can take several seconds. */
   initializeMs: number;
   requestMs: number;
@@ -71,6 +77,8 @@ interface Timeouts {
 
 interface ThreadState { id: string; turn: TurnState | null; generation: number; /** The kit_* tools this conversation has. */ tools: Set<string> }
 interface TurnState {
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   key: string;
   sink: TurnSink;
   thread: ThreadState | null;
@@ -153,6 +161,7 @@ export class CodexClient {
   private authTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = true;
   private booting: Promise<void> | null = null;
+  private restarting: Promise<void> | null = null;
   private modelId: string | null = null;
   private threads = new Map<string, ThreadState>();
   private turns = new Map<string, TurnState>();
@@ -169,10 +178,14 @@ export class CodexClient {
   readonly stats = { boots: 0, exits: 0, turns: 0, toolCalls: 0, declined: 0, unexpectedItems: 0, malformed: 0 };
   private modelCatalog: Model[] = [];
   private loginId: string | null = null;
-  private signInState: 'idle' | 'waiting' | 'complete' | 'error' = 'idle';
+  private signInState: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error' = 'idle';
   private signInError: string | undefined;
   private chatGPTAccount = false;
-  private accountRefreshing: Promise<void> | null = null;
+  private authAttempt = 0;
+  private loginTimer: ReturnType<typeof setTimeout> | null = null;
+  private loginPoll: ReturnType<typeof setInterval> | null = null;
+  private earlyLogin: { loginId: string; success: boolean; error?: string } | null = null;
+  private accountRefreshing: { peer: RpcPeer; attempt: number; again: boolean; promise: Promise<void> } | null = null;
 
   constructor(options: CodexClientOptions) {
     this.options = options;
@@ -180,7 +193,7 @@ export class CodexClient {
     this.home = options.home ?? codexHome(options.kitRoot, env);
     this.workdir = options.workdir ?? codexWorkdir(options.kitRoot);
     this.toolOverride = options.tools ?? null;
-    this.timeouts = { initializeMs: 30000, requestMs: 20000, toolMs: 90000, interruptMs: 8000, settleMs: 10000, ...options.timeouts };
+    this.timeouts = { retryMs: 30000, idleMs: 180000, initializeMs: 30000, requestMs: 20000, toolMs: 90000, interruptMs: 8000, settleMs: 10000, ...options.timeouts };
     this.restartPolicy = { baseMs: 1000, maxMs: 30000, maxFailures: 5, ...options.restart };
   }
 
@@ -190,23 +203,50 @@ export class CodexClient {
   get busy() { return this.turns.size > 0; }
   get models(): Model[] { return this.modelCatalog.map(m => ({ ...m })); }
   get login() { return { state: this.signInState, error: this.signInError }; }
+  private get signingIn() { return this.signInState === 'starting' || this.signInState === 'waiting' || this.signInState === 'checking'; }
 
   /** Existing Codex sign-in, hosted by the bundled app-server. Tokens never enter the renderer. */
   async signIn(): Promise<string> {
     if (this.busy) throw new Error('Finish the current AI request before signing in.');
     await this.start();
     if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
-    if (this.loginId) await this.cancelSignIn();
-    const response = await this.peer.request<{ type: string; loginId: string; authUrl: string }>('account/login/start', { type: 'chatgpt' }, { timeoutMs: this.timeouts.requestMs });
-    if (response.type !== 'chatgpt' || typeof response.loginId !== 'string' || typeof response.authUrl !== 'string') throw new Error('Codex returned an unsupported sign-in response.');
-    this.loginId = response.loginId;
-    this.signInState = 'waiting'; this.signInError = undefined;
-    return response.authUrl;
+    if (this.signingIn) await this.cancelSignIn();
+    const peer = this.peer;
+    if (!peer) throw new Error('Codex is not available. Try reconnecting.');
+    const attempt = ++this.authAttempt;
+    this.stopAuthWatch();
+    this.signInState = 'starting'; this.signInError = undefined; this.earlyLogin = null;
+    this.loginTimer = setTimeout(() => {
+      if (this.authAttempt !== attempt) return;
+      const id = this.loginId;
+      this.finishSignIn('error', 'ChatGPT sign-in timed out. Try signing in again.');
+      if (id && this.peer === peer) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
+    }, this.options.loginTimeoutMs ?? 5 * 60_000);
+    this.loginTimer.unref?.();
+    try {
+      const response = await peer.request<{ type: string; loginId: string; authUrl: string }>('account/login/start', { type: 'chatgpt' }, { timeoutMs: this.timeouts.requestMs });
+      if (this.authAttempt !== attempt || this.peer !== peer) {
+        if (response.loginId) void peer.request('account/login/cancel', { loginId: response.loginId }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
+        throw new Error('ChatGPT sign-in was canceled or interrupted. Try again.');
+      }
+      if (response.type !== 'chatgpt' || typeof response.loginId !== 'string' || typeof response.authUrl !== 'string') throw new Error('Codex returned an unsupported sign-in response.');
+      this.loginId = response.loginId;
+      this.signInState = 'waiting';
+      this.loginPoll = setInterval(() => { void this.refreshAccount(); }, this.options.authPollMs ?? 2000);
+      this.loginPoll.unref?.();
+      const early = this.earlyLogin as { loginId: string; success: boolean; error?: string } | null;
+      this.earlyLogin = null;
+      if (early) this.loginCompleted(early);
+      return response.authUrl;
+    } catch (error) {
+      if (this.authAttempt === attempt) this.finishSignIn('error', `ChatGPT sign-in could not start: ${describeRpcError(error)}`);
+      throw error;
+    }
   }
   async cancelSignIn() {
-    const id = this.loginId;
-    this.loginId = null; this.signInState = 'idle'; this.signInError = undefined;
-    if (id && this.peer) await this.peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+    const id = this.loginId, peer = this.peer;
+    this.finishSignIn('idle');
+    if (id && peer) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
   }
   async signOut() {
     if (this.busy) throw new Error('Finish the current AI request before signing out.');
@@ -217,7 +257,7 @@ export class CodexClient {
   }
   async configure(settings: { model: string; effort: string; fork: boolean }) {
     if (this.busy) throw new Error('Finish the current AI request before changing settings.');
-    if (this.loginId) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
+    if (this.signingIn) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     this.options.model = settings.model || undefined;
     this.options.effort = settings.effort || undefined;
     this.options.fork = settings.fork;
@@ -228,17 +268,29 @@ export class CodexClient {
   /** Start (or keep) the app-server; resolves when the state settles (ok, login or error). */
   start(): Promise<void> {
     this.stopped = false;
+    if (this.restarting) return this.restarting;
+    return this.launch();
+  }
+
+  private launch(): Promise<void> {
     if (this.peer || this.restartTimer) return this.booting ?? Promise.resolve();
-    this.booting = this.boot().finally(() => { this.booting = null; });
-    return this.booting;
+    const task = this.boot().finally(() => { if (this.booting === task) this.booting = null; });
+    this.booting = task;
+    return task;
   }
 
   /** Restart now (after signing in, after an error); requests in flight fail. */
-  async retry() {
-    this.failures = 0;
-    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
-    await this.shutdown('Codex is restarting.');
-    return this.start();
+  retry(): Promise<void> {
+    if (this.restarting) return this.restarting;
+    this.stopped = false;
+    const task = (async () => {
+      this.failures = 0;
+      if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
+      await this.shutdown('Codex is restarting.');
+      if (!this.stopped) await this.launch();
+    })().finally(() => { if (this.restarting === task) this.restarting = null; });
+    this.restarting = task;
+    return task;
   }
 
   async stop() {
@@ -257,25 +309,73 @@ export class CodexClient {
   private log(line: string) { this.options.log?.(line); }
   private record(event: string, data: Record<string, unknown> = {}) { this.options.telemetry?.write('codex', { event, ...data }); }
 
+  private finishSignIn(state: 'idle' | 'complete' | 'error', error?: string) {
+    ++this.authAttempt;
+    if (this.loginTimer) clearTimeout(this.loginTimer);
+    if (this.loginPoll) clearInterval(this.loginPoll);
+    this.loginTimer = null; this.loginPoll = null; this.loginId = null; this.earlyLogin = null;
+    this.signInState = state; this.signInError = error;
+    if (this.statusValue.state === 'login' && !this.stopped && this.peer) this.watchAuth();
+  }
+
+  private loginCompleted(result: { loginId: string; success: boolean; error?: string }) {
+    if (this.signInState === 'starting') { this.earlyLogin = result; return; }
+    if (!this.loginId || this.loginId !== result.loginId) return;
+    if (!result.success) { this.finishSignIn('error', result.error ?? 'ChatGPT sign-in did not complete. Try again.'); return; }
+    this.signInState = 'checking';
+    void this.refreshAccount();
+  }
+
   private refreshAccount(): Promise<void> {
-    if (this.accountRefreshing) return this.accountRefreshing;
     const peer = this.peer;
-    if (!peer) return Promise.resolve();
-    this.accountRefreshing = (async () => {
-      const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
-      if (this.peer !== peer) return;
-      this.chatGPTAccount = account.account?.type === 'chatgpt';
-      if (!account.account && account.requiresOpenaiAuth !== false) {
-        this.setStatus({ state: 'login', model: this.statusValue.model, images: this.statusValue.images, detail: 'Codex is not signed in.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
-        this.watchAuth();
-      } else if (this.statusValue.state === 'ok') {
-        const { plan: _previousPlan, ...status } = this.statusValue;
-        const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
-        this.setStatus({ ...status, ...(plan ? { plan } : {}), rateLimit: null });
-        void peer.request<GetAccountRateLimitsResponse>('account/rateLimits/read', undefined, { timeoutMs: this.timeouts.requestMs }).then(r => { if (this.peer === peer) this.updateRateLimit(r.rateLimits); }).catch(() => undefined);
+    const attempt = this.authAttempt;
+    if (!peer || this.signInState === 'starting') return Promise.resolve();
+    if (this.accountRefreshing?.peer === peer && this.accountRefreshing.attempt === attempt) {
+      this.accountRefreshing.again = true;
+      return this.accountRefreshing.promise;
+    }
+    const refresh = { peer, attempt, again: false, promise: Promise.resolve() };
+    const current = () => this.peer === peer && this.authAttempt === attempt;
+    this.accountRefreshing = refresh;
+    refresh.promise = (async () => {
+      do {
+        refresh.again = false;
+        const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
+        if (!current()) return;
+        const chatGPT = account.account?.type === 'chatgpt';
+        let model = { label: this.statusValue.model, images: this.statusValue.images };
+        if (chatGPT && (!this.chatGPTAccount || this.signingIn)) {
+          const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs });
+          if (!current()) return;
+          this.modelCatalog = models.data.filter(m => !m.hidden);
+          model = this.chooseModel(models.data);
+        }
+        this.chatGPTAccount = chatGPT;
+        if (!account.account && account.requiresOpenaiAuth !== false) {
+          this.setStatus({ state: 'login', model: model.label, images: model.images, detail: 'Codex is not signed in.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
+          if (!this.signingIn) this.watchAuth();
+        } else {
+          this.stopAuthWatch();
+          const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
+          this.setStatus({ state: 'ok', model: model.label, images: model.images, ...(plan ? { plan } : {}), rateLimit: null });
+          if (chatGPT && this.signingIn) {
+            this.finishSignIn('complete');
+            // An account change received while this read was in flight still needs a fresh read.
+            if (refresh.again) void this.refreshAccount();
+          }
+          void peer.request<GetAccountRateLimitsResponse>('account/rateLimits/read', undefined, { timeoutMs: this.timeouts.requestMs }).then(r => { if (this.peer === peer) this.updateRateLimit(r.rateLimits); }).catch(() => undefined);
+        }
+        if (account.account && !chatGPT && this.signInState === 'checking') this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Try signing in again.');
+      } while (refresh.again && current());
+    })().catch(error => {
+      if (!current()) return;
+      this.log(`codex: account refresh failed: ${describeRpcError(error)}`);
+      if (this.signingIn) {
+        this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Reconnect and try again.');
+        this.setStatus({ state: 'error', detail: 'ChatGPT sign-in could not be confirmed.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
       }
-    })().catch(error => { if (this.peer === peer) this.log(`codex: account refresh failed: ${describeRpcError(error)}`); }).finally(() => { this.accountRefreshing = null; });
-    return this.accountRefreshing;
+    }).finally(() => { if (this.accountRefreshing === refresh) this.accountRefreshing = null; });
+    return refresh.promise;
   }
 
   private async boot() {
@@ -297,7 +397,7 @@ export class CodexClient {
     this.proc = proc;
     const peer = new RpcPeer(proc.child.stdout, proc.child.stdin, {
       onRequest: request => this.onRequest(peer, request),
-      onNotification: notification => this.onNotification(notification),
+      onNotification: notification => { if (this.peer === peer) this.onNotification(notification); },
       onMalformed: (line, reason) => { this.stats.malformed++; this.log(`codex: ignored a ${reason} line: ${line.slice(0, 120)}`); this.record('malformed', { reason, line: line.slice(0, 200) }); },
     }, { trace: this.options.trace });
     this.peer = peer;
@@ -309,6 +409,7 @@ export class CodexClient {
       const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs }).catch(error => { this.log(`codex: model/list failed: ${describeRpcError(error)}`); return null; });
       if (this.proc !== proc) return;
       this.chatGPTAccount = account.account?.type === 'chatgpt';
+      if (this.chatGPTAccount && this.signInState === 'error') this.finishSignIn('complete');
       const model = this.chooseModel(models?.data ?? []);
       this.modelCatalog = (models?.data ?? []).filter(m => !m.hidden);
       const base = { model: model.label, images: model.images };
@@ -322,7 +423,7 @@ export class CodexClient {
       const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
       this.setStatus({ state: 'ok', ...(plan ? { plan } : {}), ...base, rateLimit: null });
       void peer.request<GetAccountRateLimitsResponse>('account/rateLimits/read', undefined, { timeoutMs: this.timeouts.requestMs })
-        .then(r => this.updateRateLimit(r.rateLimits)).catch(() => { /* optional */ });
+        .then(r => { if (this.peer === peer) this.updateRateLimit(r.rateLimits); }).catch(() => { /* optional */ });
     } catch (error) {
       if (this.proc !== proc) return;
       const message = describeRpcError(error);
@@ -365,7 +466,7 @@ export class CodexClient {
     const before = stamp();
     this.authTimer = setInterval(() => {
       if (this.statusValue.state !== 'login') { this.stopAuthWatch(); return; }
-      if (stamp() !== before) { this.stopAuthWatch(); this.log('codex: login detected, restarting'); void this.retry(); }
+      if (stamp() !== before && !this.signingIn) { this.stopAuthWatch(); this.log('codex: external login detected, restarting'); void this.retry(); }
     }, this.options.authPollMs ?? 2000);
     this.authTimer.unref?.();
   }
@@ -376,6 +477,9 @@ export class CodexClient {
     if (this.proc !== proc) return; // replaced or stopped on purpose
     this.stats.exits++;
     this.proc = null; this.peer = null;
+    this.chatGPTAccount = false;
+    if (this.signingIn) this.finishSignIn('error', 'ChatGPT sign-in was interrupted. Try signing in again.');
+    else ++this.authAttempt;
     this.stopAuthWatch();
     const why = `Codex stopped unexpectedly (exit ${exit.code ?? exit.signal ?? '?'}).`;
     this.log(`codex: ${why} ${proc.stderrTail().split('\n').pop() ?? ''}`);
@@ -402,6 +506,10 @@ export class CodexClient {
     this.stopAuthWatch();
     const proc = this.proc, peer = this.peer;
     this.proc = null; this.peer = null;
+    this.booting = null;
+    this.chatGPTAccount = false;
+    if (this.signingIn) this.finishSignIn('error', 'ChatGPT sign-in was interrupted. Try signing in again.');
+    else ++this.authAttempt;
     this.failAll({ message: reason, code: 'stopped' });
     peer?.close(reason);
     await proc?.stop();
@@ -437,7 +545,7 @@ export class CodexClient {
     if (this.turns.size >= (this.options.maxTurns ?? MAX_TURNS)) return fail({ message: 'Several LLM requests are already running; wait for one to finish or stop it (Esc).', code: 'busy' });
     let thread = request.thread ? this.threads.get(request.thread) : undefined;
     if (thread?.turn) return fail({ message: 'This conversation is still working on the previous request.', code: 'busy' });
-    const turn: TurnState = { key: request.key, sink, thread: null, turnId: null, started, stopRequested: false, interruptSent: false, steers: [], calls: new Map(), questions: new Set(), error: null, tools: 0, done: false, settleTimer: null };
+    const turn: TurnState = { key: request.key, sink, thread: null, turnId: null, started, stopRequested: false, interruptSent: false, steers: [], calls: new Map(), questions: new Set(), error: null, tools: 0, done: false, settleTimer: null, retryTimer: null, idleTimer: null };
     this.turns.set(request.key, turn);
     this.stats.turns++;
     void (async () => {
@@ -476,6 +584,7 @@ export class CodexClient {
         if (turn.stopRequested) { this.finish(turn, 'interrupted'); return; }
         turn.thread = thread;
         thread.turn = turn;
+        this.progress(turn);
         const effort = this.effort();
         const r = await peer.request<TurnStartResponse>('turn/start', { threadId: thread.id, input: userInput(input, request.images), ...(effort ? { effort } : {}) }, { timeoutMs: this.timeouts.requestMs });
         if (turn.done) return;
@@ -513,6 +622,7 @@ export class CodexClient {
     const turn = this.turns.get(key);
     if (!turn || turn.done || turn.stopRequested) return;
     turn.stopRequested = true;
+    this.clearTurnWait(turn);
     turn.stopReason = reason;
     // Answer waiting tool calls first: stdin is ordered, so Codex sees these replies before the interrupt.
     for (const [callId, call] of turn.calls) { clearTimeout(call.timer); this.calls.delete(callId); this.peer?.respond(call.rpcId, failure('The user stopped this request.')); }
@@ -544,6 +654,7 @@ export class CodexClient {
     if (q.timer) clearTimeout(q.timer);
     this.peer?.respond(q.rpcId, { answers: Object.fromEntries(Object.entries(answers).map(([id, list]) => [id, { answers: list }])) });
     q.turn.sink.event({ kind: 'question.resolved', question: questionKey });
+    this.armIdleWait(q.turn);
     return true;
   }
 
@@ -558,6 +669,7 @@ export class CodexClient {
     const content: DynamicToolCallResponse['contentItems'] = [{ type: 'inputText', text: output.text || (output.success ? 'OK' : 'Failed.') }];
     if (output.imageDataUrl && this.statusValue.images) content.push({ type: 'inputImage', imageUrl: output.imageDataUrl });
     this.peer?.respond(call.rpcId, { contentItems: content, success: output.success } satisfies DynamicToolCallResponse);
+    this.armIdleWait(turn);
     return true;
   }
 
@@ -587,6 +699,7 @@ export class CodexClient {
   private finish(turn: TurnState, status: 'completed' | 'interrupted' | 'failed', error?: LlmError) {
     if (turn.done) return;
     turn.done = true;
+    this.clearTurnWait(turn);
     if (turn.settleTimer) clearTimeout(turn.settleTimer);
     for (const [callId, call] of turn.calls) { clearTimeout(call.timer); this.calls.delete(callId); }
     turn.calls.clear();
@@ -610,6 +723,49 @@ export class CodexClient {
     return effort;
   }
   private warnedUltra = false;
+
+  private clearTurnWait(turn: TurnState) {
+    if (turn.retryTimer) clearTimeout(turn.retryTimer);
+    if (turn.idleTimer) clearTimeout(turn.idleTimer);
+    turn.retryTimer = null; turn.idleTimer = null;
+  }
+
+  private failTurn(turn: TurnState, error: LlmError) {
+    if (turn.done || turn.stopRequested) return;
+    turn.stopRequested = true;
+    this.interrupt(turn);
+    if (turn.thread) this.dropThread(turn.thread);
+    this.finish(turn, 'failed', error);
+  }
+
+  private progress(turn: TurnState) {
+    this.clearTurnWait(turn);
+    this.armIdleWait(turn);
+  }
+
+  private armIdleWait(turn: TurnState) {
+    if (turn.idleTimer) clearTimeout(turn.idleTimer);
+    turn.idleTimer = null;
+    if (turn.done || turn.stopRequested) return;
+    turn.idleTimer = setTimeout(() => {
+      // A tool or a blocking question has its own deadline and is not model silence.
+      if (turn.calls.size || turn.questions.size) { this.armIdleWait(turn); return; }
+      this.failTurn(turn, { code: 'response-timeout', message: 'ChatGPT stopped responding.', fix: 'Check your connection and send the request again.' });
+    }, this.timeouts.idleMs);
+    turn.idleTimer.unref?.();
+  }
+
+  private retrying(turn: TurnState, error?: TurnError) {
+    if (turn.done || turn.stopRequested) return;
+    turn.sink.event({ kind: 'retrying', message: error?.message ?? 'Retrying…' });
+    // Repeated failure notifications do not extend the same connection attempt.
+    if (turn.retryTimer) return;
+    turn.retryTimer = setTimeout(() => this.failTurn(turn, {
+      code: 'connection-timeout', message: 'ChatGPT could not reconnect.',
+      fix: 'Check your connection and send the request again.',
+    }), this.timeouts.retryMs);
+    turn.retryTimer.unref?.();
+  }
 
   // ---- from Codex ------------------------------------------------------------------------------
   private turnOf(threadId: unknown): TurnState | null {
@@ -637,8 +793,9 @@ export class CodexClient {
 
   private onToolCall(peer: RpcPeer, rpcId: RequestId, params: DynamicToolCallParams) {
     const turn = this.turnOf(params.threadId);
-    if (!turn || turn.done) { peer.respond(rpcId, failure('This request is over; the tool was not run.')); return; }
+    if (!turn || turn.done || (turn.turnId && params.turnId !== turn.turnId)) { peer.respond(rpcId, failure('This request is over; the tool was not run.')); return; }
     if (turn.stopRequested) { peer.respond(rpcId, failure('The user stopped this request; do not continue.')); return; }
+    this.progress(turn);
     const names = turn.thread?.tools ?? new Set<string>();
     if (params.namespace || !names.has(params.tool)) { peer.respond(rpcId, failure(`Unknown tool "${params.tool}". Use only: ${[...names].join(', ')}.`)); return; }
     const callId = typeof params.callId === 'string' && params.callId ? params.callId : `call-${++this.serial}`;
@@ -659,7 +816,8 @@ export class CodexClient {
 
   private onQuestion(peer: RpcPeer, rpcId: RequestId, params: ToolRequestUserInputParams) {
     const turn = this.turnOf(params.threadId);
-    if (!turn || turn.done) { peer.respond(rpcId, { answers: {} }); return; }
+    if (!turn || turn.done || (turn.turnId && params.turnId !== turn.turnId)) { peer.respond(rpcId, { answers: {} }); return; }
+    this.progress(turn);
     const key = `q${++this.serial}`;
     const items: LlmQuestion[] = (Array.isArray(params.questions) ? params.questions : []).slice(0, 4).map(q => ({
       id: String(q.id), header: String(q.header ?? ''), question: String(q.question ?? ''),
@@ -675,6 +833,8 @@ export class CodexClient {
 
   private onNotification(notification: RpcNotification) {
     const p = (notification.params && typeof notification.params === 'object' ? notification.params : {}) as Record<string, unknown>;
+    const currentTurn = this.turnOf(p.threadId);
+    if (typeof p.turnId === 'string' && currentTurn?.turnId && p.turnId !== currentTurn.turnId) return;
     switch (notification.method) {
       case 'turn/started': { const t = this.turnOf(p.threadId); const n = p as unknown as TurnNotification; if (t && !t.turnId && n.turn?.id) t.turnId = n.turn.id; return; }
       case 'turn/completed': {
@@ -690,6 +850,7 @@ export class CodexClient {
         const n = p as unknown as ItemNotification;
         const t = this.turnOf(n.threadId);
         if (!t || !n.item) return;
+        if (n.item.type !== 'userMessage') this.progress(t);
         if (n.item.type === 'reasoning') t.sink.event({ kind: 'activity', what: 'thinking' });
         else if (!EXPECTED_ITEMS.has(n.item.type)) {
           this.stats.unexpectedItems++;
@@ -701,16 +862,22 @@ export class CodexClient {
       case 'item/completed': {
         const n = p as unknown as ItemNotification;
         const t = this.turnOf(n.threadId);
+        if (t && n.item?.type !== 'userMessage') this.progress(t);
         if (t && n.item?.type === 'agentMessage' && typeof (n.item as { text?: unknown }).text === 'string') t.sink.event({ kind: 'message', text: (n.item as { text: string }).text });
         return;
       }
-      case 'item/agentMessage/delta': { const n = p as unknown as AgentMessageDeltaNotification; const t = this.turnOf(n.threadId); if (t && typeof n.delta === 'string') t.sink.event({ kind: 'delta', text: n.delta }); return; }
+      case 'item/agentMessage/delta': { const n = p as unknown as AgentMessageDeltaNotification; const t = this.turnOf(n.threadId); if (t && typeof n.delta === 'string') { this.progress(t); t.sink.event({ kind: 'delta', text: n.delta }); } return; }
+      case 'item/reasoning/summaryTextDelta': case 'item/reasoning/textDelta': {
+        const t = this.turnOf(p.threadId);
+        if (t) { this.progress(t); t.sink.event({ kind: 'activity', what: 'thinking' }); }
+        return;
+      }
       case 'error': {
         const n = p as unknown as ErrorNotification;
         const t = this.turnOf(n.threadId);
         if (!t) return;
-        if (n.willRetry) t.sink.event({ kind: 'retrying', message: n.error?.message ?? 'Retrying…' });
-        else t.error = n.error ?? null;
+        if (n.willRetry) this.retrying(t, n.error);
+        else this.failTurn(t, explainCodexError(n.error, this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\` again, then retry.`));
         return;
       }
       case 'serverRequest/resolved': {
@@ -725,19 +892,16 @@ export class CodexClient {
       case 'thread/tokenUsage/updated': {
         const n = p as unknown as ThreadTokenUsageUpdatedNotification;
         const t = this.turnOf(n.threadId);
+        if (t) this.progress(t);
         if (t && n.tokenUsage?.total && n.tokenUsage.last) t.sink.event({ kind: 'usage', total: tokens(n.tokenUsage.total), last: tokens(n.tokenUsage.last), window: typeof n.tokenUsage.modelContextWindow === 'number' ? n.tokenUsage.modelContextWindow : null });
         return;
       }
       case 'account/rateLimits/updated': this.updateRateLimit((p as { rateLimits?: RateLimitSnapshot }).rateLimits); return;
       case 'account/login/completed': {
-        if (p.loginId !== this.loginId || !this.loginId) return;
-        this.loginId = null;
-        this.signInState = p.success ? 'complete' : 'error';
-        this.signInError = p.success ? undefined : String(p.error ?? 'Sign-in did not complete.');
-        if (p.success) void this.refreshAccount();
+        if (typeof p.loginId === 'string') this.loginCompleted({ loginId: p.loginId, success: p.success === true, ...(p.error ? { error: String(p.error) } : {}) });
         return;
       }
-      case 'account/updated': if (this.statusValue.state === 'login') void this.retry(); else void this.refreshAccount(); return;
+      case 'account/updated': void this.refreshAccount(); return;
       case 'thread/closed': { const id = p.threadId; if (typeof id === 'string') { const thread = this.threads.get(id); if (thread?.turn) this.finish(thread.turn, 'failed', { message: 'Codex closed the conversation.', code: 'closed' }); this.threads.delete(id); } return; }
       case 'warning': case 'configWarning': case 'deprecationNotice': {
         const message = String(p.message ?? p.summary ?? '').slice(0, 300);

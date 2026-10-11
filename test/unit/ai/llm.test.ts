@@ -82,6 +82,20 @@ const snapshot = () => { const d = clone(session.doc.value); const sort = <T,>(o
 const startId = () => String(t.last('llm.start')!.id);
 
 describe('a request', () => {
+  it('replaces reconnecting progress when output resumes and clears loading after a failed connection', () => {
+    const o = llm.run('make a sequencer');
+    t.event(o.id, { kind: 'retrying', message: 'Connection refused' });
+    expect(line(o.id)).toMatchObject({ live: true, activity: expect.stringMatching(/reconnecting/) });
+    t.event(o.id, { kind: 'delta', text: 'Working on the sequencer.' });
+    expect(line(o.id)).toMatchObject({ activity: 'responding…', reply: 'Working on the sequencer.' });
+    t.done(o.id, 'failed', { code: 'connection-timeout', message: 'ChatGPT could not reconnect.' });
+    expect(line(o.id)).toMatchObject({ live: false, status: 'failed' });
+    expect(llm.busy.value).toBe(false);
+    const again = llm.run('try again');
+    expect(t.last('llm.start')!.id).toBe(again.id);
+    t.done(again.id);
+  });
+
   it('lands on the live patch step by step; one ⌘Z takes the whole request back', async () => {
     const before = snapshot();
     const undoSteps = session.history.size;

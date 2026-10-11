@@ -59,6 +59,78 @@ const start = (s: TestSocket, id: string, text: string, thread?: string) => s.se
 const doneOf = (events: LlmEvent[]) => events.find((e): e is Extract<LlmEvent, { kind: 'done' }> => e.kind === 'done');
 const noViolations = (fake: FakeCodex) => expect(fake.violations()).toEqual([]);
 
+describe('bounded model connection states', () => {
+  it('keeps the connection deadline even when an idle check finds a pending tool', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { idleMs: 60, retryMs: 150, toolMs: 1000 } } });
+    const s = await tab(bridge);
+    start(s, 'pending', 'connection failure during tool');
+    expect(doneOf((await collect(s, 'pending', () => null)).events)).toMatchObject({ status: 'failed', error: { code: 'connection-timeout' } });
+    expect(fake.client.busy).toBe(false);
+    noViolations(fake);
+  });
+
+  it('allows a slow tool to finish without treating it as model silence', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { idleMs: 60, toolMs: 1000 } } });
+    const s = await tab(bridge);
+    start(s, 'tool', 'explain this');
+    const call = await s.nextOf('tool.call');
+    await new Promise(r => setTimeout(r, 180));
+    expect(fake.client.busy).toBe(true);
+    s.send({ t: 'tool.result', id: 'tool', callId: call.callId, output: { success: true, text: '{}' } });
+    expect(doneOf((await collect(s, 'tool')).events)?.status).toBe('completed');
+    noViolations(fake);
+  });
+
+  it('ends repeated connection failures, releases busy state, and accepts a fresh request', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { retryMs: 150, idleMs: 1000 } } });
+    const s = await tab(bridge);
+    start(s, 'failed', 'persistent connection failure');
+    const { events } = await collect(s, 'failed');
+    expect(events.filter(e => e.kind === 'retrying').length).toBeGreaterThan(1);
+    expect(doneOf(events)).toMatchObject({ status: 'failed', error: { code: 'connection-timeout' } });
+    expect(fake.client.busy).toBe(false);
+    expect(fake.sent('turn/interrupt')).toHaveLength(1);
+    expect(fake.sent('thread/unsubscribe')).toHaveLength(1);
+    start(s, 'next', 'explain this');
+    expect(doneOf((await collect(s, 'next')).events)?.status).toBe('completed');
+    expect(fake.sent('thread/start')).toHaveLength(2);
+    noViolations(fake);
+  });
+
+  it('clears the retry deadline when model output resumes', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { retryMs: 150, idleMs: 1000 } } });
+    const s = await tab(bridge);
+    start(s, 'recovered', 'retry then progress');
+    const { events } = await collect(s, 'recovered');
+    expect(events.some(e => e.kind === 'retrying')).toBe(true);
+    expect(doneOf(events)?.status).toBe('completed');
+    expect(fake.sent('turn/interrupt')).toHaveLength(0);
+    noViolations(fake);
+  });
+
+  it('ends an unresponsive model without waiting for a completion notification', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { idleMs: 150 } } });
+    const s = await tab(bridge);
+    start(s, 'silent', 'silent model');
+    expect(doneOf((await collect(s, 'silent')).events)).toMatchObject({ status: 'failed', error: { code: 'response-timeout' } });
+    expect(fake.client.busy).toBe(false);
+    noViolations(fake);
+  });
+
+  it('stops a reconnecting request without a later timeout changing its result', async () => {
+    const { bridge, fake } = await setup({ client: { timeouts: { retryMs: 150 } } });
+    const s = await tab(bridge);
+    start(s, 'stop', 'persistent connection failure');
+    await collect(s, 'stop', canned, { until: e => e.kind === 'retrying' });
+    s.send({ t: 'llm.stop', id: 'stop' });
+    expect(doneOf((await collect(s, 'stop')).events)?.status).toBe('interrupted');
+    await new Promise(r => setTimeout(r, 200));
+    expect(fake.client.busy).toBe(false);
+    expect(fake.sent('turn/interrupt')).toHaveLength(1);
+    noViolations(fake);
+  });
+});
+
 describe('Codex start-up and status', () => {
   it('signed in: ok, with the default model, image support, plan and the busiest usage window', async () => {
     const { bridge, fake } = await setup();

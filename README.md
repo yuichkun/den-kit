@@ -102,6 +102,9 @@ npm run desktop:run
 
 The bundle is written to `release/mac-arm64/den-kit.app` on Apple silicon or
 `release/mac/den-kit.app` on Intel Macs. You can also open it from Finder.
+When using `desktop:run`, keep the terminal open until you quit the app. The
+command waits for the app so temporary proxies supplied by npm wrappers remain
+available for its network connections.
 The app includes the renderer and native Codex CLI, so running the bundle does
 not require Node.js or a development server.
 

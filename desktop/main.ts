@@ -9,6 +9,8 @@ import type { PageRect } from '../src/editor/screen-share.ts';
 import { APP_ORIGIN, APP_PORT, rendererServer } from './renderer-server.ts';
 import { readSettings, validatedSettings, writeSettings } from './settings.ts';
 import { allowedPermission } from './permissions.ts';
+import { openChatGPTSignIn } from './sign-in.ts';
+import { signInPending } from '../src/desktop/presentation.ts';
 
 interface OperatorConfig { browserPodKey?: string }
 let window: BrowserWindow | null = null;
@@ -83,23 +85,18 @@ async function start() {
     const model = next.model ? codex.models.find(m => m.id === next.model || m.model === next.model) : codex.models.find(m => m.isDefault);
     if (next.effort && model && !model.supportedReasoningEfforts.some(e => e.reasoningEffort === next.effort)) throw new Error('This model does not support that reasoning effort.');
     if (codex.busy) throw new Error('Finish the current AI request before changing settings.');
-    if (codex.login.state === 'waiting') throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
+    if (signInPending(codex.login.state)) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     writeSettings(data, next);
     settings = next;
     await codex.configure(next);
     return info();
   });
-  handle('den-kit:sign-in', async () => {
-    const url = await codex.signIn();
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'auth.openai.com') { await codex.cancelSignIn(); throw new Error('Unexpected ChatGPT sign-in address.'); }
-    await shell.openExternal(url);
-  });
+  handle('den-kit:sign-in', () => openChatGPTSignIn(codex, url => shell.openExternal(url)));
   handle('den-kit:cancel-sign-in', () => codex.cancelSignIn());
   handle('den-kit:sign-out', () => codex.signOut());
   handle('den-kit:reconnect-ai', async () => {
     if (codex.busy) throw new Error('Finish the current AI request before reconnecting.');
-    if (codex.login.state === 'waiting') throw new Error('Complete or cancel ChatGPT sign-in before reconnecting.');
+    if (signInPending(codex.login.state)) throw new Error('Complete or cancel ChatGPT sign-in before reconnecting.');
     await codex.retry();
     return info();
   });

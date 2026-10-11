@@ -34,6 +34,35 @@ export default part({
 `;
 
 const scenarios: Scenario[] = [
+  {
+    name: 'connection-failure-during-tool', match: /connection failure during tool/i,
+    async run(t) {
+      const tool = t.call('kit_get_patch', {});
+      await t.sleep(20);
+      t.error({ responseStreamConnectionFailed: { httpStatusCode: null } }, 'Connection refused', true);
+      await tool;
+    },
+  },
+  {
+    name: 'persistent-connection-failure', match: /persistent connection failure/i,
+    async run(t) {
+      for (let i = 0; i < 100 && !t.interrupted; i++) {
+        t.error({ responseStreamConnectionFailed: { httpStatusCode: null } }, 'Connection refused', true);
+        await t.sleep(20);
+      }
+    },
+  },
+  {
+    name: 'retry-then-progress', match: /retry then progress/i,
+    async run(t) {
+      t.error({ responseStreamDisconnected: { httpStatusCode: null } }, 'Connection lost', true);
+      await t.sleep(20);
+      await t.say('Connection restored.');
+      await t.sleep(250);
+      await t.say('Finished.');
+    },
+  },
+  { name: 'silent-model', match: /silent model/i, async run(t) { await t.sleep(1500); } },
   // These are scripted LLM replies for browser regression tests, not a local
   // interpreter: the page must send every request through the bridge first.
   {

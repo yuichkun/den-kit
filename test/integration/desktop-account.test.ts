@@ -73,10 +73,121 @@ describe('desktop ChatGPT account', () => {
     const reads = f.sent('account/read').length;
     const boots = f.client.stats.boots;
     await f.client.signIn();
-    await until(() => f.client.login.state === 'complete' && f.sent('account/read').length > reads);
+    await until(() => f.client.login.state === 'error' && f.sent('account/read').length > reads);
     expect(f.client.chatGPTSignedIn).toBe(false);
     expect(f.client.ready).toBe(true);
     expect(f.client.stats.boots).toBe(boots);
+    expect(f.violations()).toEqual([]);
+  });
+
+  it.each(['completed-only', 'completed-before-save', 'updated-first', 'file-first', 'silent', 'early-completion'])('confirms %s sign-in without restarting the OAuth process', async login => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: login } });
+    await f.client.start();
+    const models = f.sent('model/list').length;
+    await f.client.signIn();
+    await until(() => f.client.login.state === 'complete');
+    expect(f.client.chatGPTSignedIn).toBe(true);
+    expect(f.client.ready).toBe(true);
+    expect(f.client.status.state).toBe('ok');
+    expect(f.sent('model/list').length).toBeGreaterThan(models);
+    expect(f.client.stats.boots).toBe(1);
+    expect(f.violations()).toEqual([]);
+  });
+
+  it('keeps checking until the account read completes instead of reporting success from OAuth alone', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'checking');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.ready).toBe(false);
+    await until(() => f.client.login.state === 'complete');
+    expect(f.client.chatGPTSignedIn).toBe(true);
+    expect(f.client.ready).toBe(true);
+  });
+
+  it.each(['hang', 'error'])('ends a failed account confirmation (%s) with a recoverable error', async confirm => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: confirm }, client: { timeouts: { requestMs: 200 } } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'error');
+    expect(f.client.login.error).toMatch(/could not be confirmed/);
+    expect(f.client.ready).toBe(false);
+    await f.client.retry();
+    expect(f.client.ready).toBe(true);
+    expect(f.client.chatGPTSignedIn).toBe(true);
+    expect(f.client.login.state).toBe('complete');
+  });
+
+  it('expires an unfinished browser sign-in and allows another attempt', async () => {
+    const f = setup({ signedIn: false, client: { loginTimeoutMs: 160 } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'error');
+    expect(f.client.login.error).toMatch(/timed out/);
+    expect(f.client.status.state).toBe('login');
+    await until(() => f.sent('account/login/cancel').length === 1);
+    await f.client.signIn();
+    expect(f.client.login.state).toBe('waiting');
+    await f.client.cancelSignIn();
+  });
+
+  it('reports a failed browser sign-in without leaving settings locked', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'failure' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'error');
+    expect(f.client.login.error).toMatch(/declined/);
+    expect(f.client.ready).toBe(false);
+    await f.client.configure({ model: '', effort: '', fork: false });
+    expect(f.client.status.state).toBe('login');
+  });
+
+  it('clears the waiting state after the OAuth process crashes', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'crash' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.stats.boots === 2 && f.client.status.state === 'login');
+    expect(f.client.login.state).toBe('error');
+    expect(f.client.login.error).toMatch(/interrupted/);
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    await f.client.signIn();
+    expect(f.client.login.state).toBe('waiting');
+    await f.client.cancelSignIn();
+  });
+
+  it('cancels while obtaining the login URL and ignores its late failure', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'hang-start' }, client: { timeouts: { requestMs: 160 } } });
+    await f.client.start();
+    const signingIn = f.client.signIn().catch(error => error as Error);
+    await until(() => f.client.login.state === 'starting');
+    await f.client.cancelSignIn();
+    expect(await signingIn).toBeInstanceOf(Error);
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+  });
+
+  it('ignores an old login completion after canceling and starting another sign-in', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LATE_LOGIN: '1' }, client: { loginTimeoutMs: 1000 } });
+    await f.client.start(); await f.client.signIn(); await f.client.cancelSignIn(); await f.client.signIn();
+    await new Promise(r => setTimeout(r, 180));
+    expect(f.client.login.state).toBe('waiting');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    await f.client.cancelSignIn();
+  });
+
+  it('ignores a pending account read after cancellation', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'checking');
+    await f.client.cancelSignIn();
+    await new Promise(r => setTimeout(r, 200));
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+  });
+
+  it('shares overlapping restarts and waits for the replacement process to initialize', async () => {
+    const f = setup({ env: { FAKE_CODEX_STARTUP_MS: '60' } });
+    await f.client.start();
+    await Promise.all([f.client.retry(), f.client.retry(), f.client.start()]);
+    expect(f.client.ready).toBe(true);
+    expect(f.client.stats.boots).toBe(2);
+    expect(f.sent('initialize')).toHaveLength(2);
     expect(f.violations()).toEqual([]);
   });
 

@@ -18,6 +18,8 @@
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
 //   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
+//   FAKE_CODEX_LOGIN      success | completed-only | completed-before-save | updated-first | file-first | silent | early-completion | failure | crash | hang-start
+//   FAKE_CODEX_CONFIRM    hang | error | delay: account confirmation after OAuth succeeds
 import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -306,20 +308,32 @@ async function handle(message: Record<string, unknown>) {
   switch (method) {
     case 'account/read': {
       const account = env.FAKE_CODEX_AUTH === 'apiKey' ? { type: 'apiKey' } : signedIn() ? { type: 'chatgpt', email: 'user@example.com', planType: 'plus' } : null;
-      respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'hang') return;
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error') { refuse(id, 'Account confirmation failed'); return; }
+      const reply = () => respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'delay') setTimeout(reply, 150);
+      else reply();
       return;
     }
     case 'account/login/start': {
       if (params.type !== 'chatgpt') { violation('den-kit must sign in with ChatGPT, not an API key', params); refuse(id, 'unsupported login'); return; }
       const loginId = randomUUID();
       login = { id: loginId };
+      if (env.FAKE_CODEX_LOGIN === 'hang-start') return;
+      const completed = () => notify('account/login/completed', { loginId, success: true, error: null });
+      const updated = () => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
+      const persist = () => { writeFileSync(join(home!, 'auth.json'), '{"fake":true}'); chatGPTLoginCompleted = true; };
+      if (env.FAKE_CODEX_LOGIN === 'early-completion') { persist(); completed(); }
       respond(id, { type: 'chatgpt', loginId, authUrl: `https://auth.openai.com/oauth/authorize?state=${loginId}` });
-      if (env.FAKE_CODEX_LOGIN === 'success') login.timer = setTimeout(() => {
+      if (env.FAKE_CODEX_LOGIN && env.FAKE_CODEX_LOGIN !== 'early-completion') login.timer = setTimeout(() => {
         if (login?.id !== loginId) return;
-        writeFileSync(join(home!, 'auth.json'), '{"fake":true}');
-        chatGPTLoginCompleted = true;
-        notify('account/login/completed', { loginId, success: true, error: null });
-        notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
+        if (env.FAKE_CODEX_LOGIN === 'crash') { process.exit(6); }
+        if (env.FAKE_CODEX_LOGIN === 'failure') { notify('account/login/completed', { loginId, success: false, error: 'Browser sign-in was declined.' }); login = null; return; }
+        if (env.FAKE_CODEX_LOGIN === 'completed-before-save') { completed(); setTimeout(persist, 150); login = null; return; }
+        persist();
+        if (env.FAKE_CODEX_LOGIN === 'updated-first') { updated(); setTimeout(completed, 150); }
+        else if (env.FAKE_CODEX_LOGIN === 'file-first') setTimeout(() => { completed(); updated(); }, 150);
+        else if (env.FAKE_CODEX_LOGIN !== 'silent') { completed(); if (env.FAKE_CODEX_LOGIN !== 'completed-only') updated(); }
         login = null;
       }, 80);
       return;
@@ -328,6 +342,7 @@ async function handle(message: Record<string, unknown>) {
       if (login && login.id === params.loginId) { if (login.timer) clearTimeout(login.timer); login = null; }
       respond(id, { status: 'canceled' });
       notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Canceled' });
+      if (env.FAKE_CODEX_LATE_LOGIN === '1') setTimeout(() => notify('account/login/completed', { loginId: params.loginId, success: true, error: null }), 80);
       return;
     }
     case 'account/logout':

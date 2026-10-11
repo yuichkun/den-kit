@@ -769,8 +769,9 @@ export class LlmController {
         } else if (event.forked !== undefined) agent.forked = event.forked;
         return;
       case 'started': this.activity(turn, agent, 'thinking…'); return;
-      case 'delta': agent.message += event.text; if (lead) this.update(turn, { reply: tail(agent.message) }); return;
+      case 'delta': this.activity(turn, agent, 'responding…'); agent.message += event.text; if (lead) this.update(turn, { reply: tail(agent.message) }); return;
       case 'message':
+        this.activity(turn, agent, 'responding…');
         if (lead) { agent.message = ''; this.update(turn, { reply: tail(event.text) }); }
         else { agent.message = event.text; this.syncLanes(turn); }
         return;
@@ -781,7 +782,7 @@ export class LlmController {
         }
         else this.step(turn, agent, event.what === 'blocked' ? `blocked ${event.detail ?? 'a request'} (den-kit allows only its own tools)` : `${event.what}${event.detail ? `: ${event.detail}` : ''}`);
         return;
-      case 'retrying': this.activity(turn, agent, desktop() ? 'Reconnecting to ChatGPT…' : `reconnecting to the model… (${event.message})`); return;
+      case 'retrying': this.activity(turn, agent, desktop() ? 'Connection lost. Retrying ChatGPT…' : `reconnecting to the model… (${event.message})`); return;
       case 'question':
         // Nobody is asked to choose: an empty answer, and Codex decides itself.
         this.bridge.llmAnswer(agent.key, event.question, {});

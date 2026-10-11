@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { aiFailure, aiUnavailable } from '../../../src/ai/user-errors.ts';
 
 describe('installed-app AI recovery', () => {
+  it.each(['connection-timeout', 'response-timeout'])('explains %s without exposing service diagnostics', code => {
+    const message = aiFailure({ code, message: 'Connection refused at a private proxy endpoint' });
+    expect(message).toMatch(/Check your internet connection/);
+    expect(message).toMatch(/send your request again/);
+    expect(message).not.toMatch(/proxy|endpoint/);
+  });
   it('offers Settings for sign-in and reconnecting for a lost connection', () => {
     expect(aiUnavailable(true, 'login')).toMatch(/Sign in with ChatGPT in Settings/);
     expect(aiUnavailable(false, 'login')).toMatch(/AI status to reconnect/);

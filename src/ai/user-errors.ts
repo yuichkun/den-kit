@@ -12,6 +12,7 @@ export function aiUnavailable(online: boolean, state?: CodexStatus['state']): st
 export function aiFailure(error?: LlmError): string {
   const code = error?.code ?? '';
   const message = error?.message ?? '';
+  if (code === 'connection-timeout' || code === 'response-timeout') return 'ChatGPT did not respond. Check your internet connection and send your request again. If it keeps failing, quit and reopen den-kit.';
   if (code === 'login') {
     return 'Sign in with ChatGPT in Settings, then send your request again.';
   }

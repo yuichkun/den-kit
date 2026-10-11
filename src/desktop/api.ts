@@ -11,7 +11,7 @@ export interface DesktopInfo {
   aiBusy: boolean;
   chatGPTSignedIn: boolean;
   podConfigured: boolean;
-  login: 'idle' | 'waiting' | 'complete' | 'error';
+  login: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error';
   loginError?: string;
 }
 export interface DesktopRuntime { token: string; apiKey: string | null }

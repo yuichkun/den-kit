@@ -109,8 +109,10 @@ export class RpcPeer {
 
   // ---- reading ------------------------------------------------------------------------------
   private receive(chunk: string) {
+    if (this.closedReason !== null) return;
     let start = 0;
     for (let i = chunk.indexOf('\n'); i >= 0; i = chunk.indexOf('\n', start)) {
+      if (this.closedReason !== null) return;
       const piece = chunk.slice(start, i);
       start = i + 1;
       if (this.skipping) { this.skipping = false; this.buffer = ''; continue; }

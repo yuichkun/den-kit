@@ -104,6 +104,26 @@ describe('RpcPeer', () => {
     peer.respond(1, {}); // dropped, no throw
   });
 
+  it('ignores late notifications and server requests after the peer closes', async () => {
+    const { input, peer, notifications, requests } = pair();
+    peer.close('Connection replaced.');
+    input.write('{"method":"account/updated","params":{"authMode":"chatgpt"}}\n{"id":1,"method":"item/tool/call","params":{}}\n');
+    await tick();
+    expect(notifications).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it('stops dispatching a buffered batch when a notification closes the peer', () => {
+    const input = new PassThrough(), output = new PassThrough();
+    const notifications: string[] = [];
+    const peer = new RpcPeer(input, output, {
+      onRequest() {},
+      onNotification(notification) { notifications.push(notification.method); peer.close('Replaced.'); },
+    });
+    input.write('{"method":"first"}\n{"method":"account/updated"}\n');
+    expect(notifications).toEqual(['first']);
+  });
+
   it('waits for drain under back-pressure and keeps the order', async () => {
     const chunks: string[] = [];
     let release: (() => void) | null = null;
