@@ -307,6 +307,7 @@ async function handle(message: Record<string, unknown>) {
   if (!initialized || !sawInitialized) { refuse(id, 'Not initialized'); return; }
   switch (method) {
     case 'account/read': {
+      if (login && !chatGPTLoginCompleted && env.FAKE_CODEX_PRELOGIN_READ_FAILURE === '1') { refuse(id, 'Temporary account read failure'); return; }
       const account = env.FAKE_CODEX_AUTH === 'apiKey' ? { type: 'apiKey' } : signedIn() ? { type: 'chatgpt', email: 'user@example.com', planType: 'plus' } : null;
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'hang') return;
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error') { refuse(id, 'Account confirmation failed'); return; }
@@ -335,7 +336,7 @@ async function handle(message: Record<string, unknown>) {
         else if (env.FAKE_CODEX_LOGIN === 'file-first') setTimeout(() => { completed(); updated(); }, 150);
         else if (env.FAKE_CODEX_LOGIN !== 'silent') { completed(); if (env.FAKE_CODEX_LOGIN !== 'completed-only') updated(); }
         login = null;
-      }, 80);
+      }, Number(env.FAKE_CODEX_LOGIN_DELAY_MS ?? 80));
       return;
     }
     case 'account/login/cancel': {

@@ -370,7 +370,12 @@ export class CodexClient {
     })().catch(error => {
       if (!current()) return;
       this.log(`codex: account refresh failed: ${describeRpcError(error)}`);
+      // Before OAuth completes, a failed poll says nothing about the browser
+      // login. Keep its ID and deadline so it can complete or be canceled.
+      if (this.signInState === 'waiting') return;
       if (this.signingIn) {
+        const id = this.loginId;
+        if (id) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
         this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Reconnect and try again.');
         this.setStatus({ state: 'error', detail: 'ChatGPT sign-in could not be confirmed.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
       }

@@ -111,10 +111,34 @@ describe('desktop ChatGPT account', () => {
     await until(() => f.client.login.state === 'error');
     expect(f.client.login.error).toMatch(/could not be confirmed/);
     expect(f.client.ready).toBe(false);
+    await until(() => f.sent('account/login/cancel').length === 1);
     await f.client.retry();
     expect(f.client.ready).toBe(true);
     expect(f.client.chatGPTSignedIn).toBe(true);
     expect(f.client.login.state).toBe('complete');
+  });
+
+  it('keeps the OAuth attempt alive after a failed poll before browser completion', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_LOGIN_DELAY_MS: '300', FAKE_CODEX_PRELOGIN_READ_FAILURE: '1' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.sent('account/read').length >= 3);
+    expect(f.client.login.state).toBe('waiting');
+    expect(f.sent('account/login/cancel')).toHaveLength(0);
+    await until(() => f.client.login.state === 'complete');
+    expect(f.client.ready).toBe(true);
+    expect(f.client.chatGPTSignedIn).toBe(true);
+    expect(f.client.stats.boots).toBe(1);
+  });
+
+  it('still cancels at the overall deadline when pre-completion polls keep failing', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_PRELOGIN_READ_FAILURE: '1' }, client: { loginTimeoutMs: 200 } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'error');
+    expect(f.client.login.error).toMatch(/timed out/);
+    await until(() => f.sent('account/login/cancel').length === 1);
+    await f.client.signIn();
+    expect(f.client.login.state).toBe('waiting');
+    await f.client.cancelSignIn();
   });
 
   it('expires an unfinished browser sign-in and allows another attempt', async () => {
