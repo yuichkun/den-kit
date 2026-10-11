@@ -9,7 +9,7 @@
 // Every server request is answered (an unanswered one stalls the turn): kit_*
 // tool calls go to the browser that owns the turn (with a deadline), requests
 // for powers den-kit never grants are declined, anything unknown gets an error.
-import { statSync } from 'node:fs';
+import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CodexStatus, LlmError, LlmEvent, LlmQuestion, LlmRole, TokenUsage, ToolOutput } from '../../src/ai/protocol.ts';
 import { toolDeadlineMs, toolsFor, type ToolSpec } from '../../src/ai/llm-spec.ts';
@@ -193,6 +193,7 @@ export class CodexClient {
     this.options = options;
     const env = options.env ?? process.env;
     this.home = options.home ?? codexHome(options.kitRoot, env);
+    if (existsSync(this.cancellationFile)) this.pendingCancellation = { state: 'idle' };
     this.workdir = options.workdir ?? codexWorkdir(options.kitRoot);
     this.toolOverride = options.tools ?? null;
     this.timeouts = { retryMs: 30000, idleMs: 180000, initializeMs: 30000, requestMs: 20000, toolMs: 90000, interruptMs: 8000, settleMs: 10000, ...options.timeouts };
@@ -270,6 +271,7 @@ export class CodexClient {
     this.stopAuthWatch();
     const task = (async () => {
       try {
+        if (discardAccount) writeFileSync(this.cancellationFile, 'pending\n', { mode: 0o600 });
         let restart = discardAccount || !id;
         try {
           if (id) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
@@ -289,6 +291,7 @@ export class CodexClient {
     this.canceling = task;
     return task;
   }
+  private get cancellationFile() { return join(this.home.path, 'den-kit-canceled-login'); }
   async signOut() {
     if (this.busy) throw new Error('Finish the current AI request before signing out.');
     await this.cancelSignIn();
@@ -471,6 +474,7 @@ export class CodexClient {
           if (account.account?.type === 'chatgpt') throw new Error('The canceled ChatGPT account is still signed in.');
         }
         if (this.proc !== proc) return;
+        rmSync(this.cancellationFile, { force: true });
         this.pendingCancellation = null;
         this.finishSignIn(canceled.state, canceled.error);
       }

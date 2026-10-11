@@ -319,6 +319,13 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.login.state).toBe('error');
     expect(f.client.login.error).toMatch(/cancellation could not be completed/);
     await expect(f.client.signIn()).rejects.toThrow('finish canceling');
+    await f.client.stop();
+    // Reopening the app must finish the cancellation before adopting credentials.
+    const reopened = setup({ signedIn: false, client: { home: { path: f.home, isolated: true } } });
+    await reopened.client.start();
+    expect(reopened.sent('account/logout')).toHaveLength(1);
+    expect(reopened.client.chatGPTSignedIn).toBe(false);
+    expect(reopened.client.status.state).toBe('login');
   });
 
   it('requires explicit sign-out before starting a different ChatGPT login', async () => {
