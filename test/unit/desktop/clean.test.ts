@@ -27,6 +27,7 @@ describe('desktop data cleanup', () => {
   });
   it.each([
     '123 /Applications/den-kit.app/Contents/MacOS/den-kit',
+    '123 /Applications/den-kit 0.1.app/Contents/MacOS/den-kit',
     '123 /project/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron /project/.desktop-build/app',
   ])('refuses cleanup while the app runs: %s', process => {
     const options = setup();

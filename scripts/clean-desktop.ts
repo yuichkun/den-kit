@@ -16,8 +16,8 @@ export function cleanDesktopData(options: {
   const processes = options.processList(); // Failure to inspect processes must prevent deletion.
   const running = processes.split('\n').some(line => {
     const command = line.replace(/^\s*\d+\s+/, '');
-    return /\/den-kit\.app\/Contents\/MacOS\/den-kit(?:\s|$)/.test(command)
-      || (/\/Electron\.app\/Contents\/MacOS\/Electron(?:\s|$)/.test(command) && /(?:^|\/)\.desktop-build\/app(?:\s|$)/.test(command));
+    return /\/Contents\/MacOS\/den-kit(?:\s|$)/.test(command)
+      || (/\/Contents\/MacOS\/Electron(?:\s|$)/.test(command) && /(?:^|\/)\.desktop-build\/app(?:\s|$)/.test(command));
   });
   if (running) throw new Error('Quit den-kit before cleaning its data. No data was deleted.');
   if (!existsSync(directory)) return { directory, removed: false };
