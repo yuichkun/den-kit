@@ -180,6 +180,7 @@ export class CodexClient {
   private loginId: string | null = null;
   private canceling: Promise<void> | null = null;
   private pendingCancellation: { state: 'idle' | 'error'; error?: string } | null = null;
+  private accountChangedDuringCancellation = false;
   private signInState: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error' = 'idle';
   private signInError: string | undefined;
   private chatGPTAccount = false;
@@ -287,7 +288,14 @@ export class CodexClient {
         this.finishSignIn('error', 'Sign-in cancellation could not be completed. Reconnect AI before trying again.');
         this.setStatus({ state: 'error', detail: 'Sign-in cancellation could not be completed.', fix: 'Reconnect AI to finish canceling sign-in.' });
       }
-    })().finally(() => { if (this.canceling === task) { this.canceling = null; this.setStatus(this.statusValue); } });
+    })().finally(() => {
+      if (this.canceling !== task) return;
+      this.canceling = null;
+      this.setStatus(this.statusValue);
+      const changed = this.accountChangedDuringCancellation;
+      this.accountChangedDuringCancellation = false;
+      if (changed && !discardAccount && !this.pendingCancellation && !this.stopped) void this.refreshAccount(true);
+    });
     this.canceling = task;
     return task;
   }
@@ -373,7 +381,11 @@ export class CodexClient {
   private refreshAccount(accountChanged = false): Promise<void> {
     const peer = this.peer;
     const attempt = this.authAttempt;
-    if (!peer || this.signInState === 'starting' || this.canceling || this.pendingCancellation) return Promise.resolve();
+    if (this.canceling || this.pendingCancellation) {
+      this.accountChangedDuringCancellation ||= accountChanged;
+      return Promise.resolve();
+    }
+    if (!peer || this.signInState === 'starting') return Promise.resolve();
     if (this.accountRefreshing?.peer === peer && this.accountRefreshing.attempt === attempt) {
       // Timer ticks share the pending read. Only new account evidence queues
       // another read, so a slow failing RPC cannot perpetually extend itself.

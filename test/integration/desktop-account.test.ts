@@ -154,10 +154,10 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.stats.boots).toBe(1);
   });
 
-  it('clears a confirmation error when a later account notification confirms recovery', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once' } });
+  it.each(['normal', 'delay'])('rechecks a recovered account even when cancellation acknowledgement is %s', async cancel => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once', FAKE_CODEX_CANCEL: cancel } });
     await f.client.start(); await f.client.signIn();
-    await until(() => f.client.login.state === 'error');
+    await until(() => f.sent('account/login/cancel').length === 1);
     await until(() => f.client.ready);
     expect(f.client.chatGPTSignedIn).toBe(true);
     expect(f.client.login).toEqual({ state: 'complete', error: undefined });

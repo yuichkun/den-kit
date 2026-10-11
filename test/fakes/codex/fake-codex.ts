@@ -358,7 +358,8 @@ async function handle(message: Record<string, unknown>) {
       if (env.FAKE_CODEX_CANCEL === 'hang') return;
       if (env.FAKE_CODEX_CANCEL === 'error') { refuse(id, 'Cancellation failed'); return; }
       if (login && login.id === params.loginId) { if (login.timer) clearTimeout(login.timer); login = null; }
-      respond(id, { status: 'canceled' });
+      if (env.FAKE_CODEX_CANCEL === 'delay') setTimeout(() => respond(id, { status: 'canceled' }), 200);
+      else respond(id, { status: 'canceled' });
       notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Canceled' });
       if (env.FAKE_CODEX_LATE_LOGIN === '1') setTimeout(() => notify('account/login/completed', { loginId: params.loginId, success: true, error: null }), 80);
       return;
