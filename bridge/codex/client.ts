@@ -171,6 +171,8 @@ export class CodexClient {
   private loginId: string | null = null;
   private signInState: 'idle' | 'waiting' | 'complete' | 'error' = 'idle';
   private signInError: string | undefined;
+  private chatGPTAccount = false;
+  private accountRefreshing: Promise<void> | null = null;
 
   constructor(options: CodexClientOptions) {
     this.options = options;
@@ -183,6 +185,7 @@ export class CodexClient {
   }
 
   get status(): CodexStatus { return { ...this.statusValue }; }
+  get chatGPTSignedIn() { return this.chatGPTAccount; }
   get ready() { return this.statusValue.state === 'ok' && !!this.peer; }
   get busy() { return this.turns.size > 0; }
   get models(): Model[] { return this.modelCatalog.map(m => ({ ...m })); }
@@ -254,8 +257,30 @@ export class CodexClient {
   private log(line: string) { this.options.log?.(line); }
   private record(event: string, data: Record<string, unknown> = {}) { this.options.telemetry?.write('codex', { event, ...data }); }
 
+  private refreshAccount(): Promise<void> {
+    if (this.accountRefreshing) return this.accountRefreshing;
+    const peer = this.peer;
+    if (!peer) return Promise.resolve();
+    this.accountRefreshing = (async () => {
+      const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
+      if (this.peer !== peer) return;
+      this.chatGPTAccount = account.account?.type === 'chatgpt';
+      if (!account.account && account.requiresOpenaiAuth !== false) {
+        this.setStatus({ state: 'login', model: this.statusValue.model, images: this.statusValue.images, detail: 'Codex is not signed in.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
+        this.watchAuth();
+      } else if (this.statusValue.state === 'ok') {
+        const { plan: _previousPlan, ...status } = this.statusValue;
+        const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
+        this.setStatus({ ...status, ...(plan ? { plan } : {}), rateLimit: null });
+        void peer.request<GetAccountRateLimitsResponse>('account/rateLimits/read', undefined, { timeoutMs: this.timeouts.requestMs }).then(r => { if (this.peer === peer) this.updateRateLimit(r.rateLimits); }).catch(() => undefined);
+      }
+    })().catch(error => { if (this.peer === peer) this.log(`codex: account refresh failed: ${describeRpcError(error)}`); }).finally(() => { this.accountRefreshing = null; });
+    return this.accountRefreshing;
+  }
+
   private async boot() {
     if (this.stopped) return;
+    this.chatGPTAccount = false;
     this.setStatus({ state: 'starting', detail: 'Starting Codex…' });
     const command = this.options.command ?? resolveCodex(this.options.kitRoot, this.options.env);
     if (isProblem(command)) { this.setStatus({ state: 'error', detail: command.error, fix: command.fix }); return; }
@@ -283,6 +308,7 @@ export class CodexClient {
       const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
       const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs }).catch(error => { this.log(`codex: model/list failed: ${describeRpcError(error)}`); return null; });
       if (this.proc !== proc) return;
+      this.chatGPTAccount = account.account?.type === 'chatgpt';
       const model = this.chooseModel(models?.data ?? []);
       this.modelCatalog = (models?.data ?? []).filter(m => !m.hidden);
       const base = { model: model.label, images: model.images };
@@ -293,7 +319,7 @@ export class CodexClient {
         return;
       }
       this.failures = 0;
-      const plan = account.account?.type === 'chatgpt' ? account.account.planType : account.account?.type;
+      const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
       this.setStatus({ state: 'ok', ...(plan ? { plan } : {}), ...base, rateLimit: null });
       void peer.request<GetAccountRateLimitsResponse>('account/rateLimits/read', undefined, { timeoutMs: this.timeouts.requestMs })
         .then(r => this.updateRateLimit(r.rateLimits)).catch(() => { /* optional */ });
@@ -708,9 +734,10 @@ export class CodexClient {
         this.loginId = null;
         this.signInState = p.success ? 'complete' : 'error';
         this.signInError = p.success ? undefined : String(p.error ?? 'Sign-in did not complete.');
+        if (p.success) void this.refreshAccount();
         return;
       }
-      case 'account/updated': if (this.statusValue.state === 'login') void this.retry(); return;
+      case 'account/updated': if (this.statusValue.state === 'login') void this.retry(); else void this.refreshAccount(); return;
       case 'thread/closed': { const id = p.threadId; if (typeof id === 'string') { const thread = this.threads.get(id); if (thread?.turn) this.finish(thread.turn, 'failed', { message: 'Codex closed the conversation.', code: 'closed' }); this.threads.delete(id); } return; }
       case 'warning': case 'configWarning': case 'deprecationNotice': {
         const message = String(p.message ?? p.summary ?? '').slice(0, 300);

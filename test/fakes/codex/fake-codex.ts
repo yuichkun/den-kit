@@ -10,7 +10,7 @@
 //
 // Environment:
 //   CODEX_HOME            must exist (like the real CLI); auth.json there = signed in
-//   FAKE_CODEX_AUTH       chatgpt | none (overrides auth.json)
+//   FAKE_CODEX_AUTH       chatgpt | apiKey | none | no-auth (overrides auth.json)
 //   FAKE_CODEX_LOG        JSONL file: every message received, every violation
 //   FAKE_CODEX_SCENARIOS  scenario module path
 //   FAKE_CODEX_FAULT      crash-on-start | hang-initialize | garbage | exit-after-init
@@ -63,7 +63,8 @@ const home = env.CODEX_HOME;
 const logFile = env.FAKE_CODEX_LOG;
 const log = (record: Record<string, unknown>) => { if (logFile) try { appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), ...record })}\n`); } catch { /* ignore */ } };
 const violation = (message: string, data?: unknown) => { log({ violation: message, data }); process.stderr.write(`fake-codex VIOLATION: ${message}\n`); };
-const signedIn = () => env.FAKE_CODEX_AUTH ? env.FAKE_CODEX_AUTH === 'chatgpt' : !!home && existsSync(join(home, 'auth.json'));
+let chatGPTLoginCompleted = false;
+const signedIn = () => (env.FAKE_CODEX_AUTH === 'no-auth' && chatGPTLoginCompleted) || (env.FAKE_CODEX_AUTH ? ['chatgpt', 'apiKey'].includes(env.FAKE_CODEX_AUTH) : !!home && existsSync(join(home, 'auth.json')));
 
 // ---- CLI ---------------------------------------------------------------------------------------
 if (home && !existsSync(home)) {
@@ -72,7 +73,7 @@ if (home && !existsSync(home)) {
 }
 if (args[0] === '--version') { process.stdout.write('codex-cli 0.160.1\n'); process.exit(0); }
 if (args[0] === 'login' && args[1] === 'status') {
-  if (signedIn()) { process.stdout.write('Logged in using ChatGPT\n'); process.exit(0); }
+  if (signedIn()) { process.stdout.write(env.FAKE_CODEX_AUTH === 'apiKey' ? 'Logged in using an API key\n' : 'Logged in using ChatGPT\n'); process.exit(0); }
   process.stdout.write('Not logged in\n'); process.exit(1);
 }
 if (args[0] === 'login') {
@@ -303,7 +304,11 @@ async function handle(message: Record<string, unknown>) {
   }
   if (!initialized || !sawInitialized) { refuse(id, 'Not initialized'); return; }
   switch (method) {
-    case 'account/read': respond(id, signedIn() ? { account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' }, requiresOpenaiAuth: true, workspaceRouting: null } : { account: null, requiresOpenaiAuth: true, workspaceRouting: null }); return;
+    case 'account/read': {
+      const account = env.FAKE_CODEX_AUTH === 'apiKey' ? { type: 'apiKey' } : signedIn() ? { type: 'chatgpt', email: 'user@example.com', planType: 'plus' } : null;
+      respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
+      return;
+    }
     case 'account/login/start': {
       if (params.type !== 'chatgpt') { violation('den-kit must sign in with ChatGPT, not an API key', params); refuse(id, 'unsupported login'); return; }
       const loginId = randomUUID();
@@ -312,6 +317,7 @@ async function handle(message: Record<string, unknown>) {
       if (env.FAKE_CODEX_LOGIN === 'success') login.timer = setTimeout(() => {
         if (login?.id !== loginId) return;
         writeFileSync(join(home!, 'auth.json'), '{"fake":true}');
+        chatGPTLoginCompleted = true;
         notify('account/login/completed', { loginId, success: true, error: null });
         notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
         login = null;
@@ -325,6 +331,7 @@ async function handle(message: Record<string, unknown>) {
       return;
     }
     case 'account/logout':
+      chatGPTLoginCompleted = false;
       rmSync(join(home!, 'auth.json'), { force: true });
       respond(id, {}); notify('account/updated', { authMode: null, planType: null }); return;
     case 'model/list': respond(id, { data: MODELS, nextCursor: null }); return;

@@ -17,11 +17,11 @@ describe('AI bridge in the browser', () => {
   before(async () => { h = await startHarness({ codex: true }); });
   after(async () => { await h?.close(); });
 
-  it('connects through the dev server, shows the LLM ready, and sends even a short edit to Codex', async () => {
+  it('connects through the dev server, shows AI ready, and sends even a short edit to Codex', async () => {
     const { page, errors } = await openKit(h);
     await waitBridge(page, 'online');
     await page.waitForFunction(() => (window as unknown as K).__kit.bridge.codexReady);
-    assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /LLM/);
+    assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /● AI$/);
     assert.equal(await page.locator('[data-testid=ai-status-jev]').count(), 0);
     const sent = h.codex!.sent('turn/start').length;
     await page.fill('[data-testid=ai-input]', 'brighter');

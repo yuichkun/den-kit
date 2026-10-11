@@ -42,6 +42,8 @@ import { changes, describeScope, heldByMembers, made, outside, scopesOverlap, se
 import { MAX_MEMBERS, MEMBER_COLORS, MEMBER_CONTEXTS, conversationAccount, integrationText, memberReportText, memberText, parseBriefs, scopeState, seamText, type Brief, type MemberContext, type MemberState } from './members.ts';
 import { MAX_LLM_IMAGES, MAX_TOOL_IMAGE, type LlmEvent, type LlmRole, type TokenUsage, type ToolOutput } from './protocol.ts';
 import { seeingText } from './seeing.ts';
+import { desktop } from '../desktop/api.ts';
+import { aiFailure, aiUnavailable } from './user-errors.ts';
 import { markNumber, type SentSketch, type SketchPart } from './sketch.ts';
 import type { Scope } from './scope.ts';
 import CompilerWorker from '../compile/compiler.worker.ts?worker';
@@ -237,6 +239,7 @@ export class LlmController {
 
   /** Why the LLM cannot take a request right now. */
   reason(): string {
+    if (desktop()) return aiUnavailable(this.bridge.online, this.bridge.status.value?.codex.state);
     if (!this.bridge.online) return 'The LLM is not available: the AI bridge is not connected.';
     const c = this.bridge.status.value?.codex;
     if (!c || c.state === 'off') return `The LLM is off${c?.detail ? `: ${c.detail}` : '.'}`;
@@ -245,7 +248,7 @@ export class LlmController {
     return `The LLM is not available: ${c.detail ?? 'Codex reported an error'}.${c.fix ? ` ${c.fix}` : ''}`;
   }
 
-  /** Send a request straight to the LLM (Shift+Enter). Always returns its history line. */
+  /** Send a request with its attachments. Always returns its history line. */
   run(text: string, options: { via?: 'typed' | 'voice'; attached?: Attachment[]; /** The person's rough sketch (U8c). */ sketch?: SentSketch } = {}): Outcome {
     const line: Outcome = { id: randomId('rq'), text: text.trim().slice(0, 600), via: options.via, status: 'thinking', route: 'llm', ms: 0, attached: options.attached?.length ? options.attached : undefined, where: this.requests.where(), ...(options.sketch ? { sketch: options.sketch } : {}) };
     // The marks stay (dimmed) while the request runs.
@@ -700,7 +703,13 @@ export class LlmController {
       return;
     }
     const turn = this.turn;
-    if (m.t === 'error') { const agent = turn?.byKey.get(m.ref); if (turn && agent === turn.lead) this.update(turn, { note: m.message }); else if (turn && agent) this.step(turn, agent, m.message); return; }
+    if (m.t === 'error') {
+      const agent = turn?.byKey.get(m.ref);
+      const message = desktop() ? aiFailure({ message: m.message }) : m.message;
+      if (turn && agent === turn.lead) this.update(turn, { note: message });
+      else if (turn && agent) this.step(turn, agent, message);
+      return;
+    }
     if (m.t === 'tool.call') { const agent = turn?.byKey.get(m.id); if (turn && agent && agent.key === m.id) void this.toolCall(turn, agent, m.id, m.callId, m.tool, m.args); return; }
     const steer = this.steering.get(m.id);
     if (steer) { this.steerEvent(steer, m.event); return; }
@@ -767,13 +776,16 @@ export class LlmController {
         return;
       case 'activity':
         if (event.what === 'thinking') this.activity(turn, agent, 'thinking…');
+        else if (desktop()) {
+          if (event.what === 'blocked') this.step(turn, agent, 'Skipped an unsupported AI action.');
+        }
         else this.step(turn, agent, event.what === 'blocked' ? `blocked ${event.detail ?? 'a request'} (den-kit allows only its own tools)` : `${event.what}${event.detail ? `: ${event.detail}` : ''}`);
         return;
-      case 'retrying': this.activity(turn, agent, `reconnecting to the model… (${event.message})`); return;
+      case 'retrying': this.activity(turn, agent, desktop() ? 'Reconnecting to ChatGPT…' : `reconnecting to the model… (${event.message})`); return;
       case 'question':
         // Nobody is asked to choose: an empty answer, and Codex decides itself.
         this.bridge.llmAnswer(agent.key, event.question, {});
-        this.step(turn, agent, 'skipped a question (it decides itself)');
+        if (!desktop()) this.step(turn, agent, 'skipped a question (it decides itself)');
         return;
       case 'usage': agent.usage = event.total; this.syncLanes(turn); return;
       case 'question.resolved': return;
@@ -848,8 +860,8 @@ export class LlmController {
     this.session.releaseSent(turn.id, status !== 'completed' && !landed);
     this.syncLanes(turn);
     if (status === 'completed') this.close(turn, { status: landed ? 'applied' : 'reply', ms, label });
-    else if (status === 'interrupted') this.close(turn, { status: 'stopped', ms, label: landed ? label : undefined, message: turn.stopNote ?? (done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped.'), note: landed ? KEPT : 'Nothing was changed.' });
-    else this.close(turn, { status: 'failed', ms, label: landed ? label : undefined, message: done.error?.message ?? 'The LLM request failed.', fix: done.error?.fix, note: landed ? KEPT : undefined });
+    else if (status === 'interrupted') this.close(turn, { status: 'stopped', ms, label: landed ? label : undefined, message: turn.stopNote ?? (desktop() ? 'Stopped.' : done.error?.message ? `Stopped: ${done.error.message}` : 'Stopped.'), note: landed ? KEPT : 'Nothing was changed.' });
+    else this.close(turn, { status: 'failed', ms, label: landed ? label : undefined, message: desktop() ? aiFailure(done.error) : done.error?.message ?? 'The LLM request failed.', fix: desktop() ? undefined : done.error?.fix, note: landed ? KEPT : undefined });
     this.next();
   }
 
@@ -886,7 +898,7 @@ export class LlmController {
     const now = performance.now();
     const agents: AgentLane[] = turn.members.map(m => ({
       id: m.id, name: m.name, color: m.color, status: m.status, activity: m.status === 'working' ? m.activity ?? 'thinking…' : undefined, step: m.steps.at(-1),
-      ms: Math.round((m.ended ?? now) - m.started), scope: m.brief ? shortScope(m.brief.scope) : '', tokens: m.usage?.total, message: m.ws.report?.summary ?? (m.status === 'failed' ? m.error : undefined),
+      ms: Math.round((m.ended ?? now) - m.started), scope: m.brief ? shortScope(m.brief.scope) : '', tokens: m.usage?.total, message: m.ws.report?.summary ?? (m.status === 'failed' ? desktop() ? aiFailure({ message: m.error ?? '' }) : m.error : undefined),
     }));
     this.update(turn, { agents });
   }

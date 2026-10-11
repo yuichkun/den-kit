@@ -27,8 +27,8 @@ else {
   app.on('second-instance', () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus(); });
   void app.whenReady().then(start).catch(error => {
     dialog.showErrorBox('den-kit could not start', /EADDRINUSE/.test(String(error))
-      ? `Another program is using den-kit's local port (${APP_PORT}). Close it and open den-kit again. Your saved works have not been moved.`
-      : error instanceof Error ? error.message : String(error));
+      ? 'den-kit could not start because a local service is already in use. Close other copies of den-kit and try again. If the problem continues, restart your computer.'
+      : 'den-kit could not start. Try opening it again. If the problem continues, report it to the app maintainer.');
     app.quit();
   });
 }
@@ -38,7 +38,7 @@ function trusted(event: IpcMainInvokeEvent | IpcMainEvent) {
 }
 function info(): DesktopInfo {
   return {
-    version: app.getVersion(), settings: { ...settings }, codex: codex.status,
+    version: app.getVersion(), settings: { ...settings }, codex: codex.status, aiBusy: codex.busy, chatGPTSignedIn: codex.chatGPTSignedIn,
     models: codex.models.map(m => ({ id: m.id, name: m.displayName, isDefault: m.isDefault, efforts: m.supportedReasoningEfforts.map(e => e.reasoningEffort).filter(e => e !== 'ultra') })),
     podConfigured: !!operator.browserPodKey, login: codex.login.state, loginError: codex.login.error,
   };
@@ -96,6 +96,12 @@ async function start() {
   });
   handle('den-kit:cancel-sign-in', () => codex.cancelSignIn());
   handle('den-kit:sign-out', () => codex.signOut());
+  handle('den-kit:reconnect-ai', async () => {
+    if (codex.busy) throw new Error('Finish the current AI request before reconnecting.');
+    if (codex.login.state === 'waiting') throw new Error('Complete or cancel ChatGPT sign-in before reconnecting.');
+    await codex.retry();
+    return info();
+  });
   handle('den-kit:usage', () => shell.openExternal('https://chatgpt.com/codex/settings/usage'));
   handle('den-kit:capture', async value => {
     const rect = value as PageRect;
@@ -118,6 +124,7 @@ async function start() {
     backgroundColor: '#11151b',
     webPreferences: {
       preload: join(root, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true,
+      additionalArguments: [`--den-kit-origin=${APP_ORIGIN}`],
       webSecurity: true, nodeIntegrationInSubFrames: false, nodeIntegrationInWorker: false,
     },
   });
@@ -129,7 +136,9 @@ async function start() {
   window.on('closed', () => { window = null; });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'den-kit', submenu: [{ role: 'about' }, { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => window?.webContents.send('den-kit:open-settings') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-    { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    { role: 'editMenu' },
+    app.isPackaged ? { label: 'View', submenu: [{ role: 'togglefullscreen' }] } : { role: 'viewMenu' },
+    { role: 'windowMenu' },
   ]));
   await window.loadURL(APP_ORIGIN);
   void codex.start();

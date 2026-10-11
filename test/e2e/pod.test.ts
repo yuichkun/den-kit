@@ -221,7 +221,10 @@ describe('the Project view', () => {
     assert.equal(await page.locator('[data-testid=project-view] .paint span').count(), 0);
     await page.click('[data-file="src/main.ts"]');
     await page.waitForSelector('[data-testid=project-view] .paint .hljs-keyword');
-    // The pod check: every step, timed.
+    // Diagnostics stay out of the ordinary workspace; expand them to run every check.
+    assert.equal(await page.locator('[data-testid=project-diagnostics]').getAttribute('open'), null);
+    assert.equal(await page.locator('[data-testid=pod-check]').isVisible(), false);
+    await page.locator('[data-testid=project-diagnostics] summary').click();
     await page.click('[data-testid=pod-check]');
     await page.waitForFunction(() => !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') && document.querySelectorAll('[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped').length === 9, null, { timeout: 300000 });
     const steps = await page.$$eval('[data-testid=pod-check-panel] .step', els => els.map(e => `${(e as HTMLElement).dataset.step}:${e.className.replace('step ', '')}`));
@@ -246,7 +249,11 @@ describe('without a pod (no BrowserPod key)', () => {
     await kit(page, k => k.commit([{ op: 'setProjectFiles', files: { 'src/parts/x.ts': 'export default 1;' } }, { op: 'addElement', element: { id: 'code1', kind: 'code', part: 'x', rect: { x: 10, y: 10, w: 200, h: 100 }, props: {} } }], { label: 'add' }));
     await page.click('[data-testid=view-plugin]');
     await page.waitForSelector('[data-element=code1] [data-code-state=off]');
-    assert.match(await page.locator('[data-element=code1] [data-testid=code-status]').innerText(), /no pod .*no API key/);
+    assert.match(await page.locator('[data-element=code1] [data-testid=code-status]').innerText(), /Code part "x": no pod .*Project tools are not configured/);
+    // Browser developers get setup instructions in Project rather than in each code-part frame.
+    await page.click('[data-testid=view-project]');
+    assert.match(await page.locator('[data-testid=pod-fix]').innerText(), /BROWSERPOD_API_KEY=.*\.env.*restart `npm run dev`/s);
+    assert.equal((await waitCompiled(page)).status, 'ok');
     assert.deepEqual(errors, []);
     await page.close();
   });

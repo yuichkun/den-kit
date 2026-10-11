@@ -149,7 +149,7 @@ function firstPodStart() {
   const pod = session.pod;
   if (!pod || pod.kind !== 'browserpod' || pod.booted) return;
   try { if (localStorage.getItem(POD_STARTED)) return; localStorage.setItem(POD_STARTED, String(Date.now())); } catch { return; }
-  session.toast('info', 'Starting the pod (BrowserPod) for the first time in this browser: about two minutes. Project shows each step.');
+  session.toast('info', 'Preparing project tools. The first setup may take a few minutes.');
   void pod.ensure().catch(() => undefined);
 }
 watch(() => session.engineState.value, s => { if (s === 'running') firstPodStart(); });
@@ -199,12 +199,12 @@ async function importPatch(e: Event) {
         <button :class="{ active: view === 'patch' }" data-testid="view-patch" title="Patch (⌥⌘E switches)" @click="view = 'patch'">Patch</button>
         <button :class="{ active: view === 'plugin' }" data-testid="view-plugin" title="Plugin (⌥⌘E switches)" @click="view = 'plugin'">Plugin</button>
         <button :class="{ active: view === 'code' }" data-testid="view-code" @click="view = 'code'">Code</button>
-        <button v-if="session.pod" :class="{ active: view === 'project' }" data-testid="view-project" title="The screen project and its pod (bash, git, Node, npm)" @click="view = 'project'">Project <i class="pod-dot" :class="session.pod.state.value" /></button>
+        <button v-if="session.pod" :class="{ active: view === 'project' }" data-testid="view-project" title="Project files and tools for custom screen parts" @click="view = 'project'">Project <i class="pod-dot" :class="session.pod.state.value" /></button>
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
       <button v-if="isDesktop" data-testid="desktop-settings-open" title="Settings (⌘,)" @click="settingsOpen = true">Settings</button>
-      <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated share of one CPU core (measured on a cloud machine; a recent Mac is usually faster). The inspector shows each module's share.">{{ load.text }}</span>
+      <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated CPU load. Actual performance depends on your computer. The inspector shows each module's estimate.">{{ load.text }}</span>
       <span class="status" :class="status.cls" data-testid="compile-status" :title="status.title">{{ status.text }}</span>
       <button v-if="!aiOpen && session.requests" class="ai-toggle" data-testid="ai-open" title="Show the AI panel (⌘J)" @click="aiOpen = true">✦ AI <span class="kbd-hint">⌘J</span></button>
     </div>

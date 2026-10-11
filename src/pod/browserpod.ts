@@ -9,10 +9,13 @@
 // line that prints its exit status (host.ts); output is read from a terminal of
 // our own (createCustomTerminal), one per command.
 import type { BrowserPod as Pod } from '@leaningtech/browserpod';
+import { desktopProjectError } from './user-errors.ts';
 import { MAX_OUTPUT, PodUnavailable, cleanOutput, exitMarker, keepEnd, newNonce, readExit, runnerLine, type PodHost, type PodProcess, type PodRunOptions, type PodRunResult, type Portal } from './host.ts';
 
 export interface BrowserPodOptions {
   apiKey: string;
+  /** Installed-app users need app actions, while contributors need setup diagnostics. */
+  audience?: 'desktop' | 'developer';
   /** The pod's disk is kept in this browser (IndexedDB) under this key, so installed packages survive a reload. */
   storageKey?: string;
   log?(line: string): void;
@@ -94,6 +97,11 @@ export function missingBrowserFeature(): string | null {
 }
 
 export async function bootBrowserPod(options: BrowserPodOptions & { testing?: BootTesting }): Promise<PodHost> {
+  try { return await boot(options); }
+  catch (error) { throw options.audience === 'desktop' ? desktopProjectError(error, [options.apiKey]) : error; }
+}
+
+async function boot(options: BrowserPodOptions & { testing?: BootTesting }): Promise<PodHost> {
   if (!globalThis.crossOriginIsolated) {
     const facts = await pageFacts();
     const problem = isolationProblem(facts);
@@ -105,10 +113,10 @@ export async function bootBrowserPod(options: BrowserPodOptions & { testing?: Bo
   starting ??= startBoot(options).catch(error => { starting = null; throw error; });
   const boot = await starting;
   if (boot.problem && !boot.pod) throw boot.problem;
-  if (!boot.pod) options.log?.('Starting BrowserPod (checking the API key)…');
+  if (!boot.pod) options.log?.('Connecting project tools…');
   const pod = boot.pod ?? await Promise.race([boot.ready, boot.failed]);
-  options.log?.('Starting the Linux machine…');
-  const host = new BrowserPodHost(pod, options.log);
+  options.log?.('Preparing the project workspace…');
+  const host = new BrowserPodHost(pod, line => console.info('[den-kit] Project tools:', line));
   await host.init();
   return host;
 }
@@ -146,7 +154,7 @@ let starting: Promise<Boot> | null = null;
 
 async function startBoot(options: BrowserPodOptions & { testing?: BootTesting }): Promise<Boot> {
   if (!await claimPod()) throw new PodUnavailable('Another den-kit tab is using the pod (BrowserPod runs in one tab at a time).', 'Close the other den-kit tab, then press Start the pod here.');
-  options.log?.('Loading BrowserPod (rt.browserpod.io)…');
+  options.log?.('Loading project tools…');
   let mod: typeof import('@leaningtech/browserpod');
   try { mod = await (options.testing?.load ?? (() => import('@leaningtech/browserpod')))(); } catch (error) { throw new PodUnavailable(`The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`, 'Run `npm ci` in the den-kit repo.'); }
   if (!mod.BrowserPod) throw new PodUnavailable('The BrowserPod runtime could not be loaded from rt.browserpod.io.', 'Check the network connection, then reload.');

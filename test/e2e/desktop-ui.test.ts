@@ -1,0 +1,168 @@
+// Exercise the desktop renderer with a native API stand-in and the real Vue UI.
+// No Electron instance, external account, or BrowserPod service is used here.
+import { after, before, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import type { DesktopInfo } from '../../src/desktop/api.ts';
+import { openKit, startAudio, startHarness, type Harness } from './harness.ts';
+
+const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
+  version: '0.1.0', settings: { model: '', effort: '', fork: true },
+  models: [
+    { id: 'gpt-6.1-sol', name: 'GPT-6.1-Codex', isDefault: true, efforts: ['low', 'medium', 'high'] },
+    { id: 'gpt-6-luna', name: 'GPT-6-Luna', isDefault: false, efforts: ['low', 'medium'] },
+  ],
+  codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run npm run codex:login.' },
+  podConfigured: true, login: 'idle', aiBusy: false, chatGPTSignedIn: false,
+  ...overrides,
+});
+
+function nativeAPI(token: string, initial: DesktopInfo): string {
+  return `(() => {
+    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [] };
+    window.denKitShell = {
+      runtime: { token: ${JSON.stringify(token)}, apiKey: null },
+      info: async () => structuredClone(fixture.info),
+      saveSettings: async settings => {
+        fixture.saved.push(structuredClone(settings));
+        fixture.info.settings = structuredClone(settings);
+        return structuredClone(fixture.info);
+      },
+      signIn: async () => { fixture.calls.push('signIn'); fixture.info.login = 'waiting'; },
+      cancelSignIn: async () => { fixture.calls.push('cancelSignIn'); fixture.info.login = 'idle'; },
+      signOut: async () => { fixture.calls.push('signOut'); fixture.info.codex = { state: 'login' }; fixture.info.chatGPTSignedIn = false; },
+      reconnectAI: async () => {
+        fixture.calls.push('reconnectAI');
+        fixture.info.codex = { state: 'ok', model: 'GPT-6.1-Sol' };
+        return structuredClone(fixture.info);
+      },
+      openUsage: async () => { fixture.calls.push('openUsage'); },
+      capturePage: async () => 'data:image/png;base64,',
+    };
+  })();`;
+}
+
+describe('desktop interface', () => {
+  let h: Harness;
+  before(async () => { h = await startHarness({ codex: { signedIn: false } }); });
+  after(async () => { await h?.close(); });
+
+  it('shows sign-in states honestly, keeps connection plumbing out of settings, and offers no voice input', async () => {
+    const { page, errors } = await openKit(h, { start: false, initScript: nativeAPI(h.bridge!.token, info()) });
+    try {
+      assert.doesNotMatch(await page.locator('[data-testid=start-overlay]').innerText(), /hold and talk|voice|microphone/i);
+      assert.equal(await page.locator('[data-testid=ai-mic]').count(), 0);
+      assert.equal(await page.locator('[data-testid=ai-voice-lang]').count(), 0);
+      await startAudio(page);
+      await page.click('[data-testid=desktop-settings-open]');
+      const dialog = page.locator('[data-testid=desktop-settings]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Not signed in'));
+      assert.equal(await page.locator('[data-testid=desktop-sign-out]').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Manage usage' }).count(), 0);
+      assert.doesNotMatch(await dialog.innerText(), /BrowserPod|Escentier|Codex is|Starting Codex|Codex crashed|\bLLM\b|copy the conversation|fork|npm run|API key/i);
+      assert.equal(await page.locator('[data-testid=desktop-model] option[value="gpt-6.1-sol"]').textContent(), 'GPT-6.1-Codex');
+      assert.equal(await dialog.locator('input[type=checkbox]').count(), 0);
+
+      await page.click('[data-testid=desktop-sign-in]');
+      await page.getByRole('button', { name: 'Cancel sign-in' }).waitFor();
+      assert.match(await page.locator('[data-testid=desktop-account]').innerText(), /Waiting for sign-in/);
+      assert.equal(await page.locator('[data-testid=desktop-model]').isDisabled(), true);
+      assert.equal(await page.locator('[data-testid=desktop-settings-save]').isDisabled(), true);
+      await page.getByRole('button', { name: 'Cancel sign-in' }).click();
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Not signed in'));
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.calls), ['signIn', 'cancelSignIn']);
+
+      await page.evaluate(() => { (window as any).__desktopTest.info.codex = { state: 'starting', detail: 'Starting Codex app-server…' }; });
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Connecting to ChatGPT'));
+      assert.equal(await page.locator('[data-testid=desktop-sign-out]').count(), 0);
+      await page.evaluate(() => { (window as any).__desktopTest.info.codex = { state: 'error', detail: 'Codex crashed at /private/auth.json.', fix: 'Run npm ci in .desktop-build.' }; });
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Could not connect to ChatGPT'));
+      assert.doesNotMatch(await dialog.innerText(), /Codex crashed|\/private\/auth|npm ci|\.desktop-build/);
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').count(), 0);
+      assert.equal(await page.locator('[data-testid=desktop-reconnect]').isEnabled(), true);
+      await page.click('[data-testid=desktop-reconnect]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Not signed in'));
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.calls), ['signIn', 'cancelSignIn', 'reconnectAI']);
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').isVisible(), true);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('saves chosen model and effort without resetting an existing conversation setting', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok', plan: 'plus', model: 'GPT-6.1-Sol' }, chatGPTSignedIn: true })) });
+    try {
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Signed in'));
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').count(), 0);
+      await page.selectOption('[data-testid=desktop-model]', 'gpt-6-luna');
+      await page.selectOption('[data-testid=desktop-effort]', 'low');
+      await page.click('[data-testid=desktop-settings-save]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] [role=status]')?.textContent?.includes('Saved'));
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.saved), [{ model: 'gpt-6-luna', effort: 'low', fork: true }]);
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.waitForFunction(() => (document.querySelector('[data-testid=desktop-model]') as HTMLSelectElement)?.value === 'gpt-6-luna');
+      assert.equal(await page.locator('[data-testid=desktop-effort]').inputValue(), 'low');
+      assert.doesNotMatch(await page.locator('[data-testid=desktop-settings]').innerText(), /BrowserPod|Escentier|copy the conversation|fork/i);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('does not call a ready transport a signed-in ChatGPT account or offer account actions for it', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok', plan: 'plus' }, chatGPTSignedIn: false })) });
+    try {
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Not signed in'));
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').isVisible(), true);
+      assert.equal(await page.locator('[data-testid=desktop-sign-out]').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Manage usage' }).count(), 0);
+      assert.doesNotMatch(await page.locator('[data-testid=desktop-account]').innerText(), /plus|Signed in/);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('reconnects a failed AI connection without signing out or starting authentication again', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'error', detail: 'Codex app-server disconnected' }, chatGPTSignedIn: true })) });
+    try {
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.locator('[data-testid=desktop-reconnect]').waitFor();
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').count(), 0);
+      assert.equal(await page.locator('[data-testid=desktop-sign-out]').count(), 0);
+      await page.click('[data-testid=desktop-reconnect]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-account]')?.textContent?.includes('Signed in'));
+      assert.equal(await page.locator('[data-testid=desktop-sign-out]').isVisible(), true);
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.calls), ['reconnectAI']);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('prevents settings changes during an AI request and enables them after it ends', async () => {
+    const { page } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok' }, aiBusy: true })) });
+    try {
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.locator('[data-testid=desktop-model]').waitFor();
+      for (const id of ['desktop-model', 'desktop-effort', 'desktop-settings-save']) assert.equal(await page.locator(`[data-testid=${id}]`).isDisabled(), true, id);
+      await page.evaluate(() => { (window as any).__desktopTest.info.aiBusy = false; });
+      await page.waitForFunction(() => !(document.querySelector('[data-testid=desktop-settings-save]') as HTMLButtonElement)?.disabled);
+      for (const id of ['desktop-model', 'desktop-effort', 'desktop-settings-save']) assert.equal(await page.locator(`[data-testid=${id}]`).isEnabled(), true, id);
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.saved), []);
+    } finally { await page.close(); }
+  });
+
+  it('routes a sign-in-required request to actionable desktop settings without terminal instructions', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    try {
+      await page.waitForFunction(() => document.querySelector('[data-testid=ai-status-codex]')?.getAttribute('data-state') === 'login');
+      assert.match(await page.locator('[data-testid=ai-status-codex]').innerText(), /ChatGPT: sign in/);
+      assert.doesNotMatch(await page.locator('[data-testid=ai-status-codex]').getAttribute('title') ?? '', /Codex|npm run|\.env|app-server/);
+      await page.fill('[data-testid=ai-input]', 'add reverb');
+      await page.press('[data-testid=ai-input]', 'Enter');
+      await page.waitForFunction(() => (window as any).__kit.requests.history.value.at(-1)?.status === 'failed');
+      assert.match(await page.locator('[data-testid=ai-panel]').innerText(), /Sign in with ChatGPT in Settings/);
+      assert.doesNotMatch(await page.locator('[data-testid=ai-panel]').innerText(), /Codex|\bLLM\b|npm run|\.env|app-server/);
+      await page.click('[data-testid=ai-status-codex]');
+      await page.locator('[data-testid=desktop-settings]').waitFor();
+      assert.equal(await page.locator('[data-testid=desktop-sign-in]').isVisible(), true);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+});

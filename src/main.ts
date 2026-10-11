@@ -30,11 +30,12 @@ session.requests = new AiRequests(session);
 session.llm = new LlmController(session, session.requests, session.bridge);
 // The pod: BrowserPod when .env has BROWSERPOD_API_KEY; the e2e harness's stand-in when it sets one up (tests only).
 const apiKey = shell?.runtime.apiKey ?? podConfig.apiKey;
+const audience = shell ? 'desktop' : 'developer';
 const pod: PodFactory = podConfig.fakeUrl
-  ? { kind: 'fake', create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!) }
+  ? { kind: 'fake', audience, create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!) }
   : apiKey
-    ? { kind: 'browserpod', create: async progress => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey, storageKey: 'den-kit', log: progress }) }
-    : { kind: null, create: () => Promise.reject(new Error('No pod.')), reason: shell ? 'BrowserPod is unavailable in this app build.' : 'The pod (BrowserPod) is off: no API key.', fix: shell ? 'Contact the app maintainer for a build with BrowserPod configured. You do not need your own BrowserPod account or key.' : 'Put BROWSERPOD_API_KEY=… in .env (a key from console.browserpod.io), then restart `npm run dev`.' };
+    ? { kind: 'browserpod', audience, create: async progress => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey, audience, storageKey: 'den-kit', log: progress }) }
+    : { kind: null, audience, create: () => Promise.reject(new Error('Project tools are unavailable.')), reason: shell ? 'Project tools are unavailable in this app build.' : 'Project tools are not configured.', fix: shell ? 'Contact the app maintainer for an updated build.' : 'Put BROWSERPOD_API_KEY=… in .env (a key from console.browserpod.io), then restart `npm run dev`.' };
 session.pod = new PodSession(session, pod);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.
 (window as unknown as { __kit: KitSession }).__kit = session;

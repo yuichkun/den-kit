@@ -36,7 +36,7 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
   it('Shift+Enter: the LLM edits the live patch while it works, listens (spectrogram); one ⌘Z undoes the request', { timeout: 180000 }, async () => {
     const { page, errors } = await openKit(h);
     await ready(page);
-    assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /LLM/);
+    assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /● AI$/);
     const before = await kit(page, k => JSON.stringify(Object.keys(k.doc.value.nodes).sort()));
     // Record, for every LLM step that lands, whether its request was still running.
     await kit(page, k => { (window as any).__landedLive = []; k.onTransaction((tx: any) => { if (tx.author.kind === 'ai-llm') (window as any).__landedLive.push(k.requests.history.value.find((o: any) => o.id === tx.author.take)?.live); }); });

@@ -3,8 +3,12 @@ import { stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-/** Fixed origin: changing it would lose access to works and the BrowserPod disk. */
-export const APP_PORT = 5247;
+/** Normal profiles keep a fixed origin; isolated checks can coexist with an open user app. */
+export function appPort(env: NodeJS.ProcessEnv = process.env): number {
+  const requested = Number(env.KIT_DESKTOP_CHECK_PORT);
+  return env.KIT_DESKTOP_USER_DATA && Number.isInteger(requested) && requested >= 1024 && requested <= 65535 ? requested : 5247;
+}
+export const APP_PORT = appPort();
 export const APP_ORIGIN = `http://127.0.0.1:${APP_PORT}`;
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css',

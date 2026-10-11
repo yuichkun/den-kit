@@ -3,16 +3,20 @@ import { _electron as electron } from 'playwright';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { packagedMacApp } from './desktop-paths.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const packagedApp = packagedMacApp(root);
+const appIndex = process.argv.indexOf('--app');
+const appPath = appIndex < 0 ? undefined : process.argv[appIndex + 1];
+if (appIndex >= 0 && (!appPath || appPath.startsWith('--') || !existsSync(join(resolve(appPath), 'Contents/MacOS/den-kit')))) throw new Error('--app requires the path of a built den-kit.app bundle.');
+const packagedApp = appPath ? resolve(appPath) : packagedMacApp(root);
 const profile = mkdtempSync(join(tmpdir(), 'den-kit-electron-check-'));
 const real = process.argv.includes('--real');
-const packaged = process.argv.includes('--packaged');
+const packaged = process.argv.includes('--packaged') || !!appPath;
 const quick = process.argv.includes('--quick');
 const skipAI = process.argv.includes('--skip-ai');
 const aiPod = process.argv.includes('--ai-pod');
@@ -30,7 +34,16 @@ if (real && existsSync(join(root, '.codex-home/auth.json'))) {
   copyFileSync(join(root, '.codex-home/auth.json'), join(profile, 'codex/auth.json'));
   chmodSync(join(profile, 'codex/auth.json'), 0o600);
 }
-const launch = () => electron.launch({ ...(packaged ? { executablePath: join(packagedApp, 'Contents/MacOS/den-kit') } : {}), args: [...(packaged ? [] : [join(root, '.desktop-build/app')]), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'], cwd: root, env: { ...process.env, KIT_DESKTOP_USER_DATA: profile }, timeout: 60000 });
+// Keep one isolated origin across restarts without claiming the installed app's port.
+const checkPort = await new Promise<number>((resolvePort, reject) => {
+  const server = createServer();
+  server.on('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    const port = (server.address() as { port: number }).port;
+    server.close(error => error ? reject(error) : resolvePort(port));
+  });
+});
+const launch = () => electron.launch({ ...(packaged ? { executablePath: join(packagedApp, 'Contents/MacOS/den-kit') } : {}), args: [...(packaged ? [] : [join(root, '.desktop-build/app')]), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'], cwd: root, env: { ...process.env, KIT_DESKTOP_USER_DATA: profile, KIT_DESKTOP_CHECK_PORT: String(checkPort) }, timeout: 60000 });
 let app = await launch().catch(error => { rmSync(join(profile, 'codex/auth.json'), { force: true }); throw error; });
 const errors: string[] = [];
 app.process().stderr?.on('data', data => { const line = String(data); if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000)); });
@@ -46,16 +59,26 @@ try {
   });
   console.log(JSON.stringify({ profile, facts }));
   console.log(JSON.stringify({ account: (await page.evaluate(() => window.denKitShell!.info())).codex }));
+  assert.equal(facts.origin, `http://127.0.0.1:${checkPort}`);
   assert.equal(facts.isolated, true); assert.equal(facts.secure, true); assert.equal(facts.node, 'undefined'); assert.equal(facts.podConfigured, true);
   assert.equal(await page.evaluate(key => window.denKitShell!.runtime.apiKey === key, operator.browserPodKey), true);
   console.log(JSON.stringify({ podKeyMatchesBundle: true }));
   console.log(JSON.stringify(await app.evaluate(({ app }) => ({ packaged: app.isPackaged, data: app.getPath('userData'), version: app.getVersion() }))));
+  const menuRoles = await app.evaluate(({ Menu }) => {
+    const roles = (items: Electron.MenuItem[]): string[] => items.flatMap(item => [item.role ?? '', ...roles(item.submenu?.items ?? [])]);
+    return roles(Menu.getApplicationMenu()?.items ?? []);
+  });
+  assert.equal(menuRoles.includes('toggledevtools'), false, 'The ordinary app menu must not expose developer tools.');
   await page.keyboard.press('Escape');
   if (await page.locator('[data-testid=start-overlay]').count()) await page.click('[data-testid=start-overlay]');
   await page.click('[data-testid=desktop-settings-open]');
   await page.waitForSelector('[data-testid=desktop-account], [data-testid=desktop-sign-in]');
+  assert.doesNotMatch(await page.locator('[data-testid=desktop-settings]').innerText(), /BrowserPod|Escentier|Codex is|Starting Codex|app-server|codex:login|\bLLM\b|copy the conversation|fork|API key/i);
+  assert.equal(await page.locator('[data-testid=desktop-settings] input[type=checkbox]').count(), 0);
   await page.screenshot({ path: join(profile, 'settings.png') });
   if (!real) {
+    assert.match(await page.locator('[data-testid=desktop-account]').innerText(), /Not signed in/);
+    assert.equal(await page.locator('[data-testid=desktop-sign-out]').count(), 0);
     // Exercise the real native OAuth start/cancel without opening or submitting an external browser form.
     await app.evaluate(({ shell }) => { shell.openExternal = async (url: string) => { (globalThis as unknown as { signInHost: string }).signInHost = new URL(url).hostname; }; });
     await page.click('[data-testid=desktop-sign-in]');
@@ -65,14 +88,22 @@ try {
     assert.equal((await page.evaluate(() => window.denKitShell!.info())).login, 'idle');
     console.log(JSON.stringify({ nativeSignIn: 'started and canceled' }));
   }
+  // Seed a previously saved advanced setting, then save only the ordinary settings through the UI.
   await page.evaluate(() => window.denKitShell!.saveSettings({ model: '', effort: '', fork: true }));
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.click('[data-testid=desktop-settings-open]');
+  await page.waitForFunction(async () => !((await window.denKitShell!.info()).aiBusy) && !(document.querySelector('[data-testid=desktop-settings-save]') as HTMLButtonElement)?.disabled);
+  await page.click('[data-testid=desktop-settings-save]');
+  await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] [role=status]')?.textContent?.includes('Saved'));
+  assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
   await page.getByRole('button', { name: 'Close settings' }).click();
   const picture = await page.evaluate(() => window.denKitShell!.capturePage({ x: 0, y: 0, width: 400, height: 300 }));
   console.log(JSON.stringify({ capturePage: picture.startsWith('data:image/png;'), errors }));
   assert.ok(picture.startsWith('data:image/png;'));
-  assert.equal(await page.locator('[data-testid=ai-mic]').isDisabled(), true);
+  assert.equal(await page.locator('[data-testid=ai-mic]').count(), 0);
+  assert.equal(await page.locator('[data-testid=ai-voice-lang]').count(), 0);
   assert.equal(await page.locator('[data-testid=ai-input]').getAttribute('placeholder'), 'Ask anything');
-  const voice = 'unavailable in this desktop build (microphone button disabled)';
+  const voice = 'voice input controls are absent in the desktop app';
   console.log(JSON.stringify({ voice }));
   if (imagePath) {
     const png = readFileSync(imagePath);
@@ -136,6 +167,10 @@ try {
     });
     assert.ok(signal > 0.001); console.log(JSON.stringify({ audioSignal: signal, audibleOutputMuted: true }));
     await page.click('[data-testid=view-project]');
+    assert.equal(await page.locator('[data-testid=project-diagnostics]').getAttribute('open'), null);
+    assert.equal(await page.locator('[data-testid=pod-check]').isVisible(), false);
+    assert.doesNotMatch(await page.locator('[data-testid=project-view] .head').innerText(), /BrowserPod|Escentier|API key|npm install|dev server/);
+    await page.locator('[data-testid=project-diagnostics] summary').click();
     await page.click('[data-testid=pod-check]');
     for (let i = 0; i < 40; i++) {
       await page.waitForTimeout(5000);

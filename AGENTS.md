@@ -23,3 +23,13 @@ documentation when a reference is needed.
 Pull request descriptions should explain the code changes, relevant validation,
 and technical limitations needed for review without private planning or personal
 acceptance states.
+
+## Product UI
+
+Write ordinary app screens for people making instruments and effects. Include
+information that helps them perform a task, choose an option, recover from an
+error, or understand relevant data handling.
+
+Keep operator billing and ownership, provider credentials, protocol plumbing,
+and comparison controls out of ordinary product screens. Necessary technical
+details belong in developer documentation or explicitly labeled diagnostics.

@@ -23,12 +23,13 @@ const props = defineProps<{ requests: AiRequests; llm?: LlmController | null; cr
 const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void; (e: 'show-plugin'): void }>();
 const requests = props.requests;
 const llm = props.llm ?? null;
+const isDesktop = !!desktop();
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
 const list = ref<HTMLElement | null>(null);
 const drawer = ref(false);
 const voice = new VoiceInput({ create: props.createRecognition === undefined ? browserRecognition() : props.createRecognition, minHoldMs: 150, onText: heard => { void send(heard, 'voice'); } });
-const desktopVoiceUnsupported = !!desktop() && !voice.supported;
+const desktopVoiceUnsupported = isDesktop;
 const voiceLang = ref(voice.lang);
 watch(voiceLang, lang => { voice.lang = lang; saveVoiceLang(lang); });
 const listening = computed(() => voice.state.value !== 'idle');
@@ -46,11 +47,11 @@ const allChips = ref(false);
 watch(() => attachments.value.length <= CHIPS, few => { if (few) allChips.value = false; });
 const shownChips = computed(() => allChips.value ? attachments.value : attachments.value.slice(0, CHIPS));
 const KIND_ICON: Record<Attachment['kind'], string> = { module: '▣', control: '◉', element: '◇', cable: '⌇' };
-const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : voice.supported ? 'Ask anything — or hold Space and talk' : 'Ask anything');
+const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : !isDesktop && voice.supported ? 'Ask anything — or hold Space and talk' : 'Ask anything');
 // ---- letting the AI see the screen (U8b) ----
 const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
-const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
+const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : isDesktop ? screenOn.value ? 'AI can see the den-kit window. Click to stop sharing.' : 'Let AI see the den-kit window.' : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
 async function toggleScreen() { if (screenOn.value) screen.stop(); else await screen.start(); }
 // ---- the sketch (U8c) ----
 /** The view the pen draws on: the one the person looks at, when it is the patch or the plugin. */
@@ -127,8 +128,8 @@ const laneElapsed = (o: Outcome, a: AgentLane) => {
 };
 const LANE_STATUS: Record<AgentLane['status'], string> = { working: 'working', done: 'done', failed: 'failed', stopped: 'stopped' };
 const via = (o: Outcome) => o.route === 'llm' ? 'LLM' : '';
-const meta = (o: Outcome) => o.status === 'working' ? '' : [via(o), fmt(elapsed(o)), o.agents?.length ? `${o.agents.length} member${o.agents.length === 1 ? '' : 's'}` : '', o.tokens ? tokensShort(o.tokens) : ''].filter(Boolean).join(' · ');
-const routeTitle = (o: Outcome) => o.route === 'llm' ? 'Answered by the LLM (Codex)' : 'Saved request from an earlier version';
+const meta = (o: Outcome) => o.status === 'working' ? '' : [isDesktop ? '' : via(o), fmt(elapsed(o)), o.agents?.length ? `${o.agents.length} ${isDesktop ? 'task' : 'member'}${o.agents.length === 1 ? '' : 's'}` : '', !isDesktop && o.tokens ? tokensShort(o.tokens) : ''].filter(Boolean).join(' · ');
+const routeTitle = (o: Outcome) => isDesktop ? 'Request duration' : o.route === 'llm' ? 'Answered by the LLM (Codex)' : 'Saved request from an earlier version';
 
 // ---- keys --------------------------------------------------------------------
 // Hold Space to talk, anywhere but other text fields. In the prompt a short tap
@@ -216,10 +217,10 @@ defineExpose({ focus });
     <div v-if="screen.message.value && screen.state.value !== 'unsupported' && screen.state.value !== 'on'" class="screen-note" data-testid="ai-screen-note">{{ screen.message.value }}</div>
     <div v-if="drawer" class="drawer" data-testid="ai-drawer">
       <div class="row">
-        <label v-if="voice.supported"><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
+        <label v-if="!isDesktop && voice.supported"><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
         <template v-if="llm">
-          <label title="The LLM may hand parts of a request to members that work at the same time (off: one AI per request, to compare)"><span>Members</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">the AI decides</option><option value="off">off (one AI)</option></select></label>
-          <label title="How much each member is told (fixed here to compare; otherwise the lead chooses)"><span>Members are told</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
+          <label title="Allow AI to work on independent parts of your request at the same time."><span>Parallel tasks</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">Let AI decide</option><option value="off">One task at a time</option></select></label>
+          <label v-if="!isDesktop" title="Choose how much context each delegated task receives."><span>Task context</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
         </template>
       </div>
 
@@ -230,8 +231,8 @@ defineExpose({ focus });
         <p class="examples">“brighter” · “longer release” · “add reverb” · “make a bass” · “wobble the cutoff” · “write a bitcrusher”</p>
         <dl class="keys">
           <dt><kbd>Enter</kbd></dt><dd>type a request</dd>
-          <template v-if="voice.supported"><dt><kbd>Space</kbd></dt><dd>hold and talk</dd></template>
-          <dt><kbd>Esc</kbd></dt><dd>stop the LLM · back to the canvas</dd>
+          <template v-if="!isDesktop && voice.supported"><dt><kbd>Space</kbd></dt><dd>hold and talk</dd></template>
+          <dt><kbd>Esc</kbd></dt><dd>stop AI · back to the canvas</dd>
           <dt><kbd>⌘Z</kbd></dt><dd>take a request back</dd>
           <dt><kbd>⌘J</kbd></dt><dd>hide or show this panel</dd>
           <dt><kbd>⌥⌘E</kbd></dt><dd>patch ⇄ plugin</dd>
@@ -262,7 +263,7 @@ defineExpose({ focus });
                   <span class="lane-name">{{ a.name }}</span>
                   <span class="lane-scope" title="What this member may change">{{ a.scope }}</span>
                   <span class="grow" />
-                  <span class="lane-meta">{{ fmt(laneElapsed(o, a)) }}{{ a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span>
+                  <span class="lane-meta">{{ fmt(laneElapsed(o, a)) }}{{ !isDesktop && a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span>
                   <button v-if="a.status === 'working' && o.live" type="button" class="lane-stop" data-testid="ai-lane-stop" :title="`Stop ${a.name} (the others go on)`" @click="llm?.stopMember(a.id)">×</button>
                 </div>
                 <div class="lane-what" data-testid="ai-lane-what">{{ a.status === 'working' && o.live ? (a.activity ?? 'thinking…') : a.message ?? LANE_STATUS[a.status] }}</div>
@@ -292,7 +293,7 @@ defineExpose({ focus });
         <span v-if="preparing" class="spin" />
         <span class="hint">{{ listening ? 'release Space to send' : 'Enter send' }}</span>
         <span class="grow" />
-        <button type="button" class="icon mic" :disabled="desktopVoiceUnsupported" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : VOICE_UNSUPPORTED" @click="toggleMic">
+        <button v-if="!isDesktop" type="button" class="icon mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : VOICE_UNSUPPORTED" @click="toggleMic">
           <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="currentColor" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" /></svg>
         </button>
       </div>

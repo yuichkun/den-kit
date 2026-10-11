@@ -8,6 +8,8 @@ export interface DesktopInfo {
   settings: DesktopSettings;
   models: DesktopModel[];
   codex: CodexStatus;
+  aiBusy: boolean;
+  chatGPTSignedIn: boolean;
   podConfigured: boolean;
   login: 'idle' | 'waiting' | 'complete' | 'error';
   loginError?: string;
@@ -21,6 +23,7 @@ export interface DesktopAPI {
   signIn(): Promise<void>;
   cancelSignIn(): Promise<void>;
   signOut(): Promise<void>;
+  reconnectAI(): Promise<DesktopInfo>;
   openUsage(): Promise<void>;
 }
 

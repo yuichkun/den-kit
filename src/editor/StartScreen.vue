@@ -89,7 +89,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   <div class="start-screen" data-testid="start-screen">
     <div ref="sheet" class="sheet">
       <div class="brand"><span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit</div>
-      <button v-if="isDesktop" class="start-settings" data-testid="start-settings" @click="emit('settings')">Settings · ChatGPT sign-in</button>
+      <button v-if="isDesktop" class="start-settings" data-testid="start-settings" @click="emit('settings')">Settings</button>
       <h1>What do you want to make?</h1>
       <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “make a bass” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" />
       <div class="or">or start from a work <span class="hint">← → ↑ ↓ choose · Tab: the look · Enter: start</span></div>
