@@ -240,9 +240,14 @@ describe('the start screen', () => {
     assert.equal(await kit(page, k => k.doc.value.revision), before);
     // Described in words: a new patch, and the request goes to the AI.
     await page.keyboard.press('Control+Alt+KeyN');
+    await page.locator('[data-work]').first().hover();
+    assert.equal(await active(page), 'input[start-describe]');
+    const requestsBefore = h.codex!.sent('turn/start').length;
     await page.keyboard.type('build a bass');
     await page.keyboard.press('Enter');
     const line = await settled(page, 'build a bass');
+    assert.equal(line.route, 'llm');
+    assert.equal(h.codex!.sent('turn/start').length, requestsBefore + 1);
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.ok(await kit(page, k => Object.values<any>(k.doc.value.nodes).some((n: any) => n.type === 'kit.voiceIn')));
     assert.ok(await page.isVisible('[data-testid=ai-dock]'));

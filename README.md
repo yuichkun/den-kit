@@ -1,9 +1,11 @@
 # den-kit
 
-den-kit is a visual editor for building and playing instruments and effects from
-[den](https://www.npmjs.com/package/@denaudio/den) DSP blocks. Connect a patch,
-design its interface, and play it with your keyboard or MIDI controller. You can
-work manually or ask ChatGPT to edit the sound and interface.
+den-kit is an AI-assisted environment for building and playing instruments and
+effects from [den](https://www.npmjs.com/package/@denaudio/den) DSP blocks. Work
+with ChatGPT to create the sound and interface, edit the patch directly, and
+play it with your keyboard or MIDI controller. The ChatGPT integration and
+BrowserPod workspace are required components of den-kit. Every natural-language
+request goes through the LLM.
 
 The project is an experimental prototype. It runs in Chrome or as a locally
 built macOS app. The Plugin view is an instrument's interface inside den-kit;
@@ -25,27 +27,25 @@ exporting a standalone DAW plugin is not supported.
 
 ## Run from source
 
-Use **Node.js 24** and a current version of **Chrome**. Dependencies are installed
-from npm; you do not need a separate checkout or build of den.
+Use **Node.js 24**, a current version of **Chrome**, a **ChatGPT account** for AI
+requests, and a **BrowserPod API key** for the required workspace. Dependencies
+are installed from npm; you do not need a separate checkout or build of den.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git
 cd den-kit
 npm ci
-KIT_CODEX=off npm run dev
 ```
 
-Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). This starts the editor
-without AI. Manual patching, playing, interface editing, saving, and the example
-works do not require sign-in or a service key.
+For source development, create a key in the
+[BrowserPod console](https://console.browserpod.io/) and put it in `.env`:
 
-Audio requires **48 kHz**. On macOS, set the output device to 48 kHz in Audio
-MIDI Setup if necessary. Click the start overlay to enable audio and MIDI.
-
-### Enable ChatGPT
+```dotenv
+BROWSERPOD_API_KEY=your_browserpod_key
+```
 
 The repository includes the Codex CLI used by den-kit. Sign in with your ChatGPT
-account, then start the editor without `KIT_CODEX=off`:
+account, check the environment, and start the editor:
 
 ```sh
 npm run codex:login
@@ -53,35 +53,38 @@ npm run doctor
 npm run dev
 ```
 
+Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
+authentication and BrowserPod configuration for the normal den-kit workflow.
+
+Audio requires **48 kHz**. On macOS, set the output device to 48 kHz in Audio
+MIDI Setup if necessary. Click the start overlay to enable audio and MIDI.
+
+### AI configuration
+
 Authentication is stored in `.codex-home`, separate from your normal Codex
 configuration and excluded from Git. AI requests use the signed-in account's
-ChatGPT allowance. Manual editing remains available without AI.
+ChatGPT allowance. Direct patch and interface editing is available alongside
+the required AI workflow.
 
-Optional settings in a local `.env` file:
+Development settings in a local `.env` file:
 
 | Variable | Purpose |
 | --- | --- |
 | `KIT_CODEX_MODEL` | Override the default Codex model. |
 | `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
-| `KIT_CODEX=off` | Disable AI. |
 | `KIT_PORT` | Editor port; defaults to `5180`. |
 | `KIT_BRIDGE_PORT` | Local AI bridge port; defaults to `5181`. |
 
-### Enable the web workspace
+### Required project workspace
 
 Code parts and the Project workspace use
 [BrowserPod](https://browserpod.io/), which runs a Linux environment in the
-browser. For browser development, create a key in the
-[BrowserPod console](https://console.browserpod.io/) and add it to `.env`:
-
-```dotenv
-BROWSERPOD_API_KEY=your_browserpod_key
-```
+browser. Source development uses the key configured above.
 
 Restart `npm run dev`. The Project tab shows startup progress and provides a
 terminal, source editor, and checks. First startup includes package installation
-and requires network access. Ordinary patching and ChatGPT graph edits do not
-require this workspace.
+and requires network access. BrowserPod supplies the AI's project environment
+and remains part of the required setup.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `npm run build` excludes
@@ -103,7 +106,8 @@ The app includes the renderer and native Codex CLI, so running the bundle does
 not require Node.js or a development server.
 
 Use **Settings** (`⌘,`) in the app to sign in to ChatGPT and choose a model and
-reasoning effort. BrowserPod is configured by the build: app users do not enter
+reasoning effort. ChatGPT sign-in is required for AI requests. BrowserPod is
+required and configured by the build: app users do not enter
 a separate key. Builders must supply a key they are authorized to distribute;
 it is bundled in the app and can be extracted from it.
 
@@ -121,7 +125,7 @@ input for AI requests.
    keys. `Z` and `X` change octaves; `⌘.` stops all notes.
 4. Switch to **Plugin**, enter Edit mode, and arrange controls and decorations.
    Use “→ Plugin” in the patch inspector to expose an input as a control.
-5. With AI enabled, type a request such as “add reverb” or “make a bass with a
+5. Type an AI request such as “add reverb” or “make a bass with a
    neon interface.” Selection attachments and sketches provide context.
 
 You can keep playing and editing while AI works. `Esc` stops a request; applied

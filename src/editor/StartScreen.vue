@@ -67,7 +67,7 @@ function key(e: KeyboardEvent) {
     else sound.value = (sound.value + d + sounds.value.length) % sounds.value.length;
   };
   if (e.key === 'Escape') { e.preventDefault(); emit('close', false); }
-  else if (e.key === 'Enter') { e.preventDefault(); void enter(); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (e.target === input.value && text.value.trim()) void start('describe'); else void enter(); }
   else if (e.key === 'Tab') { e.preventDefault(); const i = ORDER.indexOf(section.value); focusSection(ORDER[(i + (e.shiftKey ? -1 : 1) + ORDER.length) % ORDER.length]!); }
   else if (typingText) return;
   else if (e.key === 'ArrowDown') { if (section.value === 'describe') { e.preventDefault(); focusSection('works'); } else if (section.value === 'works') { if (work.value + COLUMNS < WORKS.length) move('works', COLUMNS); else { e.preventDefault(); focusSection('looks'); } } else if (section.value === 'looks') { e.preventDefault(); focusSection('sounds'); } }
@@ -91,7 +91,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
       <div class="brand"><span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit</div>
       <button v-if="isDesktop" class="start-settings" data-testid="start-settings" @click="emit('settings')">Settings</button>
       <h1>What do you want to make?</h1>
-      <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “make a bass” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" />
+      <input ref="input" v-model="text" class="describe" :class="{ current: section === 'describe' }" type="text" data-testid="start-describe" placeholder="Describe it — e.g. “a warm acid bass”, “make a bass” — and press Enter" autocomplete="off" spellcheck="false" @focus="section = 'describe'" @input="section = 'describe'" />
       <div class="or">or start from a work <span class="hint">← → ↑ ↓ choose · Tab: the look · Enter: start</span></div>
       <div class="works" role="listbox">
         <button v-for="(b, i) in built" :key="b.work.id" type="button" class="work" :class="{ current: i === work && section !== 'describe' && section !== 'sounds', picked: i === work }" role="option" :aria-selected="i === work" :data-work="b.work.id" @mouseenter="work = i; section = section === 'describe' && !text ? 'works' : section" @click="work = i; start('work', { work: b.work, look: chosenLook })">
