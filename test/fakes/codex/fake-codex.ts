@@ -66,6 +66,7 @@ const logFile = env.FAKE_CODEX_LOG;
 const log = (record: Record<string, unknown>) => { if (logFile) try { appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), ...record })}\n`); } catch { /* ignore */ } };
 const violation = (message: string, data?: unknown) => { log({ violation: message, data }); process.stderr.write(`fake-codex VIOLATION: ${message}\n`); };
 let chatGPTLoginCompleted = false;
+let confirmationFailed = false;
 const signedIn = () => (env.FAKE_CODEX_AUTH === 'no-auth' && chatGPTLoginCompleted) || (env.FAKE_CODEX_AUTH ? ['chatgpt', 'apiKey'].includes(env.FAKE_CODEX_AUTH) : !!home && existsSync(join(home, 'auth.json')));
 
 // ---- CLI ---------------------------------------------------------------------------------------
@@ -308,9 +309,16 @@ async function handle(message: Record<string, unknown>) {
   switch (method) {
     case 'account/read': {
       if (login && !chatGPTLoginCompleted && env.FAKE_CODEX_PRELOGIN_READ_FAILURE === '1') { refuse(id, 'Temporary account read failure'); return; }
+      if (login && !chatGPTLoginCompleted && env.FAKE_CODEX_PRELOGIN_READ_FAILURE === 'late') { setTimeout(() => refuse(id, 'Delayed pre-completion read failure'), 200); return; }
       const account = env.FAKE_CODEX_AUTH === 'apiKey' ? { type: 'apiKey' } : signedIn() ? { type: 'chatgpt', email: 'user@example.com', planType: 'plus' } : null;
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'hang') return;
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error') { refuse(id, 'Account confirmation failed'); return; }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error-once' && !confirmationFailed) {
+        confirmationFailed = true;
+        refuse(id, 'Account confirmation failed');
+        setTimeout(() => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' }), 120);
+        return;
+      }
       const reply = () => respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
       if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'delay') setTimeout(reply, 150);
       else reply();

@@ -336,15 +336,18 @@ export class CodexClient {
     }
     const refresh = { peer, attempt, again: false, promise: Promise.resolve() };
     const current = () => this.peer === peer && this.authAttempt === attempt;
+    let confirming = false;
     this.accountRefreshing = refresh;
     refresh.promise = (async () => {
       do {
         refresh.again = false;
+        confirming = this.signInState === 'checking';
         const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
         if (!current()) return;
         const chatGPT = account.account?.type === 'chatgpt';
         let model = { label: this.statusValue.model, images: this.statusValue.images };
         if (chatGPT && (!this.chatGPTAccount || this.signingIn)) {
+          confirming = true;
           const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs });
           if (!current()) return;
           this.modelCatalog = models.data.filter(m => !m.hidden);
@@ -358,7 +361,7 @@ export class CodexClient {
           this.stopAuthWatch();
           const plan = account.account?.type === 'chatgpt' ? account.account.planType : undefined;
           this.setStatus({ state: 'ok', model: model.label, images: model.images, ...(plan ? { plan } : {}), rateLimit: null });
-          if (chatGPT && this.signingIn) {
+          if (chatGPT && (this.signingIn || this.signInState === 'error')) {
             this.finishSignIn('complete');
             // An account change received while this read was in flight still needs a fresh read.
             if (refresh.again) void this.refreshAccount();
@@ -372,14 +375,20 @@ export class CodexClient {
       this.log(`codex: account refresh failed: ${describeRpcError(error)}`);
       // Before OAuth completes, a failed poll says nothing about the browser
       // login. Keep its ID and deadline so it can complete or be canceled.
-      if (this.signInState === 'waiting') return;
+      if (this.signingIn && !confirming) return;
       if (this.signingIn) {
         const id = this.loginId;
         if (id) void peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs }).catch(() => undefined);
         this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Reconnect and try again.');
         this.setStatus({ state: 'error', detail: 'ChatGPT sign-in could not be confirmed.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
       }
-    }).finally(() => { if (this.accountRefreshing === refresh) this.accountRefreshing = null; });
+    }).finally(() => {
+      if (this.accountRefreshing !== refresh) return;
+      this.accountRefreshing = null;
+      // OAuth may have completed while a pre-completion poll was still pending.
+      // Its failure cannot consume the confirmation queued by that notification.
+      if (refresh.again && current() && this.signInState === 'checking') void this.refreshAccount();
+    });
     return refresh.promise;
   }
 
