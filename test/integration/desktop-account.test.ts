@@ -363,6 +363,41 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.chatGPTSignedIn).toBe(false);
   });
 
+  it('honors explicit cancellation dispatched after failed-confirmation cleanup has settled', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.sent('account/login/cancel').length === 1 && f.client.login.state === 'error');
+    await f.client.cancelSignIn();
+    await new Promise(r => setTimeout(r, 150));
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    expect(f.sent('account/logout')).toHaveLength(1);
+  });
+
+  it('honors a queued cancellation after the same in-app sign-in has been confirmed', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'complete');
+    await f.client.cancelSignIn();
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    expect(f.client.login.state).toBe('idle');
+    expect(f.sent('account/logout')).toHaveLength(1);
+  });
+
+  it('records cancellation even when the failed authentication process has exited', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'crash' }, client: { restart: { baseMs: 1000, maxMs: 1000 } } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.stats.exits === 1);
+    f.signIn(); // Credentials persisted just before the callback process exited.
+    await f.client.cancelSignIn();
+    expect(f.client.login.state).toBe('idle');
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    expect(f.sent('account/logout')).toHaveLength(1);
+  });
+
   it('keeps an in-progress sign-in alive when settings are requested', async () => {
     const f = setup({ signedIn: false }); await f.client.start(); await f.client.signIn();
     await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow('Complete or cancel');

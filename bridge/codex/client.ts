@@ -266,14 +266,16 @@ export class CodexClient {
       return this.canceling;
     }
     const id = this.loginId, peer = this.peer;
-    const starting = this.signInState === 'starting';
+    // The UI may still show Cancel when its queued message reaches a just-
+    // confirmed login. Only an in-app attempt is cancelable, not startup auth.
+    const cancelable = this.signInState === 'starting' || this.signInState === 'complete' || (this.signInState === 'error' && !this.chatGPTAccount);
     this.finishSignIn('idle');
-    if (peer && (id || starting)) await this.cancelLogin(peer, id, true);
+    if (id || cancelable) await this.cancelLogin(peer, id, true);
   }
 
   /** Stop the callback process and unwind credentials from the canceled login
    * before accepting another sign-in or publishing AI readiness. */
-  private cancelLogin(peer: RpcPeer, id: string | null, discardAccount = false): Promise<void> {
+  private cancelLogin(peer: RpcPeer | null, id: string | null, discardAccount = false): Promise<void> {
     if (this.canceling) return this.canceling;
     if (this.peer !== peer && !discardAccount) return Promise.resolve();
     this.discardCanceledAccount = discardAccount || !!this.pendingCancellation;
@@ -286,7 +288,7 @@ export class CodexClient {
         if (this.discardCanceledAccount) writeFileSync(this.cancellationFile, 'pending\n', { mode: 0o600 });
         let restart = !id;
         try {
-          if (id) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+          if (id && peer) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
         } catch (error) { restart = true; this.log(`codex: canceling sign-in by restarting: ${describeRpcError(error)}`); }
         if (this.stopped) return;
         // boot() removes credentials saved before cancellation completed,
@@ -318,7 +320,8 @@ export class CodexClient {
   private get cancellationFile() { return join(this.home.path, 'den-kit-canceled-login'); }
   async signOut() {
     if (this.busy) throw new Error('Finish the current AI request before signing out.');
-    await this.cancelSignIn();
+    if (this.signingIn || this.canceling || this.pendingCancellation) await this.cancelSignIn();
+    else this.finishSignIn('idle');
     if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
     await this.peer.request('account/logout', undefined, { timeoutMs: this.timeouts.requestMs });
     await this.retry();
