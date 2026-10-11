@@ -179,6 +179,7 @@ export class CodexClient {
   private modelCatalog: Model[] = [];
   private loginId: string | null = null;
   private canceling: Promise<void> | null = null;
+  private pendingCancellation: { state: 'idle' | 'error'; error?: string } | null = null;
   private signInState: 'idle' | 'starting' | 'waiting' | 'checking' | 'complete' | 'error' = 'idle';
   private signInError: string | undefined;
   private chatGPTAccount = false;
@@ -198,9 +199,9 @@ export class CodexClient {
     this.restartPolicy = { baseMs: 1000, maxMs: 30000, maxFailures: 5, ...options.restart };
   }
 
-  get status(): CodexStatus { return { ...this.statusValue }; }
+  get status(): CodexStatus { return this.canceling ? { state: 'starting', detail: 'Canceling ChatGPT sign-in…' } : { ...this.statusValue }; }
   get chatGPTSignedIn() { return this.chatGPTAccount; }
-  get ready() { return this.statusValue.state === 'ok' && !!this.peer; }
+  get ready() { return !this.canceling && !this.pendingCancellation && this.statusValue.state === 'ok' && !!this.peer; }
   get busy() { return this.turns.size > 0; }
   get models(): Model[] { return this.modelCatalog.map(m => ({ ...m })); }
   get login() { return { state: this.canceling ? 'canceling' as const : this.signInState, error: this.signInError }; }
@@ -210,8 +211,10 @@ export class CodexClient {
   async signIn(): Promise<string> {
     if (this.busy) throw new Error('Finish the current AI request before signing in.');
     await this.canceling;
+    if (this.pendingCancellation) throw new Error('Reconnect AI to finish canceling the previous sign-in before trying again.');
     await this.start();
     if (!this.peer) throw new Error('Codex is not available. Try reconnecting.');
+    if (this.chatGPTAccount) throw new Error('Sign out before signing in with another ChatGPT account.');
     if (this.signingIn) await this.cancelSignIn();
     const peer = this.peer;
     if (!peer) throw new Error('Codex is not available. Try reconnecting.');
@@ -253,23 +256,36 @@ export class CodexClient {
     const id = this.loginId, peer = this.peer;
     const starting = this.signInState === 'starting';
     this.finishSignIn('idle');
-    if (peer && (id || starting)) await this.cancelLogin(peer, id);
+    if (peer && (id || starting)) await this.cancelLogin(peer, id, true);
   }
 
-  /** Retain the cancellation transaction until the server acknowledges it or
-   * its process is stopped. New sign-ins must not overlap an abandoned flow. */
-  private cancelLogin(peer: RpcPeer, id: string | null): Promise<void> {
+  /** Stop the callback process and unwind credentials from the canceled login
+   * before accepting another sign-in or publishing AI readiness. */
+  private cancelLogin(peer: RpcPeer, id: string | null, discardAccount = false): Promise<void> {
     if (this.canceling) return this.canceling;
+    if (this.peer !== peer && !discardAccount) return Promise.resolve();
+    // Explicit cancellation withdraws the sign-in. A failed confirmation merely
+    // ends its callback flow: an already saved account can still be rechecked.
+    if (discardAccount) this.pendingCancellation ??= { state: this.signInState === 'error' ? 'error' : 'idle', error: this.signInError };
+    this.stopAuthWatch();
     const task = (async () => {
       try {
-        if (!id) throw new Error('The sign-in ID was not received.');
-        await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+        let restart = discardAccount || !id;
+        try {
+          if (id) await peer.request('account/login/cancel', { loginId: id }, { timeoutMs: this.timeouts.requestMs });
+        } catch (error) { restart = true; this.log(`codex: canceling sign-in by restarting: ${describeRpcError(error)}`); }
+        if (this.stopped) return;
+        // boot() removes credentials saved before cancellation completed,
+        // after the old process can no longer write them again.
+        if (restart && (discardAccount || this.peer === peer)) await this.retry();
+        if (this.pendingCancellation) throw new Error('The canceled account could not be cleared.');
       } catch (error) {
-        if (this.peer !== peer || this.stopped) return;
-        this.log(`codex: canceling sign-in by restarting: ${describeRpcError(error)}`);
-        await this.retry();
+        if (this.stopped) return;
+        this.log(`codex: cancellation cleanup failed: ${describeRpcError(error)}`);
+        this.finishSignIn('error', 'Sign-in cancellation could not be completed. Reconnect AI before trying again.');
+        this.setStatus({ state: 'error', detail: 'Sign-in cancellation could not be completed.', fix: 'Reconnect AI to finish canceling sign-in.' });
       }
-    })().finally(() => { if (this.canceling === task) this.canceling = null; });
+    })().finally(() => { if (this.canceling === task) { this.canceling = null; this.setStatus(this.statusValue); } });
     this.canceling = task;
     return task;
   }
@@ -282,7 +298,7 @@ export class CodexClient {
   }
   async configure(settings: { model: string; effort: string; fork: boolean }) {
     if (this.busy) throw new Error('Finish the current AI request before changing settings.');
-    if (this.signingIn || this.canceling) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
+    if (this.signingIn || this.canceling || this.pendingCancellation) throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     this.options.model = settings.model || undefined;
     this.options.effort = settings.effort || undefined;
     this.options.fork = settings.fork;
@@ -354,7 +370,7 @@ export class CodexClient {
   private refreshAccount(accountChanged = false): Promise<void> {
     const peer = this.peer;
     const attempt = this.authAttempt;
-    if (!peer || this.signInState === 'starting') return Promise.resolve();
+    if (!peer || this.signInState === 'starting' || this.canceling || this.pendingCancellation) return Promise.resolve();
     if (this.accountRefreshing?.peer === peer && this.accountRefreshing.attempt === attempt) {
       // Timer ticks share the pending read. Only new account evidence queues
       // another read, so a slow failing RPC cannot perpetually extend itself.
@@ -406,9 +422,9 @@ export class CodexClient {
       if (this.signingIn && (!confirming || refresh.again)) return;
       if (this.signingIn) {
         const id = this.loginId;
-        if (id) void this.cancelLogin(peer, id);
         this.finishSignIn('error', 'ChatGPT sign-in could not be confirmed. Reconnect and try again.');
         this.setStatus({ state: 'error', detail: 'ChatGPT sign-in could not be confirmed.', fix: this.options.loginInstruction ?? `Run \`${LOGIN_COMMAND}\`.` });
+        if (id) void this.cancelLogin(peer, id);
       }
     }).finally(() => {
       if (this.accountRefreshing !== refresh) return;
@@ -446,7 +462,18 @@ export class CodexClient {
     try {
       const init = await peer.request<InitializeResponse>('initialize', { clientInfo: { name: 'den-kit', title: 'den-kit', version: '0.1.0' }, capabilities: { experimentalApi: true, requestAttestation: false } }, { timeoutMs: this.timeouts.initializeMs });
       peer.notify('initialized');
-      const account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
+      let account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
+      if (this.pendingCancellation && this.proc === proc) {
+        const canceled = this.pendingCancellation;
+        if (account.account?.type === 'chatgpt') {
+          await peer.request('account/logout', undefined, { timeoutMs: this.timeouts.requestMs });
+          account = await peer.request<GetAccountResponse>('account/read', { refreshToken: false }, { timeoutMs: this.timeouts.requestMs });
+          if (account.account?.type === 'chatgpt') throw new Error('The canceled ChatGPT account is still signed in.');
+        }
+        if (this.proc !== proc) return;
+        this.pendingCancellation = null;
+        this.finishSignIn(canceled.state, canceled.error);
+      }
       const models = await peer.request<ModelListResponse>('model/list', { limit: 100 }, { timeoutMs: this.timeouts.requestMs }).catch(error => { this.log(`codex: model/list failed: ${describeRpcError(error)}`); return null; });
       if (this.proc !== proc) return;
       this.chatGPTAccount = account.account?.type === 'chatgpt';
@@ -507,7 +534,7 @@ export class CodexClient {
     const before = stamp();
     this.authTimer = setInterval(() => {
       if (this.statusValue.state !== 'login') { this.stopAuthWatch(); return; }
-      if (stamp() !== before && !this.signingIn) { this.stopAuthWatch(); this.log('codex: external login detected, restarting'); void this.retry(); }
+      if (stamp() !== before && !this.signingIn && !this.canceling && !this.pendingCancellation) { this.stopAuthWatch(); this.log('codex: external login detected, restarting'); void this.retry(); }
     }, this.options.authPollMs ?? 2000);
     this.authTimer.unref?.();
   }
@@ -566,7 +593,7 @@ export class CodexClient {
 
   // ---- requests from the browser -----------------------------------------------------------
   private unavailable(): LlmError {
-    const s = this.statusValue;
+    const s = this.status;
     if (s.state === 'login') return { message: 'Codex is not signed in.', code: 'login', fix: s.fix };
     if (s.state === 'starting') return { message: 'Codex is still starting; try again in a moment.', code: 'starting' };
     return { message: s.detail ?? 'Codex is not available.', code: s.state, fix: s.fix };

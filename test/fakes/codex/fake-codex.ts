@@ -364,6 +364,7 @@ async function handle(message: Record<string, unknown>) {
       return;
     }
     case 'account/logout':
+      if (env.FAKE_CODEX_LOGOUT === 'error') { refuse(id, 'Logout failed'); return; }
       chatGPTLoginCompleted = false;
       rmSync(join(home!, 'auth.json'), { force: true });
       respond(id, {}); notify('account/updated', { authMode: null, planType: null }); return;

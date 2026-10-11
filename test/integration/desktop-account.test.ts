@@ -283,6 +283,50 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.login.error).toMatch(/timed out/);
   });
 
+  it('removes credentials saved while cancellation was hanging before allowing another sign-in', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang' }, client: { timeouts: { requestMs: 200 } } });
+    await f.client.start(); await f.client.signIn();
+    const statuses: string[] = [];
+    f.client.onStatus(status => statuses.push(status.state));
+    await f.client.cancelSignIn();
+    expect(f.sent('account/logout')).toHaveLength(1);
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    expect(statuses).not.toContain('ok');
+    await f.client.retry();
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.status.state).toBe('login');
+    await f.client.signIn();
+    expect(f.client.login.state).toBe('waiting');
+  });
+
+  it('also unwinds a completed account when canceled during confirmation', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
+    await f.client.start(); await f.client.signIn();
+    await until(() => f.client.login.state === 'checking');
+    await f.client.cancelSignIn();
+    expect(f.sent('account/logout')).toHaveLength(1);
+    expect(f.client.chatGPTSignedIn).toBe(false);
+    expect(f.client.ready).toBe(false);
+    expect(f.client.login.state).toBe('idle');
+  });
+
+  it('does not make a canceled account usable if clearing its credentials fails', async () => {
+    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang', FAKE_CODEX_LOGOUT: 'error' }, client: { timeouts: { requestMs: 200 } } });
+    await f.client.start(); await f.client.signIn();
+    await f.client.cancelSignIn();
+    expect(f.client.ready).toBe(false);
+    expect(f.client.login.state).toBe('error');
+    expect(f.client.login.error).toMatch(/cancellation could not be completed/);
+    await expect(f.client.signIn()).rejects.toThrow('finish canceling');
+  });
+
+  it('requires explicit sign-out before starting a different ChatGPT login', async () => {
+    const f = setup(); await f.client.start();
+    await expect(f.client.signIn()).rejects.toThrow('Sign out before');
+    expect(f.sent('account/login/start')).toHaveLength(0);
+  });
+
   it('keeps an in-progress sign-in alive when settings are requested', async () => {
     const f = setup({ signedIn: false }); await f.client.start(); await f.client.signIn();
     await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow('Complete or cancel');
