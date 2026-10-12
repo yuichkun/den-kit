@@ -175,7 +175,7 @@ export function markedThings(readings: readonly MarkReading[]): string[] {
   return [...new Set(readings.flatMap(r => [...r.encloses, ...r.touches, ...(r.from ? [r.from] : []), ...(r.to ? [r.to] : [])]))];
 }
 
-/** Marks the fast path can take: only loops and boxes around things (they point, like a selection). */
+/** Marks that only point at things, like a selection: loops and boxes. */
 export function onlyPointing(readings: readonly MarkReading[]): boolean {
   return readings.length > 0 && readings.every(r => (r.kind === 'pen' || r.kind === 'marker' || r.kind === 'rect') && !r.text && r.encloses.length > 0);
 }

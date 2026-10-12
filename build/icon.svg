@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#252d37"/><stop offset="1" stop-color="#11151b"/>
+    </linearGradient>
+  </defs>
+  <rect x="52" y="52" width="920" height="920" rx="208" fill="url(#plate)"/>
+  <rect x="55" y="55" width="914" height="914" rx="205" fill="none" stroke="#414b59" stroke-width="6"/>
+  <!-- Same four-column, two-row logo and colors as the editor's .logo. -->
+  <g>
+    <rect x="175" y="355" width="142" height="142" rx="32" fill="#ff9c1a"/>
+    <rect x="352" y="355" width="142" height="142" rx="32" fill="#ff9c1a"/>
+    <rect x="529" y="355" width="142" height="142" rx="32" fill="#3cc6ff"/>
+    <rect x="706" y="355" width="142" height="142" rx="32" fill="#ff9c1a"/>
+    <rect x="175" y="532" width="142" height="142" rx="32" fill="#ff3a5c"/>
+    <rect x="352" y="532" width="142" height="142" rx="32" fill="#3cc6ff"/>
+    <rect x="529" y="532" width="142" height="142" rx="32" fill="#24d3a8"/>
+    <rect x="706" y="532" width="142" height="142" rx="32" fill="#ff9c1a"/>
+  </g>
+</svg>

@@ -171,8 +171,8 @@ describe('LlmWorkspace', () => {
 
   it('kit_finish keeps the summary; asking the user is not a tool; unknown tools and thrown errors become failures', async () => {
     const { ws } = workspace({ render: async () => { throw new Error('worker died'); } });
-    expect((await ws.call('kit_finish', { summary: 'LFOでフィルターを揺らしました' })).success).toBe(true);
-    expect(ws.summary).toBe('LFOでフィルターを揺らしました');
+    expect((await ws.call('kit_finish', { summary: 'Added an LFO to wobble the filter' })).success).toBe(true);
+    expect(ws.summary).toBe('Added an LFO to wobble the filter');
     expect((await ws.call('kit_ask', { question: 'Which?', options: ['A', 'B'] })).success).toBe(false);
     expect((await ws.call('kit_rm_rf', {})).success).toBe(false);
     const failed = await ws.call('kit_listen', {});

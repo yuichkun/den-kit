@@ -1,7 +1,6 @@
 // Linear undo/redo over author-attributed transactions. A knob drag is one
 // gesture: consecutive setValue transactions with the same gesture id merge into
-// one undo step. The fast AI path commits like a human does, so "undo" right
-// after an AI edit restores the exact pre-AI document. An LLM request lands
+// one undo step. An LLM request lands
 // step by step; consecutive steps of one request share a group and merge into
 // one undo step (an edit by someone else in between starts a new one).
 import { applyResolvedOps, invertAll, isStructural, type ResolvedOp } from './ops.ts';
@@ -9,6 +8,7 @@ import type { PatchDocument } from './schema.ts';
 
 export type Author =
   | { kind: 'human' }
+  /** Legacy attribution retained for edits made before the phrase interpreter was removed. */
   | { kind: 'ai-fast'; handler: string; trace?: string }
   | { kind: 'ai-llm'; take: string; trace?: string }
   | { kind: 'system'; reason: string };

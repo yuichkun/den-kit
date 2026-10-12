@@ -1,21 +1,15 @@
-// The conversation about the patch: one per opened patch, shared by the fast
-// path and the LLM; kept with the autosave; "もっと" / "戻して" follow-ups; what
-// the person attached (the selection) aims the request and reaches the LLM.
+// Conversation persistence, historical request compatibility and LLM context.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { shallowRef } from 'vue';
-import { FastPath, type Outcome } from '../../../src/ai/fast-path.ts';
+import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
-import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
-import type { BridgeStatus, LlmEvent } from '../../../src/ai/protocol.ts';
 import { attachmentsOf, describeAttachments } from '../../../src/ai/attachments.ts';
-import { followUp, handEditsSince, lineForAi, readSavedLines, savedLine } from '../../../src/ai/conversation.ts';
+import { handEditsSince, lineForAi, readSavedLines, savedLine } from '../../../src/ai/conversation.ts';
 import { KitSession, type StorageLike } from '../../../src/editor/session.ts';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents } from '../../../src/core/ops.ts';
 import { starter } from '../../../src/core/starters.ts';
 import type { Transaction } from '../../../src/core/history.ts';
-import { stubBridge } from '../../helpers/fake-bridge.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
+import { FakeLlmTransport } from '../../helpers/fake-llm-transport.ts';
 
 class MemoryStorage implements StorageLike {
   data = new Map<string, string>();
@@ -29,43 +23,14 @@ const makeSession = (storage: StorageLike | null = null) => new KitSession({
   createWorker: () => ({ postMessage() {}, terminate() {}, onmessage: null, onerror: null, onmessageerror: null }) as never,
   engine: { setParam() {}, unload() {}, running: false } as never,
 });
-
-class FakeTransport {
-  online = true;
-  readonly status = shallowRef<BridgeStatus>({ jev: { state: 'off' }, codex: { state: 'ok', images: false, model: 'm' } });
-  sent: Array<Record<string, unknown>> = [];
-  private listeners = new Set<(m: LlmInbound) => void>();
-  get codexReady() { return this.online; }
-  onLlm(l: (m: LlmInbound) => void) { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
-  llmStart(id: string, text: string, instructions: string, thread?: string) { this.sent.push({ t: 'llm.start', id, text, instructions, thread }); return true; }
-  llmSteer(id: string, target: string, text: string) { this.sent.push({ t: 'llm.steer', id, target, text }); return true; }
-  llmStop(id: string) { this.sent.push({ t: 'llm.stop', id }); return true; }
-  llmAnswer() { return true; }
-  llmForget(thread: string) { this.sent.push({ t: 'llm.forget', thread }); return true; }
-  toolResult() { return true; }
-  telemetry() {}
-  event(id: string, event: LlmEvent) { for (const l of this.listeners) l({ t: 'llm.event', id, event }); }
-  done(id: string) { this.event(id, { kind: 'done', status: 'completed', ms: 1 }); }
-  last(t: string) { return [...this.sent].reverse().find(m => m.t === t); }
-}
-
-describe('the words of a follow-up', () => {
-  it.each([
-    ['もっと', { kind: 'more', prefix: 'もっと' }], ['もう少し', { kind: 'more', prefix: 'もう少し' }], ['もうちょっと！', { kind: 'more', prefix: 'もう少し' }],
-    ['さらに', { kind: 'more', prefix: 'もっと' }], ['more', { kind: 'more', prefix: '' }], ['a bit more please', { kind: 'more', prefix: '' }], ['again', { kind: 'more', prefix: '' }],
-    ['戻して', { kind: 'undo' }], ['やっぱりやめて', { kind: 'undo' }], ['undo that', { kind: 'undo' }], ['take it back', { kind: 'undo' }],
-  ])('%s', (text, expected) => { expect(followUp(text)).toEqual(expected); });
-  it('a request with more words is not a follow-up', () => {
-    for (const text of ['もっと明るく', 'more reverb', '戻してから明るく', 'undo the reverb and add delay', '']) expect(followUp(text)).toBeNull();
-  });
-});
+const historicalLine = (id: string, text: string, route: 'lexicon' | 'jev' | 'jev-target' = 'lexicon'): Outcome => ({ id, text, status: 'applied', route, ms: 3, label: `Saved edit: ${text}` });
 
 describe('what the LLM is told about the conversation', () => {
   it('one line per request, with the result, what it was about, and an undo', () => {
-    expect(lineForAi({ id: 'a', text: '明るく', status: 'applied', route: 'lexicon', ms: 3, label: 'brightness up ×medium → filter1', undone: true, attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }] }))
-      .toBe('- fast path: “明るく” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)');
+    expect(lineForAi({ id: 'a', text: 'brighter', status: 'applied', route: 'lexicon', ms: 3, label: 'brightness up ×medium → filter1', undone: true, attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }] }))
+      .toBe('- earlier request: “brighter” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)');
     expect(lineForAi({ id: 'b', text: 'explain', status: 'reply', route: 'llm', ms: 9, reply: 'An oscillator\ngoes into a filter.' })).toBe('- LLM request: “explain” → answered: An oscillator goes into a filter.');
-    expect(lineForAi({ id: 'c', text: '???', status: 'nothing', route: 'none', ms: 1, message: 'Not sure what to change.' })).toBe('- fast path: “???” → nothing changed (Not sure what to change.)');
+    expect(lineForAi({ id: 'c', text: '???', status: 'nothing', route: 'none', ms: 1, message: 'Not sure what to change.' })).toBe('- earlier request: “???” → nothing changed (Not sure what to change.)');
   });
   it('hand edits since a moment: the person\'s own, counted; loads and AI edits are not theirs', () => {
     const tx = (label: string, at: number, author: Transaction['author'] = { kind: 'human' }, replaced = false): Transaction => ({ id: label + at, author, label, ops: [], at, baseRevision: 0, replaced });
@@ -89,121 +54,93 @@ describe('saving the conversation', () => {
     expect(read[1]!.label).toBeUndefined();
   });
 
-  it('after a reload the conversation about the same patch goes on; another patch does not get it', async () => {
+  it('saved lexicon and Jev lines reload with their patch; another patch does not inherit them', () => {
     const storage = new MemoryStorage();
     const first = makeSession(storage);
     first.restore('bass');
-    const fast1 = new FastPath(first);
-    await fast1.run('リリース長く');
-    fast1.persist();
+    const requests1 = new AiRequests(first);
+    const oldLines = [historicalLine('lex', 'longer release'), historicalLine('jev', 'open the tone', 'jev'), historicalLine('target', 'this filter', 'jev-target')];
+    for (const line of oldLines) requests1.upsert(line);
+    requests1.persist();
     first.saveNow();
     const conversation = first.conversation.value;
-    // Reload: the same autosave, the same conversation, the same lines.
     const second = makeSession(storage);
     expect(second.restore('bass')).toBe(true);
     expect(second.conversation.value).toBe(conversation);
-    const fast2 = new FastPath(second);
-    expect(fast2.history.value.map(o => o.text)).toEqual(['リリース長く']);
-    // A conversation saved for another patch is not this one's.
-    storage.setItem('den-kit:conversation', JSON.stringify({ id: conversation, docId: 'someone-else', lines: [{ id: 'q', text: 'not mine', status: 'applied', route: 'lexicon', ms: 1 }] }));
+    expect(new AiRequests(second).history.value).toEqual(oldLines);
+    storage.setItem('den-kit:conversation', JSON.stringify({ id: conversation, docId: 'someone-else', lines: oldLines }));
     const third = makeSession(storage);
     third.restore('bass');
     expect(third.conversation.value).not.toBe(conversation);
-    expect(new FastPath(third).history.value).toEqual([]);
+    expect(new AiRequests(third).history.value).toEqual([]);
   });
 
-  it('broken or full storage loses the conversation, never the patch', async () => {
+  it('saving the patch immediately flushes the latest conversation without waiting for debounce', () => {
+    const storage = new MemoryStorage();
+    const first = makeSession(storage);
+    first.restore('bass');
+    first.requests = new AiRequests(first);
+    const earlier = historicalLine('old', 'longer release');
+    first.requests.upsert(earlier);
+    const latest = first.requests.run('brighter');
+    expect(first.loadConversation()).toBeNull();
+    first.saveNow();
+
+    const second = makeSession(storage);
+    expect(second.restore('bass')).toBe(true);
+    expect(second.conversation.value).toBe(first.conversation.value);
+    second.requests = new AiRequests(second);
+    expect(second.requests.history.value).toEqual([earlier, savedLine(latest)]);
+  });
+
+  it('broken or full storage cannot change the patch or throw when saving a failed request', () => {
     const storage = new MemoryStorage();
     storage.setItem('den-kit:conversation', '{not json');
-    const s = makeSession(storage);
-    s.restore('bass');
-    const fast = new FastPath(s);
-    expect(fast.history.value).toEqual([]);
+    const session = makeSession(storage);
+    session.restore('bass');
+    const requests = new AiRequests(session);
+    const before = JSON.stringify(session.doc.value);
+    expect(requests.history.value).toEqual([]);
     storage.failWrites = true;
-    const o = await fast.run('リリース長く');
-    expect(o.status).toBe('applied');
-    expect(() => fast.persist()).not.toThrow();
+    expect(requests.run('longer release').status).toBe('failed');
+    expect(() => requests.persist()).not.toThrow();
+    expect(JSON.stringify(session.doc.value)).toBe(before);
   });
 });
 
-describe('one conversation per opened patch', () => {
-  let session: KitSession, fast: FastPath;
+describe('conversation lifecycle and historical edits', () => {
+  let session: KitSession, requests: AiRequests;
   beforeEach(() => {
     session = makeSession();
     session.loadStarter('bass');
-    session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-    fast = new FastPath(session);
+    requests = new AiRequests(session);
   });
 
-  it('opening another patch folds the lines away as earlier; what the AI itself puts in place stays in the conversation', async () => {
-    await fast.run('リリース長く');
+  it('an AI-authored replacement keeps the conversation; opening a patch folds its lines into earlier', () => {
+    requests.upsert(historicalLine('old', 'longer release'));
     const conversation = session.conversation.value;
-    await fast.run('パッド作って'); // a template replaces the patch, asked for in this conversation
+    session.replace(starter('pad', catalog), 'AI patch', true, { kind: 'ai-llm', take: 'rq-new' });
+    requests.upsert({ id: 'rq-new', text: 'build a pad', status: 'applied', route: 'llm', ms: 10 });
     expect(session.conversation.value).toBe(conversation);
-    expect(fast.history.value.map(o => o.text)).toEqual(['リリース長く', 'パッド作って']);
-    session.loadStarter('bass'); // the person opens something else
+    expect(requests.history.value.map(o => o.text)).toEqual(['longer release', 'build a pad']);
+    session.loadStarter('bass');
     expect(session.conversation.value).not.toBe(conversation);
-    expect(fast.history.value).toEqual([]);
-    expect(fast.earlier.value.map(o => o.text)).toEqual(['リリース長く', 'パッド作って']);
+    expect(requests.history.value).toEqual([]);
+    expect(requests.earlier.value.map(o => o.text)).toEqual(['longer release', 'build a pad']);
   });
 
-  it('"もっと" does the last fast change again; "もう少し" a little; it says what it repeated', async () => {
-    const r0 = session.doc.value.nodes.aenv1!.values.release as number;
-    await fast.run('リリース長く');
-    const r1 = session.doc.value.nodes.aenv1!.values.release as number;
-    const more = await fast.run('もっと');
-    expect(more).toMatchObject({ status: 'applied', repeats: 'リリース長く' });
-    const r2 = session.doc.value.nodes.aenv1!.values.release as number;
-    expect(r1).toBeGreaterThan(r0);
-    expect(r2).toBeGreaterThan(r1);
-    const little = await fast.run('もう少し');
-    expect(little).toMatchObject({ status: 'applied', repeats: 'リリース長く' });
-    const r3 = session.doc.value.nodes.aenv1!.values.release as number;
-    expect(r3).toBeGreaterThan(r2);
-    expect(r3 / r2).toBeLessThan(r2 / r1); // "a little" is a smaller step (times are scaled, not added)
-    // Each is its own undo step.
+  it.each(['lexicon', 'jev'] as const)('undo and redo of a historical %s edit update its conversation line', handler => {
+    const before = session.doc.value.nodes.gain1!.values.gain;
+    expect(session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }], { author: { kind: 'ai-fast', handler }, label: 'Saved AI edit' }).ok).toBe(true);
+    const txId = session.history.peek()!.id;
+    requests.upsert({ ...historicalLine('saved', 'make it quieter', handler), txId });
     session.undo();
-    expect(session.doc.value.nodes.aenv1!.values.release).toBe(r2);
-  });
-
-  it('"もっと" with nothing to repeat is an ordinary request (it is not intercepted)', async () => {
-    const o = await fast.run('もっと');
-    expect(o.repeats).toBeUndefined();
-    expect(o.status).not.toBe('applied');
-  });
-
-  it('"戻して" takes the last AI change back; the person\'s own edit is theirs to undo; nothing to undo is said', async () => {
-    const opened = await fast.run('戻して'); // the last change is opening the starter: that was the person
-    expect(opened).toMatchObject({ status: 'nothing', message: expect.stringMatching(/your own \(Load bass\)/) });
-    session.history.clear();
-    const nothing = await fast.run('戻して');
-    expect(nothing).toMatchObject({ status: 'nothing', message: expect.stringMatching(/nothing to take back/) });
-    const before = JSON.stringify(session.doc.value.nodes);
-    await fast.run('リリース長く');
-    const back = await fast.run('戻して');
-    expect(back).toMatchObject({ status: 'applied', label: expect.stringMatching(/^took back: /) });
-    expect(JSON.stringify(session.doc.value.nodes)).toBe(before);
-    expect(fast.history.value.find(o => o.text === 'リリース長く')!.undone).toBe(true);
-    session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }], { label: 'Set gain' });
-    const mine = await fast.run('undo');
-    expect(mine).toMatchObject({ status: 'nothing', message: expect.stringMatching(/your own \(Set gain\); ⌘Z/) });
+    expect(session.doc.value.nodes.gain1!.values.gain).toBe(before);
+    expect(requests.history.value[0]!.undone).toBe(true);
+    expect(requests.outcome.value).toBeNull();
+    session.redo();
     expect(session.doc.value.nodes.gain1!.values.gain).toBe(0.3);
-  });
-
-  it('the request aims at what is attached, not at whatever else is selected or plausible', async () => {
-    const doc = applyIntents(starter('bass', catalog), [
-      { op: 'addNode', node: { id: 'filter9', type: 'den.filter', values: { cutoff: 500 } } },
-      { op: 'connect', from: { node: 'filter1', port: 'out' }, to: { node: 'filter9', port: 'input' } },
-    ], catalog).doc;
-    session.replace(doc, 'two filters');
-    session.select(['filter1']); // selected, but left out of the request
-    const attached = attachmentsOf(session.doc.value, catalog, ['filter9']);
-    const cut1 = session.doc.value.nodes.cut1!.values.hz;
-    const o = await fast.run('明るく', { attached });
-    expect(o.status).toBe('applied');
-    expect(o.attached).toEqual([{ id: 'filter9', kind: 'module', label: 'Lowpass' }]);
-    expect(session.doc.value.nodes.filter9!.values.cutoff).toBeGreaterThan(500);
-    expect(session.doc.value.nodes.cut1!.values.hz).toBe(cut1);
+    expect(requests.history.value[0]!.undone).toBe(false);
   });
 });
 
@@ -231,65 +168,65 @@ describe('attachments', () => {
 });
 
 describe('the LLM is told what happened', () => {
-  let session: KitSession, fast: FastPath, t: FakeTransport, llm: LlmController;
+  let session: KitSession, requests: AiRequests, transport: FakeLlmTransport, llm: LlmController;
   beforeEach(() => {
     session = makeSession();
     session.loadStarter('bass');
-    session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-    fast = new FastPath(session);
-    t = new FakeTransport();
-    llm = new LlmController(session, fast, t as unknown as LlmTransport);
+    requests = new AiRequests(session);
+    transport = new FakeLlmTransport();
+    llm = new LlmController(session, requests, transport as unknown as LlmTransport);
     session.llm = llm;
   });
-  const startText = () => String(t.last('llm.start')!.text);
+  const startText = () => String(transport.last('llm.start')!.text);
 
-  it('a new conversation hears what came before; later turns hear only what is new, and the person\'s own edits', async () => {
-    await fast.run('リリース長く');
-    const first = llm.run('now add a wobble');
-    expect(startText()).toMatch(/Earlier in this conversation[^\n]*:\n- fast path: “リリース長く” → [^\n]+\n/);
-    t.event(first.id, { kind: 'thread', thread: 'th1', fresh: false });
-    t.done(first.id);
+  it('a new conversation includes historical lines; later turns include only new history and hand edits', async () => {
+    requests.upsert(historicalLine('old-lex', 'longer release'));
+    const first = requests.run('now add a wobble');
+    expect(startText()).toMatch(/Earlier in this conversation[^\n]*:\n- earlier request: “longer release” → [^\n]+\n/);
+    transport.event(first.id, { kind: 'thread', thread: 'th1', fresh: false });
+    transport.done(first.id);
     await new Promise(r => setTimeout(r, 5));
-    await fast.run('明るく');
+    requests.upsert(historicalLine('old-jev', 'brighter', 'jev'));
     session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.4 }], { label: 'Panel Gain' });
-    llm.run('more of that');
+    requests.run('more of that');
     const text = startText();
-    expect(t.last('llm.start')!.thread).toBe('th1');
-    expect(text).toMatch(/Since your last turn:\n- fast path: “明るく” → /);
-    expect(text).not.toMatch(/リリース長く/); // it saw that one already
-    expect(text).not.toMatch(/now add a wobble/); // its own request
+    expect(transport.last('llm.start')!.thread).toBe('th1');
+    expect(text).toMatch(/Since your last turn:\n- earlier request: “brighter” → /);
+    expect(text).not.toMatch(/longer release|now add a wobble/);
     expect(text).toMatch(/The person edited by hand since your last turn: Panel Gain\./);
     expect(text.endsWith('\n\nmore of that')).toBe(true);
   });
 
-  it('what was attached reaches the LLM by id, also when it is added to a running request', () => {
+  it('a short prompt carries attachments to the LLM by id, including when added to a running request', () => {
+    const before = JSON.stringify(session.doc.value);
     const attached = attachmentsOf(session.doc.value, catalog, ['filter1']);
-    const o = llm.run('this one is too bright', { attached });
+    const o = requests.run('brighter', { attached });
     expect(startText()).toMatch(/The person attached \(points at\) these: filter1 — Lowpass\. The request is about them/);
     expect(o.attached).toEqual(attached);
-    llm.run('and that cable', { attached: attachmentsOf(session.doc.value, catalog, [], [Object.keys(session.doc.value.edges)[0]!]) });
-    expect(String(t.last('llm.steer')!.text)).toMatch(/^\[den-kit\] The user adds, while you work:\n\[den-kit\] The person attached \(points at\) these: e\w+ — cable /);
+    requests.run('and that cable', { attached: attachmentsOf(session.doc.value, catalog, [], [Object.keys(session.doc.value.edges)[0]!]) });
+    expect(String(transport.last('llm.steer')!.text)).toMatch(/^\[den-kit\] The user adds, while you work:\n\[den-kit\] The person attached \(points at\) these: e\w+ — cable /);
+    expect(JSON.stringify(session.doc.value)).toBe(before);
   });
 
-  it('opening another patch starts a new Codex conversation (and the old lines are not retold)', async () => {
-    await fast.run('リリース長く');
-    const o = llm.run('explain');
-    t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
-    t.done(o.id);
+  it('opening a patch starts a new Codex conversation and does not retell historical lines', () => {
+    requests.upsert(historicalLine('old-lex', 'longer release'));
+    const o = requests.run('explain');
+    transport.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
+    transport.done(o.id);
     session.loadStarter('pad');
-    llm.run('explain again');
-    expect(t.last('llm.forget')).toEqual({ t: 'llm.forget', thread: 'th1' });
-    expect(t.last('llm.start')!.thread).toBeUndefined();
-    expect(startText()).not.toMatch(/リリース長く|Earlier in this conversation/);
+    requests.run('explain again');
+    expect(transport.last('llm.forget')).toEqual({ t: 'llm.forget', thread: 'th1' });
+    expect(transport.last('llm.start')!.thread).toBeUndefined();
+    expect(startText()).not.toMatch(/longer release|Earlier in this conversation/);
   });
 
-  it('a template the fast path put in place keeps the Codex conversation', async () => {
-    const o = llm.run('explain');
-    t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
-    t.done(o.id);
-    await fast.run('パッド作って');
-    llm.run('now make it darker');
-    expect(t.last('llm.start')!.thread).toBe('th1');
-    expect(startText()).toMatch(/Since your last turn:\n- fast path: “パッド作って” → /);
+  it('a completed short prompt continues the same Codex thread', () => {
+    const first = requests.run('brighter');
+    transport.event(first.id, { kind: 'thread', thread: 'th1', fresh: false });
+    transport.done(first.id);
+    requests.run('now make it darker');
+    expect(transport.last('llm.start')!.thread).toBe('th1');
+    expect(startText()).not.toMatch(/earlier request: “brighter”/);
+    expect(startText().endsWith('\n\nnow make it darker')).toBe(true);
   });
 });

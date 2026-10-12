@@ -16,6 +16,7 @@ import { controlsSource, templateFiles } from './template.ts';
 import { CHECK_FILE } from './pod-check.ts';
 import { PodUnavailable, keepEnd, type PodHost, type PodProcess, type PodRunResult } from './host.ts';
 import type { PodAccess } from '../ai/llm-workspace.ts';
+import { desktopProjectError } from './user-errors.ts';
 
 export type PodState = 'off' | 'unavailable' | 'booting' | 'syncing' | 'installing' | 'starting' | 'ready' | 'failed';
 export type PodWho = 'ai' | 'you' | 'den-kit';
@@ -23,6 +24,7 @@ export interface PodLogEntry { id: number; who: PodWho; command: string; output:
 export interface PodFactory {
   /** Which pod this is (null: none can be made; `reason` and `fix` say why). */
   kind: 'browserpod' | 'fake' | null;
+  audience?: 'desktop' | 'developer';
   /** Make the pod; `progress` says what it is doing (starting BrowserPod takes a while the first time). */
   create(progress?: (text: string) => void): Promise<PodHost>;
   reason?: string;
@@ -47,6 +49,7 @@ export interface PodTimings { bootMs?: number; syncMs?: number; installMs?: numb
 export const DEV_PORT = 5173;
 const COMMAND_TIMEOUT = 120_000;
 const MAX_COMMAND_TIMEOUT = 600_000;
+const FLUSH_TIMEOUT = 5000;
 const LOG_LIMIT = 200;
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** git with an identity and no signing (the pod has no config of its own). */
@@ -55,6 +58,9 @@ const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find .
 const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
 /** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
 const shown = (path: string) => path.startsWith('src/') || path.startsWith('public/') || path === 'index.html';
+class ProjectRetryFailed extends PodUnavailable {
+  constructor() { super('Project tools could not restart.', 'Close and reopen den-kit, then try again.'); }
+}
 
 export class PodSession {
   readonly state = ref<PodState>('off');
@@ -73,6 +79,7 @@ export class PodSession {
   readonly factory: PodFactory;
   private host: PodHost | null = null;
   private booting: Promise<PodHost> | null = null;
+  private retrying: Promise<PodHost> | null = null;
   /** The pod's files as den-kit last wrote or read them (path → text). */
   private known = new Map<string, string>();
   private installedFor: string | null = null;
@@ -97,29 +104,89 @@ export class PodSession {
   get available(): boolean { return !!this.factory.kind; }
   get kind() { return this.host?.kind ?? this.factory.kind; }
   get booted(): boolean { return !!this.host; }
+  get retryable(): boolean { return this.available && (this.state.value === 'failed' || this.state.value === 'unavailable') && !this.dev?.running; }
+
+  /** Flush an existing pod's disk before its renderer closes; never boot or wait on its command queue. */
+  async flush(): Promise<void> {
+    const host = this.host;
+    if (!host) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        host.run('sync', { cwd: host.home, timeoutMs: 2500 }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Project storage synchronization failed.')), FLUSH_TIMEOUT); }),
+      ]);
+      if (result.exitCode !== 0 || result.timedOut) throw new Error('Project storage synchronization failed.');
+    } catch { throw new Error('Project storage synchronization failed.'); }
+    finally { if (timer !== undefined) clearTimeout(timer); }
+  }
 
   /** The pod, booted and in step with the work (the template stands in when the work has no project yet). */
   ensure(): Promise<PodHost> {
     if (!this.factory.kind) return Promise.reject(new PodUnavailable(this.factory.reason ?? 'No pod.', this.factory.fix));
-    this.booting ??= this.boot().catch(error => {
-      this.booting = null;
-      this.set(this.host ? 'failed' : 'unavailable', error instanceof Error ? error.message : String(error), error instanceof PodUnavailable ? error.fix : this.fix.value);
-      throw error;
-    });
+    if (!this.booting) {
+      const attempt = this.boot().catch(error => {
+        if (this.booting === attempt) this.booting = null;
+        throw this.failed(error);
+      });
+      this.booting = attempt;
+    }
     return this.booting;
+  }
+
+  /** Explicit recovery: keep the pod and work, but replace the failed preview process. */
+  retry(): Promise<PodHost> {
+    if (!this.factory.kind) return this.ensure();
+    if (this.retrying) return this.retrying;
+    if (this.dev?.running) return Promise.reject(new ProjectRetryFailed());
+    const previous = this.booting;
+    const recovery = this.recover(previous).catch(error => {
+      // A still-running process must not be duplicated by a later ordinary ensure().
+      this.booting = this.host ? Promise.resolve(this.host) : null;
+      throw this.failed(error);
+    });
+    this.retrying = recovery.finally(() => { this.retrying = null; });
+    this.booting = this.retrying;
+    return this.retrying;
+  }
+
+  private async recover(previous: Promise<PodHost> | null): Promise<PodHost> {
+    await previous?.catch(() => undefined);
+    if (!this.host) return this.boot();
+    return this.enqueue(async () => {
+      const host = this.host!;
+      if (this.dev?.running) throw new ProjectRetryFailed();
+      await this.devStart;
+      if (this.dev?.running) throw new ProjectRetryFailed();
+      this.crashes = 0;
+      this.set('starting', 'Restarting project tools…');
+      this.portal.value = null;
+      this.dev = null;
+      await this.writeAll(false);
+      await this.install(true);
+      await this.restartDev();
+      this.stopWatch ??= watch(() => this.session.doc.value, () => this.scheduleSync());
+      return host;
+    });
+  }
+
+  private failed(error: unknown): unknown {
+    const reported = error instanceof ProjectRetryFailed ? error : this.factory.audience === 'desktop' ? desktopProjectError(error) : error;
+    this.set(this.host ? 'failed' : 'unavailable', reported instanceof Error ? reported.message : String(reported), reported instanceof PodUnavailable ? reported.fix : this.fix.value);
+    return reported;
   }
 
   private async boot(): Promise<PodHost> {
     const started = performance.now();
     if (!this.host) {
-      this.set('booting', this.factory.kind === 'browserpod' ? 'Starting the pod (BrowserPod)…' : 'Starting the pod…');
+      this.set('booting', 'Preparing project tools…');
       this.host = await this.factory.create(text => { if (this.state.value === 'booting') this.message.value = text; });
       this.projectDir = `${this.host.home}/work`;
       this.portalWatch = this.host.onPortal(p => { if (p.port === DEV_PORT) { this.portal.value = p.url; if (this.state.value === 'starting') this.set('ready', 'Ready.'); } });
       this.timings.value = { ...this.timings.value, bootMs: Math.round(performance.now() - started) };
     }
     const host = this.host;
-    this.set('syncing', 'Writing the project into the pod…');
+    this.set('syncing', 'Preparing project files…');
     const synced = performance.now();
     await this.writeAll(true);
     await this.system(`[ -d .git ] || (${GIT} init -q && ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null)`, 'git init');
@@ -285,11 +352,11 @@ export class PodSession {
     if (!first && pkg === this.installedFor) return;
     const started = performance.now();
     const ready = this.state.value === 'ready';
-    this.set('installing', 'Installing packages (npm install)…');
+    this.set('installing', 'Installing project dependencies…');
     const r = await this.system(`if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else npm install --no-audit --no-fund && cp package.json node_modules/.den-kit-package.json; fi`, 'npm install', 600_000);
     this.timings.value = { ...this.timings.value, installMs: Math.round(performance.now() - started) };
     if (r.exitCode !== 0) {
-      this.set('failed', `npm install failed${r.timedOut ? ' (it took too long)' : ''}.`, 'See Project ▸ Terminal for why; the AI (or you) can fix package.json.');
+      this.set('failed', `Project dependency installation failed${r.timedOut ? ' (it took too long)' : ''}.`, 'Check your internet connection, or ask the AI to check the project dependencies. The terminal has the error details.');
       throw new Error(`npm install failed:\n${r.output.slice(-2000)}`);
     }
     this.installedFor = pkg;
@@ -305,7 +372,7 @@ export class PodSession {
   private async startDev() {
     const host = this.host!;
     const started = performance.now();
-    this.set('starting', 'Starting the dev server (Vite)…');
+    this.set('starting', 'Starting the project preview…');
     this.portal.value = null;
     const env: Record<string, string> = { PORT: String(DEV_PORT) };
     // BrowserPod forwards the server through an https portal: the page's live-reload socket goes to port 443 there.
@@ -321,17 +388,18 @@ export class PodSession {
       if (this.dev !== dev || this.disposed) return;
       // It stopped by itself (a crash, a broken config, a command that killed it): start it again, but not forever.
       this.crashes = performance.now() - started < 15_000 ? this.crashes + 1 : 0;
-      if (this.crashes >= 3) { this.set('failed', 'The dev server keeps stopping.', 'See Project ▸ Terminal for its output; fix the project (or ask the AI) and run a command: den-kit starts it again then.'); return; }
-      this.set('starting', 'The dev server stopped; starting it again…');
+      if (this.crashes >= 3) { this.set('failed', 'The project preview keeps stopping.', 'Ask the AI to check the project, or inspect the terminal output. Run a command after fixing the project to start the preview again.'); return; }
+      this.set('starting', 'The project preview stopped; restarting…');
       void this.restartDev();
     });
     // Wait for its address (a portal); a pod takes a while on the first start.
     const deadline = Date.now() + 180_000;
     while (!this.portal.value && dev.running && Date.now() < deadline) await new Promise(r => setTimeout(r, 200));
+    if (this.dev !== dev || this.disposed) return;
     this.timings.value = { ...this.timings.value, devMs: Math.round(performance.now() - started) };
     if (this.portal.value) { this.set('ready', 'Ready.'); this.progress(entry, `\n(dev server at ${this.portal.value})\n`); }
-    else if (!dev.running) this.set('failed', 'The dev server stopped before it was ready.', 'See Project ▸ Terminal for its output.');
-    else this.set('failed', 'The dev server did not report an address in time.', 'See Project ▸ Terminal for its output.');
+    else if (!dev.running) this.set('failed', 'The project preview stopped before it was ready.', 'Ask the AI to check the project, or inspect the terminal output.');
+    else this.set('failed', 'The project preview did not become ready in time.', 'Close and reopen den-kit, then try again.');
   }
 
   /** Commit the project in the pod (one commit per AI request; nothing to commit is fine). */

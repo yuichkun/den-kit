@@ -1,4 +1,4 @@
-// お題 6 — ギター用のファズペダル。フットスイッチと LED を付けて。
+// Evaluation prompt 6 — A guitar fuzz pedal, with a footswitch and LED.
 // A guitar fuzz: tighten the lows, clip hard and lopsided (with anti-aliasing),
 // tone and level, true bypass on the footswitch. The screen is a painted
 // stompbox, built over its hand-drawn sketch (kept as the reference picture).

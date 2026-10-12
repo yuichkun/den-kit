@@ -1,4 +1,4 @@
-// お題 11 — 窓を打つ雨。雨粒をひとつ作り、それを重ねて雨にする。雨脚・粒の高さ・はね・風を手で動かす。
+// Evaluation prompt 11 — Rain hitting a window. Layer a single raindrop, with manual controls for intensity, drop pitch, splashes, and wind.
 // One raindrop is a part (Drop): a slow wobble ticks; at each tick one random
 // number decides whether a drop falls and another how high it rings; the drop
 // is a short burst of noise through a narrow band. The part runs ×16: each copy

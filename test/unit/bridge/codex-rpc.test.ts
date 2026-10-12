@@ -34,13 +34,13 @@ describe('RpcPeer', () => {
   it('reassembles lines split anywhere, including inside a UTF-8 character, and accepts CRLF', async () => {
     const { input, peer, notifications } = pair();
     void peer;
-    const line = Buffer.from('{"method":"item/agentMessage/delta","params":{"delta":"フィルターを揺らしました"}}\r\n');
-    const cut = line.indexOf(0xe3) + 1; // inside the first Japanese character
+    const line = Buffer.from('{"method":"item/agentMessage/delta","params":{"delta":"Filter wobble — café"}}\r\n');
+    const cut = line.indexOf(0xe2) + 1; // inside the three-byte em dash
     input.write(line.subarray(0, cut)); await tick();
     input.write(line.subarray(cut, cut + 7)); await tick();
     input.write(line.subarray(cut + 7));
     await tick();
-    expect(notifications).toEqual([{ method: 'item/agentMessage/delta', params: { delta: 'フィルターを揺らしました' } }]);
+    expect(notifications).toEqual([{ method: 'item/agentMessage/delta', params: { delta: 'Filter wobble — café' } }]);
   });
 
   it('skips blank and malformed lines and keeps going', async () => {
@@ -102,6 +102,26 @@ describe('RpcPeer', () => {
     await expect(peer.request('x')).rejects.toBeInstanceOf(RpcClosed);
     expect(closed).toHaveLength(1);
     peer.respond(1, {}); // dropped, no throw
+  });
+
+  it('ignores late notifications and server requests after the peer closes', async () => {
+    const { input, peer, notifications, requests } = pair();
+    peer.close('Connection replaced.');
+    input.write('{"method":"account/updated","params":{"authMode":"chatgpt"}}\n{"id":1,"method":"item/tool/call","params":{}}\n');
+    await tick();
+    expect(notifications).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it('stops dispatching a buffered batch when a notification closes the peer', () => {
+    const input = new PassThrough(), output = new PassThrough();
+    const notifications: string[] = [];
+    const peer = new RpcPeer(input, output, {
+      onRequest() {},
+      onNotification(notification) { notifications.push(notification.method); peer.close('Replaced.'); },
+    });
+    input.write('{"method":"first"}\n{"method":"account/updated"}\n');
+    expect(notifications).toEqual(['first']);
   });
 
   it('waits for drain under back-pressure and keeps the order', async () => {

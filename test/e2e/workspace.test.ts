@@ -2,7 +2,7 @@
 // goes by keyboard (request, stop, undo, back to the canvas), nothing ever asks
 // you to choose, the patch keys (⌘A, nudge, fit, zoom), the plugin view that
 // scales to its window (Patch ⇄ Plugin, Play ⇄ Edit, full screen) and the start
-// screen that appears only when asked for. Fake Jev and fake Codex only.
+// screen that appears only when asked for. Fake Codex only.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -13,8 +13,8 @@ const box = async (page: Page, selector: string) => (await page.locator(selector
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 const active = (page: Page) => page.evaluate(() => { const el = document.activeElement as HTMLElement | null; return el ? `${el.tagName.toLowerCase()}${el.dataset.testid ? `[${el.dataset.testid}]` : ''}` : ''; });
 async function settled(page: Page, text: string, timeout = 30000) {
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
-  return kit(page, k => k.fast.history.value.at(-1));
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
+  return kit(page, k => k.requests.history.value.at(-1));
 }
 /** Four knobs on the plugin (one transaction). */
 const KNOBS = `k => {
@@ -37,7 +37,7 @@ describe('the AI panel', () => {
       assert.ok(dock.width <= viewport.width * 0.37 + 1, 'gives way on a narrow window');
       // Requests and answers stay inside the panel, in readable type.
       await page.keyboard.press('Control+k');
-      await page.keyboard.type('リリース長く');
+      await page.keyboard.type('longer release');
       await page.keyboard.press('Enter');
       await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
       const line = await box(page, '[data-testid=ai-result]');
@@ -61,7 +61,7 @@ describe('the AI panel', () => {
     const release = await kit(page, k => k.doc.value.nodes.aenv1.values.release);
     await page.keyboard.press('Enter'); // Enter anywhere jumps to the prompt
     assert.equal(await active(page), 'textarea[ai-input]');
-    await page.keyboard.type('リリース長く');
+    await page.keyboard.type('longer release');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
     assert.equal(await active(page), 'textarea[ai-input]', 'ready for the next request');
@@ -75,12 +75,12 @@ describe('the AI panel', () => {
     await page.close();
   });
 
-  it('never a choice: what the fast path is not sure about goes to the LLM by itself; Esc stops it; no buttons to pick', async () => {
+  it('requests go to the LLM without choosing a route; Esc stops it; no buttons to pick', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     await page.keyboard.press('Control+k');
-    await page.keyboard.type('make it pop somehow'); // the default fake Jev is unsure
+    await page.keyboard.type('make it pop somehow');
     await page.keyboard.press('Enter');
     const line = await settled(page, 'make it pop somehow');
     assert.equal(line.route, 'llm', JSON.stringify(line));
@@ -113,16 +113,25 @@ describe('patch keys', () => {
     await page.keyboard.press('Control+a');
     assert.equal(await kit(page, k => k.selection.value.length), await kit(page, k => Object.keys(k.doc.value.nodes).length));
     const zoom = () => page.evaluate(() => Number(/scale\(([\d.]+)\)/.exec((document.querySelector('.vue-flow__transformationpane') as HTMLElement).style.transform)?.[1] ?? 1));
+    const waitZoom = (expected: number, tolerance = 0.00001) => page.waitForFunction(({ expected, tolerance }) => {
+      const pane = document.querySelector('.vue-flow__transformationpane') as HTMLElement;
+      const viewport = document.querySelector('.vue-flow__viewport') as HTMLElement & { __transition?: unknown };
+      const actual = Number(/scale\(([\d.]+)\)/.exec(pane.style.transform)?.[1] ?? 1);
+      // Vue Flow's d3 transition remains on the viewport until the animated
+      // zoom finishes. A second key before that can replace the first step.
+      return !viewport.__transition && Math.abs(actual - expected) < tolerance;
+    }, { expected, tolerance });
     const z0 = await zoom();
     await page.keyboard.press('Control+Equal');
-    await page.waitForTimeout(300);
+    await waitZoom(z0 * 1.2);
     assert.ok(await zoom() > z0);
     await page.keyboard.press('Control+Minus');
+    await waitZoom(z0);
     await page.keyboard.press('Control+Minus');
-    await page.waitForTimeout(300);
+    await waitZoom(z0 / 1.2);
     assert.ok(await zoom() < z0);
     await page.keyboard.press('Shift+Digit1');
-    await page.waitForTimeout(400);
+    await waitZoom(z0, 0.05);
     assert.ok(Math.abs(await zoom() - z0) < 0.05, 'fit brings the whole patch back');
     await page.keyboard.press('Escape');
     assert.equal(await kit(page, k => k.selection.value.length), 0);
@@ -231,9 +240,14 @@ describe('the start screen', () => {
     assert.equal(await kit(page, k => k.doc.value.revision), before);
     // Described in words: a new patch, and the request goes to the AI.
     await page.keyboard.press('Control+Alt+KeyN');
-    await page.keyboard.type('ベース作って');
+    await page.locator('[data-work]').first().hover();
+    assert.equal(await active(page), 'input[start-describe]');
+    const requestsBefore = h.codex!.sent('turn/start').length;
+    await page.keyboard.type('build a bass');
     await page.keyboard.press('Enter');
-    const line = await settled(page, 'ベース作って');
+    const line = await settled(page, 'build a bass');
+    assert.equal(line.route, 'llm');
+    assert.equal(h.codex!.sent('turn/start').length, requestsBefore + 1);
     assert.equal(line.status, 'applied', JSON.stringify(line));
     assert.ok(await kit(page, k => Object.values<any>(k.doc.value.nodes).some((n: any) => n.type === 'kit.voiceIn')));
     assert.ok(await page.isVisible('[data-testid=ai-dock]'));

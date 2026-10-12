@@ -130,9 +130,13 @@ describe('patch editor', () => {
     assert.equal((await waitCompiled(page)).status, 'ok');
     await page.click('[data-testid=view-plugin]');
     const widget = page.locator(`[data-widget="${knobId}"] dk-knob`);
-    await widget.waitFor();
+    // Drag the dial that handles pointerdown, after its shadow DOM is visible.
+    // The host also contains the label and value rows.
+    const dial = widget.locator('.dial');
+    await dial.waitFor({ state: 'visible' });
+    await dial.hover(); // waits for the scaled plugin layout and pointer target to settle
     const before = await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').values.value);
-    const box = (await widget.boundingBox())!;
+    const box = (await dial.boundingBox())!;
     await dragBetween(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, { x: box.x + box.width / 2, y: box.y - 40 });
     const after = await kit(page, k => Object.values<any>(k.doc.value.nodes).find((n: any) => n.type === 'ui.knob').values.value);
     assert.ok(after > before, `${before} → ${after}`);

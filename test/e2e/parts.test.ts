@@ -164,8 +164,8 @@ describe('parts', () => {
     assert.deepEqual(await kit(page, k => k.partPath.value), ['part1']);
     assert.deepEqual(await shown(page), ['partOut1']);
     // The request typed on the start screen was asked inside the part (no AI here: it says why, and nothing changes).
-    await page.waitForFunction(() => (window as any).__kit.fast.history.value.length > 0);
-    assert.deepEqual(await kit(page, k => k.fast.history.value[0].where), { path: ['part1'], part: 'part', name: 'Rain' });
+    await page.waitForFunction(() => (window as any).__kit.requests.history.value.length > 0);
+    assert.deepEqual(await kit(page, k => k.requests.history.value[0].where), { path: ['part1'], part: 'part', name: 'Rain' });
     assert.deepEqual(errors, []);
     await page.close();
   });

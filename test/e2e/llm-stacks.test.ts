@@ -13,8 +13,8 @@ async function ask(page: Page, text: string) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press('Shift+Enter');
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 120000 });
-  return kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, label: o.label }; });
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 120000 });
+  return kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label }; });
 }
 
 let h: Harness;
@@ -27,9 +27,9 @@ describe('copies with the LLM', () => {
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     const before = await snapshot(page);
-    const line = await ask(page, 'スーパーソーにして');
+    const line = await ask(page, 'make it a supersaw');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, 'ノコギリ波を7本重ねて、少しずつずらしました');
+    assert.equal(line.label, 'Layered seven saw waves and slightly detuned each one');
     const doc = await kit(page, k => k.doc.value);
     assert.equal(doc.nodes.osc1.count, 7);
     assert.deepEqual(doc.nodes.detune1.spread, { semitones: { kind: 'range', amount: 0.15 } });

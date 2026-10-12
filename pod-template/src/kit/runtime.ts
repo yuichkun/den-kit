@@ -117,6 +117,18 @@ export function boot(modules: Modules) {
   const audio: Audio = { level: 0, peak: 0, wave: new Float32Array(256), spectrum: new Float32Array(64) };
   const listeners = { props: new Set<(p: never) => void>(), look: new Set<(l: Record<string, string>) => void>(), size: new Set<(s: { width: number; height: number }) => void>(), mode: new Set<(m: 'play' | 'edit') => void>(), frame: new Set<(dt: number, t: number) => void>() };
   const watchers = new Map<string, Set<(v: ControlValue) => void>>();
+  const notify = (id: string, before: ControlValue | undefined, value: ControlValue) => {
+    if (JSON.stringify(before) === JSON.stringify(value)) return;
+    for (const listener of watchers.get(id) ?? []) {
+      try { listener(value); } catch (error) { post({ type: 'error', message: `on('${id}'): ${text(error)}` }); }
+    }
+  };
+  const move = (id: ControlId, value: ControlValue) => {
+    const before = values[id];
+    write(id, value);
+    // write() updates our local cache, so the host's later acknowledgment is not a new change.
+    notify(id, before, values[id]);
+  };
   const assets = new Map<string, Promise<string | null>>();
   const assetWaits = new Map<number, (url: string | null) => void>();
   let assetReqs = 0, lastT = 0, mounted = false, unmount: void | (() => void);
@@ -137,8 +149,8 @@ export function boot(modules: Modules) {
     value: <T extends ControlValue>(id: ControlId) => { known(id); return values[id] as T; },
     norm: (id: ControlId) => { known(id); return norms[id] ?? 0; },
     on: (id: ControlId, l) => { let set = watchers.get(id); if (!set) { set = new Set(); watchers.set(id, set); } set.add(l); return () => set!.delete(l); },
-    set: (id: ControlId, v: ControlValue) => write(id, v),
-    setNorm: (id: ControlId, n: number) => { known(id); const r = ranges[id]; const cur = values[id]; write(id, typeof cur === 'number' && r ? fromUnit(n, r) : typeof cur === 'boolean' ? n >= 0.5 : { x: n, y: (cur as { y: number }).y }); },
+    set: move,
+    setNorm: (id: ControlId, n: number) => { known(id); const r = ranges[id]; const cur = values[id]; move(id, typeof cur === 'number' && r ? fromUnit(n, r) : typeof cur === 'boolean' ? n >= 0.5 : { x: n, y: (cur as { y: number }).y }); },
     begin: () => { if (gesture) post({ type: 'end', gesture }); gesture = `drag-${++gestures}-${Date.now()}`; },
     end: () => { if (gesture) post({ type: 'end', gesture }); gesture = null; },
     audio,
@@ -194,7 +206,7 @@ export function boot(modules: Modules) {
           if (pending.has(id)) continue;
           const before = values[id];
           values[id] = v; norms[id] = f.norms[id] ?? 0;
-          if (JSON.stringify(before) !== JSON.stringify(v)) for (const l of watchers.get(id) ?? []) { try { l(v); } catch (error) { post({ type: 'error', message: `on('${id}'): ${text(error)}` }); } }
+          notify(id, before, v);
         }
         const dt = lastT ? Math.min(0.1, Math.max(0, f.t - lastT)) : 1 / 60;
         lastT = f.t;

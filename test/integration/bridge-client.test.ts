@@ -1,26 +1,22 @@
 // The browser's bridge client against the real bridge (Node `ws` stands in for
 // the browser WebSocket): it never throws, reconnects with backoff, survives a
-// bridge restart with a new token, and settles every request exactly once.
+// bridge restart with a new token, and forwards LLM messages to its listeners.
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
-import { BridgeClient, type SocketLike } from '../../src/ai/bridge-client.ts';
+import { BridgeClient, type LlmInbound, type SocketLike } from '../../src/ai/bridge-client.ts';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { JevClient } from '../../bridge/jev.ts';
-import { PROTOCOL_VERSION, WS_PATH } from '../../src/ai/protocol.ts';
-import { startFakeJev, type FakeJev } from '../fakes/jev/fake-jev.ts';
+import { PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../src/ai/protocol.ts';
 
 const ORIGIN = 'http://127.0.0.1:5180';
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()!(); });
 const until = async (fn: () => boolean, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('condition not met'); await new Promise(r => setTimeout(r, 10)); } };
 
-async function setup(options: { port?: number; token?: string; fake?: FakeJev } = {}) {
-  const fake = options.fake ?? await startFakeJev({ key: 'k' });
-  if (!options.fake) cleanup.push(() => fake.close());
-  const bridge = await createBridge({ port: options.port, token: options.token, origins: [ORIGIN], jev: new JevClient({ apiKey: 'k', baseUrl: fake.url }) });
+async function setup(options: { port?: number; token?: string } = {}) {
+  const bridge = await createBridge({ port: options.port, token: options.token, origins: [ORIGIN] });
   let closed = false;
   cleanup.push(async () => { if (!closed) await bridge.close(); });
-  return { fake, bridge, close: async () => { closed = true; await bridge.close(); } };
+  return { bridge, close: async () => { closed = true; await bridge.close(); } };
 }
 function client(bridge: Pick<Bridge, 'port' | 'token'>, extra: Partial<ConstructorParameters<typeof BridgeClient>[0]> = {}) {
   const c = new BridgeClient({
@@ -31,56 +27,51 @@ function client(bridge: Pick<Bridge, 'port' | 'token'>, extra: Partial<Construct
   cleanup.push(() => c.stop());
   return c;
 }
-const request = { state: 'x', questions: { route: { type: 'choice' as const, instructions: 'Route?', criteria: { a: 'A', b: 'B' } } } };
 
 describe('BridgeClient', () => {
-  it('without a token it is disabled and answers "off" immediately', async () => {
+  it('without a token it is disabled and cannot send an LLM request', async () => {
     const c = new BridgeClient({ token: null });
     c.start();
     expect(c.state.value).toBe('disabled');
     expect(c.detail.value).toMatch(/dev/);
-    const r = await c.askJev(request);
-    expect(!r.ok && r.error.kind).toBe('off');
+    expect(c.codexReady).toBe(false);
+    expect(c.llmStart('r', 'brighter', 'edit the patch')).toBe(false);
   });
 
-  it('connects, receives the status and round-trips Jev', async () => {
+  it('connects, receives Codex status and forwards an unavailable LLM result', async () => {
     const { bridge } = await setup();
     const c = client(bridge);
+    const inbound: LlmInbound[] = [];
+    c.onLlm(message => inbound.push(message));
     c.start();
     await until(() => c.online);
-    expect(c.status.value?.jev.state).toBe('unknown');
-    expect(c.jevReady).toBe(true);
-    const r = await c.askJev(request, { budgetMs: 1000 });
-    expect(r.ok).toBe(true);
-    await until(() => c.status.value?.jev.state === 'ok');
+    expect(c.status.value).toMatchObject({ codex: { state: 'off' } });
+    expect(Object.keys(c.status.value!)).toEqual(['codex']);
+    expect(c.codexReady).toBe(false);
+    expect(c.llmStart('r', 'brighter', 'edit the patch')).toBe(true);
+    await until(() => inbound.some(m => m.t === 'llm.event' && m.event.kind === 'done'));
+    expect(inbound.find(m => m.t === 'llm.event' && m.event.kind === 'done')).toMatchObject({ t: 'llm.event', id: 'r', event: { kind: 'done', status: 'failed', error: { code: 'off' } } });
   });
 
-  it('settles in-flight requests when the bridge goes away, then reconnects when it is back', async () => {
-    const fake = await startFakeJev({ key: 'k' });
-    cleanup.push(() => fake.close());
-    const first = await setup({ fake, token: 'fixed' });
+  it('reports a disconnected bridge, refuses offline sends and reconnects when it returns', async () => {
+    const first = await setup({ token: 'fixed' });
     const port = first.bridge.port;
     const c = client(first.bridge);
     c.start();
     await until(() => c.online);
-    fake.faults = [{ delayMs: 1000 }];
-    const pending = c.askJev(request, { budgetMs: 3000 });
-    await new Promise(r => setTimeout(r, 50));
     await first.close();
-    const r = await pending;
-    expect(!r.ok && r.error.kind).toBe('network');
     await until(() => c.state.value === 'offline');
-    expect((await c.askJev(request)).ok).toBe(false);
-    await setup({ fake, port, token: 'fixed' });
+    const sent = c.stats.sent;
+    expect(c.llmStart('offline', 'brighter', 'edit the patch')).toBe(false);
+    expect(c.stats.sent).toBe(sent);
+    await setup({ port, token: 'fixed' });
     await until(() => c.online, 5000);
-    fake.faults = [];
-    expect((await c.askJev(request)).ok).toBe(true);
+    expect(c.llmStart('back', 'brighter', 'edit the patch')).toBe(true);
+    expect(c.stats.connects).toBe(2);
   });
 
   it('picks up a new token after the bridge restarts with one', async () => {
-    const fake = await startFakeJev({ key: 'k' });
-    cleanup.push(() => fake.close());
-    const first = await setup({ fake, token: 'old' });
+    const first = await setup({ token: 'old' });
     const port = first.bridge.port;
     let served = 'old';
     const c = client(first.bridge, { fetchToken: async () => served });
@@ -89,7 +80,7 @@ describe('BridgeClient', () => {
     await first.close();
     await until(() => c.state.value === 'offline');
     served = 'new';
-    await setup({ fake, port, token: 'new' });
+    await setup({ port, token: 'new' });
     await until(() => c.online, 5000);
   });
 
@@ -123,24 +114,35 @@ describe('BridgeClient', () => {
     expect(c.stats.reconnects).toBeGreaterThan(1);
   });
 
-  it('cancellation and a silent bridge both settle the request exactly once', async () => {
-    // A server that welcomes and then ignores everything.
+  it('forwards LLM events, tool calls, and request errors once and removes unsubscribed listeners', async () => {
     const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
     cleanup.push(() => new Promise<void>(r => wss.close(() => r())));
-    wss.on('connection', ws => ws.on('message', () => ws.send(JSON.stringify({ t: 'welcome', protocol: PROTOCOL_VERSION, bridge: 'mute', status: { jev: { state: 'ok' }, codex: { state: 'off' } } }))));
+    const messages: ServerMessage[] = [
+      { t: 'llm.event', id: 'r', event: { kind: 'delta', text: 'working' } },
+      { t: 'tool.call', id: 'r', callId: 'call', tool: 'kit_get_patch', args: {} },
+      { t: 'error', ref: 'r', message: 'request failed' },
+    ];
+    wss.on('connection', ws => ws.on('message', raw => {
+      const incoming = JSON.parse(String(raw));
+      if (incoming.t === 'hello') ws.send(JSON.stringify({ t: 'welcome', protocol: PROTOCOL_VERSION, bridge: 'test', status: { codex: { state: 'ok' } } }));
+      else if (incoming.t === 'llm.start') for (const message of messages) ws.send(JSON.stringify(message));
+    }));
     await new Promise(r => wss.once('listening', r));
     const port = (wss.address() as { port: number }).port;
-    const c = client({ port, token: 't' }, { replyMarginMs: 50 });
+    const c = client({ port, token: 't' });
+    const inbound: LlmInbound[] = [];
+    const unsubscribe = c.onLlm(message => inbound.push(message));
     c.start();
     await until(() => c.online);
-    const controller = new AbortController();
-    const cancelled = c.askJev(request, { budgetMs: 5000, signal: controller.signal });
-    controller.abort();
-    expect(await cancelled).toMatchObject({ ok: false, error: { kind: 'cancelled' } });
-    const timedOut = await c.askJev(request, { budgetMs: 100 });
-    expect(!timedOut.ok && timedOut.error.kind).toBe('timeout');
-    const pre = new AbortController(); pre.abort();
-    expect(await c.askJev(request, { signal: pre.signal })).toMatchObject({ ok: false, error: { kind: 'cancelled' } });
+    expect(c.codexReady).toBe(true);
+    inbound.length = 0;
+    expect(c.llmStart('r', 'brighter', 'edit the patch')).toBe(true);
+    await until(() => inbound.length === messages.length);
+    expect(inbound).toEqual(messages);
+    unsubscribe();
+    expect(c.llmStart('r', 'brighter', 'edit the patch')).toBe(true);
+    await new Promise(r => setTimeout(r, 30));
+    expect(inbound).toEqual(messages);
   });
 
   it('forwards telemetry once online and drops it quietly while offline', async () => {

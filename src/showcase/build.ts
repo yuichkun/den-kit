@@ -1,5 +1,5 @@
 // Helpers for writing showcase works as ordinary den-kit edits: every work is a
-// list of intents (the same ops the editor, the fast path and the LLM use), so
+// list of intents (the same ops the editor and the LLM use), so
 // nothing a work shows is special code: a person could build it by hand.
 import type { Catalog } from '../core/catalog.ts';
 import { withLayout } from '../core/layout.ts';

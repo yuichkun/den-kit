@@ -17,6 +17,8 @@ import StartOverlay from './StartOverlay.vue';
 import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
+import DesktopSettings from './DesktopSettings.vue';
+import { desktop } from '../desktop/api.ts';
 
 const props = defineProps<{ session: KitSession; /** Nothing was saved yet: open on the start screen. */ firstRun?: boolean }>();
 const session = props.session;
@@ -37,6 +39,13 @@ const menu = ref(false);
 const name = ref(session.doc.value.name);
 watch(() => session.doc.value.name, n => { name.value = n; });
 const starting = ref(!!props.firstRun);
+const isDesktop = !!desktop();
+const settingsOpen = ref(false);
+const openSettings = () => { settingsOpen.value = true; };
+// Desktop account/settings changes restart the native server and invalidate its conversation ids.
+watch(() => session.bridge?.status.value?.codex.state, state => {
+  if (isDesktop && state === 'starting' && !session.llm?.running) session.llm?.reset();
+});
 
 // ---- the AI panel: a column on the right, never over the canvas ---------------------
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -140,11 +149,12 @@ function firstPodStart() {
   const pod = session.pod;
   if (!pod || pod.kind !== 'browserpod' || pod.booted) return;
   try { if (localStorage.getItem(POD_STARTED)) return; localStorage.setItem(POD_STARTED, String(Date.now())); } catch { return; }
-  session.toast('info', 'Starting the pod (BrowserPod) for the first time in this browser: about two minutes. Project shows each step.');
+  session.toast('info', 'Preparing project tools. The first setup may take a few minutes.');
   void pod.ensure().catch(() => undefined);
 }
 watch(() => session.engineState.value, s => { if (s === 'running') firstPodStart(); });
 onMounted(() => {
+  window.addEventListener('den-kit:open-settings', openSettings);
   window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
@@ -152,7 +162,7 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', fullscreenChange);
   window.addEventListener('resize', onResize);
 });
-onBeforeUnmount(() => { window.removeEventListener('storage', storageChanged); window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
+onBeforeUnmount(() => { window.removeEventListener('den-kit:open-settings', openSettings); window.removeEventListener('storage', storageChanged); window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
 function rename() { session.commit([{ op: 'setName', name: name.value }]); }
 function openNew() { menu.value = false; starting.value = true; }
 function started(asked: boolean) { starting.value = false; view.value = 'patch'; if (asked) aiOpen.value = true; }
@@ -189,13 +199,14 @@ async function importPatch(e: Event) {
         <button :class="{ active: view === 'patch' }" data-testid="view-patch" title="Patch (⌥⌘E switches)" @click="view = 'patch'">Patch</button>
         <button :class="{ active: view === 'plugin' }" data-testid="view-plugin" title="Plugin (⌥⌘E switches)" @click="view = 'plugin'">Plugin</button>
         <button :class="{ active: view === 'code' }" data-testid="view-code" @click="view = 'code'">Code</button>
-        <button v-if="session.pod" :class="{ active: view === 'project' }" data-testid="view-project" title="The screen project and its pod (bash, git, Node, npm)" @click="view = 'project'">Project <i class="pod-dot" :class="session.pod.state.value" /></button>
+        <button v-if="session.pod" :class="{ active: view === 'project' }" data-testid="view-project" title="Project files and tools for custom screen parts" @click="view = 'project'">Project <i class="pod-dot" :class="session.pod.state.value" /></button>
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
-      <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated share of one CPU core (measured on a cloud machine; a recent Mac is usually faster). The inspector shows each module's share.">{{ load.text }}</span>
+      <button v-if="isDesktop" data-testid="desktop-settings-open" title="Settings (⌘,)" @click="settingsOpen = true">Settings</button>
+      <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated CPU load. Actual performance depends on your computer. The inspector shows each module's estimate.">{{ load.text }}</span>
       <span class="status" :class="status.cls" data-testid="compile-status" :title="status.title">{{ status.text }}</span>
-      <button v-if="!aiOpen && session.fast" class="ai-toggle" data-testid="ai-open" title="Show the AI panel (⌘J)" @click="aiOpen = true">✦ AI <span class="kbd-hint">⌘J</span></button>
+      <button v-if="!aiOpen && session.requests" class="ai-toggle" data-testid="ai-open" title="Show the AI panel (⌘J)" @click="aiOpen = true">✦ AI <span class="kbd-hint">⌘J</span></button>
     </div>
     <div class="body">
       <div class="left">
@@ -216,15 +227,16 @@ async function importPatch(e: Event) {
         </div>
         <div v-show="!focusMode" class="bottom"><KeyboardBar /></div>
       </div>
-      <div v-if="session.fast" v-show="aiOpen" class="ai-dock" data-testid="ai-dock" :style="{ width: `${dockWidth}px` }">
+      <div v-if="session.requests" v-show="aiOpen" class="ai-dock" data-testid="ai-dock" :style="{ width: `${dockWidth}px` }">
         <div class="resizer" title="Drag to resize" @pointerdown="resizeAi" />
-        <AiPanel ref="ai" :fast="session.fast" :llm="session.llm" :view="view" @request="aiOpen = true" @leave="backToCanvas" @close="aiOpen = false" @show-plugin="view = 'plugin'" />
+        <AiPanel ref="ai" :requests="session.requests" :llm="session.llm" :view="view" @request="aiOpen = true" @leave="backToCanvas" @close="aiOpen = false" @show-plugin="view = 'plugin'" />
       </div>
     </div>
     <CodeboxEditor v-if="editing && session.doc.value.nodes[editing]" :id="editing" @close="editing = null" />
+    <DesktopSettings v-if="settingsOpen" @close="settingsOpen = false" />
     <CanvasEditor v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]" :id="editingCanvas" @close="editingCanvas = null" />
     <div class="toasts"><div v-for="t in session.toasts.value" :key="t.id" class="toast" :class="t.kind" data-testid="toast">{{ t.text }}</div></div>
     <StartOverlay v-if="!starting" />
-    <StartScreen v-if="starting" @close="started" />
+    <StartScreen v-if="starting" @close="started" @settings="openSettings" />
   </div>
 </template>

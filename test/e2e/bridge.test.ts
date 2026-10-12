@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 import { createBridge } from '../../bridge/server.ts';
-import { JevClient } from '../../bridge/jev.ts';
 
 type K = { __kit: any };
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
@@ -15,17 +14,22 @@ const waitBridge = (page: Page, state: string, timeout = 15000) => page.waitForF
 
 describe('AI bridge in the browser', () => {
   let h: Harness;
-  before(async () => { h = await startHarness(); });
+  before(async () => { h = await startHarness({ codex: true }); });
   after(async () => { await h?.close(); });
 
-  it('connects through the dev server, shows Jev ready, and round-trips a request', async () => {
+  it('connects through the dev server, shows AI ready, and sends even a short edit to Codex', async () => {
     const { page, errors } = await openKit(h);
     await waitBridge(page, 'online');
-    await page.waitForSelector('[data-testid=ai-status-jev]');
-    const result = await kit(page, k => k.bridge.askJev({ state: 'e2e', questions: { ok: { type: 'noul', instructions: 'Is this a test?' } } }, { budgetMs: 2000 }));
-    assert.equal(result.ok, true, JSON.stringify(result));
-    await page.waitForFunction(() => /Jev \d+ ms/.test(document.querySelector('[data-testid=ai-status-jev]')?.textContent ?? ''));
-    assert.equal(h.jev!.requests.at(-1)!.auth, 'Bearer e2e-key');
+    await page.waitForFunction(() => (window as unknown as K).__kit.bridge.codexReady);
+    assert.match(await page.textContent('[data-testid=ai-status-codex]') ?? '', /● AI$/);
+    assert.equal(await page.locator('[data-testid=ai-status-jev]').count(), 0);
+    const sent = h.codex!.sent('turn/start').length;
+    await page.fill('[data-testid=ai-input]', 'brighter');
+    await page.press('[data-testid=ai-input]', 'Enter');
+    await page.waitForFunction(() => (window as unknown as K).__kit.requests.history.value.at(-1)?.status === 'applied');
+    assert.equal(h.codex!.sent('turn/start').length, sent + 1);
+    assert.equal(await kit(page, k => k.requests.history.value.at(-1).route), 'llm');
+    assert.equal(await kit(page, k => k.doc.value.nodes.cut1.values.hz), 2400);
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -42,9 +46,12 @@ describe('AI bridge in the browser', () => {
     const edit = await kit(page, k => k.commit([{ op: 'setConfig', node: 'osc1', key: 'waveform', value: 'sine' }]));
     assert.equal(edit.ok, true, JSON.stringify(edit));
     assert.equal((await waitCompiled(page)).status, 'ok');
-    const offline = await kit(page, k => k.bridge.askJev({ state: '', questions: { a: { type: 'noul', instructions: 'x' } } }));
-    assert.equal(offline.ok, false);
-    h.bridge = await createBridge({ port, origins: [new URL(h.url).origin], jev: new JevClient({ apiKey: 'e2e-key', baseUrl: h.jev!.url }) });
+    const before = await kit(page, k => JSON.stringify(k.doc.value));
+    const offline = await kit(page, k => k.requests.run('brighter'));
+    assert.equal(offline.status, 'failed');
+    assert.equal(offline.route, 'llm');
+    assert.equal(await kit(page, k => JSON.stringify(k.doc.value)), before);
+    h.bridge = await createBridge({ port, origins: [new URL(h.url).origin] });
     await waitBridge(page, 'online', 30000);
     assert.notEqual(await kit(page, k => (k.bridge as any).token), process.env.KIT_BRIDGE_TOKEN);
     assert.deepEqual(errors.filter(e => !/WebSocket|ERR_CONNECTION_REFUSED|502|Failed to load resource/.test(e)), []);

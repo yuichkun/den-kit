@@ -1,4 +1,4 @@
-// お題 4 — 子どもが叩いて遊べる打楽器。カラフルで大きいパッドを 8 つ。
+// Evaluation prompt 4 — A percussion instrument for children to play, with eight large, colorful pads.
 // Pitched toy drums (a sine with a pitch drop plus a little filtered noise),
 // eight big pads on a pentatonic scale, a bright drawn screen. The hand-drawn
 // layout sketch it was built from is kept as the reference picture.

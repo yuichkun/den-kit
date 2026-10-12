@@ -17,8 +17,8 @@ async function ask(page: Page, text: string, timeout = 300000) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press('Shift+Enter');
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout });
-  return kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, message: o.message }; });
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout });
+  return kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, message: o.message }; });
 }
 async function partFrame(page: Page, part: string, timeout = 60000): Promise<Frame> {
   const end = Date.now() + timeout;
@@ -40,9 +40,9 @@ describe('the pod: a free environment for the AI', () => {
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     const before = await snapshot(page);
-    const line = await ask(page, 'コード部品を作って');
+    const line = await ask(page, 'make a code part');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, 'コード部品「meter」を作ってプラグインに置きました', JSON.stringify(line));
+    assert.equal(line.label, 'Created a meter code part and placed it on the plugin', JSON.stringify(line));
     assert.ok(line.steps.some((s: string) => /^ran `npm run check && npm run lint`$/.test(s)), line.steps.join(' | '));
     // What the command changed is said once: the files kept in the work.
     assert.ok(line.steps.some((s: string) => /^ran `mkdir -p src\/parts && cat > src\/parts\/meter\.ts …` · kept \d+ files in the work ✓$/.test(s)), line.steps.join(' | '));
@@ -60,7 +60,7 @@ describe('the pod: a free environment for the AI', () => {
     // The pod's git has the request as a commit.
     await page.waitForFunction(() => (window as any).__kit.pod.log.value.length > 0);
     const gitLog = await kit(page, async k => (await k.pod.bash('git log --oneline', { who: 'den-kit' })).output);
-    assert.match(gitLog, /den-kit AI: コード部品「meter」を作ってプラグインに置きました/);
+    assert.match(gitLog, /den-kit AI: Created a meter code part and placed it on the plugin/);
 
     // On the plugin: the part's page from the pod's dev server, drawing the knob.
     await page.click('[data-testid=ai-show-plugin]');
@@ -93,13 +93,64 @@ describe('the pod: a free environment for the AI', () => {
     await page.close();
   });
 
+  it('a code part notifies its subscribers for external moves, its own set and setNorm, without repeating the host acknowledgment', { timeout: 120000 }, async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    const created = await kit(page, k => {
+      const files = Object.fromEntries(k.pod.wanted());
+      delete files['src/kit/controls.ts'];
+      const result = k.commit([
+      { op: 'addNode', node: { id: 'watchknob', type: 'ui.knob', config: { min: 0, max: 100, scale: 'linear' }, values: { value: 10 } } },
+      { op: 'setProjectFiles', files: { ...files, 'src/parts/subscribed.ts': `import { part } from '../kit';
+export default part({ mount(root, kit) {
+  const display = root.appendChild(document.createElement('output'));
+  display.id = 'subscribed-value';
+  let calls = 0;
+  const update = () => { display.textContent = String(kit.value('watchknob')); display.dataset.norm = String(kit.norm('watchknob')); display.dataset.calls = String(++calls); };
+  update();
+  const stop = kit.on('watchknob', update);
+  const set = root.appendChild(document.createElement('button')); set.id = 'self-set'; set.textContent = 'set'; set.onclick = () => kit.set('watchknob', 120);
+  const norm = root.appendChild(document.createElement('button')); norm.id = 'self-norm'; norm.textContent = 'norm'; norm.onclick = () => kit.setNorm('watchknob', 0.5);
+  return stop;
+} });\n` } },
+      { op: 'addElement', element: { id: 'subscribe1', kind: 'code', part: 'subscribed', rect: { x: 20, y: 20, w: 240, h: 100 }, props: {} } },
+      ]);
+      return { ok: result.ok, error: result.error?.message };
+    });
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    await page.click('[data-testid=view-plugin]');
+    await page.waitForSelector('[data-element=subscribe1] [data-code-state=ready]', { timeout: 60000 });
+    const f = await partFrame(page, 'subscribed');
+    const displayed = async (value: number, norm: number, calls: number) => {
+      await f.waitForFunction(v => document.getElementById('subscribed-value')?.textContent === String(v), value, { timeout: 5000 });
+      assert.equal(await f.locator('#subscribed-value').getAttribute('data-norm'), String(norm));
+      assert.equal(await f.locator('#subscribed-value').getAttribute('data-calls'), String(calls));
+    };
+    await displayed(10, 0.1, 1);
+    await kit(page, k => k.commit([{ op: 'setValue', node: 'watchknob', port: 'value', value: 30 }]));
+    await displayed(30, 0.3, 2);
+    await f.click('#self-set');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.watchknob.values.value === 100);
+    await displayed(100, 1, 3);
+    await f.click('#self-set');
+    await page.waitForTimeout(300);
+    await displayed(100, 1, 3);
+    await f.click('#self-norm');
+    await page.waitForFunction(() => (window as any).__kit.doc.value.nodes.watchknob.values.value === 50);
+    await displayed(50, 0.5, 4);
+    await page.waitForTimeout(300);
+    await displayed(50, 0.5, 4);
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
   it('a broken part: the plugin shows its error, the AI sees it in kit_look, fixes the file, and the part runs', { timeout: 300000 }, async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
-    const line = await ask(page, '壊れた部品を直して');
+    const line = await ask(page, 'fix the broken part');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, '壊れた部品を直しました', JSON.stringify(line));
+    assert.equal(line.label, 'Fixed the broken part', JSON.stringify(line));
     const looks = h.codex!.replies().filter(r => /Looked at the plugin/.test(JSON.stringify(r))).map(r => JSON.stringify(r));
     assert.match(looks.at(-2)!, /The code part oops1 fails: mount: Error: oops: the canvas is missing/);
     assert.doesNotMatch(looks.at(-1)!, /oops1 fails/);
@@ -170,7 +221,10 @@ describe('the Project view', () => {
     assert.equal(await page.locator('[data-testid=project-view] .paint span').count(), 0);
     await page.click('[data-file="src/main.ts"]');
     await page.waitForSelector('[data-testid=project-view] .paint .hljs-keyword');
-    // The pod check: every step, timed.
+    // Diagnostics stay out of the ordinary workspace; expand them to run every check.
+    assert.equal(await page.locator('[data-testid=project-diagnostics]').getAttribute('open'), null);
+    assert.equal(await page.locator('[data-testid=pod-check]').isVisible(), false);
+    await page.locator('[data-testid=project-diagnostics] summary').click();
     await page.click('[data-testid=pod-check]');
     await page.waitForFunction(() => !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') && document.querySelectorAll('[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped').length === 9, null, { timeout: 300000 });
     const steps = await page.$$eval('[data-testid=pod-check-panel] .step', els => els.map(e => `${(e as HTMLElement).dataset.step}:${e.className.replace('step ', '')}`));
@@ -195,7 +249,11 @@ describe('without a pod (no BrowserPod key)', () => {
     await kit(page, k => k.commit([{ op: 'setProjectFiles', files: { 'src/parts/x.ts': 'export default 1;' } }, { op: 'addElement', element: { id: 'code1', kind: 'code', part: 'x', rect: { x: 10, y: 10, w: 200, h: 100 }, props: {} } }], { label: 'add' }));
     await page.click('[data-testid=view-plugin]');
     await page.waitForSelector('[data-element=code1] [data-code-state=off]');
-    assert.match(await page.locator('[data-element=code1] [data-testid=code-status]').innerText(), /no pod .*no API key/);
+    assert.match(await page.locator('[data-element=code1] [data-testid=code-status]').innerText(), /Code part "x": no pod .*Project tools are not configured/);
+    // Browser developers get setup instructions in Project rather than in each code-part frame.
+    await page.click('[data-testid=view-project]');
+    assert.match(await page.locator('[data-testid=pod-fix]').innerText(), /BROWSERPOD_API_KEY=.*\.env.*restart `npm run dev`/s);
+    assert.equal((await waitCompiled(page)).status, 'ok');
     assert.deepEqual(errors, []);
     await page.close();
   });

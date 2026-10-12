@@ -1,10 +1,10 @@
 // The LLM path in the browser against a scripted bridge: edits land on the live
 // patch step by step and undo together, the user's edits in between stay their
 // own, steer/stop, questions answered for nobody, edits that do not compile,
-// lost requests, and the hand-off from the fast path.
+// lost requests, and short prompts using the same LLM path.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { shallowRef } from 'vue';
-import { FastPath, type Outcome } from '../../../src/ai/fast-path.ts';
+import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
 import type { BridgeStatus, LlmEvent, ToolOutput } from '../../../src/ai/protocol.ts';
@@ -12,12 +12,11 @@ import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { analyse } from '../../../src/core/analysis.ts';
 import { clone } from '../../../src/core/schema.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
-import { testSession, stubBridge } from '../../helpers/fake-bridge.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
+import { testSession } from '../../helpers/test-session.ts';
 
 class FakeTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({ jev: { state: 'ok' }, codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' } });
+  readonly status = shallowRef<BridgeStatus>({ codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' } });
   sent: Array<Record<string, unknown>> = [];
   results: Array<{ id: string; callId: string; output: ToolOutput }> = [];
   telemetryRecords: Array<Record<string, unknown>> = [];
@@ -59,16 +58,15 @@ const WOBBLE = { ops: [
   { op: 'connect', from: { node: 'sum2', port: 'out' }, to: { node: 'cut1', port: 'octaves' }, replace: true },
 ] };
 
-let session: KitSession, fast: FastPath, t: FakeTransport, llm: LlmController;
+let session: KitSession, requests: AiRequests, t: FakeTransport, llm: LlmController;
 let compileResult: Awaited<ReturnType<WorkspaceDeps['compile']>>;
 function setup(options: { stopGraceMs?: number } = {}) {
   session = testSession();
   session.loadStarter('bass');
-  session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-  fast = new FastPath(session);
+  requests = new AiRequests(session);
   t = new FakeTransport();
   compileResult = { ok: true, ms: 300 };
-  llm = new LlmController(session, fast, t as unknown as LlmTransport, {
+  llm = new LlmController(session, requests, t as unknown as LlmTransport, {
     stopGraceMs: options.stopGraceMs,
     deps: {
       compile: async () => compileResult,
@@ -78,12 +76,26 @@ function setup(options: { stopGraceMs?: number } = {}) {
   session.llm = llm;
 }
 beforeEach(() => setup());
-const line = (id: string) => fast.history.value.find(o => o.id === id)!;
+const line = (id: string) => requests.history.value.find(o => o.id === id)!;
 /** The patch's content, independent of key order (undo re-adds a removed cable at the end). */
 const snapshot = () => { const d = clone(session.doc.value); const sort = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b))); return JSON.stringify({ ...d, revision: 0, nodes: sort(d.nodes), edges: sort(d.edges) }); };
 const startId = () => String(t.last('llm.start')!.id);
 
 describe('a request', () => {
+  it('replaces reconnecting progress when output resumes and clears loading after a failed connection', () => {
+    const o = llm.run('make a sequencer');
+    t.event(o.id, { kind: 'retrying', message: 'Connection refused' });
+    expect(line(o.id)).toMatchObject({ live: true, activity: expect.stringMatching(/reconnecting/) });
+    t.event(o.id, { kind: 'delta', text: 'Working on the sequencer.' });
+    expect(line(o.id)).toMatchObject({ activity: 'responding…', reply: 'Working on the sequencer.' });
+    t.done(o.id, 'failed', { code: 'connection-timeout', message: 'ChatGPT could not reconnect.' });
+    expect(line(o.id)).toMatchObject({ live: false, status: 'failed' });
+    expect(llm.busy.value).toBe(false);
+    const again = llm.run('try again');
+    expect(t.last('llm.start')!.id).toBe(again.id);
+    t.done(again.id);
+  });
+
   it('lands on the live patch step by step; one ⌘Z takes the whole request back', async () => {
     const before = snapshot();
     const undoSteps = session.history.size;
@@ -274,30 +286,46 @@ describe('when something does not work', () => {
   });
 });
 
-describe('hand-off from the fast path', () => {
-  it('code, wiring and explanations go to the LLM', async () => {
-    const o: Outcome = await fast.run('write a granular codebox');
+describe('the prompt sends every request to the LLM', () => {
+  it.each(['write a granular codebox', 'brighter', 'longer release', 'undo that', 'more', 'make it a part', 'layer eight copies'])('%s waits for the LLM instead of editing locally', text => {
+    const before = snapshot();
+    const undoSteps = session.history.size;
+    const o: Outcome = requests.run(text);
     expect(o).toMatchObject({ route: 'llm', status: 'thinking' });
-    expect(t.last('llm.start')!.text).toMatch(/write a granular codebox$/);
+    expect(String(t.last('llm.start')!.text).endsWith(`\n\n${text}`)).toBe(true);
+    expect(snapshot()).toBe(before);
+    expect(session.history.size).toBe(undoSteps);
   });
 
-  it('what the fast path does not understand goes to the LLM (Jev off here)', async () => {
-    const o = await fast.run('make it sound like a spaceship landing');
-    expect(o.route).toBe('llm');
-  });
-
-  it('plain knob requests stay on the fast path and apply at once, even while the LLM works', async () => {
-    const busy = llm.run('slow please');
-    const o = await fast.run('リリース長く');
-    expect(o).toMatchObject({ status: 'applied', route: 'lexicon' });
-    expect(t.sent.filter(m => m.t === 'llm.steer')).toEqual([]);
+  it('a short request while the LLM works steers the running request and preserves the patch', () => {
+    const before = snapshot();
+    const busy = requests.run('slow please');
+    const added = requests.run('longer release');
+    expect(added).toMatchObject({ status: 'thinking', route: 'llm' });
+    expect(t.last('llm.steer')).toMatchObject({ id: added.id, target: busy.id, text: expect.stringMatching(/longer release$/) });
+    t.event(added.id, { kind: 'steered', target: busy.id });
+    expect(line(added.id)).toMatchObject({ status: 'merged', route: 'llm' });
     expect(line(busy.id).status).toBe('thinking');
+    expect(snapshot()).toBe(before);
   });
 
-  it('without the LLM the line says why, in one line and with nothing to pick', async () => {
-    t.status.value = { ...t.status.value, codex: { state: 'error', detail: 'Codex stopped unexpectedly.', fix: 'Run `npm run doctor`.' } };
-    const o = await fast.run('write a granular codebox');
-    expect(o).toMatchObject({ status: 'nothing', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*doctor/) });
-    expect(Object.keys(o)).not.toContain('chips');
+  it('an unavailable LLM explains the failure without interpreting the phrase or changing the patch', () => {
+    t.status.value = { codex: { state: 'error', detail: 'Codex stopped unexpectedly.', fix: 'Run `npm run doctor`.' } };
+    const before = snapshot();
+    const undoSteps = session.history.size;
+    const o = requests.run('brighter');
+    expect(o).toMatchObject({ status: 'failed', route: 'llm', message: expect.stringMatching(/not available: Codex stopped unexpectedly.*doctor/) });
+    expect(t.sent).toEqual([]);
+    expect(snapshot()).toBe(before);
+    expect(session.history.size).toBe(undoSteps);
+  });
+
+  it('a missing LLM controller fails without changing the patch; blank input sends no request', () => {
+    session.llm = null;
+    const before = snapshot();
+    expect(requests.run('undo that')).toMatchObject({ status: 'failed', route: 'llm', message: expect.stringMatching(/Connect ChatGPT/) });
+    expect(requests.run('  ')).toMatchObject({ status: 'nothing', route: 'none', text: '' });
+    expect(t.sent).toEqual([]);
+    expect(snapshot()).toBe(before);
   });
 });

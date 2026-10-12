@@ -10,7 +10,7 @@
 //
 // Environment:
 //   CODEX_HOME            must exist (like the real CLI); auth.json there = signed in
-//   FAKE_CODEX_AUTH       chatgpt | none (overrides auth.json)
+//   FAKE_CODEX_AUTH       chatgpt | apiKey | none | no-auth (overrides auth.json)
 //   FAKE_CODEX_LOG        JSONL file: every message received, every violation
 //   FAKE_CODEX_SCENARIOS  scenario module path
 //   FAKE_CODEX_FAULT      crash-on-start | hang-initialize | garbage | exit-after-init
@@ -18,7 +18,9 @@
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
 //   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+//   FAKE_CODEX_LOGIN      success | completed-only | completed-before-save | updated-first | file-first | silent | early-completion | failure | crash | hang-start
+//   FAKE_CODEX_CONFIRM    hang | error | delay: account confirmation after OAuth succeeds
+import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -63,7 +65,9 @@ const home = env.CODEX_HOME;
 const logFile = env.FAKE_CODEX_LOG;
 const log = (record: Record<string, unknown>) => { if (logFile) try { appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), ...record })}\n`); } catch { /* ignore */ } };
 const violation = (message: string, data?: unknown) => { log({ violation: message, data }); process.stderr.write(`fake-codex VIOLATION: ${message}\n`); };
-const signedIn = () => env.FAKE_CODEX_AUTH ? env.FAKE_CODEX_AUTH === 'chatgpt' : !!home && existsSync(join(home, 'auth.json'));
+let chatGPTLoginCompleted = false;
+let confirmationFailed = false;
+const signedIn = () => (env.FAKE_CODEX_AUTH === 'no-auth' && chatGPTLoginCompleted) || (env.FAKE_CODEX_AUTH ? ['chatgpt', 'apiKey'].includes(env.FAKE_CODEX_AUTH) : !!home && existsSync(join(home, 'auth.json')));
 
 // ---- CLI ---------------------------------------------------------------------------------------
 if (home && !existsSync(home)) {
@@ -72,7 +76,7 @@ if (home && !existsSync(home)) {
 }
 if (args[0] === '--version') { process.stdout.write('codex-cli 0.160.1\n'); process.exit(0); }
 if (args[0] === 'login' && args[1] === 'status') {
-  if (signedIn()) { process.stdout.write('Logged in using ChatGPT\n'); process.exit(0); }
+  if (signedIn()) { process.stdout.write(env.FAKE_CODEX_AUTH === 'apiKey' ? 'Logged in using an API key\n' : 'Logged in using ChatGPT\n'); process.exit(0); }
   process.stdout.write('Not logged in\n'); process.exit(1);
 }
 if (args[0] === 'login') {
@@ -106,6 +110,7 @@ const refuse = (id: unknown, message: string) => write({ error: { code: -32600, 
 if (env.FAKE_CODEX_FAULT === 'garbage') { process.stdout.write('this is not json\n{"half": \n\n[1,2,3]\n'); }
 
 let initialized = false, sawInitialized = false;
+let login: { id: string; timer?: ReturnType<typeof setTimeout> } | null = null;
 let serial = 0;
 const pending = new Map<string | number, { resolve: (v: unknown) => void; method: string; turn: TurnState | null }>();
 /** Requests the fake resolved itself (turn ended): a reply crossing that on the wire is a benign race. */
@@ -302,8 +307,72 @@ async function handle(message: Record<string, unknown>) {
   }
   if (!initialized || !sawInitialized) { refuse(id, 'Not initialized'); return; }
   switch (method) {
-    case 'account/read': respond(id, signedIn() ? { account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' }, requiresOpenaiAuth: true, workspaceRouting: null } : { account: null, requiresOpenaiAuth: true, workspaceRouting: null }); return;
-    case 'model/list': respond(id, { data: MODELS, nextCursor: null }); return;
+    case 'account/read': {
+      if (login && !chatGPTLoginCompleted && env.FAKE_CODEX_PRELOGIN_READ_FAILURE === '1') { refuse(id, 'Temporary account read failure'); return; }
+      if (login && !chatGPTLoginCompleted && env.FAKE_CODEX_PRELOGIN_READ_FAILURE === 'late') { setTimeout(() => refuse(id, 'Delayed pre-completion read failure'), 200); return; }
+      const account = env.FAKE_CODEX_AUTH === 'apiKey' ? { type: 'apiKey' } : signedIn() ? { type: 'chatgpt', email: 'user@example.com', planType: 'plus' } : null;
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'hang') return;
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error') { refuse(id, 'Account confirmation failed'); return; }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'error-once' && !confirmationFailed) {
+        confirmationFailed = true;
+        refuse(id, 'Account confirmation failed');
+        setTimeout(() => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' }), 120);
+        return;
+      }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM?.startsWith('overlap-') && !confirmationFailed) {
+        confirmationFailed = true;
+        setTimeout(() => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' }), 40);
+        setTimeout(() => refuse(id, 'Delayed confirmation failure'), 120);
+        return;
+      }
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'overlap-error') { refuse(id, 'Account confirmation failed again'); return; }
+      const reply = () => respond(id, { account, requiresOpenaiAuth: env.FAKE_CODEX_AUTH !== 'no-auth', workspaceRouting: null });
+      if (chatGPTLoginCompleted && env.FAKE_CODEX_CONFIRM === 'delay') setTimeout(reply, 150);
+      else reply();
+      return;
+    }
+    case 'account/login/start': {
+      if (params.type !== 'chatgpt') { violation('den-kit must sign in with ChatGPT, not an API key', params); refuse(id, 'unsupported login'); return; }
+      const loginId = randomUUID();
+      login = { id: loginId };
+      if (env.FAKE_CODEX_LOGIN === 'hang-start') return;
+      const completed = () => notify('account/login/completed', { loginId, success: true, error: null });
+      const updated = () => notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
+      const persist = () => { writeFileSync(join(home!, 'auth.json'), '{"fake":true}'); chatGPTLoginCompleted = true; };
+      if (env.FAKE_CODEX_LOGIN === 'early-completion') { persist(); completed(); }
+      respond(id, { type: 'chatgpt', loginId, authUrl: `https://auth.openai.com/oauth/authorize?state=${loginId}` });
+      if (env.FAKE_CODEX_LOGIN && env.FAKE_CODEX_LOGIN !== 'early-completion') login.timer = setTimeout(() => {
+        if (login?.id !== loginId) return;
+        if (env.FAKE_CODEX_LOGIN === 'crash') { process.exit(6); }
+        if (env.FAKE_CODEX_LOGIN === 'failure') { notify('account/login/completed', { loginId, success: false, error: 'Browser sign-in was declined.' }); login = null; return; }
+        if (env.FAKE_CODEX_LOGIN === 'completed-before-save') { completed(); setTimeout(persist, 150); login = null; return; }
+        persist();
+        if (env.FAKE_CODEX_LOGIN === 'updated-first') { updated(); setTimeout(completed, 150); }
+        else if (env.FAKE_CODEX_LOGIN === 'file-first') setTimeout(() => { completed(); updated(); }, 150);
+        else if (env.FAKE_CODEX_LOGIN !== 'silent') { completed(); if (env.FAKE_CODEX_LOGIN !== 'completed-only') updated(); }
+        login = null;
+      }, Number(env.FAKE_CODEX_LOGIN_DELAY_MS ?? 80));
+      return;
+    }
+    case 'account/login/cancel': {
+      if (env.FAKE_CODEX_CANCEL === 'hang') return;
+      if (env.FAKE_CODEX_CANCEL === 'error') { refuse(id, 'Cancellation failed'); return; }
+      if (login && login.id === params.loginId) { if (login.timer) clearTimeout(login.timer); login = null; }
+      if (env.FAKE_CODEX_CANCEL === 'delay') setTimeout(() => respond(id, { status: 'canceled' }), 200);
+      else respond(id, { status: 'canceled' });
+      notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Canceled' });
+      if (env.FAKE_CODEX_LATE_LOGIN === '1') setTimeout(() => notify('account/login/completed', { loginId: params.loginId, success: true, error: null }), 80);
+      return;
+    }
+    case 'account/logout':
+      if (env.FAKE_CODEX_LOGOUT === 'error') { refuse(id, 'Logout failed'); return; }
+      chatGPTLoginCompleted = false;
+      rmSync(join(home!, 'auth.json'), { force: true });
+      respond(id, {}); notify('account/updated', { authMode: null, planType: null }); return;
+    case 'model/list':
+      if (env.FAKE_CODEX_MODELS_DELAY_MS) setTimeout(() => respond(id, { data: MODELS, nextCursor: null }), Number(env.FAKE_CODEX_MODELS_DELAY_MS));
+      else respond(id, { data: MODELS, nextCursor: null });
+      return;
     case 'account/rateLimits/read':
       if (!signedIn()) { refuse(id, 'codex account authentication required to read rate limits'); return; }
       respond(id, { ordinaryUsageAllowed: true, rateLimits: { limitId: 'codex', limitName: null, normalModelSlug: null, primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 7200 }, secondary: { usedPercent: 3, windowDurationMins: 10080, resetsAt: null }, credits: null, individualLimit: null, spendControlReached: null, planType: 'plus', rateLimitReachedType: null }, rateLimitsByLimitId: null, rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null });

@@ -13,8 +13,8 @@ async function ask(page: Page, text: string) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press('Shift+Enter');
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 120000 });
-  return kit(page, k => { const o = k.fast.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, where: o.where }; });
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 120000 });
+  return kit(page, k => { const o = k.requests.history.value.at(-1); return { status: o.status, label: o.label, steps: o.steps, where: o.where }; });
 }
 
 let h: Harness;
@@ -27,9 +27,9 @@ describe('parts with the LLM', () => {
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
     const before = await snapshot(page);
-    const line = await ask(page, '音の芯をパーツにして、もう1つ重ねて');
+    const line = await ask(page, 'make the sound core a part and layer another instance');
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.equal(line.label, 'パーツ「Core」にして、もう1つ重ねました');
+    assert.equal(line.label, 'Made a Core part and layered another instance');
     const doc = await kit(page, k => k.doc.value);
     assert.deepEqual(Object.keys(doc.parts), ['core']);
     assert.equal(doc.parts.core.doc, 'The oscillator through the filter.');

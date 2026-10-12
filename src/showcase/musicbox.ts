@@ -1,4 +1,4 @@
-// お題 3 — オルゴールみたいな金属的ベル。木箱と真鍮の見た目で。
+// Evaluation prompt 3 — Metallic bells like a music box, with a wooden box and brass look.
 // A two-operator FM bell per note: an inharmonic ratio (3.5 : 1) gives the
 // metal, a fast-decaying index gives the bright "tink" at the start, then the
 // tone rings down like a comb tine (as long whether the key is held or let go,

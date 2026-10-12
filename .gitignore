@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.desktop-build/
+release/
 .env
 .env.*
 !.env.example

@@ -4,24 +4,22 @@
 // each AI's scope; the lead waits for reports, gets another turn if it ended
 // its own early; Esc stops everyone, a lane's × one member; members off.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { FastPath, type Outcome } from '../../../src/ai/fast-path.ts';
+import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { analyse } from '../../../src/core/analysis.ts';
 import { clone } from '../../../src/core/schema.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
-import { testSession, stubBridge } from '../../helpers/fake-bridge.ts';
+import { testSession } from '../../helpers/test-session.ts';
 import { FakeLlmTransport } from '../../helpers/fake-llm-transport.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
 
-let session: KitSession, fast: FastPath, t: FakeLlmTransport, llm: LlmController;
+let session: KitSession, requests: AiRequests, t: FakeLlmTransport, llm: LlmController;
 function setup(options: { stopGraceMs?: number; members?: 'auto' | 'off' } = {}) {
   session = testSession();
   session.loadStarter('bass');
-  session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-  fast = new FastPath(session);
+  requests = new AiRequests(session);
   t = new FakeLlmTransport();
-  llm = new LlmController(session, fast, t as unknown as LlmTransport, {
+  llm = new LlmController(session, requests, t as unknown as LlmTransport, {
     stopGraceMs: options.stopGraceMs ?? 200,
     storage: null,
     deps: {
@@ -34,7 +32,7 @@ function setup(options: { stopGraceMs?: number; members?: 'auto' | 'off' } = {})
   session.llm = llm;
 }
 beforeEach(() => setup());
-const line = (id: string) => fast.history.value.find(o => o.id === id)!;
+const line = (id: string) => requests.history.value.find(o => o.id === id)!;
 const snapshot = () => { const d = clone(session.doc.value); const sort = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b))); return JSON.stringify({ ...d, revision: 0, nodes: sort(d.nodes), edges: sort(d.edges) }); };
 const SEAM = { ops: [
   { op: 'addControl', for: { node: 'cut1', port: 'hz' }, label: 'Cutoff', panel: { x: 24, y: 96, w: 84, h: 96 } },

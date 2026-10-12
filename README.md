@@ -1,567 +1,236 @@
-# den-kit（PoC・GEN-648）
+# den-kit
 
-den のブロックを Bitwig Grid のようにパッチングし、そのグラフがそのままプラグインの音と画面になる制作環境の試作です。
+den-kit is an AI-assisted environment for building and playing instruments and
+effects from [den](https://www.npmjs.com/package/@denaudio/den) DSP blocks. Work
+with ChatGPT to create the sound and interface, edit the patch directly, and
+play it with your keyboard or MIDI controller. The ChatGPT integration and
+BrowserPod workspace are required components of den-kit. Every natural-language
+request goes through the LLM.
 
-- CP1（AI なしのパッチング環境）、CP2a（AI の速い経路：語彙表と Jev）、CP2b（LLM の経路：Codex と聴くツール）、U1（作業画面の立て直し：右の AI パネル、選ばせない AI、キーボード操作、Plugin ビューとフルスクリーン、スタート画面）が、この README の手順で動きます。
-- U3（プラグインの画面づくり）：見た目（色・フォント・背景・部品のスキン・CSS）、飾り（文字・図形・画像・SVG・ランプ）、自分で描く部品（キャンバス）、画像などの素材、Figma に近い編集操作、作品集 10 本。下の「プラグインの画面をつくる（U3）」を見てください。
-- U6（AI の自由な環境）：ブラウザの中の Linux 環境（BrowserPod）に作品ごとの画面用 Web プロジェクトを置き、AI が bash・npm・TypeScript・ESLint・git をそのまま使って「コード部品」を作ります。プラグイン画面の上で動き、つまみを読んで動かせます。下の「AI の自由な環境（pod・U6）」を見てください。
-- U5（大きなもの・繰り返しの多いもの）：パッチ画面の操作（ドラッグで範囲選択、2 本指でパン、ピンチでズーム）、AI との会話の続きと選択の添付、パーツ（一度定義して何か所でも使う部品）、重ね（×N：1 つのモジュールやパーツを N 本並べる）、マイパーツ（パーツを保存して、ほかのパッチでも使う）、顔（パーツの画面をプラグインに出す、画面だけのパーツ）。作品集に、これらで作った Rainfall（雨粒のパーツ ×16）と Supersaw（ノコギリ波のパーツ ×7）を足しました。下の「パーツ（U5）」「重ね（×N）」「マイパーツ」「顔（パーツの画面）」を見てください。
+The project is an experimental prototype. It runs in Chrome or as a locally
+built macOS app. The Plugin view is an instrument's interface inside den-kit;
+exporting a standalone DAW plugin is not supported.
 
-## はじめかた（Mac）
+## Features
 
-Node.js 24 を使い、この den-kit リポジトリのルートで次を実行します。den 本体の clone やビルドは不要です。公開済みの `@denaudio/den@0.1.0` と unworklet 0.4.1 を npm からインストールします。
+- Patch oscillators, filters, envelopes, effects, and custom code into a live
+  audio graph.
+- Build interfaces with knobs, sliders, XY pads, text, pictures, and custom
+  drawing components.
+- Reuse parts, stack multiple copies, and start from the included instrument
+  and effect examples.
+- Ask ChatGPT to edit a patch, build an interface, or work from sketches and
+  reference pictures. Changes can be undone while you continue playing.
+- Create web-based code parts in a BrowserPod workspace with TypeScript, npm,
+  and live previews.
+- Save locally and export or import works as JSON files.
+
+## Run from source
+
+Use **Node.js 24**, a current version of **Chrome**, a **ChatGPT account** for AI
+requests, and a **BrowserPod API key** for the required workspace. Dependencies
+are installed from npm; you do not need a separate checkout or build of den.
 
 ```sh
-npm ci              # den・unworklet・固定した Codex CLI を含む依存
-npm run codex:login  # 初回だけ：LLM 用に Codex へ ChatGPT でサインイン（下の「LLM の経路」）
-npm run doctor       # 環境の確認（失敗した項目には直し方が出ます）
-npm run dev          # http://127.0.0.1:5180/ を Chrome で開く
+git clone https://github.com/yuichkun/den-kit.git
+cd den-kit
+npm ci
 ```
 
-AI の認証や外部サービスのキーがなくても、パッチング・演奏・画面編集・作品集・保存と読み込みは使えます。AI を起動せずに試すときは `KIT_CODEX=off npm run dev`。初回の Codex サインインと Jev／BrowserPod のキーは各自で設定し、ほかの人の認証情報は共有しません。
-
-試作を履歴付きで den から独立させたリポジトリです。正式版への作り直しは別の工程です。[移行の記録](docs/migration.md)を参照してください。
-
-- 音は 48 kHz で動かします。出力デバイスが 44.1 kHz のときは、「Audio MIDI 設定」で 48 kHz に変えてください。48 kHz でない場合は、画面にその旨が表示されます。
-- はじめて開いたときは、スタート画面（What do you want to make?）が出ます。作りたいものを書いて Enter を押すか、矢印キーで作品集から選んで Enter を押します。`Tab` で「Look」の列に移ると、別の作品の見た目を着せてから始められます。選ぶと音も始まります。
-- 2 回目からは、前のパッチが開き、画面全体に「Click anywhere to start」が出ます。どこかをクリックするかキーを押すと、音と MIDI 入力が始まります（ブラウザの決まりで、ページを開いただけでは鳴らせないためです）。音が出せないとき（48 kHz でないなど）は、同じ画面に理由が出ます。
-- 画面下の鍵盤をクリックするか、鍵盤に書いてある PC キー（A W S E D F T G Y H U J K。Z / X でオクターブ）か、MIDI キーボードで鳴らします。`⌘.` で全部の音を止めます。
-
-## AI の速い経路（CP2a）
-
-**準備（初回だけ）**
-1. `.env` を作り、`TYPESAFE_API_KEY=…` の 1 行を書きます。このファイルは git に入りません。キーはブリッジ（Node）だけが読み、ブラウザには渡しません。
-2. `npm run doctor` で「Jev key」と「Jev request」が PASS になることを確かめます。Jev への小さな要求を 3 回送り、所要時間を表示します。
-3. `npm run eval:jev` で、英語と日本語の例文（`scripts/eval-jev.fixtures.json`）を本物の Jev に解かせます。正答率と τ の表が出ます。τ を決める目安にします。結果は `.logs/` に保存されます。
-
-**使い方**
-- `npm run dev` を起動すると、AI ブリッジ（127.0.0.1:5181）も一緒に起動します。AI パネルの上に `Jev 230 ms` のような状態が出ます。
-- 画面右の AI パネルの入力欄に依頼を書いて Enter を押します（どこにいても `Enter` か `⌘K` で入力欄に移ります）。例：「明るく」「リリース長く」「もっと揺らして」「リバーブ足して」「ベース作って」「a bit darker」「add reverb」。
-- 変更はすぐに適用されます。パネルに依頼と結果（変えた値・経路・かかった時間）が並びます。入力欄は送るたびに空になるので、そのまま次の依頼を続けられます。`Esc` で入力欄から出ると、パッチやプラグインのキー操作に戻ります。
-- 気に入らなければ、普通の取り消しと同じく `⌘Z` で戻します。AI の変更 1 回分が 1 回で戻り、履歴には「undone」と出ます。
-- **音声入力**：Space を押している間だけ聞き取り、離すと送信します。何度でも同じ操作で話せます。入力欄の中でも使えます（短く押すと空白が入り、長く押すと話せます）。ほかの文字欄（パッチ名、検索、コード）では普通の空白です。マイクのボタンをクリックしても始められます。
-  - Chrome の音声認識を使います。音声は Google のサーバーで文字に変換されます。
-  - 初回は Chrome がマイクの許可を求めます。
-  - 聞き取る言語は日本語です。英語にするときは ⚙ の「Voice language」で切り替えます。
-- よく使う言い回しは語彙表がその場で処理し、Jev は呼びません。語彙表で分からない部分があるときだけ、Jev に 1 回だけ問い合わせます。
-- 選択肢は出しません。自信が τ に届かないとき、対象のモジュールが絞れないとき、コードを書く・配線を組み替える・仕組みを聞くなど速い経路で扱えない依頼は、そのまま LLM に回ります（次の節）。LLM が使えないときは、理由と直し方を 1 行で出します。
-- Jev が考えている間にパッチが変わったときは、いまのパッチでもう一度 Jev に聞きます（古い答えでは変えません）。
-- ⚙ で開発用の引き出しが開きます。τ（英語・日本語）、Jev の持ち時間、音声の言語、Jev の使用の有無を変えられます。直近の依頼の記録（経路・確信度・時間）も見られます。
-  - 既定値は、2 回目の `eval:jev`（36 本すべて正解、応答 160〜360 ms）をもとに決めています：τ は英語 0.60・日本語 0.70、Jev の持ち時間は 1.2 秒。
-- 記録は `.logs/trace-*.jsonl`（依頼ごとの経路・確信度・時間・取り消し）と `.logs/jev-*.jsonl` に書かれます。
-- キーがない、Jev に届かない、ブリッジがないときも、語彙表の操作と CP1 の機能はそのまま使えます。
-
-## LLM の経路（CP2b）
-
-**準備（初回だけ）**
-1. `npm run codex:login` を実行します。ブラウザで ChatGPT のサインインが開きます。
-   - ログインは den-kit 専用の `.codex-home` に保存されます（git には入りません）。普段の `~/.codex` の設定・MCP・AGENTS.md は混ざりません。
-   - いつもの Codex の設定をそのまま使いたいときは、`.env` に `KIT_CODEX_HOME=~/.codex` と書きます。
-2. `npm run doctor -- --deep` で、Codex の版・サインイン・分離（指示ファイルを読んでいないこと）と、実際の 1 往復を確かめます。
-   - 1 往復では、ping ツールを 1 回呼ばせます。ChatGPT の利用枠を少しだけ使います。
-   - 続けて、メンバー・スケッチ・画面共有（U8）に要ることも確かめます（全部で約 2 分）。同時に 2 つの依頼、75 秒待たせたツール呼び出しのあとも依頼が続くこと、依頼と一緒に送る絵と作業中に足す絵、会話の写し（fork）、トークン数。
-   - Codex 0.160.1 では、会話の写し（fork）だけが WARN になります（den-kit の会話は写せないため）。den-kit は要約で代わりをするので、直すことはありません。
-   - やり取りはすべて `.logs/codex-deep-*.jsonl` に記録されます。うまくいかないときは、このファイルを共有してください。
-3. `npm run dev` を起動し、右上に緑の `● LLM` が出れば準備完了です。`dev` の起動中にサインインしても、自動で反映されます。
-
-**使い方**
-- 速い経路で扱えない依頼は、自動で LLM に回ります。たとえば次のような依頼です。
-  - コードを書く（「コードボックスでビットクラッシャーを書いて」）
-  - 配線を組み替える（「LFO でカットオフを揺らして」）
-  - 仕組みを聞く（「このパッチの仕組みを説明して」）
-  - 語彙表と Jev で分からない言い回し
-- `Shift+Enter` で送ると、最初から LLM に回ります。
-- 依頼の行には、いまの作業（パッチを読む、編集、試聴）と、入った変更の一覧、経過時間が出ます。LLM の返事もその行に出ます。
-- LLM の変更は、一手ずつその場で本体に入ります。作られていく様子がそのまま見えて、聞こえます。
-  - 一手ごとに、まず写しで検証とコンパイルをします。通った手だけが本体に入ります。通らなければ何も入れず、エラーをモジュール名やコードボックスの行番号つきで LLM に返して、直させます。
-  - 必要なら試聴します。音量・明るさ・アタック・ステレオ幅などの数値と、スペクトログラムの画像を受け取ります。
-- 1 回の依頼は `⌘Z` 1 回で全部戻ります。途中であなたが手で変えた場合は、その前後で 2 回に分かれます。
-- 待っている間も、演奏と編集を続けられます。あなたの変更はあなたの変更として残ります。「明るく」など速い経路で済む依頼は、その場で適用されます。
-- 作業中に LLM 向けの依頼をもう一つ送ると、実行中の依頼に追加されます。
-- `Esc`（または行の Stop）で止めます。それまでに入った変更は残り、`⌘Z` で戻せます。作業中に `⌘Z` で LLM の変更を戻したとき、別のパッチを読み込んだときも止まります。
-- LLM はあなたに質問しません。あいまいな依頼は、いちばんありそうな解釈で進め、その解釈を 1 行で書きます。違っていたら、言い直してください。
-- 会話は続くので、「もう少し」のような続きの依頼も通じます。別のパッチを読み込むと、新しい会話になります。
-- AI パネルの上の `LLM` の表示
-  - `LLM: sign in`：サインインが必要です（ポイントすると手順が出ます）。
-  - `LLM ✕`：エラーです。クリックすると Codex を再起動します。
-  - `LLM 72%`：利用枠の使用率が 50% を超えたときに出ます。
-- 設定（`.env`）
-  - `KIT_CODEX_MODEL`：モデルを指定します。既定は Codex の既定のモデルです。
-  - `KIT_CODEX_EFFORT`：推論の深さです（`low` / `medium` / `high` など）。既定はモデルの既定です。
-  - `KIT_CODEX=off`：LLM を使いません。
-
-**安全と分離**
-- Codex は kit に固定した CLI 0.160.1 を、このマシンの上で ChatGPT のサブスクリプション（利用枠）で動かします。
-  - これはローカル利用です。製品として提供するには、別途 Sign in with ChatGPT が必要です。
-- LLM が使えるのは den-kit のツール（`kit_*`）だけです。
-  - シェル、ファイル、Web 検索、アプリ連携、プラグイン、サブエージェントは無効にしています。
-  - 承認を求める要求は、すべて断ります。
-- 作業ディレクトリはリポジトリの外（一時フォルダ）に置きます。den-kit の AGENTS.md は読みません。
-- ツールはブラウザの中で動きます。ブリッジは 127.0.0.1 だけで待ち受けます。
-- 記録
-  - `.logs/codex-*.jsonl`：起動、依頼の結果、断った要求
-  - `.logs/trace-*.jsonl`：`kind: llm` の行
-
-## 画面
-
-**Patch（パッチ）**：上部のパレットからモジュールをドラッグするかクリックして置きます。キャンバスでダブルクリックするか Tab を押すと検索が開きます。
-- 空いた所をドラッグすると範囲選択です（キーは要りません）。トラックパッドは 2 本指でパン、ピンチでズーム。マウスはホイールでパン、`⌘` + ホイールでズーム、中ボタンのドラッグでパンです。
-- 出力の点（右）から入力のリング（左）へドラッグすると、ケーブルがつながります。
-- 入力の色は信号の種類を表します。
-  | 色 | 信号 |
-  |---|---|
-  | 赤 | オーディオ |
-  | オレンジ | ピッチ・周波数 |
-  | 緑 | 時間・エンベロープ |
-  | 水色 | LFO 出力 |
-  | 青 | その他の値 |
-  | 黄 | ゲート |
-- つながっていない入力はつまみ（AudioParam）です。回しても再コンパイルは起きません。
-- モジュール表面の大きなつまみがよく使う値です。残りの値は左のインスペクタにあります。「+N」を押すと入力が全部表示されます。
-- 入力の横の ↺／⎍／↑ はプリコードです。つながっていない間は、ノートの gate・新しいノート・パニックに自動で従います。
-- **Voice In** から **Voice Mix** までのモジュールは、声の数だけ複製されます（左上の重なったアイコンで分かります）。
-- フィードバックは **History**（1サンプル遅延）を通すときだけつなげます。
-- **Codebox** には unworklet の core API でコードを書けます。エラーは該当する行に表示されます。
-- コードを表示・編集する場所（Code タブの生成コード、Codebox、キャンバスのコード、Project タブのファイル、インスペクタの SVG と CSS）は、シンタックスハイライトで色分けします（highlight.js。色だけで、LSP はありません）。
-
-**Plugin（プラグインの画面）**：プラグインの画面だけを表示します。DAW の中で見える画面です。
-- 画面はウィンドウの大きさに合わせて拡大縮小します。余白は画面の背景で埋めます。
-- `⇧⌘F`（または Full screen）でフルスクリーンにすると、プラグインの画面だけが画面いっぱいに出ます。`Esc` で戻ります。フルスクリーン中も PC キーで弾けます。
-- `⌥⌘E` で Patch と Plugin を切り替えます。`⌘E` で演奏（Play）と編集（Edit）を切り替えます（Max と同じ考え方です）。
-- 編集中は、クリック（Shift で追加）で選び、ドラッグで動かし、角で大きさを変えます。矢印キーで少しずつ動かせます（Shift で大きく）。`⌘A` で全部選び、`Delete` で画面から外し、`⌘C` / `⌘V` / `⌘D` で複製します。
-- パッチ側では、左のインスペクタの「→ Plugin」で入力をつまみとして画面に出せます。テーマは 4 種類です。
-
-**Code（コード）**：生成された unworklet プロセッサを読み取り専用で表示します。選んだモジュールの行が強調されます。
-
-**AI パネル**：画面の右に、上から下までの列として置きます。パッチやプラグインの画面には重なりません。
-- `⌘J` で隠したり出したりします。左端をドラッグすると幅を変えられます。狭いウィンドウでは、幅の 3 分の 1 程度まで自動で狭くなります。
-- 選んでいるもの（モジュール、パーツ、ケーブル、画面の部品）は、入力欄の上に添付として出ます。「ここがさ〜」と話すと、AI は添付したものを直します（新しく作るのは頼んだときだけ）。× で外せます。入力欄が空のときの `Backspace` で最後の 1 つを外せます。
-- 会話はパッチごとに 1 本で、速い経路と LLM で共有します。LLM には、前のターンからあったこと（速い経路の依頼と結果、手での変更、取り消し）を毎回添えます。ページを読み込み直しても会話は続きます。「もっと」「もう少し」は直前の依頼を繰り返し、「戻して」は直前の AI の変更を取り消します。
-
-**キー操作**（文字の入力欄の外で効きます）
-| キー | 動作 |
-|---|---|
-| `Enter` / `⌘K` | AI の入力欄へ |
-| `Space`（長押し） | 話して依頼 |
-| `Esc` | LLM を止める・入力欄から出る・選択を外す |
-| `⌘Z` / `⇧⌘Z` | 取り消し・やり直し |
-| `⌘A` | すべて選ぶ |
-| 矢印（`Shift` で大きく） | 選んだものを動かす |
-| `⌘C` / `⌘V` / `⌘D` / `Delete` | コピー・貼り付け・複製・削除 |
-| `⌘G` / `⇧⌘G` | 選んだモジュールをパーツにする・パーツをほどく |
-| `Enter`（パーツを選んで）/ ダブルクリック / `Esc` | パーツの中に入る・外へ出る |
-| `⇧1` / `⇧0` / `⌘=` / `⌘-` | パッチの全体表示・等倍・拡大・縮小 |
-| `Tab` | モジュールの検索 |
-| `⌥⌘E` / `⌘E` / `⇧⌘F` | Patch ⇄ Plugin・演奏 ⇄ 編集・フルスクリーン |
-| `⌘J` | AI パネルを隠す・出す |
-| `⌥⌘N` | 新しいパッチ（スタート画面） |
-
-**その他**
-- `⌘Z` / `⇧⌘Z` で取り消しとやり直しができます（ボタンはありません）。つまみをひと回しした操作や AI の依頼 1 回分は、1 回で戻ります。
-- 左上の **Patch ▾** から、新しいパッチ（スタート画面）・`.denkit.json` の書き出しと読み込みができます。自動保存はブラウザ内です。
-- モジュールを選ぶと、左のパネルにすべての設定が出ます。エフェクトのパッチでは、**Audio In** を選ぶと試聴用の入力（和音・ドラム・ノイズ）を切り替えられます。
-- パッチ全体の問題と、暴走した音の安全ミュートは、キャンバス上部の帯に出ます。ミュートは、パッチを変えるか `⌘Z` で戻すと自動で解除されます。
-
-## プラグインの画面をつくる（U3）
-
-`⌥⌘E` で Plugin を開き、`⌘E` で編集（Edit）にします。マウスとキーボードのどちらでも最後までできます。
-
-**置く**：`⇧Space` で追加メニューが開きます。名前を打って絞り込み、`Enter` で画面の真ん中に置きます。
-- 飾り：Text（文字）、Value readout（つまみの値を文字で）、Rectangle、Ellipse、Line、Picture（素材の画像）、SVG drawing、Lamp（LED）、Canvas (code)
-- 操作部品：Knob、Slider、Switch、Button、XY pad、Keyboard、Pads、Scope、Meter（パッチに同じノードができるので、好きな入力につなげます）
-- 画像ファイルを画面にドロップすると、素材に入り、そのまま画像として置かれます。
-
-**選ぶ・動かす**
-| キー・操作 | 動作 |
-|---|---|
-| クリック（`Shift` で追加）、空いた所からドラッグで範囲選択 | 選ぶ |
-| `Tab` / `⇧Tab` | 次・前のものを選ぶ |
-| 矢印（`Shift` で 10 px） | 1 px ずつ動かす |
-| `⌥` + 矢印（`Shift` で 10 px） | 大きさを 1 px ずつ変える |
-| 8 つのハンドル（`Shift` で縦横比を保つ） | 大きさを変える |
-| `Enter` | 文字を書き直す（`⌘Enter` で確定、`Esc` で取り消し）。キャンバスならコードを開く |
-| `⌥A` / `⌥D` / `⌥W` / `⌥S` / `⌥H` / `⌥V` | 左・右・上・下・左右中央・上下中央に揃える |
-| `⌃⌥H` / `⌃⌥V` | 横・縦に等間隔に並べる |
-| `⌘G` / `⇧⌘G` | グループにする・解く（グループの中は `⌥` クリックで選ぶ） |
-| `⌘]` / `⌘[` / `⌥⌘]` / `⌥⌘[` | ひとつ前へ・後ろへ・最前面へ・最背面へ（JIS 配列の `」` `「` でも効きます） |
-| `⇧⌘L` / `⇧⌘H` | ロック・隠す（もう一度で戻す） |
-| `⌘C` / `⌘V` / `⌘D` / `Delete` | コピー・貼り付け・複製・削除（コピーしたもの同士のケーブル、丸ごと選んだグループ、コピーした部品を指すランプや値表示も付いてきます） |
-| `⌘Z` / `⇧⌘Z` | 取り消し・やり直し（ドラッグ 1 回、矢印の連打 1 回分が 1 回で戻ります） |
-
-**見た目（右のインスペクタ）**
-- 何も選んでいないときは、プラグイン全体の見た目が出ます。
-  - 基本のテーマと色（bg・fg・accent・track・knob・pointer・muted・glow）
-  - フォント（同梱の 15 書体はすべて OFL です。ほかに Mac の標準書体も選べます）
-  - 背景（色・グラデーション・画像を重ねられます）
-  - 部品の種類ごとの既定のスキン
-  - CSS（このプラグインの中だけに効きます。読み込めるのは `url(asset:ID)` の素材だけです）
-- 部品を選ぶと、その部品のスキンとパラメータ、箱（塗り・枠・角丸・影）、文字の見た目、その部品だけの色が出ます。
-- スキン：
-  - つまみ：classic、ring、cap（目盛りと数字・チキンヘッド）、dot、image（自分の画像を回す）
-  - スライダー：bar、fader、image
-  - スイッチ：button、footswitch、switch、image
-  - XY：pad、glow（光る点と軌跡）
-  - 鍵盤：piano、pads
-  - スコープ：line、phosphor
-  - メーター：bar、needle（針の VU）、led
-- 素材パネル：画像とフォントの一覧です。画像は「On the plugin」「Background」「Reference」（編集中だけ下に敷く下絵）で使えます。出典とライセンスを書いておくと、書き出したファイルにも残ります。
-
-**キャンバス**（Canvas (code)）：自分で絵を描く部品です。U4 までの「カスタムパーツ」の新しい名前で、古いファイルもそのまま読めます。コードは別スレッド（Worker）の canvas で動き、ネットワークにはつながりません。
-- 書き方：`export default function draw(ctx, f) { … }`（または `{ setup, draw }`）。毎フレーム呼ばれます。
-- `f` で使えるもの：
-  - 大きさと時間：`w`、`h`、`t`、`dt`
-  - 音：`level`、`peak`、`wave`（波形）、`spectrum`（64 帯域、0〜1）
-  - 部品の値：`value(id)`、`norm(id)`（0〜1）、`xy(id)`、`on(id)`
-  - そのほか：`color('accent')` などの見た目の色、`props`、`state`（フレームをまたいで残る入れ物）
-- 例外は部品の中に行番号つきで出ます。1 フレームが 1.5 秒を超えたら（無限ループなど）止まります。どちらの場合も、ほかの部分は動き続けます。
-
-**作品集**：スタート画面の 12 本は、すべて den-kit の操作だけで組んだ普通のパッチです。作品ごとの特別なコードはありません。
-- 開いて、パッチ・画面・コードをそのまま触れます。
-- `Look` で別の作品の見た目を着せられます。音と配置はそのままで、色・フォント・背景・スキンが入れ替わります。
-- 画像はすべて CC0、パブリックドメイン、または den-kit の自作です。出典は [`public/showcase/SOURCES.md`](public/showcase/SOURCES.md) にあります。
-
-| # | 作品 | お題 |
-|---|---|---|
-| 1 | Acid Line | アシッドベース。黒地に蛍光グリーン 1 色、カットオフとレゾナンスを大きく |
-| 2 | Afterglow | ゆっくり揺れながら広がるパッド。夕焼け、XY で明るさ × 揺れ |
-| 3 | Lullaby Box | オルゴールみたいな金属的なベル。木箱と真鍮 |
-| 4 | Bop Box | 子どもが叩いて遊べる打楽器。カラフルな大きいパッド 8 つ（手描きの下絵つき） |
-| 5 | Reel Echo | 70 年代のテープエコー。針の VU と回るリール |
-| 6 | Ember Fuzz | ギター用ファズ。フットスイッチと LED（手描きの下絵つき） |
-| 7 | Side B | カセット風ローファイ。codebox でビットを落とし、ヨレとヒス、手書きのラベル |
-| 8 | Nebula | 宇宙っぽい空間系。星空、音で粒が動く |
-| 9 | Duck Delay | 弾くと引っ込むディレイ。計測器風、沈んだ量をメーターで |
-| 10 | Neon Sweep | XY フィルター。ネオン、指の軌跡が光る |
-| 11 | Rainfall | 窓を打つ雨。雨粒のパーツを 1 つ作り ×16 で雨に。雨脚・粒の高さ・はね・風（U5） |
-| 12 | Supersaw | ノコギリ波のパーツ ×7 を少しずつずらす。デチューンと広がり（U5） |
-
-**安全のための決まり**：パッチのファイルや AI の編集から、ページに何かを紛れ込ませないための決まりです。
-- 色・数値・素材の参照は、画面に出す前にすべて検査します。
-- CSS は、`@import` と素材以外の `url()` を取り除いたうえで、プラグインの中だけに効かせます。
-- SVG は `<img>` として描くので、スクリプトは動きません。
-- キャンバスの Worker からは、`fetch` などの通信手段を外しています。
-- 残っている穴：Worker 内の動的 `import()` は塞いでいません。これを塞ぐ CSP は、製品化のときに入れます。
-
-## AI が画面もつくる（U4）
-
-**速い経路で画面を変える**：プロンプトに打つと、その場で画面が変わります。どれも `⌘Z` 1 回で戻せます。
-- 例：「アクセントを赤に」「文字を大きく」「フォントを手書きに」「角を丸く」「画面を暗く」「ダークモード」「ネオンっぽい見た目にして」（作品のルックを着せる）
-- 「暗く」「明るく」は、「画面」「見た目」「色」などと一緒に言ったときと、プラグインを編集しているとき（`⌘E`）だけ画面の意味になります。それ以外は音の明るさです。
-- 「ベース作って」などで作った新しい音には、最初の画面が付きます（名前、主なつまみ、鍵盤）。
-- 「明るく」などの音の調整は、その値をプラグイン上のつまみが動かしているときは、そのつまみを回します（画面のつまみが動きます）。
-- 画面を変えた依頼のあと、パッチの画面を見ていたら、AI パネルに「Show the plugin ⌥⌘E」が出ます。
-
-**LLM が画面をつくる**：「画面を作って」「テープマシンみたいな見た目に」のような依頼は LLM が受け持ちます（`Shift+Enter` で直接送れます）。
-- LLM は次の順で進めます。
-  1. 画面を読む（kit_get_plugin）
-  2. 作り方を調べる（kit_ui_reference：色とフォント、スキン、飾りの種類、キャンバス、同梱の画像、作品のルック、配置のコツ）
-  3. 編集する（kit_apply_ops）。`addControl` で、モジュールの入力につながったつまみを置けます。
-  4. 見る（kit_look）
-  5. 見つかった問題を直して、もう一度見る
-- 画面だけの編集では、音を再コンパイルしません。
-- **デザインの方針（design brief）**：何も選ばずにインスペクタを開くと、一番上にあります。LLM は最初に方針を書き、それ以降の依頼でもそれに沿います。人が書き換えてもかまいません。
-- **手で直したところ**：パッチを開いてから人が手で変えた部品や色は LLM に伝わり、頼まれない限りそのまま残ります。
-- **参考画像**：素材に入れた写真やスケッチ（下絵を含む）を LLM が見られます（kit_view_picture）。主な色も数値で渡します。
-
-**画面のチェック**（`⌘E` で編集中に `⌥⌘K`、または ✓ Check）：LLM が使うのと同じチェックです。プラグインを画面の外で描いて、次のことを調べます。
-- 配置
-  - 外に出ているもの、端で切れているもの
-  - 重なったつまみ、不透明なものの下に隠れたつまみ
-- 文字
-  - 箱に収まらない文字、押し込まれたラベル、つまみに重なる文字、小さすぎる文字
-  - 文字とその後ろの実際のピクセルとのコントラスト（文字の影やネオンの光も含めて測ります）
-    - 3:1 未満は「読みにくい」
-    - 4.5:1 未満（大きな文字は 3:1 未満）は「薄い」
-- 部品と素材
-  - 何にもつながっていないつまみ、ラベルのないつまみ
-  - 見つからない画像、エラーを出しているキャンバス
-
-項目の印は、赤が直すべき問題、黄が確かめたほうがよいところです。項目をクリックすると、その部品が選ばれます。作品集の 12 本には、赤の項目はありません。
-
-**キャンバスをマウスで触る**：`export default { draw, pointer(e, f) { … } }` のように `pointer` を書くと、演奏中はそのキャンバスがマウスを受け取ります。
-- `e.type` は `down`・`move`・`up`・`wheel`・`double`・`leave` のどれかです。
-  - 位置：`e.x`、`e.y`（キャンバスの中の座標）
-  - 移動量：`e.dx`、`e.dy`
-- 部品の値は `f.set(id, 値)` と `f.setNorm(id, 0〜1)` で動かします。
-  - 値は範囲内に収め、log のつまみは log で動かします。
-  - 1 回のドラッグ、続けて回したホイールが、それぞれ `⌘Z` 1 回分になります。
-- `f.range(id)`（範囲と単位）、`f.pointer`（マウスの位置と押しているか）、`f.cursor('grab')` も使えます。
-- 動かす部品は、プラグインに置いていなくてもかまいません。キャンバスをつまみの見た目の代わりにできます。
-- 編集中は、キャンバスもほかの飾りと同じように選んで動かせます。
-
-## パーツ（U5）
-
-一度作った処理を、値を変えて何か所でも使うための部品です。Max のサブパッチやアブストラクションに当たりますが、仕組みは 1 つだけです。設計図は 1 つで、置いた所はすべてその「使用」です。
-
-**作る**：パッチ画面で範囲を選んで `⌘G`。
-- 範囲の境をまたぐケーブルが、パーツの入力と出力になります（同じ出どころのケーブルは 1 つの入力にまとまります）。
-- 中のモジュールの主なつまみ（表面の大きなつまみ）のうち、空いているものがパラメータになります。音は 1 サンプルも変わりません（テストで確かめています）。
-- つまみ（ui.*）、Voice In、Out、Audio In はパーツに入らず、外に残ります。つまみはパーツの入力やパラメータにつなぎます。
-- 名前は中身から付きます（例：Oscillator + Lowpass + VCA）。左のインスペクタで変え、何をするものかを書けます（AI もこれを読みます）。
-- スタート画面の「A part (start small)」で、空のパーツの中から始めることもできます。入力欄に書いた依頼は、そのパーツの中で頼んだことになります。
-
-**中に入る**：パーツを選んで `Enter`、またはダブルクリック。上にパンくず（Patch › Tone › Inner）が出ます。`Esc`（選択がなければ）で外へ出ます。
-- 中で直すと、そのパッチの使用すべてに効きます。
-- 中のつまみの横の ◆ は、そのパーツのパラメータです。入ってきた使用の値を表示し、回すとその使用の値だけが変わります。再コンパイルは起きません。
-- インスペクタの ◇ を押すと、そのつまみをパーツに出せます（どの使用も自分の値を持ちます）。◆ を押すと引っ込めます。
-- パラメータには、自分のつまみの範囲と単位を付けられます。パーツのインスペクタで、パラメータの下の「から・まで・単位」を書き換えます（↺ で中のつまみの範囲に戻ります）。たとえば数式（Multiply）の ±100 万を「0〜1 st」にします。使用のつまみ、顔、AI の「少し上げて」は、この範囲を使います。中のつまみの範囲の外には出せません。
-- パーツの入力と出力は、中の「Part input」「Part output」です。パレットから足すと、パーツの入出力が増えます。
-- 「Hear alone」で、そのパーツだけを鳴らせます（もう一度押すと全体に戻ります）。
-
-**使い回す**：パレットの「Parts」から、このパッチのパーツをもう一度置けます。パラメータの値は使用ごとに別です。
-- 「Own copy」：その使用だけを別のパーツにします（中を直しても、ほかの使用は変わりません）。
-- `⇧⌘G`（Unpack）：普通のモジュールに戻します。使用が 1 つなら元のモジュールがそのまま戻ります。
-- パーツの中にパーツを入れられます。パーツが自分自身を含むことはできません。
-- 最後の使用を消すと、パーツの設計図も消えます（`⌘Z` で戻ります）。
-
-**AI とパーツ**
-- 速い経路：「パーツにして」「ほどいて」「切り離して」（make this a part / unpack / detach）。選んでいるものに効きます。
-- パーツの中にいる間は、依頼はそのパーツが対象です。「明るく」などは、入ってきた使用のパラメータを動かします。外にいるときは、パーツの中のつまみではなく、パーツのパラメータを動かします。
-- LLM は、パーツを作る・使い回す・中を編集する・パラメータを出す操作を使えます。「小さく作って聴き、よければパーツにして使い回す」進め方を指示しています。パーツの中で頼んだときは、どのパーツのどの使用の中にいるかを LLM に伝えます。
-
-**保存**：ファイルの版は 3 になりました。パーツの設計図はパッチと一緒に保存されます。版 1・2 のファイルもそのまま読めます。
-
-## 重ね（×N）
-
-同じ物をたくさん並べる（雨の粒、スーパーソーの 7 本、声の重ね）ときは、ノードを並べる代わりに、モジュールやパーツに数を付けます（Max の mc、SuperCollider の多チャンネル展開と同じ考え方）。
-
-**数を付ける**：モジュールかパーツを選び、インスペクタの「Copies」で ×2・×4・×8… を押すか、数を打ちます（最大 128）。
-- 箱に「×8」が付き、後ろに重なった箱の影が出ます。そこから出るケーブルは太くなり、根元に「×8」と出ます（1 本に 8 本分の信号）。
-- 重ねられるのは den のモジュール、数式、codebox、History、パーツです。Voice In、Voice Mix、Out、Audio In、つまみ、Splay は 1 本のままです。
-- ノイズやランダムのモジュールは、重ねるとコピーごとに別のシードになります（同じ音が N 本鳴るだけにはなりません）。
-
-**つなぎ方の決まり**
-- 太いケーブル → 同じ数の重ね：1 本目は 1 本目へ、2 本目は 2 本目へ。
-- 細いケーブル → 重ね：全部のコピーに同じ信号が行きます。
-- 太いケーブル → 1 本の入力：足し合わせて 1/√N を掛けます（入口に Σ が出ます）。ゲートは「どれかが on」、Voice Mix の done だけは「全部が終わったら」です。
-- 太いケーブル → 違う数の重ね：k 本目は (k mod N) 本目を読みます（警告が出ます）。
-- **Splay**（パレットの Math）：太いケーブルを左右に広げます。1 本目が左端、最後が右端、等パワーで 1/√N の補正つきです。width を 0 にすると全部が真ん中に寄ります。
-- **Copy number**：パーツの中に置くと、そのコピーの番号（index 0…N−1）、全部の数（count）、位置（position −1…+1）、コピーごとに決まった乱数（random）を出します。パーツ ×N の各コピーで、音の高さや定位を変えるのに使います。
-
-**ばらつき**：数が 2 以上のとき、インスペクタにつまみごとの欄が出ます。
-- range（基準の値の ±量に等間隔）、random（±量の中でランダム。⟳ で別の値）、harmonic（基準 × 1, 2, 3…）、each own（1 本ずつ別の値）。周波数のつまみは量がオクターブ、ほかはそのつまみの単位です。
-- 下の棒グラフがコピーごとの値です。棒の上をドラッグすると 1 本ずつ描けます（each own になります）。描いた操作は `⌘Z` 1 回で戻ります。
-- 基準の値（箱のつまみ）、ばらつきの量・種類・シード・棒の値は、演奏中に動かしても再コンパイルしません。どのつまみをばらつかせるか、数を変えたときは再コンパイルします。
-- ケーブル（プラグインのつまみや顔のつまみを含む）がつながっている入力では、ばらつきはケーブルが運んでくる値をずらします。周波数や時間のような対数のつまみは掛け算（±量のオクターブ）、ほかは足し算です。だから顔のつまみで全体を動かしながら、コピーごとの違いはそのまま残ります。インスペクタのばらつきの欄には「· cable」と出ます。
-
-**重さ**：1 パッチ 400 ノードの上限はやめ、展開した後の重さで決めます。
-- 箱の右下に、その箱が展開した分の CPU の目安（1 コアに対する割合）が出ます。全体が 25% を超えると上のバーにも出て、60% を超えると黄色の警告になります。
-- 目安はクラウドの Node 24 で測った値から出しています（モジュールごとの重さを、コンパイルを除いて測りました）。作品集・スターター・重ね（×1〜×48）で実測と比べ、ほぼ ±25% に入ります（中身の多い codebox は少なめに出ます）。Mac のブラウザは普通これより速いので、多めに出ます。
-- 展開後のプログラムが約 1500 kB を超えると、作れない（作っても間に合わない）ので、理由と一番重い箱を出して止めます。前の音は鳴り続けます。
-- 実測では、プログラムが大きいほど 1 本あたりが少し重くなり（500 kB で約 1.3 倍）、約 750 kB を超えると急に重くなります（1000 kB で約 4 倍。全体が 1 つの関数になるため）。たとえば Rainfall の雨粒のパーツは、×16 で 1 コアの約 35%、×32 で約 90%、×48 で約 310% でした。小さなパーツなら数十本は現実的で、数百本の粒（本物の雨の密度）は重すぎます。それは den の部品として作るのが筋です。
-
-**AI と重ね**
-- 速い経路：「8本重ねて」「×16にして」「もっと重ねて」「重ねるのをやめて」「ばらつかせて」「ばらつきを減らして」「ばらつきをなくして」（stack 8 / 16 copies / more copies / unstack / spread them out / detune it / less spread / no spread）。選んでいるものに効きます。「パーツにして8本重ねて」は、パーツを作ってからそれを重ねます。
-- LLM は setCount と setSpread を使えます。同じ物が多いときは並べずに数を付け、負荷の目安を見て 60% 以下に収めるよう指示しています（kit_get_patch に重ね・ばらつき・負荷が出ます）。
-
-## マイパーツ
-
-作ったパーツを保存しておくと、どのパッチでもパレットから置けます（Max の外部オブジェクトのような使い回し）。保存先はこのブラウザの中で、ほかのタブにもすぐ出ます。
-
-**保存する**：パーツを選び（または中に入り）、インスペクタの「Save to My parts」。パレットの「My parts」に ★ 付きで並びます。
-- 保存したパーツには「★ From My parts: 名前 v1」と出ます。中を直してもう一度押すと「Save as v2」になり、新しい版として保存されます（版は 10 個まで残ります）。何も変えていなければ新しい版は作りません。
-
-**置く**：パレットの「My parts」から、クリックかドラッグ。検索（`Tab`）でも出ます。
-- 置くと、パーツの設計図（中にパーツがあればそれも）がこのパッチに入ります。作品は、使っている版の中身を自分で持ちます（マイパーツを消しても、作品は鳴り続けます）。
-- 同じ版を変えずに使っているときは、もう 1 つ置くと「使用」が増えるだけです。
-- id がこのパッチのものとぶつかるときは、自動で別の id になります。
-
-**新しい版に更新する**：保存元で新しい版を作ると、ほかのパッチでそのパーツを選んだとき「v2 is in My parts: adds the knob “Rate” …」と、増える・消えるつまみや入出力を先に見せます。
-- 「Update to v2」で中身が新しい版になります。それぞれの使用のつまみの値は、残るつまみについてはそのままです。消えた入出力のケーブルは外れます。`⌘Z` 1 回で戻ります。
-- このパッチでそのパーツを直していたときは「changed here since」と出て、更新するとその変更は置き換わる、と先に言います。
-
-**ファイル**：「My parts」の「Export…」で全部を 1 つのファイル（`.denkit-parts.json`）に書き出し、「Import…」で読み込みます。同じパーツの新しい版は後ろに足され、同じ中身は二重に入りません。壊れたファイルや読めない版は、理由を出して読み飛ばします。タイルの × でマイパーツから外せます（それを使っている作品はそのまま）。
-
-**AI とマイパーツ**：LLM には kit_list_blocks でマイパーツの一覧（入力・つまみ・出力つき）を見せ、`placeMyPart` で置けるようにしています。「合うものがあれば、作り直さずにマイパーツを使う」よう指示しています。
-
-## 顔（パーツの画面）
-
-パーツは自分の画面（顔）を持てます。顔は、そのパーツのパラメータを回すつまみと飾り（文字・図形・絵・ランプ）の組です。Max の bpatcher に当たります。
-
-**顔を出す**：パッチ画面でパーツの使用を選び、インスペクタの「Face: …」の下の「Put face on plugin」。
-- 顔はプラグイン画面に、その使用につながったつまみと飾りとして置かれます。まとめて 1 つのグループ（`<使用>Face`）になります。
-- つまみはそのまま演奏に使えます。回しても再コンパイルは起きません。範囲・単位・今の値は、パーツのパラメータから取ります（パラメータに自分の範囲があればそれを使います。秒や周波数の対数のつまみが 0 から始まるときは、1 ms・20 Hz などから始めます）。
-- 重なりは、図形・絵・キャンバスがつまみの下、文字とランプがつまみの上です。
-- もう一度押すと（「Update face on plugin」）、同じ場所で置き換わります。二重にはなりません。`⌘Z` 1 回で外せます。
-- 顔をまだ作っていないパーツは、既定の顔（名前の下に、パラメータごとのつまみ。6 個で折り返し）になります。自前の顔は「Default face」で既定に戻せます。
-- パーツの中にある使用には出せません（つまみはメインのパッチに置くため）。そのことを表示します。
-
-**顔を作り直す**：プラグイン画面の編集モードで、出した顔のつまみや飾りを動かす・消す・足すなどして、それらを選び、インスペクタの「Save as ○○'s face」。
-- 選んだもののうち、その使用のパラメータにつながったつまみと飾りが顔になります。同じパラメータへのつまみが 2 つあれば 1 つだけ使います。
-- 顔に入らないつまみの値を表示していた文字は、言葉だけ残ります（例：「DRIVE {value} dB」→「DRIVE dB」）。値だけの表示や、そのつまみのランプは外します（理由を表示します）。
-- 保存すると、プラグインに顔を出しているほかの使用も、その場で新しい顔になります。ここまでが `⌘Z` 1 回です。
-- 顔はパッチと一緒に保存されます。ファイルの中の壊れた顔は、理由を出して既定の顔に戻します。顔は音には関係しません（コード生成のハッシュは変わりません）。
-
-**画面だけのパーツ**：プラグイン画面の飾り（ロゴ、銘板、ネジの絵など）だけを選ぶと、インスペクタに「Make a screen part」が出ます。
-- 押すと、中身が空で顔だけのパーツができ、選んだ飾りがその使用の顔になります。名前は最初の文字から付きます（「NEBULA」→ Nebula）。音は変わりません。
-- マイパーツに保存すれば、ほかのパッチに置いたとき、その場でプラグイン画面に顔が出ます（パーツの中に置いたときは出しません）。
-- 絵とフォントは顔と一緒に運ばれます。同じブラウザなら、そのまま表示されます。マイパーツの「Export…」は、絵とフォントの中身もファイルに入れます。別の Mac のブラウザで読み込んでも表示されます。
-- 顔が使っている絵は、アセットから消せません（「Tone's face が使っています」と出ます）。den-kit 同梱の絵は、なければ自動で入ります。どこにもない絵は外して顔を出し、そのことを表示します。
-
-**AI と顔**：LLM は `updatePart` の `face` で顔をデザインし、`putFace` で使用ごとにプラグインへ出せます（同じ呼び出しの中で、作った顔をすぐ出せます）。`makeScreenPart` で飾りを画面だけのパーツにもできます。「パーツをプラグインで弾かせたいときは、つまみを 1 つずつ足さずに顔を出す」よう指示しています。kit_get_patch には、パーツごとに顔の中身（自前か既定か、つまみと飾りの数、大きさ）が出ます。
-
-## AI の自由な環境（pod・U6）
-
-den-kit の AI に、Claude Code と同じように自由に動ける環境を渡す試作です。ブラウザのタブの中で動く Linux 環境（BrowserPod）に、作品ごとの画面用 Web プロジェクト（Vite + TypeScript、ESLint、git）を置きます。AI はそこで bash、ファイルの読み書き、npm、tsc、eslint、git をそのまま使い、作った「コード部品」がプラグイン画面の上で動きます。サーバーも、あなたの Mac のファイルも使いません。
-
-**準備（初回だけ）**
-1. console.browserpod.io でキーを作り、`.env` に `BROWSERPOD_API_KEY=…` の 1 行を足します（git には入りません）。
-   - BrowserPod はブラウザの中で起動するので、このキーは開発サーバー（`npm run dev`）がページに渡します。ビルドしたファイルには入りません。Codex には渡しません。
-2. `npm run dev` を起動し直します。ターミナルに `Pod → BrowserPod, key …` と出ます。
-3. Chrome で開いて音を始めると、このブラウザで初めてのときだけ、pod が自動で起動します（パッケージのインストールを含めて 1.5〜2.5 分）。進み具合は Project タブで見られます。
-4. Project タブの「Check the pod」を押すと、各段の時間を測るチェックが走ります（下の「pod チェック」）。
-
-**Project タブ**（Patch・Plugin・Code の右）
-- 上の段：pod の状態（off → booting → syncing → installing → starting → ready）と、各段の所要時間（boot、書き込み、npm install、dev サーバー）。「Start the pod」で起動し、「Check the pod」でチェックします。
-- 左：画面プロジェクトのファイル。作品にまだプロジェクトがなければテンプレートを表示します（最初の変更で作品のものになります）。選んで編集し、`⌘S` で作品に入れます（`⌘Z` 1 回で戻ります）。`src/kit/controls.ts` は den-kit がパッチから作るファイルで、読み取り専用です。
-- 中央の編集欄は、ファイルの種類に合わせて色分けします（TypeScript、JavaScript、JSON、CSS、HTML と SVG、Markdown、シェル）。色だけで、補完やエラー表示（LSP）はありません。
-- 右：pod チェックの結果。
-- 下：pod のターミナル。あなた、AI、den-kit 自身のコマンドが、出力・終了コード・所要時間つきで並びます。入力欄から好きなコマンドを打てます（`npm run check`、`git log`、`npm install three` など）。コマンドで変わったファイルは、そのまま作品に入ります（あなたの 1 手として `⌘Z` で戻ります）。
-
-**コード部品**（プラグイン画面の新しい部品）
-- 画面プロジェクトの `src/parts/<名前>.ts` が 1 つの部品です。`part({ props, interactive, mount(root, kit) })` を書きます。
-  - `kit` から、パッチのつまみの値（`kit.value('knob1')`、`kit.norm`）、音（`kit.audio.level`・`wave`・`spectrum`）、見た目の色（CSS 変数 `--dk-*`）を読みます。
-  - `kit.set`・`kit.setNorm` でつまみを動かせます。1 回のドラッグが `⌘Z` 1 回分です。
-  - 詳しくは、テンプレートの `AGENTS.md` と `src/kit/index.ts`。
-- プラグイン画面では、pod の Vite 開発サーバーから、その部品のページを枠（iframe）で表示します。ファイルを変えると数秒で更新されます（Vite のライブリロード。届かなければ den-kit が読み直します）。
-- 編集モードで `⇧Space` →「Code part (web)」を選ぶと、波形を描く部品が置かれます。インスペクタには、部品が宣言した設定（色など）が出ます。「Open its file」で、Project タブでそのファイルを開きます。
-- 部品をクリックしたあとでも、`⌘Z` や鍵盤の PC キーは den-kit に届きます（部品が使わなかったキーを den-kit に渡します）。
-- 部品のエラーは、その枠の下に出ます。AI も `kit_look` と `kit_get_plugin` で読みます。
-
-**AI（LLM）と pod**
-- AI の道具に `kit_bash`（プロジェクトのフォルダで bash を実行し、出力と終了コードが返る）、`kit_read_file`、`kit_write_file` を足しました。
-- 指示文には次のことを書いてあります。
-  - シェルとファイルは pod にある。
-  - den-kit の部品で足りないときは、コード部品を書く。
-  - 最初に `AGENTS.md` を読む。
-  - `npm run check` と `npm run lint` を通し、`kit_look` で見る。
-- AI が変えたファイルは、その依頼の一部として作品に入ります（依頼全体が `⌘Z` 1 回）。依頼ごとに、pod の git にコミットします（`den-kit AI: …`）。
-- 試し方：Plugin 画面を見ながら、AI に「回るテープリールの部品を作って、カットオフのつまみで速さが変わるように」「three.js で、音に反応する 3D の球を背景に」などと頼みます。
-
-**pod チェック**（体感を数字にする）
-- 次の段を、それぞれ時間を測りながら行います。作品は変えません。
-  1. pod の起動（boot、プロジェクトの書き込み、npm install、dev サーバー）
-  2. bash・git・Node・npm
-  3. TypeScript（`npm run check`）
-  4. ESLint（`npm run lint`）
-  5. パッケージ 1 つの npm install（保存しない）
-  6. ビルド（`npm run build`）
-  7. git
-  8. コード部品の読み込み
-  9. 編集が部品に届くまで
-- 結果は「Copy」でテキストにできます。ブリッジのログ（`.logs`）にも残ります。
-
-**知っておくこと**
-- 作品（パッチのファイル）が持つのは、プロジェクトのソースだけです。node_modules・dist・.git は pod の中にだけあります。pod のディスクは、このブラウザ（IndexedDB）に残ります。
-- BrowserPod の料金：起動中の pod 1 つにつき、1 時間 10 トークン（1 時間単位）。無料枠は月 10,000 トークンです。
-- 完成した作品を配るときは、`npm run build` で作った静的ファイルを使えば BrowserPod は要りません（Portal に出す想定）。この PoC には、その書き出しはまだありません。
-- ネイティブバイナリを持つ npm パッケージは、pod では動きません。esbuild と rollup は、テンプレートで WebAssembly 版に置き換えてあります。pod のネットワークは、npm や GitHub など許可された先だけです。
-- 使うもの：最新の Chrome（BrowserPod は WebAssembly の resizable memory と `Atomics.waitAsync` を使います。古いブラウザでは「Update Chrome」と出ます）。den-kit のタブは 1 つにしてください。BrowserPod は 1 つのタブでだけ動き、ほかのタブには理由が出ます。
-
-**本物の BrowserPod での確認**（3.4.0、Chrome 155、2026-10-08）
-- 起動
-  - このブラウザで初めて：Ready まで 1.5〜2.5 分（起動 5〜7 秒、書き込みと git 4 秒、npm install 70〜110 秒（回線しだい）、Vite 6 秒）。
-  - 2 回目以降（ディスクはブラウザに残る）：約 10〜14 秒。ページを読み直しても 8〜12 秒。
-- AI がコード部品を作る流れ（AGENTS.md を読む → bash でファイルを書く → `npm run check` と `npm run lint` → 置く → `kit_look`）：pod 側で約 18 秒（模擬 Codex）。
-- コード部品が portal から表示されるまで約 1 秒。ファイルの変更が部品に届くまで約 1 秒。つまみ ↔ 部品の連動、部品のクリック、`⌘Z`（pod のファイルも戻る）も確認しました。
-- pod チェック：9 段すべて成功、計 24〜31 秒（TypeScript 4 秒、ESLint 6 秒、npm install 4 秒、ビルド 6 秒、部品の表示 1 秒、変更が届くまで 2 秒）。
-- three.js：`npm install three` 23 秒、tsc と ESLint が通り、three.js の部品が表示されます（初回は依存の変換で約 14 秒）。
-- 2 つ目のタブ、タブの読み直し、タブを閉じて別のタブで起動、も確認しました。
-
-**BrowserPod の現時点の癖と、den-kit 側の対処**
-- pod の中の Node（22.15）は、クラスの async generator メソッドを正しく動かしません。そのため ESLint 10 がフォルダの中を探せません（「No files matching the pattern」）。テンプレートの `npm run lint` は、ファイルを並べて ESLint に渡します。AGENTS.md にも書いてあります。
-- pod のファイル監視は、dev サーバーが起動したあとに作られたフォルダを見ません。den-kit は起動の前に `src/parts` を作ります。テンプレートの vite.config.ts は、新しいフォルダを 1 秒ごとに探して監視に加えます（`KIT_WATCH_NEW_FOLDERS`）。
-- pod のファイルの時刻は秒単位です。同じ秒のうちに同じファイルを 2 回書くと、2 回目でライブリロードが起きないことがあります。そのときは den-kit が数秒後に部品を読み直します。
-- `run()` が返すのは普通の Promise ではありません。端末の出力は resizable な ArrayBuffer で届きます。den-kit のアダプタが両方を吸収します。
-- テストでは本物の BrowserPod を使いません。代役（`test/fakes/pod`）が、上の癖のうち再現できるもの（Promise でない戻り値、resizable な出力）を同じように返します。
-
-## AI の分担・同じ画面・ラフスケッチ（U8）
-
-**メンバー（AI の分担）**
-- 大きめの依頼では、LLM（リード）が依頼の一部を別の AI（メンバー。最大 3 人）に渡し、同時に進めます。分けるかどうかはリードが決めます（小さな依頼は分けません）。リードもメンバーも同じモデルです。
-- Codex 自身のサブエージェント機能は使いません。den-kit が会話を別々に立て、道具と範囲を管理します。
-- リードの道具
-  - `kit_delegate`：ブリーフ（名前・目標・理由・範囲・完了の条件・メモ・伝える量）を書いて、メンバーを始めます。
-  - `kit_wait`：メンバーの報告を待ちます（最長 60 秒ずつ）。
-  - `kit_tell`：作業中のメンバーに指示を足します。スケッチの印の番号も渡せます。
-  - `kit_stop_member`：メンバーを止めます。
-  - メンバーは `kit_finish` で、まとめ・決めた名前・必要なこと・問題を報告します。
-- 範囲（scope）
-  - 音（パッチ全体、または指定したパーツやモジュール）、画面（全体、または指定した要素や領域）、Project（pod）のどれかです。
-  - 範囲の外の変更は、den-kit が操作の段階で断ります（`src/ai/scope.ts`）。
-  - つまみ（コントロール）とその配線は「継ぎ目」です。全員がその名前を保ちます。
-- メンバーに伝えること：リードのブリーフに、den-kit が次のものを付けます。
-  - あなたの言葉、最近の会話、添付
-  - その範囲の上のスケッチ、いま見ているもの、デザインブリーフ
-  - 範囲の今の状態、継ぎ目
-  - 伝える量は brief／full／bare から選びます。full はリードの会話の写しです（Codex が写せないときは den-kit の要約）。bare はブリーフだけです。
-- 1 回の依頼の変更は、メンバーの分も含めて `⌘Z` 1 回で戻ります。
-- AI パネルには、依頼の下にメンバーごとのレーンが出ます（色、範囲、経過時間、トークン数、× で止める）。メンバーが変えたものは、パッチとプラグインの上で、その色の枠で数秒光ります。
-- 設定（⚙）
-  - Members：the AI decides（既定）／off（1 人で。比べるとき用）
-  - Members are told：リードに任せる（既定）／brief／full／bare（比べるとき用）
-- 記録：依頼ごとに、最初の変更までの時間、全体の時間、同時に動いた数、トークン数（メンバー別も）を `.logs/trace-*.jsonl` に書きます。
-- full のメンバーは、den-kit がまとめた会話の要約から始めます。
-  - Codex の会話の写し（`thread/fork`）は、Codex 0.160.1 では使えません。den-kit の会話は保存しない設定（ephemeral）で、写す元の記録がないためです（2026-10-08、Mac の `doctor --deep`：「no rollout found」）。
-  - `KIT_CODEX_FORK=1` は、将来の版で試すための設定です。いまは off のままにしてください（オンにしても、写せなければ要約に戻ります）。
-
-**同じ画面（AI があなたの見ているものを知る）**
-- 毎回の依頼に、あなたが見ているものを 1 行で付けます。パッチかプラグインか、ズーム、見えているモジュール、選択、押さえている鍵盤、部品の中か、です。「これ」「ここ」はそれを指します。
-- AI パネルの目のボタンで、このタブの画面を AI に見せられます。
-  - ブラウザが共有の確認を出します。den-kit は自分のタブだけを受け付けます。
-  - 共有中は、AI が `kit_look`（as "seen"）で、あなたが見ているとおりの絵を見られます。
-  - 共有しないときは、プラグインは描き直した絵で、パッチは文字で伝えます。
-- デスクトップアプリ（Electron など）に入れるときは、`window.denKitShell.capturePage(rect)` を用意します。ページの範囲の画像を data URL で返す関数です。これがあれば、共有の確認なしで同じことができます（`src/editor/screen-share.ts`）。
-
-**ラフスケッチ**
-- `P`（または AI パネルの ✎）でペンを持ち、パッチやプラグインの上に描きます。
-  - 道具：ペン、マーカー、箱、矢印、付箋、文字、消しゴム。色は 4 つ。
-  - `Esc` か Done でペンを置きます。印は残ります。
-  - 描いている間の `⌘Z` は、最後の印を消します（パッチの変更は戻しません）。
-  - スタイラス（ペン）は、道具を選ばなくても、何もないところ（プラグインの地、パッチの空き）に触れると描けます。つまみやモジュールの上では、いつもどおり操作になります。初めて描いたときに一度知らせます。スケッチの道具バーの「stylus draws」で切れます（ブラウザに残ります）。
-- 印は、作品にも undo の履歴にも入りません。次の依頼と一緒に AI に届きます。
-  - プロンプトの上に「✎ 2 marks on the plugin」と出ます。× で消せます。
-  - 何も書かずに Enter だけでも送れます。
-- AI に届くもの
-  - 番号つきの印の説明：何を囲んでいるか、何に触れているか、矢印はどこからどこへ、付箋の文字、位置と大きさ。den-kit が、画面の上の位置から読み取ります。
-  - 絵：プラグインは、描き直した絵の上に番号つきの印。パッチは、画面を共有していればあなたが見ている画面、していなければモジュールを名前つきの箱で描いた図。
-- 囲むだけの印（輪や箱で何かを囲む）に、速い経路が分かる言葉（「明るく」など）を添えると、選択と同じように、その場で適用されます。それ以外は LLM に行きます。LLM の作業中に送れば、実行中の依頼に足されます。
-- 送った印は、AI の作業中は薄く表示され、終わると消えます。📌 で残せます。何も変わらなかった依頼では、印は次の依頼のために残ります。
-- メンバーには、その範囲の上のスケッチが届きます。プラグインのスケッチは画面の担当に、パッチのスケッチは音の担当に届きます。
-- 「Lay under」：プラグインのスケッチを、そのまま下敷きの絵（参考画像）にします。編集モードで、その上に部品を並べられます。
-
-**試し方（Mac）**
-- 「アシッドベースを作って、ネオンの画面も」：リードが音と画面のメンバーに分け、同時に進む様子がレーンに出ます。
-- 比べる：⚙ で Members を off にして同じ依頼を送り、最初の変更までの時間とトークン数を比べます。
-- プラグインで `P` → つまみを丸で囲む → 空いたところに付箋「ここに波形表示」→ `Enter`。
-- 目のボタンで画面を共有してから、「いま見えているものの配色を整えて」。
-
-## 仕組み（要点）
-
-- **パッチの形式**：パッチは JSON の文書です。変更はすべて「作者つきの型付き操作」（`src/core/ops.ts`）を通り、正確に元に戻せます。人も AI も同じ操作を使います。
-- **コード生成**（`src/core/codegen.ts`）：パッチを、読める unworklet core API の TS（1つの `defineProcessor`）にします。それを Worker でコンパイルし、AudioWorklet として差し替えます。差し替えには約 30 ms のクロスフェードをかけ、押さえている鍵盤のノートは新しい音へ送り直します。
-- **unworklet 0.4.1 での注意**：0.4.1 は式の DAG を展開してしまいます。そのため、2回以上読む信号と den ブロックへの入力は、サンプルごとに1回だけ一時スロットに書いてから読みます。
-- **den との一致**：スターター 5 本（bass、percussion、pad、chorus、rhythmic delay）はモジュールの組み合わせだけで作っています。オフライン描画では、den の `createInstrument` や `delayFx` とサンプル単位で一致します（`test/integration/equivalence.test.ts`）。音は CANDIDATE です。
-- **安全段**：リミッター → クリップの順に通します。NaN や暴走はプロセッサ内で検出して知らせます。その場合はミュートして状態をリセットします。
-- **pod**（`src/pod`）：den-kit は、pod と決まった口（`host.ts`：コマンドの実行、ファイル、ポータル）だけで話します。
-  - コマンドはスクリプトファイルとして実行し、最後に終了コードの目印の行を出させて読み取ります（BrowserPod の API は終了コードを返さないため）。
-  - 作品の文書が正本で、pod は作業台です。undo や読み込みは pod に書き戻し、コマンドのあとは pod から読み戻します。
-
-## テスト
+For source development, create a key in the
+[BrowserPod console](https://console.browserpod.io/) and put it in `.env`:
+
+```dotenv
+BROWSERPOD_API_KEY=your_browserpod_key
+```
+
+The repository includes the Codex CLI used by den-kit. Sign in with your ChatGPT
+account, check the environment, and start the editor:
 
 ```sh
-npx playwright install chromium  # 初回だけ：e2e 用のブラウザ
-npm test          # unit（vitest）→ integration（実コンパイル・オフライン描画・ブリッジ）→ e2e（Playwright + Chromium）
+npm run codex:login
+npm run doctor
+npm run dev
 ```
 
-テストでは本物の Jev と本物のモデルを使いません。
-- `test/fakes/jev` の模擬サーバは、要求を本物と同じ規則で検査します。401・422・429・529・時間切れ・壊れた JSON・確率の異常などを再現します。
-- `test/fakes/codex` の模擬 Codex は、固定した CLI と同じ応答を返します。den-kit が送るメッセージをすべて検査し、筋書きどおりにツールを呼びます。
-  - 本物の app-server をネットワークなしで動かして確かめた挙動に合わせてあります（`test/fakes/codex/README.md`）。
-  - 落ちる、壊れた行、利用枠切れ、未サインイン、承認要求、質問、割り込みと中断などを再現します。
-- pod には、本物の BrowserPod を使いません（本物での確認は手作業です。上の「本物の BrowserPod での確認」）。
-  - `test/fakes/pod/fake-pod.ts`（テスト専用）は、このマシンの bash・git・Node・npm を、BrowserPod と同じ口で使える代役です。e2e では、AI がこの pod でコード部品を書き、本物の npm install・Vite・tsc・ESLint・git が動きます。
-  - `test/fakes/pod/mock-browserpod.ts` は、BrowserPod の API（3.4.0 の型定義）を、このマシンのプロセスとファイルで再現したものです。ドキュメントに書かれていない点は厳しい方に倒して（env は環境を置き換える、出力は文字の途中でも切れる、など）、den-kit の BrowserPod アダプタをそのまま通します。
-- `test/integration/codex-real-offline.test.ts` は、固定した本物の Codex バイナリを、ネットワークを遮断し未サインインの状態で起動します。den-kit が送るパラメータがそのまま受け付けられることを確かめます。モデルは呼びません。
+Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
+authentication and BrowserPod configuration for the normal den-kit workflow.
 
-e2e には Chromium が必要です。手元にない場合は `npx playwright install chromium` で入れるか、`CHROMIUM_PATH` を指定してください。
+Audio requires **48 kHz**. On macOS, set the output device to 48 kHz in Audio
+MIDI Setup if necessary. Click the start overlay to enable audio and MIDI.
+
+### AI configuration
+
+Authentication is stored in `.codex-home`, separate from your normal Codex
+configuration and excluded from Git. AI requests use the signed-in account's
+ChatGPT allowance. Direct patch and interface editing is available alongside
+the required AI workflow.
+
+Development settings in a local `.env` file:
+
+| Variable | Purpose |
+| --- | --- |
+| `KIT_CODEX_MODEL` | Override the default Codex model. |
+| `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
+| `KIT_PORT` | Editor port; defaults to `5180`. |
+| `KIT_BRIDGE_PORT` | Local AI bridge port; defaults to `5181`. |
+
+### Required project workspace
+
+Code parts and the Project workspace use
+[BrowserPod](https://browserpod.io/), which runs a Linux environment in the
+browser. Source development uses the key configured above.
+
+Restart `npm run dev`. The Project tab shows startup progress and provides a
+terminal, source editor, and checks. First startup includes package installation
+and requires network access. BrowserPod supplies the AI's project environment
+and remains part of the required setup.
+
+Keep `.env` and credentials out of version control. The development server
+passes the BrowserPod key to the local page; a regular `npm run build` excludes
+it from the web renderer.
+
+## Build the macOS app
+
+On macOS, install dependencies and set `BROWSERPOD_API_KEY` in `.env` or the
+build environment, then run:
+
+```sh
+npm run desktop:package
+npm run desktop:run
+```
+
+The bundle is written to `release/mac-arm64/den-kit.app` on Apple silicon or
+`release/mac/den-kit.app` on Intel Macs. You can also open it from Finder.
+When using `desktop:run`, keep the terminal open until you quit the app. The
+command waits for the app so temporary proxies supplied by npm wrappers remain
+available for its network connections.
+The app includes the renderer and native Codex CLI, so running the bundle does
+not require Node.js or a development server.
+
+Use **Settings** (`⌘,`) in the app to sign in to ChatGPT and choose a model and
+reasoning effort. ChatGPT sign-in is required for AI requests. BrowserPod is
+required and configured by the build: app users do not enter
+a separate key. Builders must supply a key they are authorized to distribute;
+it is bundled in the app and can be extracted from it.
+
+The local packaging command creates an **unsigned, unnotarized** app. Automatic
+updates and Windows app packaging are not available. The desktop app uses text
+input for AI requests.
+
+To test a fresh installation, quit den-kit and run `npm run desktop:clean`.
+This permanently deletes `~/Library/Application Support/den-kit/`, including
+ChatGPT sign-in, the autosaved work, conversations, imported assets, project
+disks and installed dependencies, settings, and caches. Export any work you want
+to keep first. The command refuses to delete data while den-kit is running.
+Use `npm run desktop:clean -- --dry-run` to print the target without deleting it.
+The app bundle, exported files, and repository `.env` are preserved.
+
+## Basic workflow
+
+1. Choose an example on the start screen, or open a new work.
+2. In **Patch**, add modules from the palette or press `Tab` to search. Drag an
+   output to an input to connect them. Turn unconnected input knobs to change
+   the sound without recompiling.
+3. Play with the on-screen keyboard, a MIDI controller, or the labeled computer
+   keys. `Z` and `X` change octaves; `⌘.` stops all notes.
+4. Switch to **Plugin**, enter Edit mode, and arrange controls and decorations.
+   Use “→ Plugin” in the patch inspector to expose an input as a control.
+5. Type an AI request such as “add reverb” or “make a bass with a
+   neon interface.” Selection attachments and sketches provide context.
+
+You can keep playing and editing while AI works. `Esc` stops a request; applied
+changes remain available to undo. One AI request normally forms one undo step;
+manual edits during that request keep their own undo steps.
+
+### Common shortcuts
+
+These shortcuts apply outside text inputs. The table uses macOS key names.
+
+| Shortcut | Action |
+| --- | --- |
+| `Enter` / `⌘K` | Focus the AI input. |
+| `⌥⌘E` | Switch between Patch and Plugin. |
+| `⌘E` | Switch the Plugin view between Play and Edit. |
+| `⇧⌘F` | Toggle the full-screen Plugin view. |
+| `⌘Z` / `⇧⌘Z` | Undo / redo. |
+| `⌘A` | Select all. |
+| Arrow keys / `Shift` + arrow keys | Move the selection / use larger steps. |
+| `⌘C` / `⌘V` / `⌘D` | Copy / paste / duplicate. |
+| `Delete` | Delete the selection. |
+| `⌘G` / `⇧⌘G` in Patch | Create / unpack a part. |
+| `⇧Space` in Plugin Edit mode | Add a control, decoration, or code part. |
+| `P` | Sketch over the current view for an AI request. |
+| `⌘J` | Show or hide the AI panel. |
+
+### Saving and backups
+
+Works and assets autosave locally. Use the **Patch** menu to export a
+`.denkit.json` file or import an existing work. Export files for portable backups;
+browser storage is tied to the browser profile and local origin.
+
+The macOS app stores its data in
+`~/Library/Application Support/den-kit/`. Its local server uses port `5247`;
+if another process occupies that port, close it before opening den-kit.
+
+### Custom code parts
+
+The Project workspace contains a web project for each work. A code part exports
+`part({ props, mount })` from `src/parts/<name>.ts` and runs in a frame inside
+the Plugin view. It can read audio and controls, respond to control changes,
+and update the sound through the workspace's `kit` API.
+
+See the [code-part guide](pod-template/AGENTS.md) and
+[API definitions](pod-template/src/kit/index.ts) for examples and interfaces.
+The workspace provides `npm run check`, `npm run lint`, and `npm run build`.
+
+## Limitations
+
+- Audio runs at 48 kHz; other sample rates are not supported.
+- The browser target is current Chrome. BrowserPod needs recent WebAssembly
+  features, and only one den-kit tab can own its workspace at a time.
+- Native npm binaries do not run inside BrowserPod; use browser-compatible or
+  WebAssembly packages for code parts.
+- Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
+  dynamic `import()` can still load and execute remote JavaScript. Imported
+  works and AI-generated Canvas code can therefore make network requests.
+- Works can be exported as editable JSON, but not as standalone DAW plugins or
+  self-contained web instruments. `npm run build` builds the den-kit renderer,
+  not a distributable instrument.
+
+## Development and contributing
+
+The editor uses Vue and TypeScript, den DSP blocks, and unworklet audio
+processing. `src/core` contains the work document and graph operations;
+`src/editor` contains the interface; `src/ai` and `bridge` handle AI requests;
+`src/pod` connects the web workspace; and `desktop` contains the Electron shell.
+
+```sh
+npm run check
+npm run build
+npx playwright install chromium
+npm test
+```
+
+Run suites separately with `npm run test:unit`, `npm run test:integration`, and
+`npm run test:e2e`. Browser tests need Chromium; `CHROMIUM_PATH` can select an
+existing installation. Automated regression tests use model and pod substitutes
+rather than paid AI or BrowserPod services. Pod tests execute local commands
+and may download npm dependencies.
+
+After building the macOS bundle, `npm run desktop:check` verifies it with an
+isolated profile. `npm run desktop:check -- --real` additionally uses local
+ChatGPT authentication and real BrowserPod resources, consuming service usage.
+
+Bug reports and pull requests are welcome. Include reproduction steps and the
+relevant browser or app version, keep changes focused, and run the checks that
+cover your change. Do not include credentials or private logs in reports.
+
+## License
+
+den-kit is available under either the [MIT License](LICENSE-MIT) or
+[Apache License 2.0](LICENSE-APACHE), at your option. Third-party packages and
+services have their own terms. Attribution for bundled showcase assets is in
+[SOURCES.md](public/showcase/SOURCES.md).
+The [repository history](docs/migration.md) describes the source extraction and
+preserved commit history.

@@ -1,4 +1,4 @@
-// お題 10 — XY でフィルターを弾くエフェクト。ネオンの見た目で、指の軌跡が光る。
+// Evaluation prompt 10 — An XY filter performance effect, with a neon look and a glowing finger trail.
 // A resonant multimode filter played with one finger: across sweeps the cutoff
 // over seven octaves, up raises the resonance. A canvas paints the
 // finger's glowing trail and a neon floor that pulses with the sound.

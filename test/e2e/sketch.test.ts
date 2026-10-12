@@ -3,9 +3,8 @@
 // (what each goes around) and the plugin re-drawn with the numbered marks; the
 // marks wait, dimmed, while it works and go when it is done. ⌘Z while drawing
 // takes back a mark, not an edit; Esc puts the pen down; a stylus draws where
-// it touches nothing. On the patch, a box
-// around a module with words the fast path knows works like selecting it; an
-// arrow between modules goes to the LLM with the patch drawn plainly. A sketch
+// it touches nothing. On the patch, a box around a module attaches that module
+// to an LLM request; an arrow goes with the patch drawn plainly. A sketch
 // can also be laid under the plugin as a picture to build on.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,14 +12,14 @@ import type { Page } from 'playwright';
 import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown, arg?: unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit, ${JSON.stringify(arg ?? null)})`);
-/** Send what is in the prompt (Shift: straight to the LLM) and wait for the line to end. */
+/** Send what is in the prompt and wait for the LLM request to end. */
 async function send(page: Page, text: string, llm = false) {
-  const before = await kit(page, k => k.fast.history.value.length);
+  const before = await kit(page, k => k.requests.history.value.length);
   await page.keyboard.press('Control+k');
   if (text) await page.keyboard.type(text);
   await page.keyboard.press(llm ? 'Shift+Enter' : 'Enter');
-  await page.waitForFunction(n => { const h = (window as any).__kit.fast.history.value; const o = h.at(-1); return h.length > n && o && !o.live && o.status !== 'thinking' && o.status !== 'working'; }, before, { timeout: 60000 });
-  return kit(page, k => k.fast.history.value.at(-1));
+  await page.waitForFunction(n => { const h = (window as any).__kit.requests.history.value; const o = h.at(-1); return h.length > n && o && !o.live && o.status !== 'thinking' && o.status !== 'working'; }, before, { timeout: 60000 });
+  return kit(page, k => k.requests.history.value.at(-1));
 }
 async function drag(page: Page, points: Array<[number, number]>) {
   await page.mouse.move(...points[0]!);
@@ -66,7 +65,7 @@ describe('sketching for the AI', () => {
     const panel = (await page.locator('[data-testid=plugin-view] [data-testid=panel]').boundingBox())!;
     await page.mouse.click(panel.x + panel.width * 0.6, panel.y + panel.height * 0.55);
     await page.waitForSelector('[data-testid=ink-note-input]');
-    await page.keyboard.type('ここに波形表示');
+    await page.keyboard.type('put a waveform here');
     await page.keyboard.press('Enter');
     assert.equal(await marks(page, 'plugin').count(), 2);
     assert.match((await page.locator('[data-testid=ai-sketch-chip]').textContent())!, /2 marks on the plugin/);
@@ -79,7 +78,7 @@ describe('sketching for the AI', () => {
     await page.waitForFunction(() => document.querySelectorAll('[data-ink=plugin] .mark.sent').length === 2, null, { timeout: 30000 });
     const o = await sending;
     assert.equal(o.route, 'llm');
-    assert.match(o.reply, /^pictures 1 \[image\/(png|jpeg) \d+\]; 2 marks: ① red pen loop around [a-z0-9]+ \(knob “[^”]+”\) \(x -?\d+, y -?\d+, \d+×\d+\) \| ② yellow sticky note “ここに波形表示” in empty space \(x \d+, y \d+, \d+×\d+\)$/);
+    assert.match(o.reply, /^pictures 1 \[image\/(png|jpeg) \d+\]; 2 marks: ① red pen loop around [a-z0-9]+ \(knob “[^”]+”\) \(x -?\d+, y -?\d+, \d+×\d+\) \| ② yellow sticky note “put a waveform here” in empty space \(x \d+, y \d+, \d+×\d+\)$/);
     assert.ok(o.reply.includes(`around ${knobId} (knob`), o.reply);
     // What den-kit sent: the words, and the plugin re-drawn with the marks.
     const said = h.codex!.records().filter(r => r.scenario === 'sketch').map(r => String(r.text)).at(-1)!;
@@ -96,7 +95,7 @@ describe('sketching for the AI', () => {
     await page.close();
   });
 
-  it('on the patch: a box around a module with words the fast path knows works like selecting it; an arrow goes to the LLM drawn plainly', { timeout: 180000 }, async () => {
+  it('a box attaches its module to a short LLM request; an arrow goes with a picture of the patch', { timeout: 180000 }, async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
@@ -111,7 +110,7 @@ describe('sketching for the AI', () => {
     assert.equal(await marks(page, 'patch').count(), 1);
     const o = await send(page, 'brighter');
     assert.equal(o.status, 'applied');
-    assert.notEqual(o.route, 'llm');
+    assert.equal(o.route, 'llm');
     assert.deepEqual(o.attached.map((a: { id: string }) => a.id), ['filter1']);
     assert.ok(o.label, JSON.stringify(o));
     assert.ok(await kit(page, k => k.doc.value.revision) > revision);

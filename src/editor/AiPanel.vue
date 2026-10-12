@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // The AI panel: a full-height column on the right, next to (never over) the
-// patch or the plugin. Type (or hold Space and talk), press Enter: the fast path
-// applies at once, anything it is not sure about goes to the LLM, which edits
+// patch or the plugin. Press Enter to send a request to the LLM, which edits
 // the patch step by step while the line below shows what it does. Nothing here
 // asks you to choose; ⌘Z takes a request back, Esc stops the LLM. What is
 // selected rides along with the request (the chips above the prompt; × or
@@ -10,32 +9,35 @@
 // words and as a picture (the chip above the prompt; × rubs them out). The lines
 // are the conversation about this patch; a patch opened before keeps its own, folded.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { AgentLane, FastPath, Outcome } from '../ai/fast-path.ts';
+import type { AgentLane, AiRequests, Outcome } from '../ai/requests.ts';
 import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
 import type { LlmController } from '../ai/llm.ts';
-import { VoiceInput, VOICE_LANGS, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
+import { VoiceInput, VOICE_LANGS, VOICE_UNSUPPORTED, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
+import { desktop } from '../desktop/api.ts';
 import AiStatus from './AiStatus.vue';
 import { offerEnter } from './keys.ts';
 import { sketchSummary, type SketchView } from '../ai/sketch.ts';
 import { takeSketch } from './sketch-send.ts';
 
-const props = defineProps<{ fast: FastPath; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
+const props = defineProps<{ requests: AiRequests; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
 const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void; (e: 'show-plugin'): void }>();
-const fast = props.fast;
+const requests = props.requests;
 const llm = props.llm ?? null;
+const isDesktop = !!desktop();
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
 const list = ref<HTMLElement | null>(null);
 const drawer = ref(false);
 const voice = new VoiceInput({ create: props.createRecognition === undefined ? browserRecognition() : props.createRecognition, minHoldMs: 150, onText: heard => { void send(heard, 'voice'); } });
+const desktopVoiceUnsupported = isDesktop;
 const voiceLang = ref(voice.lang);
 watch(voiceLang, lang => { voice.lang = lang; saveVoiceLang(lang); });
 const listening = computed(() => voice.state.value !== 'idle');
-const turns = computed(() => fast.history.value);
+const turns = computed(() => requests.history.value);
 const latestId = computed(() => turns.value.at(-1)?.id);
 const showEarlier = ref(false);
 // ---- attachments: the selection, minus what was left out for this request ----
-const session = fast.session;
+const session = requests.session;
 const leftOut = ref<string[]>([]);
 watch(() => [session.selection.value, session.edgeSelection.value], () => { leftOut.value = []; });
 const attachments = computed<Attachment[]>(() => attachmentsOf(session.doc.value, session.catalog, session.selection.value, session.edgeSelection.value).filter(a => !leftOut.value.includes(a.id)));
@@ -45,12 +47,11 @@ const allChips = ref(false);
 watch(() => attachments.value.length <= CHIPS, few => { if (few) allChips.value = false; });
 const shownChips = computed(() => allChips.value ? attachments.value : attachments.value.slice(0, CHIPS));
 const KIND_ICON: Record<Attachment['kind'], string> = { module: '▣', control: '◉', element: '◇', cable: '⌇' };
-const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : 'Ask anything — or hold Space and talk');
-const llmReady = computed(() => !!llm && !!fast.session.bridge?.status.value && fast.session.bridge.codexReady);
+const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : !isDesktop && voice.supported ? 'Ask anything — or hold Space and talk' : 'Ask anything');
 // ---- letting the AI see the screen (U8b) ----
 const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
-const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
+const screenTitle = computed(() => screen.state.value === 'unsupported' ? screen.message.value : isDesktop ? screenOn.value ? 'AI can see the den-kit window. Click to stop sharing.' : 'Let AI see the den-kit window.' : screenOn.value ? 'The AI can see this tab as you see it when it looks (click to stop sharing)' : 'Let the AI see the screen as you see it (the browser asks to share this tab)');
 async function toggleScreen() { if (screenOn.value) screen.stop(); else await screen.start(); }
 // ---- the sketch (U8c) ----
 /** The view the pen draws on: the one the person looks at, when it is the patch or the plugin. */
@@ -64,7 +65,7 @@ function dropSketch() { for (const view of ['plugin', 'patch'] as const) session
 const SKETCH_REQUEST = 'Do what my sketch shows.';
 const preparing = ref(false);
 
-async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
+async function send(value: string, via: 'typed' | 'voice') {
   const request = value.trim();
   text.value = ''; // the request moves to the history; the prompt is ready for the next one
   voice.error.value = '';
@@ -77,8 +78,7 @@ async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
   const taken = sketched ? await sketchNow() : null;
   if (!taken) {
     if (!request) return;
-    if (toLlm && llm) llm.run(request, { via, attached });
-    else await fast.run(request, { via, attached: attached ?? [] });
+    requests.run(request, { via, attached });
     return;
   }
   const words = request || SKETCH_REQUEST;
@@ -88,11 +88,7 @@ async function send(value: string, via: 'typed' | 'voice', toLlm = false) {
     attached = [...(attached ?? []), ...more];
     return attached;
   };
-  // Loops and boxes around things only point (like selecting them): words the fast path knows can go that way.
-  if (taken.pointing && request && !toLlm) { await fast.run(words, { via, attached: along(taken.pointing), sketch: taken.sketch }); return; }
-  if (llm && llmReady.value) { llm.run(words, { via, attached, sketch: taken.sketch }); return; }
-  // No LLM to read the sketch: the fast path gets what the marks are about.
-  await fast.run(words, { via, attached: along(taken.about), sketch: taken.sketch });
+  requests.run(words, { via, attached: along(taken.pointing ?? taken.about), sketch: taken.sketch });
 }
 /** The marks, read and drawn for the AI; the pen goes down (they went with the request). */
 async function sketchNow() {
@@ -131,13 +127,9 @@ const laneElapsed = (o: Outcome, a: AgentLane) => {
   return Math.max(a.ms, Math.round(now.value - laneStarted.get(key)!));
 };
 const LANE_STATUS: Record<AgentLane['status'], string> = { working: 'working', done: 'done', failed: 'failed', stopped: 'stopped' };
-const via = (o: Outcome) => o.route === 'llm' ? 'LLM' : o.route === 'lexicon' ? 'instant' : o.route === 'jev' || o.route === 'jev-target' ? 'Jev' : '';
-const meta = (o: Outcome) => o.status === 'working' ? '' : [via(o), fmt(elapsed(o)), o.agents?.length ? `${o.agents.length} member${o.agents.length === 1 ? '' : 's'}` : '', o.tokens ? tokensShort(o.tokens) : ''].filter(Boolean).join(' · ');
-const routeTitle = (o: Outcome) => {
-  if (o.route === 'llm') return 'Answered by the LLM (Codex)';
-  const how = o.route === 'lexicon' ? 'built-in phrases (no Jev)' : o.route === 'jev' || o.route === 'jev-target' ? `Jev ${o.jevMs ?? '?'} ms` : '';
-  return `${how}${o.confidence !== undefined && o.route !== 'lexicon' ? ` · ${Math.round(o.confidence * 100)}%` : ''}`;
-};
+const via = (o: Outcome) => o.route === 'llm' ? 'LLM' : '';
+const meta = (o: Outcome) => o.status === 'working' ? '' : [isDesktop ? '' : via(o), fmt(elapsed(o)), o.agents?.length ? `${o.agents.length} ${isDesktop ? 'task' : 'member'}${o.agents.length === 1 ? '' : 's'}` : '', !isDesktop && o.tokens ? tokensShort(o.tokens) : ''].filter(Boolean).join(' · ');
+const routeTitle = (o: Outcome) => isDesktop ? 'Request duration' : o.route === 'llm' ? 'Answered by the LLM (Codex)' : 'Saved request from an earlier version';
 
 // ---- keys --------------------------------------------------------------------
 // Hold Space to talk, anywhere but other text fields. In the prompt a short tap
@@ -154,7 +146,7 @@ function keydown(e: KeyboardEvent) {
   if (e.isComposing || e.keyCode === 229) return; // Japanese input: Space converts, Enter confirms
   const mod = e.metaKey || e.ctrlKey;
   if (mod && !e.altKey && e.code === 'KeyK') { e.preventDefault(); focus(); return; }
-  if (isSpace(e) && !mod && !e.altKey && !e.shiftKey && !inOtherField(e)) {
+  if (!desktopVoiceUnsupported && isSpace(e) && !mod && !e.altKey && !e.shiftKey && !inOtherField(e)) {
     e.preventDefault(); // no stray spaces, no scrolling, no clicking a focused button
     if (e.repeat || spaceHeld || listening.value) return;
     spaceHeld = true;
@@ -188,11 +180,10 @@ function insertSpace() {
   text.value = el.value;
 }
 function promptKey(e: KeyboardEvent) {
-  // Enter: the fast path first (it hands over to the LLM when needed); Shift+Enter: straight to the LLM.
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed', e.shiftKey); }
+  // Every request, including short parameter changes, goes to the same LLM.
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed'); }
   else if (e.key === 'Backspace' && !e.isComposing && !text.value && attachments.value.length) { e.preventDefault(); leaveOut(attachments.value.at(-1)!.id); }
   else if (e.key === 'Escape' && !e.isComposing) {
-    if (fast.busy.value) { fast.cancel(); return; }
     if (llm?.busy.value) return; // the window handler stops it
     e.preventDefault();
     input.value?.blur();
@@ -206,7 +197,6 @@ function toggleMic() { if (voice.state.value === 'listening') voice.stop(); else
 function lostFocus() { spaceHeld = false; if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } voice.cancel(); }
 onMounted(() => { window.addEventListener('keydown', keydown, true); window.addEventListener('keyup', keyup, true); window.addEventListener('blur', lostFocus); });
 onBeforeUnmount(() => { window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup, true); window.removeEventListener('blur', lostFocus); lostFocus(); if (clock) clearInterval(clock); });
-const pct = (v: number) => `${Math.round(v * 100)}%`;
 defineExpose({ focus });
 </script>
 
@@ -214,57 +204,44 @@ defineExpose({ focus });
   <aside class="ai-panel" data-testid="ai-panel">
     <header>
       <span class="title"><span class="spark">✦</span> AI</span>
-      <AiStatus v-if="fast.session.bridge" :bridge="fast.session.bridge" />
+      <AiStatus v-if="requests.session.bridge" :bridge="requests.session.bridge" />
       <span class="grow" />
       <button type="button" class="icon pen" data-testid="ai-pen" :class="{ active: inking }" :disabled="!inking && !inkView" :aria-pressed="inking" :title="inking ? 'Put the pen down (Esc); the marks stay for your next request' : inkView ? 'Sketch over the view for the AI (P): circle things, draw boxes and arrows, leave notes' : 'Sketch on the patch or the plugin'" @click="togglePen">✎</button>
       <button v-if="llm" type="button" class="icon eye" data-testid="ai-screen" :class="{ active: screenOn, off: screen.state.value === 'unsupported' }" :disabled="screen.state.value === 'unsupported' || screen.state.value === 'asking'" :title="screenTitle" :aria-pressed="screenOn" @click="toggleScreen">
         <svg viewBox="0 0 20 14" width="20" height="14" aria-hidden="true"><path d="M1 7c2.2-3.6 5.3-5.5 9-5.5s6.8 1.9 9 5.5c-2.2 3.6-5.3 5.5-9 5.5S3.2 10.6 1 7z" fill="none" stroke="currentColor" stroke-width="1.5" /><circle cx="10" cy="7" r="2.6" fill="currentColor" /></svg>
         <span v-if="screenOn" class="shared-dot" />
       </button>
-      <button type="button" class="icon" title="Fast-path settings and recent requests" data-testid="ai-drawer-toggle" :class="{ active: drawer }" @click="drawer = !drawer">⚙</button>
+      <button type="button" class="icon" title="AI settings" data-testid="ai-drawer-toggle" :class="{ active: drawer }" @click="drawer = !drawer">⚙</button>
       <button type="button" class="icon" title="Hide the AI panel (⌘J)" data-testid="ai-close" @click="emit('close')">⟩</button>
     </header>
     <div v-if="screen.message.value && screen.state.value !== 'unsupported' && screen.state.value !== 'on'" class="screen-note" data-testid="ai-screen-note">{{ screen.message.value }}</div>
     <div v-if="drawer" class="drawer" data-testid="ai-drawer">
       <div class="row">
-        <label><span>τ (apply at ≥)</span><input v-model.number="fast.settings.tau" type="range" min="0.3" max="0.95" step="0.01" data-testid="ai-tau" /> <b>{{ pct(fast.settings.tau) }}</b></label>
-        <label><span>τ Japanese via Jev</span><input v-model.number="fast.settings.tauJa" type="range" min="0.3" max="0.99" step="0.01" /> <b>{{ pct(fast.settings.tauJa) }}</b></label>
-        <label><span>Jev time budget</span><input :value="fast.budgetMs" type="range" min="300" max="8000" step="100" data-testid="ai-budget" @input="fast.settings.budgetMs = Number(($event.target as HTMLInputElement).value)" /> <b>{{ fast.budgetMs }} ms</b></label>
-        <label><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
-        <label class="check"><input v-model="fast.settings.useJev" type="checkbox" data-testid="ai-use-jev" /> use Jev (off: built-in phrases only)</label>
+        <label v-if="!isDesktop && voice.supported"><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
         <template v-if="llm">
-          <label title="The LLM may hand parts of a request to members that work at the same time (off: one AI per request, to compare)"><span>Members</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">the AI decides</option><option value="off">off (one AI)</option></select></label>
-          <label title="How much each member is told (fixed here to compare; otherwise the lead chooses)"><span>Members are told</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
+          <label title="Allow AI to work on independent parts of your request at the same time."><span>Parallel tasks</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">Let AI decide</option><option value="off">One task at a time</option></select></label>
+          <label v-if="!isDesktop" title="Choose how much context each delegated task receives."><span>Task context</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
         </template>
       </div>
-      <table class="traces">
-        <tr><th>request</th><th>route</th><th>result</th><th>conf.</th><th>ms</th></tr>
-        <tr v-for="t in fast.traces.value.slice(0, 10)" :key="t.id" :title="JSON.stringify(t.jev?.answers ?? {}, null, 1)">
-          <td class="req">{{ t.text }}</td>
-          <td>{{ t.route }}{{ t.jev ? ` ${t.jev.ms}ms${t.jev.ok ? '' : ' ✕'}` : '' }}</td>
-          <td>{{ t.decision }}{{ t.stale ? ' (stale)' : '' }}{{ t.plan ? `: ${t.plan}` : '' }}</td>
-          <td>{{ t.confidence !== undefined ? pct(t.confidence) : '' }}</td>
-          <td>{{ t.totalMs }}</td>
-        </tr>
-      </table>
+
     </div>
     <ol ref="list" class="history" data-testid="ai-history" @scroll="onScroll">
       <li v-if="!turns.length" class="empty" data-testid="ai-empty">
         <p>Say what you want, in your words.</p>
-        <p class="examples">“brighter” · “リリース長く” · “add reverb” · “ベース作って” · “wobble the cutoff” · “write a bitcrusher”</p>
+        <p class="examples">“brighter” · “longer release” · “add reverb” · “make a bass” · “wobble the cutoff” · “write a bitcrusher”</p>
         <dl class="keys">
           <dt><kbd>Enter</kbd></dt><dd>type a request</dd>
-          <dt><kbd>Space</kbd></dt><dd>hold and talk</dd>
-          <dt><kbd>Esc</kbd></dt><dd>stop the LLM · back to the canvas</dd>
+          <template v-if="!isDesktop && voice.supported"><dt><kbd>Space</kbd></dt><dd>hold and talk</dd></template>
+          <dt><kbd>Esc</kbd></dt><dd>stop AI · back to the canvas</dd>
           <dt><kbd>⌘Z</kbd></dt><dd>take a request back</dd>
           <dt><kbd>⌘J</kbd></dt><dd>hide or show this panel</dd>
           <dt><kbd>⌥⌘E</kbd></dt><dd>patch ⇄ plugin</dd>
           <dt><kbd>P</kbd></dt><dd>sketch over the view for the AI</dd>
         </dl>
       </li>
-      <li v-if="fast.earlier.value.length" class="earlier" data-testid="ai-earlier">
-        <button type="button" class="link" @click="showEarlier = !showEarlier">{{ showEarlier ? '▾' : '▸' }} Earlier, about another patch: {{ fast.earlier.value.length }} request{{ fast.earlier.value.length === 1 ? '' : 's' }} (the AI does not see these)</button>
-        <ol v-if="showEarlier" class="earlier-lines"><li v-for="o in fast.earlier.value" :key="o.id"><span class="ask-old">{{ o.text }}</span> → {{ o.label ?? o.message ?? o.status }}</li></ol>
+      <li v-if="requests.earlier.value.length" class="earlier" data-testid="ai-earlier">
+        <button type="button" class="link" @click="showEarlier = !showEarlier">{{ showEarlier ? '▾' : '▸' }} Earlier, about another patch: {{ requests.earlier.value.length }} request{{ requests.earlier.value.length === 1 ? '' : 's' }} (the AI does not see these)</button>
+        <ol v-if="showEarlier" class="earlier-lines"><li v-for="o in requests.earlier.value" :key="o.id"><span class="ask-old">{{ o.text }}</span> → {{ o.label ?? o.message ?? o.status }}</li></ol>
       </li>
       <li v-for="o in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: o.id === latestId, undone: o.undone, llm: o.route === 'llm', live: o.live }]" :data-status="o.status" :data-route="o.route" :data-testid="o.id === latestId ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined">
         <div class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}<span v-if="o.repeats" class="again" title="Did the last change again"> · again: “{{ o.repeats }}”</span></div>
@@ -286,7 +263,7 @@ defineExpose({ focus });
                   <span class="lane-name">{{ a.name }}</span>
                   <span class="lane-scope" title="What this member may change">{{ a.scope }}</span>
                   <span class="grow" />
-                  <span class="lane-meta">{{ fmt(laneElapsed(o, a)) }}{{ a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span>
+                  <span class="lane-meta">{{ fmt(laneElapsed(o, a)) }}{{ !isDesktop && a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span>
                   <button v-if="a.status === 'working' && o.live" type="button" class="lane-stop" data-testid="ai-lane-stop" :title="`Stop ${a.name} (the others go on)`" @click="llm?.stopMember(a.id)">×</button>
                 </div>
                 <div class="lane-what" data-testid="ai-lane-what">{{ a.status === 'working' && o.live ? (a.activity ?? 'thinking…') : a.message ?? LANE_STATUS[a.status] }}</div>
@@ -313,10 +290,10 @@ defineExpose({ focus });
       </div>
       <textarea ref="input" :value="listening ? voice.heard.value : text" rows="1" data-testid="ai-input" :placeholder="placeholder" :readonly="listening" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLTextAreaElement).value; resize()" @keydown="promptKey" />
       <div class="prompt-foot">
-        <span v-if="fast.busy.value || preparing" class="spin" />
-        <span class="hint">{{ listening ? 'release Space to send' : `Enter send${llmReady ? ' · ⇧Enter LLM' : ''}` }}</span>
+        <span v-if="preparing" class="spin" />
+        <span class="hint">{{ listening ? 'release Space to send' : 'Enter send' }}</span>
         <span class="grow" />
-        <button type="button" class="icon mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : 'Voice input needs Chrome'" @click="toggleMic">
+        <button v-if="!isDesktop" type="button" class="icon mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : VOICE_UNSUPPORTED" @click="toggleMic">
           <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="currentColor" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" /></svg>
         </button>
       </div>

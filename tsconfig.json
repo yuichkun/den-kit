@@ -26,6 +26,7 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "bridge/**/*.ts",
+    "desktop/**/*.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "env.d.ts",

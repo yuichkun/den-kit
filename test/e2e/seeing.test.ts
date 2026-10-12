@@ -13,8 +13,8 @@ async function ask(page: Page, text: string) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
   await page.keyboard.press('Shift+Enter');
-  await page.waitForFunction(t => { const o = (window as any).__kit.fast.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 60000 });
-  return kit(page, k => k.fast.history.value.at(-1));
+  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.at(-1); return o && o.text === t && !o.live && o.status !== 'thinking'; }, text, { timeout: 60000 });
+  return kit(page, k => k.requests.history.value.at(-1));
 }
 
 let h: Harness;

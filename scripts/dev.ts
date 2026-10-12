@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { loadEnvFile, maskSecret } from '../bridge/env.ts';
 import { createBridge } from '../bridge/server.ts';
-import { JevClient } from '../bridge/jev.ts';
 import { Telemetry } from '../bridge/telemetry.ts';
 import { CodexClient } from '../bridge/codex/client.ts';
 
@@ -15,7 +14,6 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 loadEnvFile(join(root, '.env'));
 const port = Number(process.env.KIT_PORT ?? 5180);
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
-const budget = Number(process.env.KIT_JEV_BUDGET_MS);
 
 const telemetry = new Telemetry(join(root, '.logs'));
 // The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
@@ -30,9 +28,7 @@ try {
     port: bridgePort,
     token: randomBytes(24).toString('base64url'),
     origins: [`http://127.0.0.1:${port}`],
-    jev: new JevClient({ apiKey: process.env.TYPESAFE_API_KEY, baseUrl: process.env.KIT_JEV_BASE, defaultBudgetMs: Number.isFinite(budget) && budget > 0 ? budget : undefined }),
     telemetry,
-    warmUp: true,
     codex,
     log: line => console.log(`  [bridge] ${line}`),
   });
@@ -47,9 +43,8 @@ process.env.KIT_BRIDGE_PORT = String(bridge.port);
 try {
   const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, strictPort: true, host: '127.0.0.1' } });
   await server.listen();
-  const jev = bridge.status().jev;
   console.log(`\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`);
-  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  Jev ${jev.state === 'off' ? 'off (set TYPESAFE_API_KEY in .env)' : `key ${maskSecret(process.env.TYPESAFE_API_KEY)}`}  ·  logs .logs`);
+  console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  logs .logs`);
   // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.
   console.log(`  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in .env to give the AI a pod: bash, git, Node, npm)'}`);
   if (codex) {

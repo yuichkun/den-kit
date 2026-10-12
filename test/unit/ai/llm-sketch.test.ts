@@ -3,9 +3,9 @@
 // sending reads them (what each goes around, crosses or joins) and keeps them,
 // dimmed, until the request ends; the LLM gets their words and pictures with the
 // request or with what is added to it; members get the sketches on what they
-// hold; marks that only go around things travel the fast way like a selection.
+// hold; pointing marks reach the LLM alongside the selection.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { FastPath } from '../../../src/ai/fast-path.ts';
+import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { attachmentsOf } from '../../../src/ai/attachments.ts';
@@ -15,18 +15,16 @@ import { controlFor } from '../../../src/plugin/controls.ts';
 import type { SentSketch } from '../../../src/ai/sketch.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
 import { takeSketch, targetsOn } from '../../../src/editor/sketch-send.ts';
-import { testSession, stubBridge } from '../../helpers/fake-bridge.ts';
+import { testSession } from '../../helpers/test-session.ts';
 import { FakeLlmTransport } from '../../helpers/fake-llm-transport.ts';
-import { scriptedAnswerer } from '../../fakes/jev/scripted.ts';
 
-let session: KitSession, fast: FastPath, t: FakeLlmTransport, llm: LlmController;
+let session: KitSession, requests: AiRequests, t: FakeLlmTransport, llm: LlmController;
 beforeEach(() => {
   session = testSession();
   session.loadStarter('bass');
-  session.bridge = stubBridge(scriptedAnswerer({}), 'off').bridge;
-  fast = new FastPath(session);
+  requests = new AiRequests(session);
   t = new FakeLlmTransport();
-  llm = new LlmController(session, fast, t as unknown as LlmTransport, {
+  llm = new LlmController(session, requests, t as unknown as LlmTransport, {
     stopGraceMs: 200,
     storage: null,
     deps: {
@@ -39,7 +37,7 @@ beforeEach(() => {
 });
 const RED = '#ff4d6d';
 const settle = () => new Promise(r => setTimeout(r, 0));
-const line = (id: string) => fast.history.value.find(o => o.id === id)!;
+const line = (id: string) => requests.history.value.find(o => o.id === id)!;
 const PLUGIN = 'The person sketched on the plugin (720×440 design pixels); the marks are numbered on the picture:\n① red box around knob1 (knob “Cutoff”) (x 10, y 90, 100×110)\n② yellow sticky note “bigger” on knob2 (knob “Resonance”) (x 130, y 120, 60×40)';
 const PATCH = 'The person sketched on the patch; the marks are numbered on the picture:\n① blue arrow from osc1 (Oscillator) to filter1 (Filter “Lowpass”)';
 const PNG_P = 'data:image/png;base64,UExVR0lO', PNG_S = 'data:image/png;base64,UEFUQ0g=';
@@ -182,17 +180,24 @@ describe('members get the sketches on what they hold', () => {
   });
 });
 
-describe('the fast way, and the conversation', () => {
-  it('words the fast path knows, with a box around a module: it applies there, and the marks go at once', async () => {
+describe('the prompt and the saved conversation', () => {
+  it('a short prompt with a box reaches the LLM and keeps its marks until the request ends', async () => {
     const m = session.addMark('patch', { kind: 'rect', color: RED, rect: { x: 0, y: 0, w: 200, h: 200 } });
-    const o = await fast.run('brighter', { attached: attachmentsOf(session.doc.value, session.catalog, ['filter1']), sketch: { parts: [{ view: 'patch', marks: 1, text: PATCH }], ids: [m.id] } });
-    expect(o.status).toBe('applied');
+    const o = await requests.run('brighter', { attached: attachmentsOf(session.doc.value, session.catalog, ['filter1']), sketch: { parts: [{ view: 'patch', marks: 1, text: PATCH }], ids: [m.id] } });
+    expect(o).toMatchObject({ status: 'thinking', route: 'llm' });
     expect(o.sketch?.parts[0]?.marks).toBe(1);
+    const start = t.last('llm.start', o.id)!;
+    expect(String(start.text)).toContain('filter1 — Lowpass');
+    expect(String(start.text)).toContain(PATCH);
+    expect(session.sentMarks.value).toEqual({ [m.id]: o.id });
+    expect(session.sketch.value.patch.map(mark => mark.id)).toEqual([m.id]);
+    t.done(o.id);
+    await settle();
     expect(session.sketch.value.patch).toEqual([]);
   });
-  it('words it does not know go to the LLM with the sketch; the marks wait for the LLM', async () => {
+  it('a drawing request carries its picture to the LLM and keeps marks until completion', async () => {
     const m = session.addMark('plugin', { kind: 'rect', color: RED, rect: { x: 10, y: 90, w: 100, h: 110 } });
-    const o = await fast.run('like my drawing please', { sketch: { parts: [{ view: 'plugin', marks: 1, text: PLUGIN, image: PNG_P }], ids: [m.id] } });
+    const o = await requests.run('like my drawing please', { sketch: { parts: [{ view: 'plugin', marks: 1, text: PLUGIN, image: PNG_P }], ids: [m.id] } });
     expect(o.route).toBe('llm');
     const start = t.last('llm.start', o.id)!;
     expect(String(start.text)).toContain(PLUGIN);
