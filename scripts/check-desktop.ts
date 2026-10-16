@@ -89,7 +89,9 @@ try {
     await page.getByRole('button', { name: 'Cancel sign-in' }).waitFor();
     assert.equal(await app.evaluate(() => (globalThis as unknown as { signInHost: string }).signInHost), 'auth.openai.com');
     await page.getByRole('button', { name: 'Cancel sign-in' }).click();
-    assert.equal((await page.evaluate(() => window.denKitShell!.info())).login, 'idle');
+    // Cancellation settles asynchronously and may restart Codex: wait until sign-in is offered again.
+    await page.locator('[data-testid=desktop-sign-in]').waitFor({ timeout: 60000 });
+    await page.waitForFunction(async () => { const info = await window.denKitShell!.info(); return info.login === 'idle' && info.codex.state === 'login'; }, undefined, { timeout: 30000 });
     console.log(JSON.stringify({ nativeSignIn: 'started and canceled' }));
   }
   // Seed a previously saved advanced setting, then save only the ordinary settings through the UI.
@@ -98,7 +100,7 @@ try {
   await page.click('[data-testid=desktop-settings-open]');
   await page.waitForFunction(async () => !((await window.denKitShell!.info()).aiBusy) && !(document.querySelector('[data-testid=desktop-settings-save]') as HTMLButtonElement)?.disabled);
   await page.click('[data-testid=desktop-settings-save]');
-  await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] [role=status]')?.textContent?.includes('Saved'));
+  await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] .actions [role=status]')?.textContent?.includes('Saved'));
   assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
   await page.getByRole('button', { name: 'Close settings' }).click();
   const offCapture = () => page.evaluate(async () => {
