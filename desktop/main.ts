@@ -63,7 +63,8 @@ async function start() {
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   codex = new CodexClient({
     kitRoot: root, home: { path: home, isolated: true }, workdir: cwd,
-    command: { command: join(resources, 'codex', 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), args: [], source: 'kit', version: CODEX_VERSION },
+    // Packaged apps carry the CLI for their own architecture; an unpackaged staging run picks the host's.
+    command: { command: join(app.isPackaged ? join(resources, 'codex') : resolve(root, '../codex', process.arch), 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), args: [], source: 'kit', version: CODEX_VERSION },
     model: settings.model || undefined, effort: settings.effort || undefined, fork: settings.fork,
     loginInstruction: 'Open Settings and choose Sign in with ChatGPT.',
   });

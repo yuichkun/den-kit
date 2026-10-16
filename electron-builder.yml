@@ -13,15 +13,34 @@ files:
 extraResources:
   - from: .desktop-build/resources
     to: .
+  # scripts/build-desktop.ts stages the native Codex CLI for each architecture.
+  - from: .desktop-build/codex/${arch}
+    to: codex
 asar: true
 npmRebuild: false
 mac:
   icon: build/icon.icns
-  target: dir
+  # dmg installs the app; zip and latest-mac.yml are what the in-app updater downloads.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
   category: public.app-category.music
-  identity: null
+  # Signing uses a Developer ID Application identity from CSC_LINK or the keychain, and notarization
+  # runs when Apple credentials are present in the environment (see RELEASE.md).
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     CFBundleName: den-kit
     CFBundleDisplayName: den-kit
-    NSMicrophoneUsageDescription: den-kit uses your microphone for audio input and voice input when you choose it.
+    NSMicrophoneUsageDescription: den-kit uses your microphone or audio interface for audio input when you choose it.
     NSAudioCaptureUsageDescription: den-kit uses audio input when you choose it.
+dmg:
+  writeUpdateInfo: false
+publish:
+  provider: github
+  owner: yuichkun
+  repo: den-kit
+  releaseType: draft

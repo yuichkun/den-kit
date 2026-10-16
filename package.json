@@ -22,7 +22,9 @@
     "desktop:clean": "node scripts/clean-desktop.ts",
     "desktop:icons": "node scripts/generate-icons.ts",
     "desktop:check": "node scripts/check-desktop.ts --packaged",
-    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac",
+    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac -c.mac.identity=null",
+    "desktop:dist": "npm run desktop:build && electron-builder --config electron-builder.yml --mac --publish never",
+    "desktop:check-artifacts": "node scripts/check-desktop-artifacts.ts",
     "doctor": "node scripts/doctor.ts",
     "codex:login": "node scripts/codex-login.ts"
   },
