@@ -97,7 +97,8 @@ None of this is needed to open or test pull requests.
   temporary folder, serves the newer one from `127.0.0.1`, and checks that den-kit downloads it,
   installs it on quit and keeps the work. It needs a Developer ID Application identity in your
   keychain, because macOS installs only signed updates. It never touches published releases or your
-  own den-kit data.
+  own den-kit data. Quit den-kit first: the check uses the same updater caches in `~/Library/Caches` as
+  an installed den-kit, and removes the ones it created.
 
 ## Failure and retry
 

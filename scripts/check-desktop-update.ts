@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -15,12 +15,16 @@ import { parseVersion } from './release-version.ts';
 import { appDirectory } from './check-desktop-artifacts.ts';
 import type { MacArch } from './codex-native.ts';
 import { waitForShell } from './desktop-shell.ts';
+import { denKitRunning, listProcesses } from './clean-desktop.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const stagedPackage = join(root, '.desktop-build/app/package.json');
 if (process.platform !== 'darwin') throw new Error('The update check runs on macOS.');
 if (!existsSync(stagedPackage)) throw new Error('Run npm run desktop:build first.');
+if (denKitRunning(listProcesses())) throw new Error('Quit den-kit first: the update check shares its updater caches.');
 const arch: MacArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+// electron-updater and Squirrel.Mac keep their state in ~/Library/Caches; remove only what this check creates there.
+const createdCaches = ['den-kit-updater', 'com.escentier.den-kit', 'com.escentier.den-kit.ShipIt'].map(name => join(homedir(), 'Library/Caches', name)).filter(path => !existsSync(path));
 const staged = readFileSync(stagedPackage, 'utf8');
 const older = JSON.parse(staged).version as string;
 const parts = parseVersion(older);
@@ -110,6 +114,7 @@ try {
   await running?.close().catch(() => undefined);
   writeFileSync(stagedPackage, staged);
   server?.close();
+  for (const path of createdCaches) rmSync(path, { recursive: true, force: true });
   try { rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); }
   catch (error) { console.error(`Could not remove ${work}: ${error instanceof Error ? error.message : String(error)}`); }
 }
