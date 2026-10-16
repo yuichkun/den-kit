@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { packagedMacApp } from './desktop-paths.ts';
+import { waitForShell } from './desktop-shell.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const appIndex = process.argv.indexOf('--app');
@@ -51,7 +52,7 @@ try {
   let page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, { timeout: 60000 });
-  await page.waitForFunction(async () => ['login', 'ok', 'error'].includes((await window.denKitShell!.info()).codex.state), undefined, { timeout: 60000 });
+  await waitForShell(page, info => ['login', 'ok', 'error'].includes(info.codex.state));
   assert.deepEqual(await page.evaluate(() => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
     return { state: k.screen.state.value, source: k.screen.source };
@@ -91,14 +92,15 @@ try {
     await page.getByRole('button', { name: 'Cancel sign-in' }).click();
     // Cancellation settles asynchronously and may restart Codex: wait until sign-in is offered again.
     await page.locator('[data-testid=desktop-sign-in]').waitFor({ timeout: 60000 });
-    await page.waitForFunction(async () => { const info = await window.denKitShell!.info(); return info.login === 'idle' && info.codex.state === 'login'; }, undefined, { timeout: 30000 });
+    await waitForShell(page, info => info.login === 'idle' && info.codex.state === 'login', { timeout: 30000 });
     console.log(JSON.stringify({ nativeSignIn: 'started and canceled' }));
   }
   // Seed a previously saved advanced setting, then save only the ordinary settings through the UI.
   await page.evaluate(() => window.denKitShell!.saveSettings({ model: '', effort: '', fork: true }));
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.click('[data-testid=desktop-settings-open]');
-  await page.waitForFunction(async () => !((await window.denKitShell!.info()).aiBusy) && !(document.querySelector('[data-testid=desktop-settings-save]') as HTMLButtonElement)?.disabled);
+  await waitForShell(page, info => !info.aiBusy);
+  await page.waitForFunction(() => !(document.querySelector('[data-testid=desktop-settings-save]') as HTMLButtonElement)?.disabled);
   await page.click('[data-testid=desktop-settings-save]');
   await page.waitForFunction(() => document.querySelector('[data-testid=desktop-settings] .actions [role=status]')?.textContent?.includes('Saved'));
   assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
@@ -156,7 +158,7 @@ try {
     console.log(JSON.stringify({ imageCheck }));
   }
   if (real && !skipAI) {
-    await page.waitForFunction(async () => (await window.denKitShell!.info()).codex.state === 'ok', undefined, { timeout: 60000 });
+    await waitForShell(page, info => info.codex.state === 'ok');
     await page.waitForFunction(() => ((window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit).llm!.ready);
     const before = await page.evaluate(() => Object.keys((window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.doc.value.nodes));
     const requestId = await page.evaluate(() => {
