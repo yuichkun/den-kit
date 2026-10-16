@@ -27,6 +27,7 @@ input[type=range] { accent-color: var(--accent); }
 .ai-dock .resizer { position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 5; }
 .ai-dock .resizer:hover { background: #ff9c1a33; }
 .ai-toggle { color: #e8e8e8; }
+.update-ready { color: #1b1206; background: var(--accent); border-color: var(--accent); font-weight: 600; }
 .ai-toggle, .patch-menu .menu button { display: inline-flex; align-items: center; gap: 8px; }
 .kbd-hint { font-size: 11px; color: #8a8a8a; border: 1px solid #4a4a4a; border-radius: 3px; padding: 0 4px; margin-left: auto; }
 .leave-focus { position: absolute; top: 10px; right: 10px; z-index: 40; opacity: .25; background: #000a; color: #eee; transition: opacity .2s; display: inline-flex; gap: 8px; align-items: center; }

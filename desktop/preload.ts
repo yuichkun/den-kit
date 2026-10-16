@@ -15,7 +15,11 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     signOut: () => ipcRenderer.invoke('den-kit:sign-out'),
     reconnectAI: () => ipcRenderer.invoke('den-kit:reconnect-ai'),
     openUsage: () => ipcRenderer.invoke('den-kit:usage'),
+    checkForUpdates: () => ipcRenderer.invoke('den-kit:check-updates'),
+    installUpdate: () => ipcRenderer.invoke('den-kit:install-update'),
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
   ipcRenderer.on('den-kit:open-settings', () => window.dispatchEvent(new Event('den-kit:open-settings')));
+  // The page reads the new state through info(); event details do not cross the isolated world.
+  ipcRenderer.on('den-kit:update', () => window.dispatchEvent(new Event('den-kit:update')));
 }

@@ -42,6 +42,12 @@ const starting = ref(!!props.firstRun);
 const isDesktop = !!desktop();
 const settingsOpen = ref(false);
 const openSettings = () => { settingsOpen.value = true; };
+/** Version of a downloaded update waiting to be installed; Settings offers the restart. */
+const updateReady = ref<string | null>(null);
+async function refreshUpdate() {
+  try { const update = (await desktop()!.info()).update; updateReady.value = update?.state === 'ready' ? update.version : null; }
+  catch { /* the next update event or Settings shows the state */ }
+}
 // Desktop account/settings changes restart the native server and invalidate its conversation ids.
 watch(() => session.bridge?.status.value?.codex.state, state => {
   if (isDesktop && state === 'starting' && !session.llm?.running) session.llm?.reset();
@@ -155,6 +161,7 @@ function firstPodStart() {
 watch(() => session.engineState.value, s => { if (s === 'running') firstPodStart(); });
 onMounted(() => {
   window.addEventListener('den-kit:open-settings', openSettings);
+  if (isDesktop) { window.addEventListener('den-kit:update', refreshUpdate); void refreshUpdate(); }
   window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
@@ -162,7 +169,7 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', fullscreenChange);
   window.addEventListener('resize', onResize);
 });
-onBeforeUnmount(() => { window.removeEventListener('den-kit:open-settings', openSettings); window.removeEventListener('storage', storageChanged); window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
+onBeforeUnmount(() => { window.removeEventListener('den-kit:open-settings', openSettings); window.removeEventListener('den-kit:update', refreshUpdate); window.removeEventListener('storage', storageChanged); window.removeEventListener('keydown', keys); window.removeEventListener('pointerdown', closeMenu, true); document.removeEventListener('fullscreenchange', fullscreenChange); window.removeEventListener('resize', onResize); });
 function rename() { session.commit([{ op: 'setName', name: name.value }]); }
 function openNew() { menu.value = false; starting.value = true; }
 function started(asked: boolean) { starting.value = false; view.value = 'patch'; if (asked) aiOpen.value = true; }
@@ -203,6 +210,7 @@ async function importPatch(e: Event) {
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
+      <button v-if="isDesktop && updateReady" class="update-ready" data-testid="desktop-update-ready" :title="`den-kit ${updateReady} is ready to install`" @click="settingsOpen = true">Update ready</button>
       <button v-if="isDesktop" data-testid="desktop-settings-open" title="Settings (⌘,)" @click="settingsOpen = true">Settings</button>
       <span v-if="load" class="status load" :class="{ heavy: load.heavy }" data-testid="patch-load" title="Estimated CPU load. Actual performance depends on your computer. The inspector shows each module's estimate.">{{ load.text }}</span>
       <span class="status" :class="status.cls" data-testid="compile-status" :title="status.title">{{ status.text }}</span>
