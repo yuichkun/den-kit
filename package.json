@@ -27,7 +27,8 @@
     "desktop:check-artifacts": "node scripts/check-desktop-artifacts.ts",
     "desktop:check-update": "node scripts/check-desktop-update.ts",
     "doctor": "node scripts/doctor.ts",
-    "codex:login": "node scripts/codex-login.ts"
+    "codex:login": "node scripts/codex-login.ts",
+    "release:version": "node scripts/release-version.ts"
   },
   "dependencies": {
     "@denaudio/den": "0.1.0",
