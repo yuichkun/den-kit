@@ -4,10 +4,8 @@
 // overlay goes away. It comes back only when sound cannot run.
 import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useSession } from './context.ts';
-import { desktop } from '../desktop/api.ts';
 
 const session = useSession();
-const isDesktop = !!desktop();
 const state = computed(() => session.engineState.value);
 const visible = computed(() => state.value !== 'running');
 async function start() {
@@ -27,7 +25,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
       <template v-if="state === 'off' || state === 'starting'">
         <h1>{{ state === 'starting' ? 'Starting…' : 'Click anywhere to start' }}</h1>
         <ul class="hints">
-          <li v-if="!isDesktop"><kbd>Space</kbd> hold and talk</li>
           <li><kbd>Enter</kbd> type a request</li>
           <li><kbd>A</kbd>–<kbd>K</kbd> play</li>
           <li><kbd>⌘Z</kbd> undo</li>

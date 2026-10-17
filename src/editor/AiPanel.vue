@@ -12,14 +12,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { AgentLane, AiRequests, Outcome } from '../ai/requests.ts';
 import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
 import type { LlmController } from '../ai/llm.ts';
-import { VoiceInput, VOICE_LANGS, VOICE_UNSUPPORTED, browserRecognition, saveVoiceLang, type RecognitionLike } from '../ai/voice.ts';
 import { desktop } from '../desktop/api.ts';
 import AiStatus from './AiStatus.vue';
 import { offerEnter } from './keys.ts';
 import { sketchSummary, type SketchView } from '../ai/sketch.ts';
 import { takeSketch } from './sketch-send.ts';
 
-const props = defineProps<{ requests: AiRequests; llm?: LlmController | null; createRecognition?: (() => RecognitionLike) | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
+const props = defineProps<{ requests: AiRequests; llm?: LlmController | null; /** The view next to the panel (a request that changed the screen offers to show the plugin). */ view?: string }>();
 const emit = defineEmits<{ (e: 'request'): void; (e: 'leave'): void; (e: 'close'): void; (e: 'show-plugin'): void }>();
 const requests = props.requests;
 const llm = props.llm ?? null;
@@ -28,11 +27,6 @@ const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
 const list = ref<HTMLElement | null>(null);
 const drawer = ref(false);
-const voice = new VoiceInput({ create: props.createRecognition === undefined ? browserRecognition() : props.createRecognition, minHoldMs: 150, onText: heard => { void send(heard, 'voice'); } });
-const desktopVoiceUnsupported = isDesktop;
-const voiceLang = ref(voice.lang);
-watch(voiceLang, lang => { voice.lang = lang; saveVoiceLang(lang); });
-const listening = computed(() => voice.state.value !== 'idle');
 const turns = computed(() => requests.history.value);
 const latestId = computed(() => turns.value.at(-1)?.id);
 const showEarlier = ref(false);
@@ -47,7 +41,6 @@ const allChips = ref(false);
 watch(() => attachments.value.length <= CHIPS, few => { if (few) allChips.value = false; });
 const shownChips = computed(() => allChips.value ? attachments.value : attachments.value.slice(0, CHIPS));
 const KIND_ICON: Record<Attachment['kind'], string> = { module: '▣', control: '◉', element: '◇', cable: '⌇' };
-const placeholder = computed(() => listening.value ? 'Listening… release Space to send' : !isDesktop && voice.supported ? 'Ask anything — or hold Space and talk' : 'Ask anything');
 // ---- letting the AI see the screen (U8b) ----
 const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
@@ -65,10 +58,9 @@ function dropSketch() { for (const view of ['plugin', 'patch'] as const) session
 const SKETCH_REQUEST = 'Do what my sketch shows.';
 const preparing = ref(false);
 
-async function send(value: string, via: 'typed' | 'voice') {
+async function send(value: string) {
   const request = value.trim();
   text.value = ''; // the request moves to the history; the prompt is ready for the next one
-  voice.error.value = '';
   resize();
   const sketched = sketchParts.value.length > 0;
   if (!request && !sketched) return;
@@ -78,7 +70,7 @@ async function send(value: string, via: 'typed' | 'voice') {
   const taken = sketched ? await sketchNow() : null;
   if (!taken) {
     if (!request) return;
-    requests.run(request, { via, attached });
+    requests.run(request, { via: 'typed', attached });
     return;
   }
   const words = request || SKETCH_REQUEST;
@@ -88,7 +80,7 @@ async function send(value: string, via: 'typed' | 'voice') {
     attached = [...(attached ?? []), ...more];
     return attached;
   };
-  requests.run(words, { via, attached: along(taken.pointing ?? taken.about), sketch: taken.sketch });
+  requests.run(words, { via: 'typed', attached: along(taken.pointing ?? taken.about), sketch: taken.sketch });
 }
 /** The marks, read and drawn for the AI; the pen goes down (they went with the request). */
 async function sketchNow() {
@@ -132,12 +124,6 @@ const meta = (o: Outcome) => o.status === 'working' ? '' : [isDesktop ? '' : via
 const routeTitle = (o: Outcome) => isDesktop ? 'Request duration' : o.route === 'llm' ? 'Answered by the LLM (Codex)' : 'Saved request from an earlier version';
 
 // ---- keys --------------------------------------------------------------------
-// Hold Space to talk, anywhere but other text fields. In the prompt a short tap
-// still types a space, so talking works the same for every request.
-const HOLD_MS = 200;
-let holdTimer: ReturnType<typeof setTimeout> | null = null;
-let spaceHeld = false;
-const isSpace = (e: KeyboardEvent) => e.code === 'Space' || e.key === ' ';
 const inPrompt = (e: Event) => e.target === input.value;
 const inOtherField = (e: Event) => !inPrompt(e) && !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]');
 
@@ -146,14 +132,6 @@ function keydown(e: KeyboardEvent) {
   if (e.isComposing || e.keyCode === 229) return; // Japanese input: Space converts, Enter confirms
   const mod = e.metaKey || e.ctrlKey;
   if (mod && !e.altKey && e.code === 'KeyK') { e.preventDefault(); focus(); return; }
-  if (!desktopVoiceUnsupported && isSpace(e) && !mod && !e.altKey && !e.shiftKey && !inOtherField(e)) {
-    e.preventDefault(); // no stray spaces, no scrolling, no clicking a focused button
-    if (e.repeat || spaceHeld || listening.value) return;
-    spaceHeld = true;
-    holdTimer = setTimeout(() => { holdTimer = null; emit('request'); voice.start(); }, HOLD_MS);
-    return;
-  }
-  if (e.key === 'Escape' && listening.value) { e.preventDefault(); voice.cancel(); return; }
   // Drawing: Esc puts the pen down (before anything else it would do); ⌘Z takes back the last mark, not an edit.
   if (session.inking.value && !inOtherField(e)) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); session.inking.value = null; return; }
@@ -166,22 +144,9 @@ function keydown(e: KeyboardEvent) {
   // Enter anywhere outside a text field jumps to the prompt, unless a view claims it (Enter on a selected text or canvas opens it).
   if (e.key === 'Enter' && !mod && !e.defaultPrevented && !inPrompt(e) && !inOtherField(e) && !(e.target as HTMLElement | null)?.closest?.('button')) { if (offerEnter(e)) return; e.preventDefault(); focus(); }
 }
-function keyup(e: KeyboardEvent) {
-  if (!isSpace(e) || !spaceHeld || e.isComposing) return;
-  spaceHeld = false;
-  e.preventDefault();
-  if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; if (document.activeElement === input.value) insertSpace(); return; }
-  if (voice.state.value === 'listening') voice.stop();
-}
-function insertSpace() {
-  const el = input.value; if (!el) return;
-  const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? start;
-  el.setRangeText(' ', start, end, 'end');
-  text.value = el.value;
-}
 function promptKey(e: KeyboardEvent) {
   // Every request, including short parameter changes, goes to the same LLM.
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value, 'typed'); }
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void send(text.value); }
   else if (e.key === 'Backspace' && !e.isComposing && !text.value && attachments.value.length) { e.preventDefault(); leaveOut(attachments.value.at(-1)!.id); }
   else if (e.key === 'Escape' && !e.isComposing) {
     if (llm?.busy.value) return; // the window handler stops it
@@ -193,10 +158,8 @@ function promptKey(e: KeyboardEvent) {
 /** The prompt grows with what is typed (up to six lines). */
 function resize() { void nextTick(() => { const el = input.value; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 6 * 26 + 16)}px`; }); }
 function focus() { emit('request'); void nextTick(() => { input.value?.focus(); input.value?.select(); }); }
-function toggleMic() { if (voice.state.value === 'listening') voice.stop(); else if (!listening.value) { emit('request'); voice.start(); } }
-function lostFocus() { spaceHeld = false; if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } voice.cancel(); }
-onMounted(() => { window.addEventListener('keydown', keydown, true); window.addEventListener('keyup', keyup, true); window.addEventListener('blur', lostFocus); });
-onBeforeUnmount(() => { window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup, true); window.removeEventListener('blur', lostFocus); lostFocus(); if (clock) clearInterval(clock); });
+onMounted(() => { window.addEventListener('keydown', keydown, true); });
+onBeforeUnmount(() => { window.removeEventListener('keydown', keydown, true); if (clock) clearInterval(clock); });
 defineExpose({ focus });
 </script>
 
@@ -216,7 +179,6 @@ defineExpose({ focus });
     <div v-if="screen.message.value && screen.state.value !== 'unsupported' && screen.state.value !== 'on'" class="screen-note" data-testid="ai-screen-note">{{ screen.message.value }}</div>
     <div v-if="drawer" class="drawer" data-testid="ai-drawer">
       <div class="row">
-        <label v-if="!isDesktop && voice.supported"><span>Voice language</span><select v-model="voiceLang" data-testid="ai-voice-lang"><option v-for="(name, code) in VOICE_LANGS" :key="code" :value="code">{{ name }}</option></select></label>
         <template v-if="llm">
           <label title="Allow AI to work on independent parts of your request at the same time."><span>Parallel tasks</span><select v-model="llm.settings.members" data-testid="ai-members"><option value="auto">Let AI decide</option><option value="off">One task at a time</option></select></label>
           <label v-if="!isDesktop" title="Choose how much context each delegated task receives."><span>Task context</span><select v-model="llm.settings.memberContext" data-testid="ai-member-context"><option value="lead">what the lead chooses</option><option value="brief">brief, the person's words, the state</option><option value="full">all that and the whole conversation</option><option value="bare">only the lead's brief</option></select></label>
@@ -230,7 +192,6 @@ defineExpose({ focus });
         <p class="examples">“brighter” · “longer release” · “add reverb” · “make a bass” · “wobble the cutoff” · “write a bitcrusher”</p>
         <dl class="keys">
           <dt><kbd>Enter</kbd></dt><dd>type a request</dd>
-          <template v-if="!isDesktop && voice.supported"><dt><kbd>Space</kbd></dt><dd>hold and talk</dd></template>
           <dt><kbd>Esc</kbd></dt><dd>stop AI · back to the canvas</dd>
           <dt><kbd>⌘Z</kbd></dt><dd>take a request back</dd>
           <dt><kbd>⌘J</kbd></dt><dd>hide or show this panel</dd>
@@ -243,7 +204,7 @@ defineExpose({ focus });
         <ol v-if="showEarlier" class="earlier-lines"><li v-for="o in requests.earlier.value" :key="o.id"><span class="ask-old">{{ o.text }}</span> → {{ o.label ?? o.message ?? o.status }}</li></ol>
       </li>
       <li v-for="o in turns" :key="o.id" class="turn" :class="[`s-${o.status}`, { latest: o.id === latestId, undone: o.undone, llm: o.route === 'llm', live: o.live }]" :data-status="o.status" :data-route="o.route" :data-testid="o.id === latestId ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined">
-        <div class="ask"><span v-if="o.via === 'voice'" class="via" title="spoken">🎙</span>{{ o.text }}<span v-if="o.repeats" class="again" title="Did the last change again"> · again: “{{ o.repeats }}”</span></div>
+        <div class="ask">{{ o.text }}<span v-if="o.repeats" class="again" title="Did the last change again"> · again: “{{ o.repeats }}”</span></div>
         <div v-if="o.attached?.length || o.sketch?.parts.length" class="attached" data-testid="ai-attached"><span v-if="o.sketch?.parts.length" class="chip small sketch" data-testid="ai-line-sketch">✎ {{ sketchSummary(o.sketch.parts) }}</span><span v-for="a in o.attached ?? []" :key="a.id" class="chip small" :title="a.id">{{ KIND_ICON[a.kind] ?? '▣' }} {{ a.label }}</span></div>
         <div class="answer">
           <div v-if="o.status === 'working'" class="activity"><span class="spin" /> thinking…</div>
@@ -278,8 +239,7 @@ defineExpose({ focus });
         </div>
       </li>
     </ol>
-    <div v-if="voice.error.value && !listening" class="voice-error" data-testid="ai-voice-message">{{ voice.error.value }}</div>
-    <form class="prompt" :class="{ listening }" @submit.prevent>
+    <form class="prompt" @submit.prevent>
       <div v-if="sketchParts.length" class="chips" data-testid="ai-sketch" title="Your sketch goes with the next request: the marks in words and as a picture">
         <span class="chip sketch" data-testid="ai-sketch-chip">✎ {{ sketchSummary(sketchParts) }}<button type="button" class="x" title="Rub out the new marks" data-testid="ai-sketch-drop" @click="dropSketch">×</button></span>
       </div>
@@ -287,14 +247,11 @@ defineExpose({ focus });
         <span v-for="a in shownChips" :key="a.id" class="chip" :data-attachment="a.id">{{ KIND_ICON[a.kind] }} {{ a.label }}<button type="button" class="x" :title="`Leave ${a.id} out of this request`" @click="leaveOut(a.id)">×</button></span>
         <button v-if="attachments.length > CHIPS && !allChips" type="button" class="chip more" data-testid="ai-attachments-more" @click="allChips = true">+{{ attachments.length - CHIPS }} more</button>
       </div>
-      <textarea ref="input" :value="listening ? voice.heard.value : text" rows="1" data-testid="ai-input" :placeholder="placeholder" :readonly="listening" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLTextAreaElement).value; resize()" @keydown="promptKey" />
+      <textarea ref="input" :value="text" rows="1" data-testid="ai-input" placeholder="Ask anything" maxlength="600" autocomplete="off" spellcheck="false" @input="text = ($event.target as HTMLTextAreaElement).value; resize()" @keydown="promptKey" />
       <div class="prompt-foot">
         <span v-if="preparing" class="spin" />
-        <span class="hint">{{ listening ? 'release Space to send' : 'Enter send' }}</span>
+        <span class="hint">Enter send</span>
         <span class="grow" />
-        <button v-if="!isDesktop" type="button" class="icon mic" :class="{ on: listening }" data-testid="ai-mic" :title="voice.supported ? 'Hold Space to talk (or click to start / stop)' : VOICE_UNSUPPORTED" @click="toggleMic">
-          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="currentColor" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" /></svg>
-        </button>
       </div>
     </form>
   </aside>
@@ -318,7 +275,6 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .turn.s-applied { border-left-color: var(--ok); } .turn.s-working, .turn.s-thinking { border-left-color: var(--accent); }
 .turn.s-failed { border-left-color: var(--error); } .turn.s-stopped, .turn.s-merged, .turn.s-reply, .turn.s-nothing { border-left-color: #6a6a6a; }
 .ask { color: #f4f4f4; font-size: 16px; overflow-wrap: anywhere; }
-.via { margin-right: 6px; font-size: 13px; }
 .answer { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .activity { color: var(--accent); display: inline-flex; gap: 8px; align-items: center; }
 .label { color: #9ee6cf; overflow-wrap: anywhere; }
@@ -338,10 +294,8 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .time { color: #8c8c8c; font-variant-numeric: tabular-nums; font-size: 13px; }
 .stop { margin-left: auto; font-size: 13px; padding: 2px 8px; background: #333; }
 .stop kbd { font-size: 11px; margin-left: 4px; }
-.voice-error { margin: 0 14px 8px; border-left: 3px solid var(--warn); border-radius: 6px; padding: 8px 12px; font-size: 14px; color: #d6d6d6; background: #262626; }
 .prompt { margin: 0 12px 12px; display: flex; flex-direction: column; gap: 4px; background: #121212; border: 1px solid #444; border-radius: 10px; padding: 10px 12px 6px; }
 .prompt:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px #ff9c1a26; }
-.prompt.listening { border-color: var(--error); box-shadow: 0 0 0 3px #ff3a5c33; }
 .prompt textarea { resize: none; background: transparent; border: 0; outline: none; color: #f4f4f4; font: inherit; font-size: 17px; line-height: 26px; padding: 0; min-height: 26px; overflow-y: auto; }
 .prompt textarea::placeholder { color: #7a7a7a; }
 .prompt-foot { display: flex; align-items: center; gap: 8px; }
@@ -359,7 +313,6 @@ kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid 
 .earlier .link:hover { color: #cfcfcf; background: transparent !important; }
 .earlier-lines { list-style: none; margin: 6px 0 0; padding: 0 0 0 12px; border-left: 1px solid #333; display: flex; flex-direction: column; gap: 3px; }
 .ask-old { color: #b0b0b0; }
-.mic.on { color: var(--error); animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }

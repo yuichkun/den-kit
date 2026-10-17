@@ -59,7 +59,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   return h;
 }
 
-export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app (e.g. a fake speech recognizer). */ initScript?: string; /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean; /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean; viewport?: { width: number; height: number } } = {}): Promise<{ page: Page; errors: string[] }> {
+export async function openKit(h: Harness, options: { clearStorage?: boolean; query?: string; /** Runs in the page before the app. */ initScript?: string; /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean; /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean; viewport?: { width: number; height: number } } = {}): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
   const context = await h.browser.newContext({ viewport: options.viewport ?? { width: 1440, height: 900 } });
   const page = await context.newPage();

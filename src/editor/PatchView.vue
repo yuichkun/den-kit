@@ -259,7 +259,7 @@ defineExpose({ openPalette, fit });
   <GridPalette @add="addAtCenter" />
   <div ref="wrapper" class="patch-view" tabindex="0" data-testid="patch-view" @dragover.prevent @drop="onDrop">
     <!-- Like a drawing app: dragging on empty canvas selects; two fingers (or the wheel) pan, a pinch (or ⌘ + wheel) zooms,
-         the middle button drags the view. Space is the voice key, so it never pans. -->
+         the middle button drags the view. -->
     <VueFlow id="den-kit" :nodes="nodes" :edges="edges" :apply-default="false" :delete-key-code="null" :pan-activation-key-code="null" :min-zoom="0.2" :max-zoom="2" :snap-to-grid="true" :snap-grid="[12, 12]"
       :selection-key-code="true" :pan-on-drag="[1, 2]" :pan-on-scroll="true" :zoom-on-pinch="true" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="['Shift', 'Meta', 'Control']"
       :is-valid-connection="isValidConnection" :zoom-on-double-click="false" :connect-on-click="false" :disable-keyboard-a11y="true"
