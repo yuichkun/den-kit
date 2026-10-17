@@ -21,11 +21,18 @@ Releases. Ordinary pull requests and merges never publish anything.
 
 ## What the Release workflow does
 
-The workflow runs only for merged `release/v*` pull requests from this repository.
+The workflow runs on every push to `main`. It asks GitHub which pull request the pushed merge commit
+belongs to, and continues only for a merged `release/v*` pull request from this repository. Other
+pushes finish without doing anything.
 
-1. **validate** checks that the merge commit's tree equals the reviewed pull request head, that the
-   commit belongs to `main`, that the versions and changelog match the branch, that an existing tag
-   points to the same commit, and that no newer release exists.
+It runs on the push rather than on the pull request event because, for pull request events, GitHub
+checks the `release` environment's branch rule against the pull request's merge ref instead of
+`main`. On the push, only workflow code that is already on `main` can use the signing secrets. den and
+unworklet publish without such secrets, so they run on the pull request event.
+
+1. **validate** finds the release pull request, then checks that the merge commit's tree equals the
+   reviewed pull request head, that the commit belongs to `main`, that the versions and changelog
+   match the branch, that an existing tag points to the same commit, and that no newer release exists.
 2. **verify** runs the complete CI workflow, including unsigned packaging, on that exact commit with
    read-only permissions.
 3. **build** runs on macOS in the `release` environment. It builds den-kit for Apple silicon and
@@ -37,7 +44,8 @@ The workflow runs only for merged `release/v*` pull requests from this repositor
    commit, creates a draft release, attaches the `.dmg`, `.zip`, `.blockmap` and `latest-mac.yml`
    files, and then publishes the release as the latest one.
 
-Pull request titles and descriptions are passed to the scripts as data, never as shell code.
+The publish job reads the pull request's title and description through the GitHub API. They become the
+release title and notes as data, never as shell code.
 
 ## How the app updates
 
@@ -65,7 +73,7 @@ None of this is needed to open or test pull requests.
    the app, where anyone can read it, so do not reuse a development key. To replace it, publish a new
    version with the new key, then revoke the old one once people have updated.
 4. **GitHub environment.** Under Settings → Environments, create `release`, allow deployments only
-   from `main`, and add these secrets:
+   from `main` (the Release workflow runs on pushes to `main`), and add these secrets:
 
    | Secret | Value |
    | --- | --- |
@@ -109,6 +117,9 @@ Fix the cause of a failure and rerun the failed Release workflow. It keeps a tag
 the same commit, completes an unfinished draft by replacing all of its files, and leaves a complete
 published release unchanged. A published release cannot be changed, so a release that was published
 with a problem needs a new version.
+
+If **validate** reports that no pull request is linked to the merge commit yet, rerun it. GitHub links
+a merge commit to its pull request shortly after the push.
 
 If the reviewed tree differs from the merge, nothing is published: prepare a fresh release pull
 request from current `main` and review it again.

@@ -6,6 +6,7 @@ import { checkRelease, tagsFromRemote, type ReleaseFacts } from '../../scripts/r
 import { parseVersion, prepareVersion } from '../../scripts/release-version.ts';
 import { planPublish, releaseFiles } from '../../scripts/release-publish.ts';
 import { packageNames, parseUpdateInfo } from '../../scripts/check-desktop-artifacts.ts';
+import { releasePullRequest, type PullRequestSummary } from '../../scripts/release-pr.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -95,5 +96,36 @@ releaseDate: '2026-11-01T00:00:00.000Z'
       { url: 'den-kit-0.2.0-x64.zip', sha512: 'def', size: 456 },
     ] });
     expect(packageNames('0.2.0')).toEqual(['den-kit-0.2.0-arm64.dmg', 'den-kit-0.2.0-arm64.zip', 'den-kit-0.2.0-x64.dmg', 'den-kit-0.2.0-x64.zip']);
+  });
+});
+
+describe('release pull request of a push to main', () => {
+  const sha = 'a'.repeat(40);
+  const repository = 'yuichkun/den-kit';
+  type Changes = Partial<Omit<PullRequestSummary, 'head'>> & { head?: Partial<PullRequestSummary['head']> };
+  const pull = ({ head, ...changes }: Changes = {}): PullRequestSummary => ({
+    number: 6, merged_at: '2026-10-17T07:00:00Z', merge_commit_sha: sha, base: { ref: 'main' },
+    head: { ref: 'release/v0.1.0', sha: 'b'.repeat(40), repo: { full_name: repository }, ...head },
+    ...changes,
+  });
+
+  it('finds the merged release pull request whose merge commit was pushed', () => {
+    expect(releasePullRequest([pull()], sha, repository)).toEqual({ number: 6, branch: 'release/v0.1.0', reviewed: 'b'.repeat(40) });
+  });
+
+  it('ignores other pull requests that merely contain the commit', () => {
+    expect(releasePullRequest([pull({ number: 7, merged_at: null, merge_commit_sha: null }), pull()], sha, repository)?.number).toBe(6);
+  });
+
+  const ignored: [string, Changes][] = [
+    ['an ordinary merge', { head: { ref: 'claude/feature' } }],
+    ['a release branch from a fork', { head: { repo: { full_name: 'someone/den-kit' } } }],
+    ['a pull request from a deleted fork', { head: { repo: null } }],
+    ['a merge into another branch', { base: { ref: 'next' } }],
+    ['a pull request merged as another commit', { merge_commit_sha: 'c'.repeat(40) }],
+    ['an unmerged pull request', { merged_at: null }],
+  ];
+  it.each(ignored)('publishes nothing for %s', (_, changes) => {
+    expect(releasePullRequest([pull(changes)], sha, repository)).toBeNull();
   });
 });
