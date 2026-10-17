@@ -201,9 +201,8 @@ defineExpose({ focus });
 </script>
 
 <template>
-  <aside class="ai-panel" data-testid="ai-panel">
+  <aside class="ai-panel" data-testid="ai-panel" aria-label="AI">
     <header>
-      <span class="title"><span class="spark">✦</span> AI</span>
       <AiStatus v-if="requests.session.bridge" :bridge="requests.session.bridge" />
       <span class="grow" />
       <button type="button" class="icon pen" data-testid="ai-pen" :class="{ active: inking }" :disabled="!inking && !inkView" :aria-pressed="inking" :title="inking ? 'Put the pen down (Esc); the marks stay for your next request' : inkView ? 'Sketch over the view for the AI (P): circle things, draw boxes and arrows, leave notes' : 'Sketch on the patch or the plugin'" @click="togglePen">✎</button>
@@ -304,8 +303,6 @@ defineExpose({ focus });
 <style scoped>
 .ai-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; background: #1b1b1b; border-left: 1px solid #000; font-size: 15px; line-height: 1.45; color: #e2e2e2; }
 header { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid #000; background: #232323; }
-.title { font-weight: 700; letter-spacing: .06em; color: #f0f0f0; font-size: 14px; }
-.spark { color: var(--accent); }
 .grow { flex: 1; }
 .icon { background: transparent; border: 0; color: #8a8a8a; padding: 4px 6px; display: inline-flex; align-items: center; box-shadow: none; font-size: 15px; }
 .icon.active, .icon:hover { color: var(--accent); background: transparent !important; }
