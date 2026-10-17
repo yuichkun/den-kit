@@ -119,7 +119,10 @@ function runCommand(command: string, args: string[], cwd?: string): Promise<Comm
   });
 }
 
-/** The afterSign hook. electron-builder passes only the context. */
+/**
+ * The afterSign hook. electron-builder passes only the context. Its documented contract for a hook module is a default
+ * export; 26.17 also looks up an export named after the hook first, which the tests use.
+ */
 export async function afterSign(context: AfterPackContext, env: NodeJS.ProcessEnv = process.env, options: NotarizeOptions = {}) {
   if (context.electronPlatformName !== 'darwin') return;
   const credentials = notaryCredentials(env);
@@ -129,3 +132,4 @@ export async function afterSign(context: AfterPackContext, env: NodeJS.ProcessEn
   }
   await notarizeApp(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`), credentials, options);
 }
+export default afterSign;

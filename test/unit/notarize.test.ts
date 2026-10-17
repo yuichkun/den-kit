@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AfterPackContext } from 'electron-builder';
 import { afterSign, describeFailure, isNetworkFailure, notarizeApp, notaryCredentials, withNetworkRetries, type CommandResult } from '../../scripts/notarize.ts';
 
+const root = fileURLToPath(new URL('../..', import.meta.url));
 afterEach(() => { vi.restoreAllMocks(); });
 
 // What stapler printed when the v0.1.1 release lost its connection to Apple's ticket service (shortened).
@@ -189,6 +194,23 @@ describe('afterSign hook', () => {
     await afterSign(context(), env, options);
     expect(commands.map(command => command.slice(0, 3))).toEqual([['ditto', '-c', '-k'], ['xcrun', 'notarytool', 'submit'], ['xcrun', 'stapler', 'staple']]);
     expect(commands.at(-1)).toEqual(['xcrun', 'stapler', 'staple', '-v', '/release/mac-arm64/den-kit.app']);
+  });
+
+  // Pull request builds are unsigned, so electron-builder never calls the hook there; only this test would notice a
+  // hook module it cannot use before a release does.
+  it('is the function electron-builder loads from electron-builder.yml', async () => {
+    const configured = /^afterSign:\s*(\S+)$/m.exec(readFileSync(join(root, 'electron-builder.yml'), 'utf8'))?.[1];
+    expect(configured).toBe('./scripts/notarize.ts');
+    // electron-builder's own loader, found from electron-builder the way its CLI finds it.
+    const builder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
+    const { resolveFunction } = builder('app-builder-lib/out/util/resolve.js') as { resolveFunction: (type: string, path: string, name: string, root: string) => Promise<unknown> };
+    // 26.17 takes the export named after the hook; for any other name it falls back to the default export, which is
+    // what electron-builder documents for hook modules.
+    for (const name of ['afterSign', 'anotherHook']) {
+      const hook = await resolveFunction('module', join(root, configured!), name, root);
+      expect(hook).toBeTypeOf('function');
+      expect((hook as () => unknown).name).toBe('afterSign');
+    }
   });
 
   it('skips builds without credentials and Mac App Store builds', async () => {
