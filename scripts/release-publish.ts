@@ -26,12 +26,14 @@ export function planPublish(tag: string, existing: ExistingRelease | null, files
 
 function main() {
   const dir = process.argv[2];
-  const { VERSION = '', TITLE = '', NOTES = '' } = process.env;
-  if (!dir || !/^\d+\.\d+\.\d+$/.test(VERSION)) throw new Error('Usage: VERSION=X.Y.Z TITLE=… NOTES=… node scripts/release-publish.ts <assets-directory>');
+  const { VERSION = '', PR = '' } = process.env;
+  if (!dir || !/^\d+\.\d+\.\d+$/.test(VERSION) || !/^\d+$/.test(PR)) throw new Error('Usage: VERSION=X.Y.Z PR=<release pull request> node scripts/release-publish.ts <assets-directory>');
   const tag = `v${VERSION}`;
   const files = releaseFiles(readdirSync(dir)).map(name => join(dir, name));
   if (!files.some(file => file.endsWith('latest-mac.yml'))) throw new Error('latest-mac.yml is missing; updates would not find this release.');
   const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  // The release pull request's title and description become the release title and notes. They are read as data.
+  const { title, body } = JSON.parse(gh('pr', 'view', PR, '--json', 'title,body')) as { title: string; body: string };
   let existing: ExistingRelease | null = null;
   try {
     const found = JSON.parse(gh('release', 'view', tag, '--json', 'isDraft,assets')) as { isDraft: boolean; assets: { name: string }[] };
@@ -40,8 +42,8 @@ function main() {
   for (const step of planPublish(tag, existing, files)) {
     if (step.kind === 'create') {
       const notes = join(mkdtempSync(join(tmpdir(), 'den-kit-release-')), 'notes.md');
-      writeFileSync(notes, `${NOTES.trim() || `See CHANGELOG.md for ${tag}.`}\n`);
-      gh('release', 'create', tag, '--draft', '--verify-tag', '--title', TITLE || tag, '--notes-file', notes);
+      writeFileSync(notes, `${body.trim() || `See CHANGELOG.md for ${tag}.`}\n`);
+      gh('release', 'create', tag, '--draft', '--verify-tag', '--title', title.trim() || tag, '--notes-file', notes);
     }
     if (step.kind === 'upload') gh('release', 'upload', tag, ...step.files, '--clobber');
     if (step.kind === 'publish') gh('release', 'edit', tag, '--draft=false', '--latest');

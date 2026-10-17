@@ -1,24 +1,28 @@
 name: Release
 
+# Runs on the push to main that merging a pull request produces, and continues only when that pull request is a
+# reviewed release (release/vX.Y.Z from this repository). Running on the push rather than the pull request event keeps
+# the release environment, which only main may use, away from workflow code in unmerged pull requests.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
 permissions:
   contents: read
 
-# Ordinary closed PRs must not displace a queued release. GitHub retains only
-# one pending run per concurrency group; merge release PRs one at a time.
-concurrency:
-  group: release-${{ github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/v') && github.event.pull_request.head.repo.full_name == github.repository && 'publish' || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   validate:
-    if: github.repository == 'yuichkun/den-kit' && github.event.pull_request.merged && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/v')
+    if: github.repository == 'yuichkun/den-kit'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.pr.outputs.release }}
+      number: ${{ steps.pr.outputs.number }}
+      branch: ${{ steps.pr.outputs.branch }}
+      reviewed: ${{ steps.pr.outputs.reviewed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -28,15 +32,23 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
+      - name: Find the release pull request merged by this push
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: node scripts/release-pr.ts
       - name: Verify the reviewed release and version
+        if: steps.pr.outputs.release == 'true'
         env:
           SHA: ${{ github.sha }}
-          REVIEWED: ${{ github.event.pull_request.head.sha }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REVIEWED: ${{ steps.pr.outputs.reviewed }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
         run: node scripts/release-check.ts
 
   verify:
     needs: validate
+    if: needs.validate.outputs.release == 'true'
     # Every existing check, plus unsigned packaging, against the exact merge commit with read-only permissions.
     uses: ./.github/workflows/ci.yml
     with:
@@ -44,6 +56,7 @@ jobs:
 
   build:
     needs: [validate, verify]
+    if: needs.validate.outputs.release == 'true'
     runs-on: macos-15
     timeout-minutes: 60
     # Signing, notarization and operator secrets live only in this environment. This job cannot write to the repository.
@@ -98,17 +111,22 @@ jobs:
 
   publish:
     needs: [validate, build]
+    if: needs.validate.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Publish one release at a time without canceling an active one. GitHub keeps only one pending job per
+    # concurrency group, so merge release pull requests one at a time.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     # The only job that can write: it tags the checked commit and publishes the checked packages.
     permissions:
       contents: write
+      pull-requests: read
     env:
       SHA: ${{ github.sha }}
-      REVIEWED: ${{ github.event.pull_request.head.sha }}
-      BRANCH: ${{ github.event.pull_request.head.ref }}
-      TITLE: ${{ github.event.pull_request.title }}
-      NOTES: ${{ github.event.pull_request.body }}
+      REVIEWED: ${{ needs.validate.outputs.reviewed }}
+      BRANCH: ${{ needs.validate.outputs.branch }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -135,5 +153,7 @@ jobs:
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.release.outputs.version }}
+          PR: ${{ needs.validate.outputs.number }}
         run: node scripts/release-publish.ts release-assets
