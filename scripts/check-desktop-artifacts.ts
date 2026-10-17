@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAC_ARCHES, machoArch, type MacArch } from './codex-native.ts';
@@ -52,6 +52,12 @@ function checkApp(app: string, arch: MacArch, version: string, options: { signed
   assert.equal(machoArch(join(app, 'Contents/Resources/codex/bin/codex')), arch, `${app} bundles a Codex CLI for the wrong architecture.`);
   assert.equal(plist(app, 'CFBundleShortVersionString'), version);
   assert.doesNotMatch(plist(app, 'NSMicrophoneUsageDescription'), /voice/i, 'den-kit does not offer voice input.');
+  // English variants only (en_GB, Chromium's gendered en_* packs); macOS and Chromium would otherwise use the system language.
+  for (const resources of [join(app, 'Contents/Resources'), join(app, 'Contents/Frameworks/Electron Framework.framework/Resources')]) {
+    const localizations = readdirSync(resources).filter(name => name.endsWith('.lproj'));
+    assert.ok(localizations.includes('en.lproj'), `${resources} is missing the English localization.`);
+    assert.deepEqual(localizations.filter(name => !/^en(_[A-Z]+)*\.lproj$/.test(name)), [], `${resources} must contain only English localizations.`);
+  }
   const feed = readFileSync(join(app, 'Contents/Resources/app-update.yml'), 'utf8');
   assert.match(feed, /provider: github/); assert.match(feed, /owner: yuichkun/); assert.match(feed, /repo: den-kit/);
   const operator = JSON.parse(readFileSync(join(app, 'Contents/Resources/operator.json'), 'utf8'));

@@ -115,7 +115,9 @@ a separate key. Builders must supply a key they are authorized to distribute;
 it is bundled in the app and can be extracted from it.
 
 The local packaging command creates an **unsigned, unnotarized** app for your
-Mac's architecture. The desktop app uses text input for AI requests.
+Mac's architecture. The desktop app uses text input for AI requests. Its
+interface is in English, and it bundles only English localizations, so menus
+and dialogs provided by macOS and Chromium also appear in English.
 
 Signed and notarized releases for Apple silicon and Intel are published to
 [GitHub Releases](https://github.com/yuichkun/den-kit/releases) from reviewed

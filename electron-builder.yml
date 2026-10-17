@@ -18,6 +18,9 @@ extraResources:
     to: codex
 asar: true
 npmRebuild: false
+# den-kit's interface is English. Electron's other localizations would make macOS and Chromium show their own
+# menus, panels and dialogs, and the page's default locale, in the system language.
+electronLanguages: [en]
 mac:
   icon: build/icon.icns
   # dmg installs the app; zip and latest-mac.yml are what the in-app updater downloads.
