@@ -37,9 +37,11 @@ unworklet publish without such secrets, so they run on the pull request event.
    read-only permissions.
 3. **build** runs on macOS in the `release` environment. It builds den-kit for Apple silicon and
    Intel, signs every executable with the Developer ID Application certificate and the hardened
-   runtime, notarizes and staples the apps, and verifies them with `codesign`, `stapler` and `spctl`.
-   This is the only job that can read the signing, notarization and BrowserPod secrets, and it cannot
-   write to the repository.
+   runtime, notarizes the apps with `notarytool` and staples their tickets, and verifies them with
+   `codesign`, `stapler` and `spctl`. electron-builder runs `scripts/notarize.ts` after signing each
+   app; its own notarization is turned off because it gives up on the first dropped connection while
+   stapling. This is the only job that can read the signing, notarization and BrowserPod secrets, and
+   it cannot write to the repository.
 4. **publish** runs without any of those secrets. It rechecks the source and tags, tags the checked
    commit, creates a draft release, attaches the `.dmg`, `.zip`, `.blockmap` and `latest-mac.yml`
    files, and then publishes the release as the latest one.
@@ -95,8 +97,11 @@ None of this is needed to open or test pull requests.
 - `npm run desktop:package` builds an unsigned app for this Mac's architecture into `release/` for
   quick checks.
 - `npm run desktop:dist` builds the `.dmg` and `.zip` packages for both architectures. It signs them
-  when a Developer ID Application identity is in your keychain, notarizes them when the Apple
-  environment variables above are set, and never publishes.
+  when a Developer ID Application identity is in your keychain and never publishes. It notarizes and
+  staples them when `APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
+  `APPLE_API_ISSUER` are set, or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`, or
+  `APPLE_KEYCHAIN_PROFILE` with a profile saved by `xcrun notarytool store-credentials`. Without
+  them, it skips notarization.
 - `npm run desktop:check-artifacts -- release [--signed | --notarized]` checks the output: both
   architectures, the update feed, the bundled Codex CLI, and optionally the signature and
   notarization.
@@ -117,6 +122,11 @@ Fix the cause of a failure and rerun the failed Release workflow. It keeps a tag
 the same commit, completes an unfinished draft by replacing all of its files, and leaves a complete
 published release unchanged. A published release cannot be changed, so a release that was published
 with a problem needs a new version.
+
+Stapling a ticket and `stapler validate` both fetch the ticket from Apple's ticket service. When the
+connection drops (stapler exits with code 68 or reports an `NSURLErrorDomain` error), the **build**
+job tries again after 15, 30 and 60 seconds. Each failed attempt prints everything stapler reported.
+If the last attempt fails too, rerun the failed jobs once Apple is reachable.
 
 If **validate** reports that no pull request is linked to the merge commit yet, rerun it. GitHub links
 a merge commit to its pull request shortly after the push.
