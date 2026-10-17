@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { desktop, type DesktopInfo, type DesktopSettings } from '../desktop/api.ts';
-import { accountActions, accountStatus, effortLabel, settingsError, type SettingsAction } from '../desktop/presentation.ts';
+import { accountActions, accountStatus, effortLabel, settingsError, updatePresentation, type SettingsAction } from '../desktop/presentation.ts';
 import { desktopRequest } from '../desktop/request.ts';
 
 const emit = defineEmits<{ close: [] }>();
@@ -23,6 +23,7 @@ let refreshing = false;
 const efforts = computed(() => info.value?.models.find(m => model.value ? m.id === model.value : m.isDefault)?.efforts ?? []);
 const controls = computed(() => info.value ? accountActions(info.value, busy.value) : null);
 const locked = computed(() => controls.value?.locked ?? true);
+const update = computed(() => updatePresentation(info.value?.update));
 
 async function refresh(first = false) {
   const id = ++refreshId;
@@ -87,6 +88,16 @@ onBeforeUnmount(() => { disposed = true; if (timer) clearInterval(timer); window
         <div class="actions"><button :disabled="locked" data-testid="desktop-settings-save" @click="save">Save settings</button><span v-if="saved" role="status">Saved. Your next AI request will use these settings.</span></div>
         <p v-if="info.aiBusy" class="help">You can change AI settings when the current request finishes.</p>
         <p v-else-if="controls?.cancel" class="help">Complete or cancel sign-in before changing AI settings.</p>
+        <template v-if="update">
+          <h3>Updates</h3>
+          <p data-testid="desktop-update" role="status">{{ update.text }}</p>
+          <div v-if="update.install || update.check" class="actions">
+            <button v-if="update.install" :disabled="busy || info.aiBusy" data-testid="desktop-update-install" @click="action(() => api.installUpdate(), 'update-install')">Restart now</button>
+            <button v-if="update.check" :disabled="busy" data-testid="desktop-update-check" @click="action(() => api.checkForUpdates(), 'update-check')">Check for updates</button>
+          </div>
+          <p v-if="update.install && info.aiBusy" class="help">You can restart when the current AI request finishes. Your work is saved before den-kit restarts.</p>
+          <p v-else-if="update.install" class="help">Your work is saved before den-kit restarts.</p>
+        </template>
         <footer>den-kit {{ info.version }}</footer>
       </div>
       <p v-else-if="loading" class="settings-body" role="status">Loading settings…</p>

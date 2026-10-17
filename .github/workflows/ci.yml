@@ -2,6 +2,13 @@ name: CI
 on:
   push:
   pull_request:
+  # The Release workflow reruns every check on the exact merge commit it is about to publish.
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to verify for a release
+        type: string
+        required: true
 permissions:
   contents: read
 jobs:
@@ -10,6 +17,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -18,3 +27,28 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
+
+  # Package both Mac architectures without signing, secrets or publication, so packaging problems show up
+  # in the pull request instead of in a release.
+  desktop-package:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Build unsigned packages for Apple silicon and Intel
+        env:
+          # A placeholder: this build is never distributed and must not receive the operator's key.
+          BROWSERPOD_API_KEY: ci-placeholder-not-a-browserpod-key
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run desktop:build
+          npx electron-builder --config electron-builder.yml --mac --publish never -c.mac.identity=null
+      - name: Check both architectures, the update feed and the bundled Codex CLI
+        run: npm run desktop:check-artifacts -- release

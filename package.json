@@ -22,9 +22,13 @@
     "desktop:clean": "node scripts/clean-desktop.ts",
     "desktop:icons": "node scripts/generate-icons.ts",
     "desktop:check": "node scripts/check-desktop.ts --packaged",
-    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac",
+    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --dir --mac -c.mac.identity=null",
+    "desktop:dist": "npm run desktop:build && electron-builder --config electron-builder.yml --mac --publish never",
+    "desktop:check-artifacts": "node scripts/check-desktop-artifacts.ts",
+    "desktop:check-update": "node scripts/check-desktop-update.ts",
     "doctor": "node scripts/doctor.ts",
-    "codex:login": "node scripts/codex-login.ts"
+    "codex:login": "node scripts/codex-login.ts",
+    "release:version": "node scripts/release-version.ts"
   },
   "dependencies": {
     "@denaudio/den": "0.1.0",
@@ -49,6 +53,7 @@
     "@unworklet/offline": "0.4.1",
     "@vue-flow/background": "1.3.2",
     "@vue-flow/core": "1.48.2",
+    "electron-updater": "6.8.10",
     "highlight.js": "11.12.0",
     "vue": "3.5.43",
     "ws": "8.22.0"
@@ -58,7 +63,7 @@
     "@types/ws": "8.18.2",
     "@vitejs/plugin-vue": "6.0.9",
     "electron": "44.7.0",
-    "electron-builder": "26.15.3",
+    "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
     "playwright": "1.60.0",
     "typescript": "5.9.3",

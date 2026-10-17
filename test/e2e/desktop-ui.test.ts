@@ -12,7 +12,7 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
     { id: 'gpt-6-luna', name: 'GPT-6-Luna', isDefault: false, efforts: ['low', 'medium'] },
   ],
   codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run npm run codex:login.' },
-  podConfigured: true, login: 'idle', aiBusy: false, chatGPTSignedIn: false,
+  podConfigured: true, login: 'idle', aiBusy: false, chatGPTSignedIn: false, update: { state: 'off' },
   ...overrides,
 });
 
@@ -36,6 +36,12 @@ function nativeAPI(token: string, initial: DesktopInfo): string {
         return structuredClone(fixture.info);
       },
       openUsage: async () => { fixture.calls.push('openUsage'); },
+      checkForUpdates: async () => {
+        fixture.calls.push('checkForUpdates');
+        fixture.info.update = { state: 'current' };
+        return structuredClone(fixture.info);
+      },
+      installUpdate: async () => { fixture.calls.push('installUpdate'); },
       capturePage: async rect => {
         fixture.captures.push(structuredClone(rect));
         const canvas = document.createElement('canvas');
@@ -219,6 +225,52 @@ describe('desktop interface', () => {
       assert.match(await page.evaluate(() => (window as any).__desktopTest.captureResult), /not shared|stopped/i);
       assert.deepEqual(await sharing(), { state: 'off', source: null, captures: 2 });
       assert.equal(h.codex!.sent('turn/start').length, requestsBefore, 'Toggling screen sharing must not send an AI request.');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('shows update progress, offers a restart only for a staged update and never during an AI request', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok' }, update: { state: 'idle' } })) });
+    try {
+      assert.equal(await page.locator('[data-testid=desktop-update-ready]').count(), 0);
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-update]')?.textContent?.includes('checks for updates automatically'));
+      await page.click('[data-testid=desktop-update-check]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-update]')?.textContent?.includes('up to date'));
+      assert.equal(await page.locator('[data-testid=desktop-update-install]').count(), 0);
+
+      await page.evaluate(() => { (window as any).__desktopTest.info.update = { state: 'downloading', version: '0.2.0', percent: 40 }; });
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-update]')?.textContent?.includes('Downloading den-kit 0.2.0… 40%'));
+      assert.equal(await page.locator('[data-testid=desktop-update-install]').count(), 0);
+      assert.equal(await page.locator('[data-testid=desktop-update-check]').count(), 0);
+
+      // The toolbar learns about a staged update from the native event, not by polling.
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await page.evaluate(() => { (window as any).__desktopTest.info.update = { state: 'ready', version: '0.2.0' }; window.dispatchEvent(new Event('den-kit:update')); });
+      await page.locator('[data-testid=desktop-update-ready]').waitFor();
+      await page.click('[data-testid=desktop-update-ready]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-update]')?.textContent?.includes('den-kit 0.2.0 is ready'));
+      assert.match(await page.locator('[data-testid=desktop-settings]').innerText(), /Your work is saved before den-kit restarts/);
+
+      await page.evaluate(() => { (window as any).__desktopTest.info.aiBusy = true; });
+      await page.waitForFunction(() => (document.querySelector('[data-testid=desktop-update-install]') as HTMLButtonElement)?.disabled);
+      await page.evaluate(() => { (window as any).__desktopTest.info.aiBusy = false; });
+      await page.waitForFunction(() => !(document.querySelector('[data-testid=desktop-update-install]') as HTMLButtonElement)?.disabled);
+      await page.click('[data-testid=desktop-update-install]');
+      await page.waitForFunction(() => (window as any).__desktopTest.calls.includes('installUpdate'));
+      assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.calls), ['checkForUpdates', 'installUpdate']);
+      assert.doesNotMatch(await page.locator('[data-testid=desktop-settings]').innerText(), /GitHub|Squirrel|latest-mac|zip|Escentier/i);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
+  it('asks for the Applications folder instead of offering update checks that cannot install', async () => {
+    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info({ update: { state: 'move' } })) });
+    try {
+      await page.click('[data-testid=desktop-settings-open]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=desktop-update]')?.textContent?.includes('Applications folder'));
+      assert.equal(await page.locator('[data-testid=desktop-update-check]').count(), 0);
+      assert.equal(await page.locator('[data-testid=desktop-update-install]').count(), 0);
       assert.deepEqual(errors, []);
     } finally { await page.close(); }
   });

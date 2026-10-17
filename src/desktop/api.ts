@@ -3,6 +3,12 @@ import type { PageRect } from '../editor/screen-share.ts';
 
 export interface DesktopSettings { model: string; effort: string; fork: boolean }
 export interface DesktopModel { id: string; name: string; isDefault: boolean; efforts: string[] }
+/** In-app updates. `off` in development and isolated checks; `move` when the app runs outside Applications. */
+export type UpdateStatus =
+  | { state: 'off' | 'move' | 'idle' | 'checking' | 'current' }
+  | { state: 'downloading'; version: string; percent: number }
+  | { state: 'preparing' | 'ready'; version: string }
+  | { state: 'error'; message: string };
 export interface DesktopInfo {
   version: string;
   settings: DesktopSettings;
@@ -13,6 +19,7 @@ export interface DesktopInfo {
   podConfigured: boolean;
   login: 'idle' | 'starting' | 'waiting' | 'checking' | 'canceling' | 'complete' | 'error';
   loginError?: string;
+  update: UpdateStatus;
 }
 export interface DesktopRuntime { token: string; apiKey: string | null }
 export interface DesktopAPI {
@@ -25,6 +32,9 @@ export interface DesktopAPI {
   signOut(): Promise<void>;
   reconnectAI(): Promise<DesktopInfo>;
   openUsage(): Promise<void>;
+  checkForUpdates(): Promise<DesktopInfo>;
+  /** Saves the work, then quits and installs the downloaded update. */
+  installUpdate(): Promise<void>;
 }
 
 declare global { interface Window { denKitShell?: DesktopAPI } }

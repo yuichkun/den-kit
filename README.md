@@ -114,9 +114,18 @@ required and configured by the build: app users do not enter
 a separate key. Builders must supply a key they are authorized to distribute;
 it is bundled in the app and can be extracted from it.
 
-The local packaging command creates an **unsigned, unnotarized** app. Automatic
-updates and Windows app packaging are not available. The desktop app uses text
-input for AI requests.
+The local packaging command creates an **unsigned, unnotarized** app for your
+Mac's architecture. The desktop app uses text input for AI requests. Its
+interface is in English, and it bundles only English localizations, so menus
+and dialogs provided by macOS and Chromium also appear in English.
+
+Signed and notarized releases for Apple silicon and Intel are published to
+[GitHub Releases](https://github.com/yuichkun/den-kit/releases) from reviewed
+release pull requests; see [RELEASE.md](RELEASE.md). Installed from a release
+and kept in the Applications folder, den-kit downloads new versions in the
+background and installs them the next time you quit, or when you choose
+**Restart now** in Settings. Your work is saved first, and the app never
+restarts on its own. Windows app packaging is not available yet.
 
 To test a fresh installation, quit den-kit and run `npm run desktop:clean`.
 This permanently deletes `~/Library/Application Support/den-kit/`, including

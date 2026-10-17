@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Ordinary closed PRs must not displace a queued release. GitHub retains only
+# one pending run per concurrency group; merge release PRs one at a time.
+concurrency:
+  group: release-${{ github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/v') && github.event.pull_request.head.repo.full_name == github.repository && 'publish' || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'yuichkun/den-kit' && github.event.pull_request.merged && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Verify the reviewed release and version
+        env:
+          SHA: ${{ github.sha }}
+          REVIEWED: ${{ github.event.pull_request.head.sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/release-check.ts
+
+  verify:
+    needs: validate
+    # Every existing check, plus unsigned packaging, against the exact merge commit with read-only permissions.
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ github.sha }}
+
+  build:
+    needs: [validate, verify]
+    runs-on: macos-15
+    timeout-minutes: 60
+    # Signing, notarization and operator secrets live only in this environment. This job cannot write to the repository.
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          # No dependency cache in the signing job.
+      - run: npm ci
+      - name: Write the App Store Connect API key for notarization
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            key="$RUNNER_TEMP/AuthKey.p8"
+            printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
+            chmod 600 "$key"
+            echo "APPLE_API_KEY=$key" >> "$GITHUB_ENV"
+          fi
+      - name: Build, sign and notarize for Apple silicon and Intel
+        env:
+          BROWSERPOD_API_KEY: ${{ secrets.BROWSERPOD_API_KEY }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run desktop:build
+          npx electron-builder --config electron-builder.yml --mac --publish never -c.forceCodeSigning=true
+      - name: Check signing, notarization, both architectures and the update feed
+        run: npm run desktop:check-artifacts -- release --notarized
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-release-${{ github.sha }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The only job that can write: it tags the checked commit and publishes the checked packages.
+    permissions:
+      contents: write
+    env:
+      SHA: ${{ github.sha }}
+      REVIEWED: ${{ github.event.pull_request.head.sha }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      TITLE: ${{ github.event.pull_request.title }}
+      NOTES: ${{ github.event.pull_request.body }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Recheck source and remote tags immediately before publication
+        id: release
+        run: node scripts/release-check.ts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: desktop-release-${{ github.sha }}
+          path: release-assets
+      - name: Tag the checked commit
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if [ -z "$(git ls-remote --tags origin "refs/tags/v$VERSION")" ]; then
+            git tag "v$VERSION" "$SHA"
+            git push origin "refs/tags/v$VERSION"
+          fi
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: node scripts/release-publish.ts release-assets

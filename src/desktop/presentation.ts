@@ -1,5 +1,5 @@
 import type { CodexStatus } from '../ai/protocol.ts';
-import type { DesktopInfo } from './api.ts';
+import type { DesktopInfo, UpdateStatus } from './api.ts';
 
 export const signInPending = (login: DesktopInfo['login']) => ['starting', 'waiting', 'checking', 'canceling'].includes(login);
 
@@ -30,7 +30,22 @@ export function accountActions(info: Pick<DesktopInfo, 'login' | 'codex' | 'chat
   };
 }
 
-export type SettingsAction = 'load' | 'settings' | 'sign-in' | 'sign-out' | 'usage' | 'reconnect';
+/** What the Updates section says and offers; null hides it (development and isolated checks). */
+export function updatePresentation(update: UpdateStatus | undefined): { text: string; check: boolean; install: boolean } | null {
+  switch (update?.state) {
+    case undefined: case 'off': return null;
+    case 'move': return { text: 'To receive updates, move den-kit to your Applications folder and open it from there.', check: false, install: false };
+    case 'idle': return { text: 'den-kit checks for updates automatically.', check: true, install: false };
+    case 'checking': return { text: 'Checking for updates…', check: false, install: false };
+    case 'current': return { text: 'den-kit is up to date.', check: true, install: false };
+    case 'downloading': return { text: `Downloading den-kit ${update.version}… ${update.percent}%`, check: false, install: false };
+    case 'preparing': return { text: `Preparing den-kit ${update.version}…`, check: false, install: false };
+    case 'ready': return { text: `den-kit ${update.version} is ready. It installs the next time you quit den-kit, or you can restart now.`, check: false, install: true };
+    case 'error': return { text: update.message, check: true, install: false };
+  }
+}
+
+export type SettingsAction = 'load' | 'settings' | 'sign-in' | 'sign-out' | 'usage' | 'reconnect' | 'update-check' | 'update-install';
 export function settingsError(error: unknown, action: SettingsAction): string {
   const detail = error instanceof Error ? error.message : String(error);
   if (action === 'settings') {
@@ -49,6 +64,11 @@ export function settingsError(error: unknown, action: SettingsAction): string {
   if (action === 'sign-out') return 'Sign-out could not be completed. Try again.';
   if (action === 'usage') return 'The usage page could not be opened. Try again.';
   if (action === 'reconnect') return 'AI could not reconnect. Try again, or restart den-kit.';
+  if (action === 'update-check') return 'Updates could not be checked. Try again later.';
+  if (action === 'update-install') {
+    if (/finish the current AI request/i.test(detail)) return 'Wait for the current AI request to finish, then restart.';
+    return 'The update could not be installed now. It installs the next time you quit den-kit.';
+  }
   return 'Settings are unavailable. Close this window and try again.';
 }
 
