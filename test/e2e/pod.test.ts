@@ -13,6 +13,19 @@ import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts'
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
 const snapshot = (page: Page) => kit(page, k => JSON.stringify({ ui: k.doc.value.ui, nodes: Object.keys(k.doc.value.nodes).sort(), edges: Object.keys(k.doc.value.edges).sort(), project: k.doc.value.project ?? null }));
 
+// Poll from Node so each asynchronous pod read finishes before checking its result.
+async function waitForPodFile(page: Page, path: string, expected: string | null, { timeout = 20000, interval = 500 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const actual: string | null = await page.evaluate(path => (window as any).__kit.pod.readFile(path), path);
+    if (actual === expected || Date.now() >= deadline) {
+      assert.equal(actual, expected, `Pod file ${path} did not reach the expected contents within ${timeout} ms`);
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+}
+
 async function ask(page: Page, text: string, timeout = 300000) {
   await page.keyboard.press('Control+k');
   await page.keyboard.type(text);
@@ -87,7 +100,7 @@ describe('the pod: a free environment for the AI', () => {
     await kit(page, k => { k.undo(); k.undo(); });
     assert.equal(await snapshot(page), before);
     // The pod follows the work: the part's file is gone from it too.
-    await page.waitForFunction(async () => (await (window as any).__kit.pod.readFile('src/parts/meter.ts')) === null, null, { timeout: 20000, polling: 500 });
+    await waitForPodFile(page, 'src/parts/meter.ts', null);
     assert.deepEqual(errors, []);
     assert.deepEqual(h.codex!.violations(), []);
     await page.close();
@@ -216,7 +229,7 @@ describe('the Project view', () => {
     await page.fill('[data-testid=file-text]', 'hello again\n');
     await page.press('[data-testid=file-text]', 'Control+s');
     await page.waitForFunction(() => (window as any).__kit.doc.value.project.files['note.txt'] === 'hello again\n');
-    await page.waitForFunction(async () => (await (window as any).__kit.pod.readFile('note.txt')) === 'hello again\n', null, { timeout: 20000, polling: 300 });
+    await waitForPodFile(page, 'note.txt', 'hello again\n', { interval: 300 });
     // Code is coloured by its kind of file (a text file is not).
     assert.equal(await page.locator('[data-testid=project-view] .paint span').count(), 0);
     await page.click('[data-file="src/main.ts"]');
