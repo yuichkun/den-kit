@@ -1,7 +1,7 @@
 {
   "name": "den-kit",
   "version": "0.1.0",
-  "author": "Yuichi Yogo",
+  "author": "Escentier, LLC",
   "private": true,
   "type": "module",
   "description": "Visual editor for instruments and effects built from den blocks.",
