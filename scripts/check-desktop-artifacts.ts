@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAC_ARCHES, machoArch, type MacArch } from './codex-native.ts';
+import { describeFailure, withNetworkRetries } from './notarize.ts';
 
 export interface UpdateFile { url: string; sha512: string; size: number }
 export interface UpdateInfo { version: string; files: UpdateFile[] }
@@ -36,10 +37,10 @@ export const packageNames = (version: string) => MAC_ARCHES.flatMap(arch => [`de
 /** electron-builder's unpacked app directory for each architecture. */
 export const appDirectory = (arch: MacArch) => arch === 'arm64' ? 'mac-arm64' : 'mac';
 
-/** codesign and spctl report on stderr. */
+/** codesign and spctl report on stderr, stapler on stdout. */
 function report(command: string, args: string[]) {
   const run = spawnSync(command, args, { encoding: 'utf8' });
-  assert.equal(run.status, 0, `${command} ${args.join(' ')} failed:\n${run.stderr}`);
+  if (run.status !== 0) throw new Error(describeFailure(`${command} ${args.join(' ')}`, run));
   return `${run.stdout}${run.stderr}`;
 }
 
@@ -47,7 +48,7 @@ function plist(app: string, key: string) {
   return execFileSync('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim();
 }
 
-function checkApp(app: string, arch: MacArch, version: string, options: { signed: boolean; notarized: boolean; team?: string }) {
+async function checkApp(app: string, arch: MacArch, version: string, options: { signed: boolean; notarized: boolean; team?: string }) {
   assert.equal(machoArch(join(app, 'Contents/MacOS/den-kit')), arch, `${app} is not a ${arch} app.`);
   assert.equal(machoArch(join(app, 'Contents/Resources/codex/bin/codex')), arch, `${app} bundles a Codex CLI for the wrong architecture.`);
   assert.equal(plist(app, 'CFBundleShortVersionString'), version);
@@ -74,11 +75,12 @@ function checkApp(app: string, arch: MacArch, version: string, options: { signed
   for (const key of ['com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input']) assert.ok(entitlements.includes(key), `${key} is missing.`);
   for (const key of ['com.apple.security.cs.allow-unsigned-executable-memory', 'com.apple.security.cs.disable-library-validation']) assert.ok(!entitlements.includes(key), `${key} must not be granted.`);
   if (!options.notarized) return;
-  report('xcrun', ['stapler', 'validate', app]);
+  // stapler compares the stapled ticket with the one at Apple's ticket service, so a dropped connection is retried.
+  await withNetworkRetries(`xcrun stapler validate -v ${app}`, () => spawnSync('xcrun', ['stapler', 'validate', '-v', app], { encoding: 'utf8' }));
   assert.match(report('spctl', ['--assess', '--type', 'execute', '-vv', app]), /source=Notarized Developer ID/, `${app} is not accepted as a notarized Developer ID app.`);
 }
 
-export function checkArtifacts(dir: string, options: { signed: boolean; notarized: boolean; team?: string; version: string }) {
+export async function checkArtifacts(dir: string, options: { signed: boolean; notarized: boolean; team?: string; version: string }) {
   for (const name of packageNames(options.version)) assert.ok(existsSync(join(dir, name)), `${name} is missing.`);
   const info = parseUpdateInfo(readFileSync(join(dir, 'latest-mac.yml'), 'utf8'));
   assert.equal(info.version, options.version, 'latest-mac.yml describes another version.');
@@ -90,7 +92,7 @@ export function checkArtifacts(dir: string, options: { signed: boolean; notarize
     assert.equal(statSync(path).size, file.size, `${file.url} does not match its size in latest-mac.yml.`);
     assert.equal(createHash('sha512').update(readFileSync(path)).digest('base64'), file.sha512, `${file.url} does not match its checksum in latest-mac.yml.`);
   }
-  for (const arch of MAC_ARCHES) checkApp(join(dir, appDirectory(arch), 'den-kit.app'), arch, options.version, options);
+  for (const arch of MAC_ARCHES) await checkApp(join(dir, appDirectory(arch), 'den-kit.app'), arch, options.version, options);
 }
 
 if (import.meta.main) {
@@ -100,7 +102,7 @@ if (import.meta.main) {
     const team = args.find(arg => arg.startsWith('--team='))?.slice('--team='.length);
     const root = fileURLToPath(new URL('..', import.meta.url));
     const version = JSON.parse(readFileSync(join(root, '.desktop-build/app/package.json'), 'utf8')).version as string;
-    checkArtifacts(dir, { signed: args.includes('--signed') || args.includes('--notarized'), notarized: args.includes('--notarized'), team, version });
+    await checkArtifacts(dir, { signed: args.includes('--signed') || args.includes('--notarized'), notarized: args.includes('--notarized'), team, version });
     console.log(`den-kit ${version} packages for ${MAC_ARCHES.join(' and ')} passed${args.includes('--notarized') ? ' signing and notarization' : args.includes('--signed') ? ' signing' : ''} checks.`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

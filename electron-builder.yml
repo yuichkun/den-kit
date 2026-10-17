@@ -21,6 +21,9 @@ npmRebuild: false
 # den-kit's interface is English. Electron's other localizations would make macOS and Chromium show their own
 # menus, panels and dialogs, and the page's default locale, in the system language.
 electronLanguages: [en]
+# With Apple credentials in the environment (see RELEASE.md), notarizes each signed app and staples its ticket,
+# retrying when the connection to Apple drops.
+afterSign: ./scripts/notarize.ts
 mac:
   icon: build/icon.icns
   # dmg installs the app; zip and latest-mac.yml are what the in-app updater downloads.
@@ -30,8 +33,9 @@ mac:
     - target: zip
       arch: [arm64, x64]
   category: public.app-category.music
-  # Signing uses a Developer ID Application identity from CSC_LINK or the keychain, and notarization
-  # runs when Apple credentials are present in the environment (see RELEASE.md).
+  # Signing uses a Developer ID Application identity from CSC_LINK or the keychain. afterSign notarizes
+  # instead of electron-builder, whose notarization gives up on the first dropped connection while stapling.
+  notarize: false
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
