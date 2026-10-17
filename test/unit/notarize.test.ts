@@ -34,12 +34,20 @@ function script(...results: CommandResult[]) {
   return { attempt, waits, options: { sleep: async (ms: number) => { waits.push(ms); }, log: () => {} } };
 }
 
-/** Stands in for ditto, notarytool and stapler, recording every command. */
-function tools({ verdict = 'Accepted', staples = [ok('The staple and validate action worked!')] }: { verdict?: string; staples?: CommandResult[] } = {}) {
+// What `codesign -dv --verbose=2` reports on stderr for each kind of app.
+const signatures: Record<string, CommandResult> = {
+  developerId: { status: 0, stdout: '', stderr: 'Signature size=8978\nAuthority=Developer ID Application: Escentier, LLC (TEAM123)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTeamIdentifier=TEAM123\n' },
+  adHoc: { status: 0, stdout: '', stderr: 'Signature=adhoc\nTeamIdentifier=not set\n' },
+  unsigned: { status: 1, stdout: '', stderr: '/release/mac-arm64/den-kit.app: code object is not signed at all\n' },
+};
+
+/** Stands in for codesign, ditto, notarytool and stapler, recording every command. */
+function tools({ verdict = 'Accepted', staples = [ok('The staple and validate action worked!')], signature = signatures.developerId! }: { verdict?: string; staples?: CommandResult[]; signature?: CommandResult } = {}) {
   const commands: string[][] = [];
   const waits: number[] = [];
   const run = vi.fn(async (command: string, args: string[], _cwd?: string): Promise<CommandResult> => {
     commands.push([command, ...args]);
+    if (command === 'codesign') return signature;
     if (command === 'ditto') return ok();
     if (args[0] === 'notarytool' && args[1] === 'submit') return ok(JSON.stringify({ id: 'submission-1', status: verdict, message: 'Processing complete' }));
     if (args[0] === 'notarytool' && args[1] === 'log') return ok('{"issues":[{"message":"The binary is not signed with a valid Developer ID certificate."}]}');
@@ -192,20 +200,32 @@ describe('afterSign hook', () => {
   it('notarizes and staples the app electron-builder just signed', async () => {
     const { commands, options } = tools();
     await afterSign(context(), env, options);
-    expect(commands.map(command => command.slice(0, 3))).toEqual([['ditto', '-c', '-k'], ['xcrun', 'notarytool', 'submit'], ['xcrun', 'stapler', 'staple']]);
+    expect(commands.map(command => command.slice(0, 3))).toEqual([['codesign', '-dv', '--verbose=2'], ['ditto', '-c', '-k'], ['xcrun', 'notarytool', 'submit'], ['xcrun', 'stapler', 'staple']]);
+    expect(commands[0]).toEqual(['codesign', '-dv', '--verbose=2', '/release/mac-arm64/den-kit.app']);
     expect(commands.at(-1)).toEqual(['xcrun', 'stapler', 'staple', '-v', '/release/mac-arm64/den-kit.app']);
   });
 
-  // Pull request builds are unsigned, so electron-builder never calls the hook there; only this test would notice a
-  // hook module it cannot use before a release does.
+  // electron-builder runs the hook after unsigned builds too (identity: null, or no identity in the keychain). Without
+  // a Developer ID signature, Apple would reject the app, so a maintainer with credentials in their shell could not
+  // make a quick unsigned package.
+  it.each([['ad-hoc', signatures.adHoc!], ['unsigned', signatures.unsigned!]])('leaves an %s app alone', async (_, signature) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { commands, options } = tools({ signature });
+    await afterSign(context(), env, options);
+    expect(commands.map(command => command[0])).toEqual(['codesign']);
+    expect(log).toHaveBeenCalledWith('Skipping notarization: /release/mac-arm64/den-kit.app is not signed with a Developer ID Application identity.');
+  });
+
+  // electron-builder documents a default export for hook modules, and 26.17 looks up the export named after the hook
+  // first. Check both through electron-builder's own loader, so the hook keeps loading if a later electron-builder
+  // follows only its documentation.
   it('is the function electron-builder loads from electron-builder.yml', async () => {
     const configured = /^afterSign:\s*(\S+)$/m.exec(readFileSync(join(root, 'electron-builder.yml'), 'utf8'))?.[1];
     expect(configured).toBe('./scripts/notarize.ts');
     // electron-builder's own loader, found from electron-builder the way its CLI finds it.
     const builder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
     const { resolveFunction } = builder('app-builder-lib/out/util/resolve.js') as { resolveFunction: (type: string, path: string, name: string, root: string) => Promise<unknown> };
-    // 26.17 takes the export named after the hook; for any other name it falls back to the default export, which is
-    // what electron-builder documents for hook modules.
+    // For a name the module does not export, the loader falls back to the default export.
     for (const name of ['afterSign', 'anotherHook']) {
       const hook = await resolveFunction('module', join(root, configured!), name, root);
       expect(hook).toBeTypeOf('function');

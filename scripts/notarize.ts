@@ -119,6 +119,12 @@ function runCommand(command: string, args: string[], cwd?: string): Promise<Comm
   });
 }
 
+/** Apple notarizes only apps signed with a Developer ID Application certificate. codesign reports on stderr. */
+export async function developerIdSigned(app: string, run: NonNullable<NotarizeOptions['run']> = runCommand): Promise<boolean> {
+  const details = await run('codesign', ['-dv', '--verbose=2', app]);
+  return details.status === 0 && /^Authority=Developer ID Application: /m.test(`${details.stdout ?? ''}${details.stderr ?? ''}`);
+}
+
 /**
  * The afterSign hook. electron-builder passes only the context. Its documented contract for a hook module is a default
  * export; 26.17 also looks up an export named after the hook first, which the tests use.
@@ -130,6 +136,12 @@ export async function afterSign(context: AfterPackContext, env: NodeJS.ProcessEn
     console.log('Skipping notarization: no Apple notarization credentials are set (see RELEASE.md).');
     return;
   }
-  await notarizeApp(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`), credentials, options);
+  const app = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+  // electron-builder 26.17 calls afterSign even when it did not sign (identity: null, or no identity in the keychain).
+  if (!await developerIdSigned(app, options.run)) {
+    console.log(`Skipping notarization: ${app} is not signed with a Developer ID Application identity.`);
+    return;
+  }
+  await notarizeApp(app, credentials, options);
 }
 export default afterSign;

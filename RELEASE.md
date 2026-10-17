@@ -98,10 +98,10 @@ None of this is needed to open or test pull requests.
   quick checks.
 - `npm run desktop:dist` builds the `.dmg` and `.zip` packages for both architectures. It signs them
   when a Developer ID Application identity is in your keychain and never publishes. It notarizes and
-  staples them when `APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
+  staples the signed apps when `APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
   `APPLE_API_ISSUER` are set, or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`, or
   `APPLE_KEYCHAIN_PROFILE` with a profile saved by `xcrun notarytool store-credentials`. Without
-  them, it skips notarization.
+  them, or for apps that are not signed with a Developer ID, it skips notarization.
 - `npm run desktop:check-artifacts -- release [--signed | --notarized]` checks the output: both
   architectures, the update feed, the bundled Codex CLI, and optionally the signature and
   notarization.
