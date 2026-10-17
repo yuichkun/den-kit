@@ -85,6 +85,10 @@ describe('BrowserPod adapter (against a stand-in with BrowserPod\'s API)', () =>
     // A command's own exit or cd ends in its own shell; the marker still comes.
     expect((await host.run('cd /; exit 0', { cwd: home })).exitCode).toBe(0);
   });
+  it('preserves terminal order across alternating stdout and stderr writes before exit', async () => {
+    const r = await host.run('for ((i=0; i<50; i++)); do printf "out-%s\\n" "$i"; printf "err-%s\\n" "$i" >&2; done; exit 3', { cwd: home });
+    expect(r).toMatchObject({ exitCode: 3, output: Array.from({ length: 50 }, (_, i) => `out-${i}\nerr-${i}`).join('\n') });
+  });
   it('output in pieces that split lines and characters, progress lines, and a look-alike marker', async () => {
     const pieces: string[] = [];
     const r = await host.run("printf 'Hello, café☕ world\\n'; printf '[1/2]\\r[2/2]\\n'; echo '<<den-kit-exit:fake:0>>'; exit 4", { cwd: home, onOutput: t => pieces.push(t) });

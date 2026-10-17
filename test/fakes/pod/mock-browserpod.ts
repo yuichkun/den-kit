@@ -59,7 +59,9 @@ export class MockBrowserPod {
     const asked = env.PORT ? Number(env.PORT) : null;
     if (asked) env.PORT = String(await freePort());
     const terminal = opts.terminal as Terminal & { attach(child: ChildProcess): void; output: (b: Buffer) => void };
-    const child = spawn(executable, args, { cwd: opts.cwd ?? '/', env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // A terminal has one output stream. Separate pipes can deliver the stdout
+    // exit marker before earlier stderr bytes, making the adapter finish too soon.
+    const child = spawn('bash', ['-c', 'exec "$@" 2>&1', 'mock-browserpod', executable, ...args], { cwd: opts.cwd ?? '/', env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     this.children.add(child);
     terminal.attach(child);
     let announced = false;
