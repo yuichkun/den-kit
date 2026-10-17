@@ -21,7 +21,7 @@ export interface UpdatesOptions {
   native: NativeUpdaterLike | null;
   /** `move` when updates need the app in the Applications folder, `off` when updates are not used. */
   disabled?: 'off' | 'move';
-  /** Isolated checks install on quit without relaunching outside the check's profile. */
+  /** Whether Restart now reopens den-kit after installing. Isolated checks pass false so it never opens outside their profile. */
   relaunch?: boolean;
   onChange?: (status: UpdateStatus) => void;
   firstCheckMs?: number;
@@ -55,6 +55,7 @@ export class DesktopUpdates {
     if (!this.enabled || !updater) return;
     updater.autoDownload = true;
     updater.autoInstallOnAppQuit = true;
+    // Read only by quitAndInstall (Restart now). An ordinary quit installs the staged update without reopening den-kit.
     updater.autoRunAppAfterInstall = this.#options.relaunch ?? true;
     updater.allowPrerelease = false;
     updater.allowDowngrade = false;

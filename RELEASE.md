@@ -93,12 +93,13 @@ None of this is needed to open or test pull requests.
   architectures, the update feed, the bundled Codex CLI, and optionally the signature and
   notarization.
 - `npm run desktop:check-update` proves the update path end to end. After `npm run desktop:build`, it
-  builds the current version and the next patch version for this Mac, installs the older one into a
-  temporary folder, serves the newer one from `127.0.0.1`, and checks that den-kit downloads it,
-  installs it on quit and keeps the work. It needs a Developer ID Application identity in your
-  keychain, because macOS installs only signed updates. It never touches published releases or your
-  own den-kit data. Quit den-kit first: the check uses the same updater caches in `~/Library/Caches` as
-  an installed den-kit, and removes the ones it created.
+  builds the current version and the next two patch versions for this Mac, installs the oldest into a
+  temporary folder and serves the others from `127.0.0.1`. It checks that den-kit installs the first
+  update when it quits normally without reopening, installs the second through **Restart now**, and
+  keeps the work. It needs a Developer ID Application identity in your keychain, because macOS
+  installs only signed updates. It never touches published releases or your own den-kit data. Quit
+  den-kit first: the check uses the same updater caches in `~/Library/Caches` as an installed den-kit,
+  and removes the ones it created.
 
 ## Failure and retry
 

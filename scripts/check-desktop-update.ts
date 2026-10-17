@@ -1,14 +1,15 @@
-// Maintainer check on a Mac: an installed older den-kit finds, downloads and installs a newer one through the real
-// updater, and keeps the work. It builds both versions locally and serves them from 127.0.0.1, so no release is
-// published and the person's own den-kit profile is never used. Squirrel.Mac installs only signed updates, so a
+// Maintainer check on a Mac: an installed older den-kit finds, downloads and installs two newer versions through the
+// real updater, the first when den-kit quits normally (without reopening it) and the second through Restart now, and
+// keeps the work. It builds all three versions locally and serves them from 127.0.0.1, so no release is published and
+// the person's own den-kit profile is never used. Squirrel.Mac installs only signed updates, so a
 // Developer ID Application identity must be available in the keychain. Run `npm run desktop:build` first.
-import { _electron as electron, type ElectronApplication } from 'playwright';
+import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { parseVersion } from './release-version.ts';
@@ -29,7 +30,7 @@ const staged = readFileSync(stagedPackage, 'utf8');
 const older = JSON.parse(staged).version as string;
 const parts = parseVersion(older);
 if (!parts) throw new Error(`The staged version ${older} is not a plain release version.`);
-const newer = `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+const [second, third] = [1, 2].map(n => `${parts[0]}.${parts[1]}.${parts[2] + n}`) as [string, string];
 const work = mkdtempSync(join(tmpdir(), 'den-kit-update-check-'));
 const freePort = () => new Promise<number>((done, fail) => {
   const server = createServer().on('error', fail).listen(0, '127.0.0.1', () => {
@@ -51,18 +52,20 @@ const requests: string[] = [];
 const output: string[] = [];
 const step = (text: string) => console.error(`Update check: ${text}`);
 try {
-  step(`building ${older} and ${newer} for ${arch}`);
-  build(older, join(work, 'older'));
-  build(newer, join(work, 'newer'));
+  step(`building ${older}, ${second} and ${third} for ${arch}`);
+  for (const version of [older, second, third]) build(version, join(work, version));
   writeFileSync(stagedPackage, staged);
   const feed = join(work, 'feed');
-  mkdirSync(feed);
-  for (const name of readdirSync(join(work, 'newer')).filter(n => n === 'latest-mac.yml' || /\.zip(\.blockmap)?$/.test(n))) copyFileSync(join(work, 'newer', name), join(feed, name));
+  const serve = (version: string) => {
+    rmSync(feed, { recursive: true, force: true });
+    mkdirSync(feed);
+    for (const name of readdirSync(join(work, version)).filter(n => n === 'latest-mac.yml' || /\.zip(\.blockmap)?$/.test(n))) copyFileSync(join(work, version, name), join(feed, name));
+  };
   // An installed copy outside the build output, as a person would have it (ditto keeps the signature intact).
   const app = join(work, 'installed', 'den-kit.app');
   mkdirSync(join(work, 'installed'));
-  execFileSync('ditto', [join(work, 'older', appDirectory(arch), 'den-kit.app'), app]);
-  for (const bundle of [app, join(work, 'newer', appDirectory(arch), 'den-kit.app')]) execFileSync('codesign', ['--verify', '--deep', '--strict', bundle]);
+  execFileSync('ditto', [join(work, older, appDirectory(arch), 'den-kit.app'), app]);
+  for (const bundle of [app, ...[second, third].map(version => join(work, version, appDirectory(arch), 'den-kit.app'))]) execFileSync('codesign', ['--verify', '--deep', '--strict', bundle]);
   assert.equal(bundleVersion(app), older);
 
   server = createHttpServer((req, res) => {
@@ -81,31 +84,57 @@ try {
     await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, { timeout: 60000 });
     return { launched, page };
   };
+  const appState = (page: Page) => page.evaluate(async () => ({ version: (await window.denKitShell!.info()).version, name: (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.doc.value.name }));
+  const untilStaged = async (page: Page, version: string) => {
+    const { update } = await waitForShell(page, info => ['ready', 'error', 'move'].includes(info.update.state), { timeout: 300000, interval: 1000 });
+    assert.deepEqual(update, { state: 'ready', version });
+    await page.locator('[data-testid=desktop-update-ready]').waitFor({ timeout: 10000 });
+  };
+  const installed = async (version: string) => {
+    const deadline = Date.now() + 120000;
+    while (bundleVersion(app) !== version && Date.now() < deadline) await new Promise(r => setTimeout(r, 1000));
+    assert.equal(bundleVersion(app), version, `Squirrel.Mac did not install ${version} after den-kit quit.`);
+    execFileSync('codesign', ['--verify', '--deep', '--strict', app]);
+  };
+  const exitOf = (launched: ElectronApplication) => new Promise<void>(done => launched.process().once('exit', () => done()));
 
-  step(`installed ${older}; serving ${newer} from 127.0.0.1`);
+  // 1. An ordinary quit (⌘Q) installs the staged update and leaves den-kit closed.
+  serve(second);
+  step(`installed ${older}; serving ${second} from 127.0.0.1`);
   let { launched, page } = await launch();
   await page.evaluate(() => { const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit; k.doc.value = { ...k.doc.value, name: 'Update check work' }; });
-  const { update: ready } = await waitForShell(page, info => ['ready', 'error', 'move'].includes(info.update.state), { timeout: 300000, interval: 1000 });
-  assert.deepEqual(ready, { state: 'ready', version: newer });
-  await page.locator('[data-testid=desktop-update-ready]').waitFor({ timeout: 10000 });
-  step(`${newer} is staged; restarting to install it`);
-  const exited = new Promise<void>(done => launched.process().once('exit', () => done()));
-  // Isolated checks install on quit without relaunching outside this profile. The page may close before evaluate returns.
+  await untilStaged(page, second);
+  step(`${second} is staged; quitting den-kit normally`);
+  let exited = exitOf(launched);
+  await launched.evaluate(({ app: electronApp }) => { electronApp.quit(); }).catch(() => undefined);
+  await exited;
+  running = undefined;
+  await installed(second);
+  // Squirrel.Mac reopens den-kit only when Restart now asks it to. ps may show the path under /private/var.
+  await new Promise(r => setTimeout(r, 10000));
+  assert.ok(!listProcesses().includes(`${basename(work)}/installed/den-kit.app/Contents/MacOS/den-kit`), 'den-kit reopened after an ordinary quit.');
+
+  // 2. Restart now installs the next update. Isolated checks do not reopen den-kit, so nothing runs outside this profile.
+  serve(third);
+  step(`installed ${second} on quit; serving ${third}`);
+  ({ launched, page } = await launch());
+  assert.deepEqual(await appState(page), { version: second, name: 'Update check work' });
+  await untilStaged(page, third);
+  step(`${third} is staged; installing with Restart now`);
+  exited = exitOf(launched);
+  // The page may close before evaluate returns.
   await page.evaluate(() => { void window.denKitShell!.installUpdate(); }).catch(() => undefined);
   await exited;
   running = undefined;
-  const deadline = Date.now() + 120000;
-  while (bundleVersion(app) !== newer && Date.now() < deadline) await new Promise(r => setTimeout(r, 1000));
-  assert.equal(bundleVersion(app), newer, 'Squirrel.Mac did not install the update after quitting.');
-  execFileSync('codesign', ['--verify', '--deep', '--strict', app]);
+  await installed(third);
 
-  step(`installed ${newer}; reopening`);
+  step(`installed ${third}; reopening`);
   ({ launched, page } = await launch());
-  const after = await page.evaluate(async () => ({ version: (await window.denKitShell!.info()).version, name: (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.doc.value.name }));
+  const after = await appState(page);
   await launched.close();
   running = undefined;
-  assert.deepEqual(after, { version: newer, name: 'Update check work' });
-  console.log(JSON.stringify({ arch, from: older, to: newer, served: [...new Set(requests)], work: 'kept after install' }));
+  assert.deepEqual(after, { version: third, name: 'Update check work' });
+  console.log(JSON.stringify({ arch, quit: `${older} → ${second}`, restartNow: `${second} → ${third}`, reopenedAfterQuit: false, served: [...new Set(requests)], work: 'kept after both installs' }));
 } catch (error) {
   if (output.length) console.error(`den-kit output:\n${output.join('').split('\n').slice(-60).join('\n')}`);
   throw error;
