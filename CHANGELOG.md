@@ -5,6 +5,11 @@ Unreleased entries describe the main branch and are not yet available as an app 
 
 ## Unreleased
 
+## 0.1.2 — 2026-10-17
+
+- No changes to the app itself. This version comes from an updated release
+  process that retries notarization when the connection to Apple drops.
+
 ## 0.1.1 — 2026-10-17
 
 - The AI panel header shows "AI" once instead of twice.
