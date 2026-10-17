@@ -88,7 +88,10 @@ None of this is needed to open or test pull requests.
    and `APPLE_TEAM_ID`, and leave the three `APPLE_API_*` secrets empty.
 5. **Repository settings.** Enable immutable releases. Protect `main` with pull requests and the
    `verify` and `desktop-package` checks, and make sure tag rules allow the workflow to create `v*`
-   tags. Do not require branches to be up to date before merging. The CI on `main` catches changes
+   tags. A maintainer reviews every release pull request before merging it. While one maintainer
+   opens and merges all pull requests, the ruleset requires no approvals, because GitHub does not
+   let authors approve their own pull requests; require an approval once more people can merge.
+   Do not require branches to be up to date before merging. The CI on `main` catches changes
    that break each other, and the Release workflow refuses to publish unless the merge matches the
    reviewed release pull request, so only release pull requests need updating first (step 5 of
    "Prepare a release"). No personal access token is needed.
