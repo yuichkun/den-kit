@@ -237,9 +237,9 @@ cover your change. Do not include credentials or private logs in reports.
 
 ## License
 
-den-kit is available under either the [MIT License](LICENSE-MIT) or
-[Apache License 2.0](LICENSE-APACHE), at your option. Third-party packages and
-services have their own terms. Attribution for bundled showcase assets is in
-[SOURCES.md](public/showcase/SOURCES.md).
+Copyright © 2026 Escentier, LLC. den-kit is available under either the
+[MIT License](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE), at your
+option. Third-party packages and services have their own terms. Attribution
+for bundled showcase assets is in [SOURCES.md](public/showcase/SOURCES.md).
 The [repository history](docs/migration.md) describes the source extraction and
 preserved commit history.
