@@ -5,6 +5,8 @@ Unreleased entries describe the main branch and are not yet available as an app 
 
 ## Unreleased
 
+## 0.1.1 — 2026-10-17
+
 - The AI panel header shows "AI" once instead of twice.
 
 ## 0.1.0 — 2026-10-17
