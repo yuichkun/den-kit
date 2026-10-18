@@ -4,7 +4,7 @@
 // replaces it in place; controls and decorations on the plugin become the
 // part's face, and the other uses on the plugin follow. Faces are checked,
 // saved with the patch and carried by My parts.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { generate } from '../../../src/core/codegen.ts';
 import { checkFace, defaultFace, describeFace, faceGroup } from '../../../src/core/face.ts';

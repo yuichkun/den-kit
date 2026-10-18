@@ -2,7 +2,7 @@
 // their inputs, parameters and outputs; placeMyPart brings one in (named, and
 // wired in the same call), landing with the ids it tried; an unknown one is
 // refused with the list; kit_get_patch says where a part came from.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { catalog } from '../../../src/blocks/index.ts';

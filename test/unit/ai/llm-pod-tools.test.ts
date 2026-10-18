@@ -1,7 +1,7 @@
 // The AI's pod tools (kit_bash, kit_read_file, kit_write_file) against a pod
 // stand-in: what they report, what lands in the work (one step of the request),
 // and what they say when there is no pod.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';

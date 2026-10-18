@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { CompileClient, CompileFailure, type WorkerLike } from '../../../src/compile/compile-client.ts';
 import type { Generated } from '../../../src/core/codegen.ts';
 import type { CompileRequest } from '../../../src/compile/protocol.ts';

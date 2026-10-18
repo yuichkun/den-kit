@@ -1,6 +1,6 @@
 // `doctor` and `codex:login` against the fake Codex CLI through KIT_CODEX_BIN.
 // An HTTP trap verifies that retired Jev environment settings never trigger a request.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

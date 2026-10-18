@@ -1,6 +1,6 @@
 // The screen checks: the ten showcase works pass; a screen with each kind of
 // mistake gets the matching problem, worded so the next edit can fix it.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { openChatGPTSignIn } from '../../../desktop/sign-in.ts';
 
 describe('opening ChatGPT sign-in', () => {

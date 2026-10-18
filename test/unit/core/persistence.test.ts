@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { documentHash, makeSaveRecord, parseDocument, readSaveRecord, serializeDocument, MAX_FILE_BYTES } from '../../../src/core/persistence.ts';
 import { STARTERS, starter } from '../../../src/core/starters.ts';

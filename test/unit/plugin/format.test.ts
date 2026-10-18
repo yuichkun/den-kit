@@ -1,5 +1,5 @@
 // How values read on the plugin: short times in ms, high frequencies in kHz.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { formatValue, fromUnit, toUnit } from '../../../src/plugin/format.ts';
 
 describe('formatValue', () => {

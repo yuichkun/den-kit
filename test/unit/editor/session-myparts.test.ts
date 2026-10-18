@@ -2,7 +2,7 @@
 // (or another tab) can place them; a newer version is offered with what changes
 // and lands as one undo step; files carry them; a full storage says so and
 // loses nothing in the patch.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { catalog } from '../../../src/blocks/index.ts';

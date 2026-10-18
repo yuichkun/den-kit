@@ -1,5 +1,5 @@
 // Conversation persistence, historical request compatibility and LLM context.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import { attachmentsOf, describeAttachments } from '../../../src/ai/attachments.ts';

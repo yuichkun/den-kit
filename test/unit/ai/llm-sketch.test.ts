@@ -4,7 +4,7 @@
 // dimmed, until the request ends; the LLM gets their words and pictures with the
 // request or with what is added to it; members get the sketches on what they
 // hold; pointing marks reach the LLM alongside the selection.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';

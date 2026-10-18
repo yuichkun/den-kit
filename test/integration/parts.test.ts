@@ -2,7 +2,7 @@
 // ordinary nodes before code generation, so making a part changes nothing in
 // the sound, and two uses with their own parameter values are two voices of
 // the same definition. Rendered offline; audio is CANDIDATE, never golden.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { catalog } from '../../src/blocks/index.ts';
 import { generate } from '../../src/core/codegen.ts';

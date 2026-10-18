@@ -2,7 +2,7 @@
 // accept exactly what den-kit sends? CODEX_HOME is an empty temp directory (not
 // signed in) and every proxy variable points at a closed port, so nothing leaves
 // the machine and no model is ever called. Skipped where the binary is missing.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

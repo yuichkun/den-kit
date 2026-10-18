@@ -1,6 +1,6 @@
 // Bridge over real sockets: connection policy, the hello handshake, rejected
 // retired messages, local telemetry, heartbeat, and the token endpoint.
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

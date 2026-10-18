@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { aiFailure, aiUnavailable } from '../../../src/ai/user-errors.ts';
 
 describe('installed-app AI recovery', () => {

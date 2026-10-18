@@ -1,7 +1,7 @@
 // Members' scopes (U8): what a member may change, what the lead may not change
 // while members work, and the seam (the controls and their cables) nobody but
 // the lead removes or rewires. Edits are written the way the LLM sends them.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents } from '../../../src/core/ops.ts';

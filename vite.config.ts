@@ -1,5 +1,5 @@
-import { defineConfig } from 'vitest/config';
-import type { Plugin } from 'vite';
+import { defineConfig, lazyPlugins } from 'vite-plus';
+import type { Plugin } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'esbuild';
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
@@ -69,7 +69,7 @@ const ISOLATION = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-E
 
 export default defineConfig({
   root: kit,
-  plugins: [kitVirtual(), vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } })],
+  plugins: lazyPlugins(() => [kitVirtual(), vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } })]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
   worker: { format: 'es', plugins: () => [kitVirtual()] },
   server: {
@@ -85,7 +85,7 @@ export default defineConfig({
   // Pre-bundle up front so the first visit does not trigger a reload.
   // BrowserPod is loaded only when a work first needs the pod: listed here so Vite prepares it at start
   // (found later, Vite would prepare it then and reload the page in the middle of the AI's first command).
-  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript', '@leaningtech/browserpod', ...denModules()], esbuildOptions: { target: 'es2022' } },
+  optimizeDeps: { include: ['vue', '@vue-flow/core', '@vue-flow/background', '@unworklet/core', '@unworklet/core/worklet', '@unworklet/offline', 'typescript', '@leaningtech/browserpod', ...denModules()], rolldownOptions: { transform: { target: 'es2022' } } },
   preview: { headers: ISOLATION },
   build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
   test: {
@@ -93,5 +93,17 @@ export default defineConfig({
       { extends: true, test: { name: 'unit', include: ['test/unit/**/*.test.ts'], environment: 'node' } },
       { extends: true, test: { name: 'integration', include: ['test/integration/**/*.test.ts'], environment: 'node', maxWorkers: 1, testTimeout: 180000, hookTimeout: 180000 } },
     ],
+  },
+  fmt: {
+    singleQuote: true, semi: true, arrowParens: 'avoid', printWidth: 100, sortPackageJson: false,
+    // The pod's own tooling files: npm writes package.json and package-lock.json there, and ESLint reads eslint.config.js.
+    ignorePatterns: ['pod-template/package.json', 'pod-template/package-lock.json', 'pod-template/eslint.config.js'],
+  },
+  // Types are checked by vue-tsc (the typecheck script): Oxlint's type-aware checks do not read .vue files.
+  lint: {
+    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
+    // The pod template runs on its own Vite, not Vite+.
+    overrides: [{ files: ['pod-template/**'], rules: { 'vite-plus/prefer-vite-plus-imports': 'off' } }],
   },
 });

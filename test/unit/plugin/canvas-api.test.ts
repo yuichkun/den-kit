@@ -1,6 +1,6 @@
 // What a canvas may write to controls: checked, clamped, and visible to
 // later reads in the same frame.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { CanvasWriteError, overlayPending, writeControl, type CanvasFrame, type PendingWrites } from '../../../src/plugin/canvas-api.ts';
 
 const frame = (): Pick<CanvasFrame, 'values' | 'norms' | 'ranges'> => ({

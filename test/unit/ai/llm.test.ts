@@ -2,7 +2,7 @@
 // patch step by step and undo together, the user's edits in between stay their
 // own, steer/stop, questions answered for nobody, edits that do not compile,
 // lost requests, and short prompts using the same LLM path.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';

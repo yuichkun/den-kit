@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents, applyResolvedOps, invertAll, OpError } from '../../../src/core/ops.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';

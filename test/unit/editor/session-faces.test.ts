@@ -3,7 +3,7 @@
 // pictures and put on another plugin at once when placed there (not when placed
 // inside a part); My parts files carry the pictures' bytes; a face of one
 // control stays a face.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { catalog } from '../../../src/blocks/index.ts';

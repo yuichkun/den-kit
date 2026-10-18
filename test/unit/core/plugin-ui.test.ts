@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents, applyResolvedOps, invertAll, OpError, replaceOps, type Intent } from '../../../src/core/ops.ts';
 import { History } from '../../../src/core/history.ts';

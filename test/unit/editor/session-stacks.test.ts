@@ -2,7 +2,7 @@
 // copy's AudioParam (a spread knob's copies move around its new centre), and so
 // does dragging how it spreads, without recompiling; changing the count or which
 // knobs spread recompiles. The estimated load follows the count.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { KitSession } from '../../../src/editor/session.ts';
 import { applyIntents } from '../../../src/core/ops.ts';
 import { emptyDocument } from '../../../src/core/schema.ts';

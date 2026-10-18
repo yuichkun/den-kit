@@ -2,7 +2,7 @@
 // makes the copies, joins thick and thin cables by the rules (1:1, to every copy,
 // summed ×1/√N into one), spreads knob values, gives random modules their own
 // seeds, and keeps knobs that are the same in every copy one AudioParam.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { currentValues, generate } from '../../../src/core/codegen.ts';
 import { describePatch } from '../../../src/core/describe.ts';

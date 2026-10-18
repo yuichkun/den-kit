@@ -1,7 +1,7 @@
 // Parts: one definition used in several places. The insides live in the node
 // list (inside: part id); validation and code generation expand every use into
 // ordinary nodes and say what they find in terms of the patch as drawn.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { currentValues, generate } from '../../../src/core/codegen.ts';
 import { describePatch } from '../../../src/core/describe.ts';

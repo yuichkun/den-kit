@@ -1,7 +1,7 @@
 // The browser's bridge client against the real bridge (Node `ws` stands in for
 // the browser WebSocket): it never throws, reconnects with backoff, survives a
 // bridge restart with a new token, and forwards LLM messages to its listeners.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { WebSocket, WebSocketServer } from 'ws';
 import { BridgeClient, type LlmInbound, type SocketLike } from '../../src/ai/bridge-client.ts';
 import { createBridge, type Bridge } from '../../bridge/server.ts';

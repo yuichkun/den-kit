@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { align, bounds, distribute, grow, nudge, placePicture, resizeBy } from '../../../src/plugin/edit.ts';
 
 const frame = { x: 0, y: 0, w: 400, h: 300 };

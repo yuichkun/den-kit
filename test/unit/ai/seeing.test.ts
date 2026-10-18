@@ -1,7 +1,7 @@
 // What the person is looking at (U8b): the line every LLM request carries, the
 // crop of a shared tab's frame to one view, and kit_look as "seen" with and
 // without a shared screen.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { cropRect, noteName, seeingText } from '../../../src/ai/seeing.ts';

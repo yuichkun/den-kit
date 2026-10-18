@@ -3,7 +3,7 @@
 // parts load and draw a frame; its look can be put on another work. And each
 // does what its controls say (measured on the rendered sound, not assumed).
 import { appendFileSync, readFileSync, statSync } from 'node:fs';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { compile } from '@unworklet/core';
 import { catalog } from '../../src/blocks/index.ts';

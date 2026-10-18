@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { accountActions, accountStatus, settingsError } from '../../../src/desktop/presentation.ts';
 import type { DesktopInfo } from '../../../src/desktop/api.ts';
 

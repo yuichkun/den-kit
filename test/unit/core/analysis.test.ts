@@ -1,5 +1,5 @@
 // The listening metrics on synthetic signals with known answers.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { inflateSync } from 'node:zlib';
 import { analyse, encodePng, fft, pngDataUrl, spectrogramPng, testSignal } from '../../../src/core/analysis.ts';
 

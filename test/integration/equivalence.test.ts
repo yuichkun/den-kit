@@ -1,6 +1,6 @@
 // Compatibility references (docs/filter-materialization.md sense), not audio
 // goldens: the module-built starters must reproduce den's own engines.
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { audioInput, audioOutput, bool, defineProcessor, f32, forSample, instantiate, type CompiledProcessor } from '@unworklet/core';
 import { createInstrument, bassConfig, bassParameters, percussionConfig, percussionParameters, padConfig, padParameters } from '@denaudio/den/instrument';

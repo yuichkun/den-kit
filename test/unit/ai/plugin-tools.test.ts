@@ -1,7 +1,7 @@
 // The plugin screen for the LLM: what kit_get_plugin tells it, the reference by
 // topic, and the shorthands kit_apply_ops accepts (addControl, bundled pictures
 // by id), which become ordinary intents.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, OpError, type Intent } from '../../../src/core/ops.ts';

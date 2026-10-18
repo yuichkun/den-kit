@@ -1,6 +1,6 @@
 // JSON-RPC over JSON lines: what a child process can do to the stream, and that
 // every request settles.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { PassThrough, Writable } from 'node:stream';
 import { RpcClosed, RpcError, RpcPeer, RpcTimeout } from '../../../bridge/codex/rpc.ts';
 import type { RpcNotification, RpcRequest } from '../../../bridge/codex/protocol.ts';

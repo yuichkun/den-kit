@@ -3,7 +3,7 @@
 // what den-kit knows; edits land in one request (one ⌘Z for all) and stay in
 // each AI's scope; the lead waits for reports, gets another turn if it ended
 // its own early; Esc stops everyone, a lane's × one member; members off.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';

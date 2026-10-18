@@ -2,7 +2,7 @@
 // into a single input, a harmonic spread, the copy number inside a part used ×n,
 // Splay's left and right, random modules that differ per copy, and copies
 // inside a voice. Rendered offline; audio is CANDIDATE, never golden.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { catalog } from '../../src/blocks/index.ts';
 import { generate } from '../../src/core/codegen.ts';

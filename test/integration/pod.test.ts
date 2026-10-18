@@ -2,7 +2,7 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/blocks/index.ts';
 import { applyIntents, applyResolvedOps, invertAll, type Intent, type ResolvedOp } from '../../src/core/ops.ts';

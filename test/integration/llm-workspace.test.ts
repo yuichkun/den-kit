@@ -2,7 +2,7 @@
 // rendering (Node), as an LLM would drive it: add an LFO wobbling the cutoff
 // (it lands on the live patch), listen, then a codebox with a mistake (it does
 // not land), fix it (it lands), listen again.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { compile } from '@unworklet/core';
 import { renderOffline } from '@unworklet/offline';
 import { catalog } from '../../src/blocks/index.ts';

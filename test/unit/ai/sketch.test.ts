@@ -1,7 +1,7 @@
 // Rough sketches for the AI (U8c): what each mark is about (loops and boxes go
 // around things, strokes cross them, arrows join them, notes sit on them or in
 // empty space), and the marks in words.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { isLoop, markBox, markedThings, onlyPointing, patchTargets, pluginTargets, readMarks, sketchSummary, sketchText, type Mark, type Point, type Target } from '../../../src/ai/sketch.ts';
 import { badgeAt, fit, wrapText } from '../../../src/editor/sketch-picture.ts';
 

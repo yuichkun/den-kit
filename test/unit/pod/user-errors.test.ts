@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { desktopProjectError } from '../../../src/pod/user-errors.ts';
 
 afterEach(() => vi.restoreAllMocks());

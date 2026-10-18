@@ -1,6 +1,6 @@
 // B1: every catalog node compiles in a minimal patch, globally and (where allowed)
 // per voice, and renders finite audio. Guards descriptor drift from den signatures.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { compile } from '@unworklet/core';
 import { catalog } from '../../src/blocks/index.ts';

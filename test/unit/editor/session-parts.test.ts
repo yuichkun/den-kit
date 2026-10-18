@@ -1,7 +1,7 @@
 // The session with parts: going inside and out (the path survives undo or is
 // cut back), a knob turn on a use or inside a part reaching exactly the
 // AudioParams it stands for without recompiling, hearing one part alone.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { KitSession } from '../../../src/editor/session.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { catalog } from '../../../src/blocks/index.ts';

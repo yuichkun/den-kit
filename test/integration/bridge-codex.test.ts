@@ -1,7 +1,7 @@
 // The LLM path end to end below the browser: a WebSocket tab ↔ the bridge ↔
 // CodexClient ↔ the fake app-server process. Tool calls are answered here with
 // canned results; the browser's real tools are covered in llm-workspace and e2e.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
 import { PROTOCOL_VERSION, WS_PATH, type LlmEvent, type ServerMessage, type ToolOutput } from '../../src/ai/protocol.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';

@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents } from '../../../src/core/ops.ts';
 import { checkProjectPath } from '../../../src/core/project.ts';

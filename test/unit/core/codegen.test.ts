@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { generate } from '../../../src/core/codegen.ts';
 import { inlineCodebox } from '../../../src/core/codebox.ts';

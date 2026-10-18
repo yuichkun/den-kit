@@ -1,5 +1,5 @@
 // LLM tools preserve copies, spread and estimated load without expanding nodes.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { catalog } from '../../../src/blocks/index.ts';

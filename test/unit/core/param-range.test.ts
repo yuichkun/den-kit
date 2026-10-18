@@ -3,7 +3,7 @@
 // turns, shown by the part's interface (so the use's knob, its face and the
 // AI's steps all use it), kept in files and My parts, and can be changed or
 // dropped later.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { describePatch } from '../../../src/core/describe.ts';
 import { faceOf } from '../../../src/core/face.ts';

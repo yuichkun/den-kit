@@ -9,3 +9,4 @@ release/
 .logs/
 test-results/
 .DS_Store
+.vitest/

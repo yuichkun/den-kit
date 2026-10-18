@@ -1,7 +1,7 @@
 // The LLM's tools run against the live patch: an edit is tried on a copy, and
 // only one that validates and compiles lands (as one step); a failing edit
 // lands nothing and says why. What the tools report, and what lands.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents, type Intent } from '../../../src/core/ops.ts';

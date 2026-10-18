@@ -3,7 +3,7 @@
 // an update with what changes shown first (the uses keep their values), and
 // carried in files. Broken bundles and files are refused or repaired with a
 // reason, never half-placed.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { generate } from '../../../src/core/codegen.ts';
 import { bundleHash, checkBundle, describeDiff, diffBundles, emptyLibrary, extractBundle, KEEP_VERSIONS, latest, LIBRARY_SCHEMA, mergeLibrary, parseLibrary, removeFromLibrary, saveToLibrary, serializeLibrary, type Library, type PartBundle } from '../../../src/core/library.ts';

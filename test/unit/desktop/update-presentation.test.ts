@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { settingsError, updatePresentation } from '../../../src/desktop/presentation.ts';
 
 describe('update presentation', () => {

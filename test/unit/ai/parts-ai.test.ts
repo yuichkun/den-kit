@@ -1,5 +1,5 @@
 // Part views and LLM tools preserve scoped parameters and edits.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';

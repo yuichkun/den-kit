@@ -1,7 +1,7 @@
 // Faces and the LLM: the tools and rules teach faces; in one call the model can
 // give a part its own face and put it on the plugin (putFace sees the new face);
 // a face on something that is not a use is refused with what putFace takes.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { catalog } from '../../../src/blocks/index.ts';

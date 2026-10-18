@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ScreenShare } from '../../../src/editor/screen-share.ts';
 
 const rect = { x: 1.4, y: 2.6, width: 160, height: 100 };

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { allowedPermission } from '../../../desktop/permissions.ts';
 
 it('accepts Electron URL-shaped origins only for the trusted main frame and necessary permissions', () => {

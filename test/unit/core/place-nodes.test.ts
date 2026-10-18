@@ -1,6 +1,6 @@
 // Modules the LLM adds without a position land in free space next to what they
 // connect to, never on top of another module.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { applyIntents } from '../../../src/core/ops.ts';

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { DesktopUpdates, UPDATE_CHECK_FAILED, UPDATE_DOWNLOAD_FAILED, type AppUpdaterLike } from '../../../desktop/updates.ts';
 import type { UpdateStatus } from '../../../src/desktop/api.ts';
 
