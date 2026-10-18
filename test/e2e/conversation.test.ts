@@ -6,7 +6,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { openKit, reloadKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
 const transform = (page: Page) => page.evaluate(() => {
@@ -115,7 +115,7 @@ describe('attachments and the conversation', () => {
     assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), 1.2);
     // Reload (keep the storage this time): the patch and its conversation come back.
     await page.evaluate(() => { (window as any).__kit.requests.persist(); (window as any).__kit.saveNow(); sessionStorage.setItem('kit-e2e-keep', '1'); });
-    await page.reload();
+    await reloadKit(page);
     await page.waitForFunction(() => (window as any).__kit?.requests?.history.value.length === 2, null, { timeout: 60000 });
     assert.deepEqual(await kit(page, k => k.requests.history.value.map((o: { text: string }) => o.text)), ['longer release', 'more']);
     await page.waitForSelector('[data-testid=ai-history] >> text=longer release');
