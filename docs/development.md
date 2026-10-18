@@ -54,10 +54,9 @@ Code parts and the Project workspace use
 [BrowserPod](https://browserpod.io/), which runs a Linux environment in the
 browser. Source development uses the key configured above.
 
-Restart `npm run dev`. The Project tab shows startup progress and provides a
-terminal, source editor, and checks. First startup includes package installation
-and requires network access. BrowserPod supplies the AI's project environment
-and remains part of the required setup.
+The Project tab shows startup progress and provides a terminal, source editor,
+and checks. First startup includes package installation and requires network
+access. BrowserPod also supplies the AI's project environment.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `npm run build` excludes

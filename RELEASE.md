@@ -97,8 +97,6 @@ None of this is needed to open or test pull requests.
 
 ## Building and checking locally
 
-- `npm run desktop:package` builds an unsigned app for this Mac's architecture into `release/` for
-  quick checks.
 - `npm run desktop:dist` builds the `.dmg` and `.zip` packages for both architectures. It signs them
   when a Developer ID Application identity is in your keychain and never publishes. It notarizes and
   staples the signed apps when `APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
@@ -136,5 +134,3 @@ a merge commit to its pull request shortly after the push.
 
 If the reviewed tree differs from the merge, nothing is published: prepare a fresh release pull
 request from current `main` and review it again.
-
-Windows packaging is not available yet.
