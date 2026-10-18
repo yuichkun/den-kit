@@ -6,7 +6,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { openKit, reloadKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
@@ -254,7 +254,7 @@ describe('the start screen', () => {
     // A later launch with a saved patch does not show it.
     await page.evaluate(() => sessionStorage.setItem('kit-e2e-keep', '1'));
     await kit(page, k => k.saveNow());
-    await page.reload();
+    await reloadKit(page);
     await page.waitForFunction(() => (window as any).__kit !== undefined);
     await page.waitForSelector('[data-testid=start-overlay]');
     assert.equal(await page.$('[data-testid=start-screen]'), null);
