@@ -6,7 +6,7 @@
   "type": "module",
   "description": "Visual editor for instruments and effects built from den blocks.",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=24.11 <25"
   },
   "scripts": {
     "dev": "node scripts/dev.ts",

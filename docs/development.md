@@ -2,10 +2,10 @@
 
 ## Run from source
 
-Use **Node.js 24**, the [Vite+](https://viteplus.dev/guide/) command `vp`, a
-**ChatGPT account** for AI requests, and a **BrowserPod API key** for the required
-workspace. Dependencies are installed from npm; you do not need a separate checkout
-or build of den.
+Use **Node.js 24.11 or a later 24 release**, the [Vite+](https://viteplus.dev/guide/)
+command `vp`, a **ChatGPT account** for AI requests, and a **BrowserPod API key** for
+the required workspace. Dependencies are installed from npm; you do not need a
+separate checkout or build of den.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git

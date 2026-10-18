@@ -43,6 +43,7 @@ import {
   type UserInput,
 } from '../bridge/codex/protocol.ts';
 import { KIT_TOOLS, type ToolSpec } from '../src/ai/llm-spec.ts';
+import { inNodeRange } from './node-range.ts';
 
 type Status = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
 const deep = process.argv.includes('--deep');
@@ -54,15 +55,16 @@ const report = (status: Status, name: string, detail: string, fix?: string) => {
 };
 const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 
-// 1. Node
-const major = Number(process.versions.node.split('.')[0]);
-if (major === 24) report('PASS', 'Node.js', `v${process.versions.node}`);
+// 1. Node, in the range of package.json engines
+const nodeRange = json(join(kit, 'package.json')).engines.node as string;
+if (inNodeRange(process.versions.node, nodeRange))
+  report('PASS', 'Node.js', `v${process.versions.node}`);
 else
   report(
     'FAIL',
     'Node.js',
     `v${process.versions.node}`,
-    'Install Node 24 (e.g. `fnm install 24` or `nvm install 24`).',
+    `Install Node ${nodeRange} (package.json engines), such as the version in .node-version.`,
   );
 
 // 2. Dependencies
