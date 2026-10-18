@@ -18,8 +18,6 @@ neighboring den checkout. Dependencies, tooling, and package versions are
 defined in this repository's `package.json` and lockfile. Work document
 compatibility was preserved during extraction.
 
-See the [README](../README.md) for setup, usage, and development commands.
-
 ## Licensing
 
 The source retains den's dual licensing: [MIT](../LICENSE-MIT) or

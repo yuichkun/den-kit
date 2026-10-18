@@ -2,9 +2,9 @@
 
 ## Run from source
 
-Use **Node.js 24**, a current version of **Chrome**, a **ChatGPT account** for AI
-requests, and a **BrowserPod API key** for the required workspace. Dependencies
-are installed from npm; you do not need a separate checkout or build of den.
+Use **Node.js 24**, a **ChatGPT account** for AI requests, and a **BrowserPod API
+key** for the required workspace. Dependencies are installed from npm; you do not
+need a separate checkout or build of den.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git
@@ -30,7 +30,8 @@ npm run dev
 
 Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
 authentication and BrowserPod configuration for the normal den-kit workflow.
-[Using den-kit](usage.md) covers audio setup and the basic workflow.
+[Using den-kit](usage.md) covers the supported browser, audio setup and the basic
+workflow.
 
 ### AI configuration
 
