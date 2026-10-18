@@ -17,10 +17,11 @@ The desktop app uses text input for AI requests. Its interface is in English, an
 bundles only English localizations, so menus and dialogs provided by macOS and Chromium
 also appear in English.
 
-Installed from a release and kept in the Applications folder, den-kit downloads new
-versions in the background and installs them the next time you quit, or when you choose
-**Restart now** in Settings. Your work is saved first, and the app never restarts on its
-own.
+Installed from a release, den-kit downloads new versions in the background and installs
+them the next time you quit, or when you choose **Restart now** in Settings. Your work is
+saved first. The app never restarts on its own and does not offer **Restart now** during
+an AI request. Updates install only when den-kit is in the Applications folder; anywhere
+else, the app offers to move itself there.
 
 ## Basic workflow
 

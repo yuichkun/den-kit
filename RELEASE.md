@@ -53,12 +53,9 @@ release title and notes as data, never as shell code.
 
 - The app reads `latest-mac.yml` from the latest published release. Each Mac downloads the `.zip` for
   its own architecture.
-- Updates download in the background and are installed the next time the person quits den-kit.
-  **Restart now** in Settings saves the work first, then installs and reopens den-kit. The app never
-  restarts on its own, and it does not offer a restart during an AI request.
-- Updates can be installed only when den-kit is in the Applications folder. When it is not, the app
-  offers to move itself there.
 - Prereleases and older versions are never installed.
+
+What people see when an update arrives is in [docs/usage.md](docs/usage.md#the-macos-app).
 
 ## One-time maintainer setup
 
@@ -71,9 +68,9 @@ None of this is needed to open or test pull requests.
 2. **Notarization.** In App Store Connect, under Users and Access → Integrations, create a team API
    key with the Developer role. Download the `.p8` file once and note its Key ID and the Issuer ID.
    An Apple ID with an app-specific password also works; see the optional secrets below.
-3. **BrowserPod key.** Use a BrowserPod key reserved for the distributed app. The key is bundled in
-   the app, where anyone can read it, so do not reuse a development key. To replace it, publish a new
-   version with the new key, then revoke the old one once people have updated.
+3. **BrowserPod key.** Use a BrowserPod key reserved for the distributed app, not a development key;
+   [docs/development.md](docs/development.md#build-the-macos-app) explains why. To replace it,
+   publish a new version with the new key, then revoke the old one once people have updated.
 4. **GitHub environment.** Under Settings → Environments, create `release`, allow deployments only
    from `main` (the Release workflow runs on pushes to `main`), and add these secrets:
 

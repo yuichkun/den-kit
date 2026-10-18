@@ -85,10 +85,8 @@ The build bundles the BrowserPod key, and it can be extracted from the app. Buil
 must supply a key they are authorized to distribute.
 
 The local packaging command creates an **unsigned, unnotarized** app for your
-Mac's architecture. The packaging scripts build macOS apps only. Signed and notarized
-releases for Apple silicon and Intel are published to
-[GitHub Releases](https://github.com/yuichkun/den-kit/releases) from reviewed
-release pull requests; see [RELEASE.md](../RELEASE.md).
+Mac's architecture. The packaging scripts build macOS apps only. Signed releases follow
+[RELEASE.md](../RELEASE.md).
 
 ### Reset the app's data
 
