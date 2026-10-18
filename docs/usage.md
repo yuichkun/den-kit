@@ -73,21 +73,14 @@ if another process occupies that port, close it before opening den-kit.
 
 ## Custom code parts
 
-The Project workspace contains a web project for each work. A code part exports
-`part({ props, mount })` from `src/parts/<name>.ts` and runs in a frame inside
-the Plugin view. It can read audio and controls, respond to control changes,
-and update the sound through the workspace's `kit` API.
-
-See the [code-part guide](../pod-template/AGENTS.md) and
-[API definitions](../pod-template/src/kit/index.ts) for examples and interfaces.
-The workspace provides `npm run check`, `npm run lint`, and `npm run build`.
+A code part is part of the plugin screen written in code, in the web project that the
+Project workspace keeps for each work. The [code-part guide](../pod-template/AGENTS.md)
+and the [API definitions](../pod-template/src/kit/index.ts) describe how to write one.
 
 ## Known limitations
 
 - BrowserPod needs recent WebAssembly features, and only one den-kit tab can own
   its workspace at a time.
-- Native npm binaries do not run inside BrowserPod; use browser-compatible or
-  WebAssembly packages for code parts.
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
   dynamic `import()` can still load and execute remote JavaScript. Imported
   works and AI-generated Canvas code can therefore make network requests.
