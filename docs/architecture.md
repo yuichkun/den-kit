@@ -12,6 +12,7 @@ The editor uses Vue and TypeScript, den DSP blocks, and unworklet audio processi
 | `src/widgets/` | Plugin controls as Web Components |
 | `src/ai/` | AI requests and the `kit_*` tools the AI works with |
 | `src/pod/` | The BrowserPod workspace |
+| `src/desktop/` | The page's side of the desktop app: the API the Electron shell gives the page, sign-in and update status text, and shell requests with a timeout |
 | `src/engine/`, `src/compile/` | Audio engine and compilation |
 | `src/blocks/`, `src/showcase/` | den block descriptors and the example works |
 | `bridge/` | Local bridge to the Codex app-server |
