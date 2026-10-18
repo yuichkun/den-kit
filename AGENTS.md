@@ -91,8 +91,9 @@ The repository and GitHub are public.
    lists them.
 3. Open the pull request ready for review and fill in the template. CI and the Codex
    review start automatically.
-4. Handle every review finding: fix it, or reply with the reason for leaving the code as
-   it is. Then ask for another review with a top-level `@codex review` comment.
+4. Judge every review finding by the sources above, not by who raised it: fix what they
+   show is wrong, and reply with the reason for the rest. Then ask for another review
+   with a top-level `@codex review` comment.
 5. Compare the change with the value list. Post the result in Japanese as a comment on
    the Linear issue for the work, or tell the person you work with when there is no
    issue: whether the change works against any value, which values it brings closer, and
