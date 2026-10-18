@@ -6,7 +6,12 @@ type Claim = (e: KeyboardEvent) => boolean;
 const claims = new Set<Claim>();
 
 /** Take Enter when `claim` says so (it acts and returns true); returns the release. */
-export function claimEnter(claim: Claim): () => void { claims.add(claim); return () => { claims.delete(claim); }; }
+export function claimEnter(claim: Claim): () => void {
+  claims.add(claim);
+  return () => {
+    claims.delete(claim);
+  };
+}
 
 /** Offer Enter to the views; true when one of them took it. */
 export function offerEnter(e: KeyboardEvent): boolean {

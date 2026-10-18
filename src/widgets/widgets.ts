@@ -10,6 +10,13 @@ import { DkScope } from './display.ts';
 export { DkKnob, DkSlider, DkToggle, DkXy, DkKeyboard, DkScope };
 
 export function defineWidgets() {
-  const define = (name: string, ctor: CustomElementConstructor) => { if (!customElements.get(name)) customElements.define(name, ctor); };
-  define('dk-knob', DkKnob); define('dk-slider', DkSlider); define('dk-toggle', DkToggle); define('dk-xy', DkXy); define('dk-keyboard', DkKeyboard); define('dk-scope', DkScope);
+  const define = (name: string, ctor: CustomElementConstructor) => {
+    if (!customElements.get(name)) customElements.define(name, ctor);
+  };
+  define('dk-knob', DkKnob);
+  define('dk-slider', DkSlider);
+  define('dk-toggle', DkToggle);
+  define('dk-xy', DkXy);
+  define('dk-keyboard', DkKeyboard);
+  define('dk-scope', DkScope);
 }

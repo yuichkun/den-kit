@@ -36,21 +36,37 @@ export default part({
     const g = canvas.getContext('2d')!;
     let angle = 0;
     const stop = kit.frame(dt => {
-      const dpr = devicePixelRatio, w = kit.size.width, h = kit.size.height;
-      if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+      const dpr = devicePixelRatio,
+        w = kit.size.width,
+        h = kit.size.height;
+      if (canvas.width !== Math.round(w * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, w, h);
       angle += dt * kit.props.speed * (0.5 + kit.audio.level * 4);
       g.strokeStyle = getComputedStyle(root).getPropertyValue('--dk-accent');
       g.lineWidth = 6;
       g.beginPath();
-      g.arc(w / 2, h / 2, Math.min(w, h) * 0.35, angle, angle + Math.PI * (0.2 + kit.norm('kcut') * 1.6));
+      g.arc(
+        w / 2,
+        h / 2,
+        Math.min(w, h) * 0.35,
+        angle,
+        angle + Math.PI * (0.2 + kit.norm('kcut') * 1.6),
+      );
       g.stroke();
       // … kit.audio.wave, kit.audio.spectrum, kit.value('kcut') …
     });
     // Dragging up and down turns a knob: one drag is one ⌘Z step.
-    canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); kit.begin(); });
-    canvas.addEventListener('pointermove', e => { if (e.buttons) kit.setNorm('kcut', kit.norm('kcut') - e.movementY / 200); });
+    canvas.addEventListener('pointerdown', e => {
+      canvas.setPointerCapture(e.pointerId);
+      kit.begin();
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (e.buttons) kit.setNorm('kcut', kit.norm('kcut') - e.movementY / 200);
+    });
     canvas.addEventListener('pointerup', () => kit.end());
     return stop;
   },

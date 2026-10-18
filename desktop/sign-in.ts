@@ -6,7 +6,8 @@ export async function openChatGPTSignIn(
   const url = await account.signIn();
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'auth.openai.com') throw new Error('Unexpected ChatGPT sign-in address.');
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'auth.openai.com')
+      throw new Error('Unexpected ChatGPT sign-in address.');
     await openExternal(url);
   } catch {
     await account.cancelSignIn().catch(() => undefined);

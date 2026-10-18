@@ -15,14 +15,25 @@ export type PortId = string;
 export type Value = number | boolean;
 export type ConfigValue = string | number | boolean;
 
-export interface XY { x: number; y: number }
-export interface PanelRect { x: number; y: number; w: number; h: number }
+export interface XY {
+  x: number;
+  y: number;
+}
+export interface PanelRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 /** Signal = one f32 per sample. Gate = one bool per sample. */
 export type SignalType = 'signal' | 'gate';
 
 /** Port shape for codebox-declared ports (block ports come from the catalog). */
-export interface PortSpec { id: PortId; type: SignalType }
+export interface PortSpec {
+  id: PortId;
+  type: SignalType;
+}
 
 export interface PatchNode {
   id: NodeId;
@@ -59,7 +70,7 @@ export interface PatchNode {
 /** The most copies of one node. */
 export const MAX_COUNT = 128;
 export const SPREAD_KINDS = ['range', 'random', 'harmonic', 'each'] as const;
-export type SpreadKind = typeof SPREAD_KINDS[number];
+export type SpreadKind = (typeof SPREAD_KINDS)[number];
 /**
  * How the copies of a stacked node differ on one knob. The knob's own value is
  * the centre: `range` places the copies evenly from −amount to +amount around
@@ -76,19 +87,44 @@ export interface Spread {
 }
 
 /** One input or output of a part: the inlet or outlet node inside that carries it. */
-export interface PartPort { id: PortId; node: NodeId }
+export interface PartPort {
+  id: PortId;
+  node: NodeId;
+}
 /** A knob inside a part shown on the part itself: each use of the part has its own value. */
-export interface PartParam { id: PortId; node: NodeId; port: PortId; label?: string; /** Its own knob range (inside the inner knob's limits). */ range?: ParamRange }
+export interface PartParam {
+  id: PortId;
+  node: NodeId;
+  port: PortId;
+  label?: string;
+  /** Its own knob range (inside the inner knob's limits). */ range?: ParamRange;
+}
 /** Where a part parameter's knob turns, how, and in what unit (e.g. a Multiply's ±1e6 shown as 0–1 st). */
-export interface ParamRange { min: number; max: number; scale?: 'linear' | 'log'; /** A unit (Hz, s, st…), or "" for none. */ unit?: string }
+export interface ParamRange {
+  min: number;
+  max: number;
+  scale?: 'linear' | 'log';
+  /** A unit (Hz, s, st…), or "" for none. */ unit?: string;
+}
 /** A control on a part's face: it sets one of the part's parameters, for the use the face is put on the plugin for. */
-export interface FaceControl { param: PortId; type: 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button'; rect: PanelRect; label?: string; style?: WidgetStyle }
+export interface FaceControl {
+  param: PortId;
+  type: 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button';
+  rect: PanelRect;
+  label?: string;
+  style?: WidgetStyle;
+}
 /**
  * A part's own little screen (like Max's bpatcher, but data): controls for its
  * parameters and decorations, placed in a box of its own (rects are inside the
  * box). Text and lamps bind to a control by its parameter id.
  */
-export interface PartFace { width: number; height: number; controls: FaceControl[]; elements: UiElement[] }
+export interface PartFace {
+  width: number;
+  height: number;
+  controls: FaceControl[];
+  elements: UiElement[];
+}
 /**
  * A part: one definition, used in any number of places (kit.part nodes). The
  * nodes inside live in the document's node list with `inside` set to its id,
@@ -108,11 +144,18 @@ export interface PartDef {
   face?: PartFace;
 }
 
-export interface PortRef { node: NodeId; port: PortId }
-export interface PatchEdge { id: EdgeId; from: PortRef; to: PortRef }
+export interface PortRef {
+  node: NodeId;
+  port: PortId;
+}
+export interface PatchEdge {
+  id: EdgeId;
+  from: PortRef;
+  to: PortRef;
+}
 
 export const THEMES = ['graphite', 'paper', 'neon', 'studio'] as const;
-export type ThemeId = typeof THEMES[number];
+export type ThemeId = (typeof THEMES)[number];
 
 export interface PatchDocument {
   schema: typeof PATCH_SCHEMA;
@@ -141,25 +184,55 @@ export const PART_ID_PATTERN = NODE_ID_PATTERN;
 export const PORT_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]{0,31}$/;
 
 export function emptyDocument(name = 'Untitled', id = randomId('patch')): PatchDocument {
-  return { schema: PATCH_SCHEMA, version: PATCH_VERSION, id, name, revision: 0, nodes: {}, edges: {}, panel: { width: 640, height: 360, theme: 'graphite' }, ui: emptyUi(), assets: {}, parts: {} };
+  return {
+    schema: PATCH_SCHEMA,
+    version: PATCH_VERSION,
+    id,
+    name,
+    revision: 0,
+    nodes: {},
+    edges: {},
+    panel: { width: 640, height: 360, theme: 'graphite' },
+    ui: emptyUi(),
+    assets: {},
+    parts: {},
+  };
 }
 
 let fallbackCounter = 0;
 export function randomId(prefix: string): string {
-  const random = globalThis.crypto?.randomUUID?.().slice(0, 8) ?? `${Date.now().toString(36)}${(fallbackCounter++).toString(36)}`;
+  const random =
+    globalThis.crypto?.randomUUID?.().slice(0, 8) ??
+    `${Date.now().toString(36)}${(fallbackCounter++).toString(36)}`;
   return `${prefix}-${random}`;
 }
 
 /** Readable node ids (`osc1`, `filter2`) keep generated code and AI context legible. Plugin elements share the namespace. */
-export function nextNodeId(doc: Pick<PatchDocument, 'nodes'> & { ui?: Pick<PluginUi, 'elements' | 'groups'> }, stem: string, taken: ReadonlySet<string> = new Set()): NodeId {
-  const base = stem.replace(/[^a-zA-Z0-9]/g, '').replace(/^[^a-z]+/, '').slice(0, 24) || 'node';
+export function nextNodeId(
+  doc: Pick<PatchDocument, 'nodes'> & { ui?: Pick<PluginUi, 'elements' | 'groups'> },
+  stem: string,
+  taken: ReadonlySet<string> = new Set(),
+): NodeId {
+  const base =
+    stem
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .replace(/^[^a-z]+/, '')
+      .slice(0, 24) || 'node';
   for (let n = 1; ; n++) {
     const id = `${base}${n}`;
-    if (!Object.hasOwn(doc.nodes, id) && !(doc.ui && (Object.hasOwn(doc.ui.elements, id) || Object.hasOwn(doc.ui.groups, id))) && !taken.has(id)) return id;
+    if (
+      !Object.hasOwn(doc.nodes, id) &&
+      !(doc.ui && (Object.hasOwn(doc.ui.elements, id) || Object.hasOwn(doc.ui.groups, id))) &&
+      !taken.has(id)
+    )
+      return id;
   }
 }
 
-export function nextEdgeId(doc: Pick<PatchDocument, 'edges'>, taken: ReadonlySet<string> = new Set()): EdgeId {
+export function nextEdgeId(
+  doc: Pick<PatchDocument, 'edges'>,
+  taken: ReadonlySet<string> = new Set(),
+): EdgeId {
   for (let n = Object.keys(doc.edges).length + 1; ; n++) {
     const id = `e${n}`;
     if (!Object.hasOwn(doc.edges, id) && !taken.has(id)) return id;
@@ -167,14 +240,20 @@ export function nextEdgeId(doc: Pick<PatchDocument, 'edges'>, taken: ReadonlySet
 }
 
 export function edgesInto(doc: PatchDocument, node: NodeId, port?: PortId): PatchEdge[] {
-  return Object.values(doc.edges).filter(e => e.to.node === node && (port === undefined || e.to.port === port));
+  return Object.values(doc.edges).filter(
+    e => e.to.node === node && (port === undefined || e.to.port === port),
+  );
 }
 export function edgesFrom(doc: PatchDocument, node: NodeId, port?: PortId): PatchEdge[] {
-  return Object.values(doc.edges).filter(e => e.from.node === node && (port === undefined || e.from.port === port));
+  return Object.values(doc.edges).filter(
+    e => e.from.node === node && (port === undefined || e.from.port === port),
+  );
 }
 export function edgesOf(doc: PatchDocument, node: NodeId): PatchEdge[] {
   return Object.values(doc.edges).filter(e => e.from.node === node || e.to.node === node);
 }
 
 /** Deep clone of plain JSON data. JSON (not structuredClone) so UI proxies (Vue reactive objects) clone too. */
-export function clone<T>(value: T): T { return value === undefined ? value : JSON.parse(JSON.stringify(value)) as T; }
+export function clone<T>(value: T): T {
+  return value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
+}

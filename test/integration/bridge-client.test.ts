@@ -9,20 +9,45 @@ import { PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../src/ai/prot
 
 const ORIGIN = 'http://127.0.0.1:5180';
 const cleanup: Array<() => Promise<void> | void> = [];
-afterEach(async () => { while (cleanup.length) await cleanup.pop()!(); });
-const until = async (fn: () => boolean, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('condition not met'); await new Promise(r => setTimeout(r, 10)); } };
+afterEach(async () => {
+  while (cleanup.length) await cleanup.pop()!();
+});
+const until = async (fn: () => boolean, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (!fn()) {
+    if (Date.now() > end) throw new Error('condition not met');
+    await new Promise(r => setTimeout(r, 10));
+  }
+};
 
 async function setup(options: { port?: number; token?: string } = {}) {
-  const bridge = await createBridge({ port: options.port, token: options.token, origins: [ORIGIN] });
+  const bridge = await createBridge({
+    port: options.port,
+    token: options.token,
+    origins: [ORIGIN],
+  });
   let closed = false;
-  cleanup.push(async () => { if (!closed) await bridge.close(); });
-  return { bridge, close: async () => { closed = true; await bridge.close(); } };
+  cleanup.push(async () => {
+    if (!closed) await bridge.close();
+  });
+  return {
+    bridge,
+    close: async () => {
+      closed = true;
+      await bridge.close();
+    },
+  };
 }
-function client(bridge: Pick<Bridge, 'port' | 'token'>, extra: Partial<ConstructorParameters<typeof BridgeClient>[0]> = {}) {
+function client(
+  bridge: Pick<Bridge, 'port' | 'token'>,
+  extra: Partial<ConstructorParameters<typeof BridgeClient>[0]> = {},
+) {
   const c = new BridgeClient({
-    token: bridge.token, url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`,
+    token: bridge.token,
+    url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`,
     createSocket: url => new WebSocket(url, { origin: ORIGIN }) as unknown as SocketLike,
-    backoff: { baseMs: 30, maxMs: 200 }, ...extra,
+    backoff: { baseMs: 30, maxMs: 200 },
+    ...extra,
   });
   cleanup.push(() => c.stop());
   return c;
@@ -50,7 +75,11 @@ describe('BridgeClient', () => {
     expect(c.codexReady).toBe(false);
     expect(c.llmStart('r', 'brighter', 'edit the patch')).toBe(true);
     await until(() => inbound.some(m => m.t === 'llm.event' && m.event.kind === 'done'));
-    expect(inbound.find(m => m.t === 'llm.event' && m.event.kind === 'done')).toMatchObject({ t: 'llm.event', id: 'r', event: { kind: 'done', status: 'failed', error: { code: 'off' } } });
+    expect(inbound.find(m => m.t === 'llm.event' && m.event.kind === 'done')).toMatchObject({
+      t: 'llm.event',
+      id: 'r',
+      event: { kind: 'done', status: 'failed', error: { code: 'off' } },
+    });
   });
 
   it('reports a disconnected bridge, refuses offline sends and reconnects when it returns', async () => {
@@ -95,7 +124,13 @@ describe('BridgeClient', () => {
 
   it('a refused origin is reported and not retried', async () => {
     const { bridge } = await setup();
-    const c = new BridgeClient({ token: bridge.token, url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`, createSocket: url => new WebSocket(url, { origin: 'http://evil.example' }) as unknown as SocketLike, backoff: { baseMs: 10, maxMs: 20 } });
+    const c = new BridgeClient({
+      token: bridge.token,
+      url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`,
+      createSocket: url =>
+        new WebSocket(url, { origin: 'http://evil.example' }) as unknown as SocketLike,
+      backoff: { baseMs: 10, maxMs: 20 },
+    });
     cleanup.push(() => c.stop());
     c.start();
     await until(() => c.state.value === 'refused');
@@ -105,7 +140,12 @@ describe('BridgeClient', () => {
   });
 
   it('a missing bridge means offline with backoff, never an exception', async () => {
-    const c = new BridgeClient({ token: 't', url: 'ws://127.0.0.1:1/__kit/ws', createSocket: url => new WebSocket(url) as unknown as SocketLike, backoff: { baseMs: 20, maxMs: 50 } });
+    const c = new BridgeClient({
+      token: 't',
+      url: 'ws://127.0.0.1:1/__kit/ws',
+      createSocket: url => new WebSocket(url) as unknown as SocketLike,
+      backoff: { baseMs: 20, maxMs: 50 },
+    });
     cleanup.push(() => c.stop());
     c.start();
     await until(() => c.state.value === 'offline');
@@ -122,11 +162,22 @@ describe('BridgeClient', () => {
       { t: 'tool.call', id: 'r', callId: 'call', tool: 'kit_get_patch', args: {} },
       { t: 'error', ref: 'r', message: 'request failed' },
     ];
-    wss.on('connection', ws => ws.on('message', raw => {
-      const incoming = JSON.parse(String(raw));
-      if (incoming.t === 'hello') ws.send(JSON.stringify({ t: 'welcome', protocol: PROTOCOL_VERSION, bridge: 'test', status: { codex: { state: 'ok' } } }));
-      else if (incoming.t === 'llm.start') for (const message of messages) ws.send(JSON.stringify(message));
-    }));
+    wss.on('connection', ws =>
+      ws.on('message', raw => {
+        const incoming = JSON.parse(String(raw));
+        if (incoming.t === 'hello')
+          ws.send(
+            JSON.stringify({
+              t: 'welcome',
+              protocol: PROTOCOL_VERSION,
+              bridge: 'test',
+              status: { codex: { state: 'ok' } },
+            }),
+          );
+        else if (incoming.t === 'llm.start')
+          for (const message of messages) ws.send(JSON.stringify(message));
+      }),
+    );
     await new Promise(r => wss.once('listening', r));
     const port = (wss.address() as { port: number }).port;
     const c = client({ port, token: 't' });

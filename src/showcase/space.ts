@@ -45,40 +45,166 @@ export default {
 `;
 
 export function space(catalog: Catalog) {
-  const knob = { skin: { name: 'ring', params: { thickness: 3, ticks: 0, round: true, value: 'inside' } }, textStyle: { font: 'orbitron', size: 11, color: 'fg', case: 'upper' as const, spacing: 0.2 } };
-  const glow = [{ x: 0, y: 0, blur: 8, color: 'accent' }, { x: 0, y: 0, blur: 26, color: 'accent' }];
-  return work('space', 'Nebula', catalog, [720, 440], [
-    // ---- sound ----
-    add('in1', 'kit.audioIn'),
-    add('drift1', 'den.delayFx', { label: 'Drift', config: { maxDelaySeconds: 0.08, tone: 'flat', stereoPhaseCycles: 0.5 }, values: { timeLeftSeconds: 0.023, timeRightSeconds: 0.031, feedback: 0.25, mix: 0.5, rateHz: 0.11, depthSeconds: 0.003 } }),
-    add('echo1', 'den.pingPongDelay', { label: 'Echoes', config: { maxDelaySeconds: 1.5 }, values: { timeSeconds: 0.42, feedback: 0.55, mix: 0.35 } }),
-    add('sky1', 'den.algorithmicReverb', { label: 'Sky', config: { roomScale: 2, decaySeconds: 9, dampingHz: 4200 }, values: { mix: 0.5 } }),
-    add('lvl1', 'kit.gain', { label: 'Level L', values: { gain: 0.8 } }),
-    add('lvr1', 'kit.gain', { label: 'Level R', values: { gain: 0.8 } }),
-    add('out1', 'kit.out'),
-    wire('in1.left', 'drift1.left'), wire('in1.right', 'drift1.right'),
-    wire('drift1.left', 'echo1.left'), wire('drift1.right', 'echo1.right'),
-    wire('echo1.left', 'sky1.left'), wire('echo1.right', 'sky1.right'),
-    wire('sky1.left', 'lvl1.in'), wire('sky1.right', 'lvr1.in'), wire('lvl1.out', 'out1.left'), wire('lvr1.out', 'out1.right'),
-    // ---- the plugin: the night sky ----
-    asset('sc-starfield'),
-    { op: 'setLook', look: {
-      tokens: { bg: '#05040d', fg: '#e9e6ff', accent: '#8f7bff', track: '#ffffff22', knob: '#0b0920', pointer: '#8f7bff', muted: '#a49fd0', glow: '#5ad1ff', font: 'orbitron', labelFont: 'orbitron', valueFont: 'orbitron' },
-      background: [
-        { kind: 'image', asset: 'sc-starfield', fit: 'cover' },
-        { kind: 'radial', x: 0.5, y: 0.42, stops: [{ color: '#3a1f7a40', at: 0 }, { color: '#05040d00', at: 0.6 }] },
-        { kind: 'linear', angle: 180, stops: [{ color: '#05040d00', at: 0.55 }, { color: '#05040dee', at: 1 }] },
-      ],
-      skins: { knob: { name: 'ring', params: { thickness: 3, round: true } } },
-    } },
-    el({ kind: 'canvas', name: 'Stardust', code: STARDUST, rect: r(0, 0, 720, 440) }),
-    el({ kind: 'text', name: 'Title', text: 'NEBULA', rect: r(0, 26, 720, 60), textStyle: { font: 'orbitron', size: 46, weight: 700, color: 'fg', spacing: 0.5, shadows: glow } }),
-    el({ kind: 'text', name: 'Subtitle', text: 'DRIFT · ECHOES · A VERY LONG SKY', rect: r(0, 88, 720, 18), textStyle: { font: 'orbitron', size: 11, color: 'muted', spacing: 0.34 } }),
-    el({ kind: 'shape', shape: 'rect', name: 'Console', rect: r(48, 300, 624, 120), locked: true, style: { radius: 18, fill: [{ kind: 'color', color: '#0a0820a8' }], stroke: { color: '#8f7bff55', width: 1, style: 'solid' }, shadows: [{ x: 0, y: 0, blur: 24, spread: 0, color: '#6a4bff33', inset: false }] } }),
-    ...control('ktime', 'ui.knob', 'Time', 'echo1.timeSeconds', r(78, 308, 96, 104), { min: 0.08, max: 1.4, scale: 'log', unit: 's', value: 0.42, style: knob }),
-    ...control('kfb', 'ui.knob', 'Repeats', 'echo1.feedback', r(196, 308, 96, 104), { min: 0, max: 0.9, value: 0.55, style: knob }),
-    ...control('kecho', 'ui.knob', 'Echoes', 'echo1.mix', r(314, 308, 96, 104), { min: 0, max: 1, value: 0.35, style: knob }),
-    ...control('kdrift', 'ui.knob', 'Drift', 'drift1.depthSeconds', r(432, 308, 96, 104), { min: 0, max: 0.008, unit: 's', value: 0.003, style: knob }),
-    ...control('ksky', 'ui.knob', 'Sky', 'sky1.mix', r(550, 308, 96, 104), { min: 0, max: 1, value: 0.5, style: knob }),
-  ]);
+  const knob = {
+    skin: { name: 'ring', params: { thickness: 3, ticks: 0, round: true, value: 'inside' } },
+    textStyle: { font: 'orbitron', size: 11, color: 'fg', case: 'upper' as const, spacing: 0.2 },
+  };
+  const glow = [
+    { x: 0, y: 0, blur: 8, color: 'accent' },
+    { x: 0, y: 0, blur: 26, color: 'accent' },
+  ];
+  return work(
+    'space',
+    'Nebula',
+    catalog,
+    [720, 440],
+    [
+      // ---- sound ----
+      add('in1', 'kit.audioIn'),
+      add('drift1', 'den.delayFx', {
+        label: 'Drift',
+        config: { maxDelaySeconds: 0.08, tone: 'flat', stereoPhaseCycles: 0.5 },
+        values: {
+          timeLeftSeconds: 0.023,
+          timeRightSeconds: 0.031,
+          feedback: 0.25,
+          mix: 0.5,
+          rateHz: 0.11,
+          depthSeconds: 0.003,
+        },
+      }),
+      add('echo1', 'den.pingPongDelay', {
+        label: 'Echoes',
+        config: { maxDelaySeconds: 1.5 },
+        values: { timeSeconds: 0.42, feedback: 0.55, mix: 0.35 },
+      }),
+      add('sky1', 'den.algorithmicReverb', {
+        label: 'Sky',
+        config: { roomScale: 2, decaySeconds: 9, dampingHz: 4200 },
+        values: { mix: 0.5 },
+      }),
+      add('lvl1', 'kit.gain', { label: 'Level L', values: { gain: 0.8 } }),
+      add('lvr1', 'kit.gain', { label: 'Level R', values: { gain: 0.8 } }),
+      add('out1', 'kit.out'),
+      wire('in1.left', 'drift1.left'),
+      wire('in1.right', 'drift1.right'),
+      wire('drift1.left', 'echo1.left'),
+      wire('drift1.right', 'echo1.right'),
+      wire('echo1.left', 'sky1.left'),
+      wire('echo1.right', 'sky1.right'),
+      wire('sky1.left', 'lvl1.in'),
+      wire('sky1.right', 'lvr1.in'),
+      wire('lvl1.out', 'out1.left'),
+      wire('lvr1.out', 'out1.right'),
+      // ---- the plugin: the night sky ----
+      asset('sc-starfield'),
+      {
+        op: 'setLook',
+        look: {
+          tokens: {
+            bg: '#05040d',
+            fg: '#e9e6ff',
+            accent: '#8f7bff',
+            track: '#ffffff22',
+            knob: '#0b0920',
+            pointer: '#8f7bff',
+            muted: '#a49fd0',
+            glow: '#5ad1ff',
+            font: 'orbitron',
+            labelFont: 'orbitron',
+            valueFont: 'orbitron',
+          },
+          background: [
+            { kind: 'image', asset: 'sc-starfield', fit: 'cover' },
+            {
+              kind: 'radial',
+              x: 0.5,
+              y: 0.42,
+              stops: [
+                { color: '#3a1f7a40', at: 0 },
+                { color: '#05040d00', at: 0.6 },
+              ],
+            },
+            {
+              kind: 'linear',
+              angle: 180,
+              stops: [
+                { color: '#05040d00', at: 0.55 },
+                { color: '#05040dee', at: 1 },
+              ],
+            },
+          ],
+          skins: { knob: { name: 'ring', params: { thickness: 3, round: true } } },
+        },
+      },
+      el({ kind: 'canvas', name: 'Stardust', code: STARDUST, rect: r(0, 0, 720, 440) }),
+      el({
+        kind: 'text',
+        name: 'Title',
+        text: 'NEBULA',
+        rect: r(0, 26, 720, 60),
+        textStyle: {
+          font: 'orbitron',
+          size: 46,
+          weight: 700,
+          color: 'fg',
+          spacing: 0.5,
+          shadows: glow,
+        },
+      }),
+      el({
+        kind: 'text',
+        name: 'Subtitle',
+        text: 'DRIFT · ECHOES · A VERY LONG SKY',
+        rect: r(0, 88, 720, 18),
+        textStyle: { font: 'orbitron', size: 11, color: 'muted', spacing: 0.34 },
+      }),
+      el({
+        kind: 'shape',
+        shape: 'rect',
+        name: 'Console',
+        rect: r(48, 300, 624, 120),
+        locked: true,
+        style: {
+          radius: 18,
+          fill: [{ kind: 'color', color: '#0a0820a8' }],
+          stroke: { color: '#8f7bff55', width: 1, style: 'solid' },
+          shadows: [{ x: 0, y: 0, blur: 24, spread: 0, color: '#6a4bff33', inset: false }],
+        },
+      }),
+      ...control('ktime', 'ui.knob', 'Time', 'echo1.timeSeconds', r(78, 308, 96, 104), {
+        min: 0.08,
+        max: 1.4,
+        scale: 'log',
+        unit: 's',
+        value: 0.42,
+        style: knob,
+      }),
+      ...control('kfb', 'ui.knob', 'Repeats', 'echo1.feedback', r(196, 308, 96, 104), {
+        min: 0,
+        max: 0.9,
+        value: 0.55,
+        style: knob,
+      }),
+      ...control('kecho', 'ui.knob', 'Echoes', 'echo1.mix', r(314, 308, 96, 104), {
+        min: 0,
+        max: 1,
+        value: 0.35,
+        style: knob,
+      }),
+      ...control('kdrift', 'ui.knob', 'Drift', 'drift1.depthSeconds', r(432, 308, 96, 104), {
+        min: 0,
+        max: 0.008,
+        unit: 's',
+        value: 0.003,
+        style: knob,
+      }),
+      ...control('ksky', 'ui.knob', 'Sky', 'sky1.mix', r(550, 308, 96, 104), {
+        min: 0,
+        max: 1,
+        value: 0.5,
+        style: knob,
+      }),
+    ],
+  );
 }

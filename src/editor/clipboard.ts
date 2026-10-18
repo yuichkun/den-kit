@@ -8,10 +8,16 @@ import { nextNodeId, type PatchDocument, type PatchNode } from '../core/schema.t
 import type { UiElement } from '../core/ui.ts';
 import type { KitSession } from './session.ts';
 
-let clipboard: { nodes: PatchNode[]; edges: PatchDocument['edges'][string][]; elements: UiElement[]; groups: string[][] } | null = null;
+let clipboard: {
+  nodes: PatchNode[];
+  edges: PatchDocument['edges'][string][];
+  elements: UiElement[];
+  groups: string[][];
+} | null = null;
 
 export function copySelection(session: KitSession): boolean {
-  const doc = session.doc.value, picked = new Set(session.selection.value);
+  const doc = session.doc.value,
+    picked = new Set(session.selection.value);
   const ids = new Set([...picked].filter(id => doc.nodes[id]));
   const elements = [...picked].map(id => doc.ui.elements[id]).filter((e): e is UiElement => !!e);
   if (!ids.size && !elements.length) return false;
@@ -31,29 +37,71 @@ export function paste(session: KitSession): boolean {
   const inside = session.scope.value;
   const rename = new Map<string, string>();
   const intents: Intent[] = [];
-  const taken = new Set([...Object.keys(doc.nodes), ...Object.keys(doc.ui.elements), ...Object.keys(doc.ui.groups)]);
-  const fresh = (old: string) => { const id = nextNodeId(doc, old.replace(/\d+$/, '') || 'node', taken); taken.add(id); rename.set(old, id); return id; };
+  const taken = new Set([
+    ...Object.keys(doc.nodes),
+    ...Object.keys(doc.ui.elements),
+    ...Object.keys(doc.ui.groups),
+  ]);
+  const fresh = (old: string) => {
+    const id = nextNodeId(doc, old.replace(/\d+$/, '') || 'node', taken);
+    taken.add(id);
+    rename.set(old, id);
+    return id;
+  };
   for (const n of clipboard.nodes) {
     if (session.catalog.find(n.type)?.singleton) continue;
     const id = fresh(n.id);
     const { iface: _, ...rest } = n;
-    intents.push({ op: 'addNode', node: { ...rest, id, inside, pos: { x: n.pos.x + 40, y: n.pos.y + 40 }, panel: n.panel ? { ...n.panel, x: n.panel.x + 20, y: n.panel.y + 20 } : undefined } });
+    intents.push({
+      op: 'addNode',
+      node: {
+        ...rest,
+        id,
+        inside,
+        pos: { x: n.pos.x + 40, y: n.pos.y + 40 },
+        panel: n.panel ? { ...n.panel, x: n.panel.x + 20, y: n.panel.y + 20 } : undefined,
+      },
+    });
   }
-  for (const e of clipboard.edges) if (rename.has(e.from.node) && rename.has(e.to.node)) intents.push({ op: 'connect', from: { node: rename.get(e.from.node)!, port: e.from.port }, to: { node: rename.get(e.to.node)!, port: e.to.port } });
+  for (const e of clipboard.edges)
+    if (rename.has(e.from.node) && rename.has(e.to.node))
+      intents.push({
+        op: 'connect',
+        from: { node: rename.get(e.from.node)!, port: e.from.port },
+        to: { node: rename.get(e.to.node)!, port: e.to.port },
+      });
   for (const el of clipboard.elements) {
     const id = fresh(el.id);
-    const bound = 'bind' in el && el.bind ? { bind: el.bind.replace(/^[^.@]+/, m => rename.get(m) ?? m) } : {};
-    intents.push({ op: 'addElement', element: { ...el, ...bound, id, rect: { ...el.rect, x: el.rect.x + 20, y: el.rect.y + 20 } } as never });
+    const bound =
+      'bind' in el && el.bind ? { bind: el.bind.replace(/^[^.@]+/, m => rename.get(m) ?? m) } : {};
+    intents.push({
+      op: 'addElement',
+      element: {
+        ...el,
+        ...bound,
+        id,
+        rect: { ...el.rect, x: el.rect.x + 20, y: el.rect.y + 20 },
+      } as never,
+    });
   }
-  for (const members of clipboard.groups) { const ids = members.map(m => rename.get(m)).filter((m): m is string => !!m); if (ids.length >= 2) intents.push({ op: 'group', ids }); }
+  for (const members of clipboard.groups) {
+    const ids = members.map(m => rename.get(m)).filter((m): m is string => !!m);
+    if (ids.length >= 2) intents.push({ op: 'group', ids });
+  }
   if (!intents.length) return false;
   const r = session.commit(intents, { label: 'Paste' });
-  if (!r.ok) { session.toast('warn', `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ''}`); return false; }
+  if (!r.ok) {
+    session.toast('warn', `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ''}`);
+    return false;
+  }
   session.select([...rename.values()]);
   return true;
 }
 
-export function duplicate(session: KitSession): boolean { return copySelection(session) && paste(session); }
+export function duplicate(session: KitSession): boolean {
+  return copySelection(session) && paste(session);
+}
 
 /** Keys that should not trigger editor shortcuts: typing in a field. */
-export const typing = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]');
+export const typing = (e: KeyboardEvent) =>
+  !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]');

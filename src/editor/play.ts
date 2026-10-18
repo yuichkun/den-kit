@@ -11,7 +11,16 @@ export function controlWriter(session: KitSession) {
     // A canvas names its gesture (one press may move several controls); a widget's gesture is its own.
     const key = gesture ?? gestures.get(id) ?? `panel-${id}-${Date.now()}`;
     if (!gesture) gestures.set(id, key);
-    const r = session.commit(Object.entries(values).map(([port, value]) => ({ op: 'setValue' as const, node: id, port, value, clamp: true })), { gesture: key, label: `Panel ${n.label ?? n.id}` });
+    const r = session.commit(
+      Object.entries(values).map(([port, value]) => ({
+        op: 'setValue' as const,
+        node: id,
+        port,
+        value,
+        clamp: true,
+      })),
+      { gesture: key, label: `Panel ${n.label ?? n.id}` },
+    );
     if (!r.ok) session.toast('warn', r.error.message);
     if (end && !gesture) gestures.delete(id);
   };

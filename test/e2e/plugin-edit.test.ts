@@ -10,15 +10,34 @@ import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 
-const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
-interface ElementInfo { id: string; kind: string; rect: { x: number; y: number; w: number; h: number }; text?: string }
-const els = (page: Page): Promise<ElementInfo[]> => kit(page, k => Object.values<any>(k.doc.value.ui.elements).map((e: any) => ({ id: e.id, kind: e.kind, rect: e.rect, text: e.text })));
+const kit = (page: Page, fn: (k: any) => unknown): Promise<any> =>
+  page.evaluate(`(${fn.toString()})(window.__kit)`);
+interface ElementInfo {
+  id: string;
+  kind: string;
+  rect: { x: number; y: number; w: number; h: number };
+  text?: string;
+}
+const els = (page: Page): Promise<ElementInfo[]> =>
+  kit(page, k =>
+    Object.values<any>(k.doc.value.ui.elements).map((e: any) => ({
+      id: e.id,
+      kind: e.kind,
+      rect: e.rect,
+      text: e.text,
+    })),
+  );
 /** A 2×2 red PNG as bytes. */
-const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8DwH4QZYAwAR8oH+Rq28akAAAAASUVORK5CYII=';
+const PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8DwH4QZYAwAR8oH+Rq28akAAAAASUVORK5CYII=';
 
 let h: Harness;
-before(async () => { h = await startHarness({ bridge: false }); });
-after(async () => { await h?.close(); });
+before(async () => {
+  h = await startHarness({ bridge: false });
+});
+after(async () => {
+  await h?.close();
+});
 
 async function pluginEdit(page: Page) {
   await page.keyboard.press('Control+Alt+KeyE');
@@ -43,7 +62,10 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.press('Control+Enter');
     await page.waitForSelector('.text-edit', { state: 'detached' });
     let list = await els(page);
-    assert.deepEqual(list.map(e => [e.kind, e.text]), [['text', 'Hello']]);
+    assert.deepEqual(
+      list.map(e => [e.kind, e.text]),
+      [['text', 'Hello']],
+    );
     assert.equal(await page.locator('[data-element=text1]').innerText(), 'Hello');
     for (const name of ['rect', 'ellip']) {
       await page.keyboard.press('Shift+Space');
@@ -52,7 +74,10 @@ describe('building the plugin screen by hand', () => {
       await page.waitForSelector('[data-testid=insert-menu]', { state: 'detached' });
     }
     list = await els(page);
-    assert.deepEqual(list.map(e => e.kind), ['text', 'shape', 'shape']);
+    assert.deepEqual(
+      list.map(e => e.kind),
+      ['text', 'shape', 'shape'],
+    );
     // Everything starts in the middle; spread them out with arrows (Shift: 10 px) and ⌥+arrows to resize.
     await page.click('[data-shield=shape2]');
     for (let i = 0; i < 12; i++) await page.keyboard.press('Shift+ArrowRight');
@@ -73,7 +98,10 @@ describe('building the plugin screen by hand', () => {
     assert.equal(Object.keys(groups).length, 1);
     await page.keyboard.press('Escape');
     await page.click('[data-shield=shape2]'); // the one not covered by the others
-    assert.equal(await kit(page, k => k.selection.value.length), (Object.values(groups)[0] as string[]).length);
+    assert.equal(
+      await kit(page, k => k.selection.value.length),
+      (Object.values(groups)[0] as string[]).length,
+    );
     await page.click('[data-shield=shape2]', { modifiers: ['Alt'] });
     assert.deepEqual(await kit(page, k => k.selection.value), ['shape2']);
     // Stacking: ⌥⌘[ to the back, ⌥⌘] to the front (shape2 starts in front).
@@ -99,42 +127,101 @@ describe('building the plugin screen by hand', () => {
     await waitCompiled(page);
     await pluginEdit(page);
     const stage = await page.locator('.stage').boundingBox();
-    await page.evaluate(({ png, x, y }) => {
-      const bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0));
-      const file = new File([bytes], 'dot.png', { type: 'image/png' });
-      const dt = new DataTransfer(); dt.items.add(file);
-      const target = document.querySelector('.stage')!;
-      target.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
-      target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
-    }, { png: PNG, x: stage!.x + stage!.width / 2, y: stage!.y + stage!.height / 2 });
-    await page.waitForFunction(() => Object.values((window as any).__kit.doc.value.ui.elements).some((e: any) => e.kind === 'image'));
+    await page.evaluate(
+      ({ png, x, y }) => {
+        const bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0));
+        const file = new File([bytes], 'dot.png', { type: 'image/png' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const target = document.querySelector('.stage')!;
+        target.dispatchEvent(
+          new DragEvent('dragover', {
+            dataTransfer: dt,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        target.dispatchEvent(
+          new DragEvent('drop', {
+            dataTransfer: dt,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      { png: PNG, x: stage!.x + stage!.width / 2, y: stage!.y + stage!.height / 2 },
+    );
+    await page.waitForFunction(() =>
+      Object.values((window as any).__kit.doc.value.ui.elements).some(
+        (e: any) => e.kind === 'image',
+      ),
+    );
     const asset = await kit(page, k => Object.values<any>(k.doc.value.assets)[0]);
     assert.match(asset.id, /^a[0-9a-f]{15}$/);
-    assert.deepEqual([asset.name, asset.mime, asset.width, asset.height], ['dot.png', 'image/png', 2, 2]);
-    await page.waitForFunction(() => (document.querySelector('[data-kind=image] img') as HTMLImageElement | null)?.src.startsWith('blob:'));
+    assert.deepEqual(
+      [asset.name, asset.mime, asset.width, asset.height],
+      ['dot.png', 'image/png', 2, 2],
+    );
+    await page.waitForFunction(() =>
+      (document.querySelector('[data-kind=image] img') as HTMLImageElement | null)?.src.startsWith(
+        'blob:',
+      ),
+    );
     // A damaged picture is refused with a reason, not kept as an empty gap.
-    await page.evaluate(({ x, y }) => {
-      const broken = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8DwnwEJMDGgAQAj8wED/vOZ2gAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
-      const dt = new DataTransfer(); dt.items.add(new File([broken], 'broken.png', { type: 'image/png' }));
-      document.querySelector('.stage')!.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
-    }, { x: stage!.x + 40, y: stage!.y + 40 });
+    await page.evaluate(
+      ({ x, y }) => {
+        const broken = Uint8Array.from(
+          atob(
+            'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8DwnwEJMDGgAQAj8wED/vOZ2gAAAABJRU5ErkJggg==',
+          ),
+          c => c.charCodeAt(0),
+        );
+        const dt = new DataTransfer();
+        dt.items.add(new File([broken], 'broken.png', { type: 'image/png' }));
+        document.querySelector('.stage')!.dispatchEvent(
+          new DragEvent('drop', {
+            dataTransfer: dt,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      { x: stage!.x + 40, y: stage!.y + 40 },
+    );
     await page.waitForSelector('[data-testid=toast]:has-text("could not be read as a picture")');
     assert.equal(await kit(page, k => Object.keys(k.doc.value.assets).length), 1);
     // The asset panel lists it; a licence can be noted.
     await page.click(`[data-asset=${asset.id}]`);
     await page.fill('[data-testid=asset-detail] [data-field=license]', 'Own work');
     await page.keyboard.press('Enter');
-    assert.equal(await kit(page, k => Object.values<any>(k.doc.value.assets)[0].source?.license), 'Own work');
+    assert.equal(
+      await kit(page, k => Object.values<any>(k.doc.value.assets)[0].source?.license),
+      'Own work',
+    );
     // Export carries the bytes; a fresh page imports them back.
     const text: string = await kit(page, k => k.exportWithAssets());
     assert.match(JSON.parse(text).assets[asset.id].data, /^data:image\/png;base64,/);
     const { page: other } = await openKit(h);
-    await kit(other, k => k.importText) ;
+    await kit(other, k => k.importText);
     await other.evaluate(t => (window as any).__kit.importText(t), text);
     await other.keyboard.press('Control+Alt+KeyE');
-    await other.waitForFunction(() => (document.querySelector('[data-kind=image] img') as HTMLImageElement | null)?.src.startsWith('blob:'), null, { timeout: 10000 });
+    await other.waitForFunction(
+      () =>
+        (
+          document.querySelector('[data-kind=image] img') as HTMLImageElement | null
+        )?.src.startsWith('blob:'),
+      null,
+      { timeout: 10000 },
+    );
     assert.deepEqual(errors, []);
-    await page.close(); await other.close();
+    await page.close();
+    await other.close();
   });
 
   it('canvases draw in a worker; an error shows in the canvas, an endless loop is stopped, the page keeps working', async () => {
@@ -151,19 +238,60 @@ describe('building the plugin screen by hand', () => {
     // Enter opens the code; a throwing draw shows its message in the canvas.
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=canvas-editor]');
-    await page.fill('[data-testid=canvas-source]', 'export default function draw(ctx, f) { throw new Error("boom " + Math.round(f.w)); }');
+    await page.fill(
+      '[data-testid=canvas-source]',
+      'export default function draw(ctx, f) { throw new Error("boom " + Math.round(f.w)); }',
+    );
     await page.click('[data-testid=canvas-apply]');
     await page.keyboard.press('Escape');
-    await page.waitForFunction(() => document.querySelector('[data-element=canvas1] [data-canvas-error]')?.getAttribute('data-canvas-error')?.includes('boom 220'), null, { timeout: 10000 });
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-element=canvas1] [data-canvas-error]')
+          ?.getAttribute('data-canvas-error')
+          ?.includes('boom 220'),
+      null,
+      { timeout: 10000 },
+    );
     // An endless loop: stopped after the time limit, with a message; the editor still answers.
-    await kit(page, k => k.commit([{ op: 'updateElement', id: 'canvas1', set: { code: 'export default function draw() { for (;;) {} }' } }]));
-    await page.waitForFunction(() => document.querySelector('[data-element=canvas1] [data-canvas-error]')?.getAttribute('data-canvas-error')?.includes('Stopped'), null, { timeout: 10000 });
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'updateElement',
+          id: 'canvas1',
+          set: { code: 'export default function draw() { for (;;) {} }' },
+        },
+      ]),
+    );
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-element=canvas1] [data-canvas-error]')
+          ?.getAttribute('data-canvas-error')
+          ?.includes('Stopped'),
+      null,
+      { timeout: 10000 },
+    );
     await page.keyboard.press('Shift+Space');
     await page.waitForSelector('[data-testid=insert-menu]');
     await page.keyboard.press('Escape');
     // A good canvas again: the error goes away.
-    await kit(page, k => k.commit([{ op: 'updateElement', id: 'canvas1', set: { code: 'export default (ctx, f) => { ctx.fillStyle = f.color("accent"); ctx.fillRect(0, 0, f.w * f.norm("nope"), f.h); };' } }]));
-    await page.waitForFunction(() => !document.querySelector('[data-element=canvas1] [data-canvas-error]'), null, { timeout: 10000 });
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'updateElement',
+          id: 'canvas1',
+          set: {
+            code: 'export default (ctx, f) => { ctx.fillStyle = f.color("accent"); ctx.fillRect(0, 0, f.w * f.norm("nope"), f.h); };',
+          },
+        },
+      ]),
+    );
+    await page.waitForFunction(
+      () => !document.querySelector('[data-element=canvas1] [data-canvas-error]'),
+      null,
+      { timeout: 10000 },
+    );
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -171,13 +299,50 @@ describe('building the plugin screen by hand', () => {
   it('decorations never block the controls under them while playing; lamps follow their switch', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
-    await kit(page, k => k.commit([
-      { op: 'addNode', node: { id: 'kres', type: 'ui.knob', label: 'Res', pos: { x: -300, y: 0 }, panel: { x: 40, y: 40, w: 120, h: 140 }, config: { min: 0.5, max: 8, scale: 'linear', unit: '' }, values: { value: 1 } } },
-      { op: 'connect', from: { node: 'kres', port: 'out' }, to: { node: 'filter1', port: 'resonance' } },
-      { op: 'addNode', node: { id: 'sw1', type: 'ui.toggle', label: 'On', pos: { x: -300, y: 200 }, panel: { x: 200, y: 40, w: 90, h: 50 } } },
-      { op: 'addElement', element: { kind: 'shape', shape: 'rect', rect: { x: 20, y: 20, w: 300, h: 200 }, style: { fill: [{ kind: 'color', color: '#ffffff22' }] } } },
-      { op: 'addElement', element: { kind: 'led', bind: 'sw1', rect: { x: 300, y: 50, w: 14, h: 14 } } },
-    ]));
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'addNode',
+          node: {
+            id: 'kres',
+            type: 'ui.knob',
+            label: 'Res',
+            pos: { x: -300, y: 0 },
+            panel: { x: 40, y: 40, w: 120, h: 140 },
+            config: { min: 0.5, max: 8, scale: 'linear', unit: '' },
+            values: { value: 1 },
+          },
+        },
+        {
+          op: 'connect',
+          from: { node: 'kres', port: 'out' },
+          to: { node: 'filter1', port: 'resonance' },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'sw1',
+            type: 'ui.toggle',
+            label: 'On',
+            pos: { x: -300, y: 200 },
+            panel: { x: 200, y: 40, w: 90, h: 50 },
+          },
+        },
+        {
+          op: 'addElement',
+          element: {
+            kind: 'shape',
+            shape: 'rect',
+            rect: { x: 20, y: 20, w: 300, h: 200 },
+            style: { fill: [{ kind: 'color', color: '#ffffff22' }] },
+          },
+        },
+        {
+          op: 'addElement',
+          element: { kind: 'led', bind: 'sw1', rect: { x: 300, y: 50, w: 14, h: 14 } },
+        },
+      ]),
+    );
     await page.keyboard.press('Control+Alt+KeyE');
     const knob = page.locator('[data-widget=kres] dk-knob');
     await knob.waitFor();
@@ -186,7 +351,10 @@ describe('building the plugin screen by hand', () => {
     await page.mouse.down();
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - 70, { steps: 5 });
     await page.mouse.up();
-    assert.ok(await kit(page, k => k.doc.value.nodes.kres.values.value) > 1, 'the knob under the rectangle turned');
+    assert.ok(
+      (await kit(page, k => k.doc.value.nodes.kres.values.value)) > 1,
+      'the knob under the rectangle turned',
+    );
     assert.equal(await page.locator('[data-element=led1] .led.lit').count(), 0);
     await page.click('[data-widget=sw1] dk-toggle');
     await page.waitForSelector('[data-element=led1] .led.lit');
@@ -210,23 +378,65 @@ describe('building the plugin screen by hand', () => {
   },
 };`;
     // Two knobs that are in the patch but not on the plugin: the part is their face.
-    await kit(page, (k: any) => k.commit([
-      { op: 'addNode', node: { id: 'kq', type: 'ui.knob', label: 'Q', pos: { x: -300, y: 0 }, config: { min: 0.5, max: 8, scale: 'linear', unit: '' }, values: { value: 1 } } },
-      { op: 'connect', from: { node: 'kq', port: 'out' }, to: { node: 'filter1', port: 'resonance' } },
-      { op: 'addNode', node: { id: 'kg', type: 'ui.knob', label: 'G', pos: { x: -300, y: 200 }, config: { min: 0, max: 1, scale: 'linear', unit: '' }, values: { value: 0.5 } } },
-    ]));
-    await page.evaluate(code => (window as any).__kit.commit([{ op: 'addElement', element: { kind: 'canvas', code, rect: { x: 40, y: 40, w: 300, h: 200 } } }]), PART);
+    await kit(page, (k: any) =>
+      k.commit([
+        {
+          op: 'addNode',
+          node: {
+            id: 'kq',
+            type: 'ui.knob',
+            label: 'Q',
+            pos: { x: -300, y: 0 },
+            config: { min: 0.5, max: 8, scale: 'linear', unit: '' },
+            values: { value: 1 },
+          },
+        },
+        {
+          op: 'connect',
+          from: { node: 'kq', port: 'out' },
+          to: { node: 'filter1', port: 'resonance' },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'kg',
+            type: 'ui.knob',
+            label: 'G',
+            pos: { x: -300, y: 200 },
+            config: { min: 0, max: 1, scale: 'linear', unit: '' },
+            values: { value: 0.5 },
+          },
+        },
+      ]),
+    );
+    await page.evaluate(
+      code =>
+        (window as any).__kit.commit([
+          {
+            op: 'addElement',
+            element: { kind: 'canvas', code, rect: { x: 40, y: 40, w: 300, h: 200 } },
+          },
+        ]),
+      PART,
+    );
     await page.keyboard.press('Control+Alt+KeyE');
     await page.waitForSelector('[data-element=canvas1] .canvas-box[data-interactive]');
-    const values = () => kit(page, (k: any) => [k.doc.value.nodes.kq.values.value, k.doc.value.nodes.kg.values.value]);
+    const values = () =>
+      kit(page, (k: any) => [k.doc.value.nodes.kq.values.value, k.doc.value.nodes.kg.values.value]);
     const b = (await page.locator('[data-element=canvas1] .canvas-box').boundingBox())!;
     // Hovering: the part chose its own cursor.
     await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.5);
-    await page.waitForFunction(() => (document.querySelector('[data-element=canvas1] .canvas-box') as HTMLElement).style.cursor === 'grab');
+    await page.waitForFunction(
+      () =>
+        (document.querySelector('[data-element=canvas1] .canvas-box') as HTMLElement).style
+          .cursor === 'grab',
+    );
     await page.mouse.down();
     await page.mouse.move(b.x + b.width * 0.75, b.y + b.height * 0.25, { steps: 8 });
     await page.mouse.up();
-    await page.waitForFunction(() => Math.abs((window as any).__kit.doc.value.nodes.kg.values.value - 0.75) < 0.03);
+    await page.waitForFunction(
+      () => Math.abs((window as any).__kit.doc.value.nodes.kg.values.value - 0.75) < 0.03,
+    );
     const [q, g] = await values();
     assert.ok(Math.abs(q - (0.5 + 0.75 * 7.5)) < 0.15, `Q follows across (${q})`);
     assert.ok(Math.abs(g - 0.75) < 0.03, `G follows up (${g})`);
@@ -237,22 +447,39 @@ describe('building the plugin screen by hand', () => {
     assert.deepEqual(await values(), [q, g]);
     // Three wheel notches in a row are one step too.
     for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 100);
-    await page.waitForFunction(q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6, q);
+    await page.waitForFunction(
+      q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6,
+      q,
+    );
     await page.waitForTimeout(600);
     await page.keyboard.press('Control+KeyZ');
     assert.deepEqual(await values(), [q, g]);
     // Right after an undo or a redo the part may not have had a frame yet: a wheel turn still starts from the value as it is now.
     await page.keyboard.press('Control+KeyZ');
     assert.deepEqual(await values(), [1, 0.5]);
-    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))); // the part has seen the undo
+    await page.evaluate(
+      () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))),
+    ); // the part has seen the undo
     await page.evaluate(async () => {
       (window as any).__kit.redo();
       await Promise.resolve(); // the page catches up, as between two input events, but no frame goes to the part
       const box = document.querySelector('[data-element=canvas1] .canvas-box') as HTMLElement;
       const r = box.getBoundingClientRect();
-      for (let i = 0; i < 3; i++) box.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true }));
+      for (let i = 0; i < 3; i++)
+        box.dispatchEvent(
+          new WheelEvent('wheel', {
+            deltaY: 100,
+            clientX: r.left + 20,
+            clientY: r.top + 20,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
     });
-    await page.waitForFunction(q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6, q);
+    await page.waitForFunction(
+      q0 => Math.abs((window as any).__kit.doc.value.nodes.kq.values.value - (q0 - 0.6)) < 1e-6,
+      q,
+    );
     await page.waitForTimeout(600);
     await page.keyboard.press('Control+KeyZ');
     assert.deepEqual(await values(), [q, g]);
@@ -274,32 +501,48 @@ describe('building the plugin screen by hand', () => {
       await page.waitForSelector('[data-testid=start-screen]');
       await page.click(`[data-work=${id}]`);
       await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-      if (!(await page.$('[data-testid=plugin-view]'))) await page.keyboard.press('Control+Alt+KeyE');
+      if (!(await page.$('[data-testid=plugin-view]')))
+        await page.keyboard.press('Control+Alt+KeyE');
       await page.waitForSelector('[data-testid=plugin-view]');
     };
     await open('lofi');
     assert.equal(await page.locator('[data-widget=fbits] dk-slider').getAttribute('value'), '8');
-    assert.match(await page.locator('[data-widget=frate] dk-slider .value').innerText(), /^11\.0 kHz$/);
+    assert.match(
+      await page.locator('[data-widget=frate] dk-slider .value').innerText(),
+      /^11\.0 kHz$/,
+    );
     await open('fuzz');
     assert.equal(await page.locator('[data-widget=fs1] dk-toggle').getAttribute('value'), 'true');
     await page.waitForSelector('[data-widget=fs1] dk-toggle .fs.on');
     await open('tapeecho');
     await page.waitForSelector('[data-widget=thiss] dk-toggle .sw.on');
-    assert.match(await page.locator('[data-widget=ktime] dk-knob').getAttribute('value') ?? '', /^0\.32$/);
+    assert.match(
+      (await page.locator('[data-widget=ktime] dk-knob').getAttribute('value')) ?? '',
+      /^0\.32$/,
+    );
     assert.deepEqual(errors, []);
     await page.close();
   });
 
-  it('the look and the skins change from the inspector; the start screen starts a work in another work\'s look', async () => {
+  it("the look and the skins change from the inspector; the start screen starts a work in another work's look", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await pluginEdit(page);
     // Nothing selected: the inspector shows the plugin's look.
-    const accent = page.locator('[data-testid=plugin-inspector] .row', { hasText: 'accent' }).locator('input[type=text]');
+    const accent = page
+      .locator('[data-testid=plugin-inspector] .row', { hasText: 'accent' })
+      .locator('input[type=text]');
     await accent.fill('#39ff14');
     await accent.press('Enter');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#39ff14');
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid=plugin-window]')!).getPropertyValue('--dk-accent').trim()), '#39ff14');
+    assert.equal(
+      await page.evaluate(() =>
+        getComputedStyle(document.querySelector('[data-testid=plugin-window]')!)
+          .getPropertyValue('--dk-accent')
+          .trim(),
+      ),
+      '#39ff14',
+    );
     // The field shows what the patch has, so ⌘Z / ⇧⌘Z work on the patch from right there (as in a design tool).
     await page.keyboard.press('Control+KeyZ');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), undefined);
@@ -308,7 +551,10 @@ describe('building the plugin screen by hand', () => {
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#39ff14');
     // Esc leaves the field: the keys go back to the plugin view.
     await page.keyboard.press('Escape');
-    assert.equal(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.testid), 'plugin-view');
+    assert.equal(
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.testid),
+      'plugin-view',
+    );
     await page.keyboard.press('Control+KeyZ');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), undefined);
     // Start screen: a work, then Tab to the looks and pick another work's look.
@@ -322,10 +568,20 @@ describe('building the plugin screen by hand', () => {
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
     assert.equal(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ffb36b');
-    assert.ok(await kit(page, k => !!k.doc.value.assets['sc-sunset']), 'the look brings its picture');
-    assert.ok(await kit(page, k => Object.keys(k.doc.value.ui.elements).includes('text1')), 'the layout stays');
+    assert.ok(
+      await kit(page, k => !!k.doc.value.assets['sc-sunset']),
+      'the look brings its picture',
+    );
+    assert.ok(
+      await kit(page, k => Object.keys(k.doc.value.ui.elements).includes('text1')),
+      'the layout stays',
+    );
     await page.keyboard.press('Control+KeyZ');
-    assert.notEqual(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)', 'starting is one undo step');
+    assert.notEqual(
+      await kit(page, k => k.doc.value.name),
+      'Acid Line (Afterglow look)',
+      'starting is one undo step',
+    );
     assert.deepEqual(errors, []);
     await page.close();
   });

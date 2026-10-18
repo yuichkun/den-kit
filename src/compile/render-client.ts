@@ -14,11 +14,23 @@ export interface RenderWorkerLike {
 
 export class RenderFailure extends Error {
   readonly issues: Issue[];
-  constructor(message: string, issues: Issue[] = []) { super(message); this.name = 'RenderFailure'; this.issues = issues; }
+  constructor(message: string, issues: Issue[] = []) {
+    super(message);
+    this.name = 'RenderFailure';
+    this.issues = issues;
+  }
 }
 
-export interface Rendered { report: ListenReport; png?: Uint8Array; renderMs: number }
-type Job = { request: Omit<RenderRequest, 'id' | 'kind'>; resolve: (r: Rendered) => void; reject: (e: unknown) => void };
+export interface Rendered {
+  report: ListenReport;
+  png?: Uint8Array;
+  renderMs: number;
+}
+type Job = {
+  request: Omit<RenderRequest, 'id' | 'kind'>;
+  resolve: (r: Rendered) => void;
+  reject: (e: unknown) => void;
+};
 
 export class RenderClient {
   private worker: RenderWorkerLike | null = null;
@@ -35,14 +47,27 @@ export class RenderClient {
   }
 
   render(request: Omit<RenderRequest, 'id' | 'kind'>): Promise<Rendered> {
-    return new Promise((resolve, reject) => { this.queue.push({ request, resolve, reject }); this.pump(); });
+    return new Promise((resolve, reject) => {
+      this.queue.push({ request, resolve, reject });
+      this.pump();
+    });
   }
 
   private pump() {
     if (this.current || !this.queue.length) return;
     const job = this.queue.shift()!;
     const id = ++this.serial;
-    const timer = setTimeout(() => this.fail(id, new RenderFailure(`Rendering took longer than ${Math.round(this.timeoutMs / 1000)} s and was stopped.`), true), this.timeoutMs);
+    const timer = setTimeout(
+      () =>
+        this.fail(
+          id,
+          new RenderFailure(
+            `Rendering took longer than ${Math.round(this.timeoutMs / 1000)} s and was stopped.`,
+          ),
+          true,
+        ),
+      this.timeoutMs,
+    );
     this.current = { ...job, id, timer };
     const worker = this.ensureWorker();
     worker.postMessage({ ...job.request, id, kind: 'render' });
@@ -53,16 +78,32 @@ export class RenderClient {
     const worker = this.createWorker();
     worker.onmessage = event => {
       const data = event.data;
-      if (worker !== this.worker || !this.current || data.id !== this.current.id || 'phase' in data) return;
-      if ('error' in data) { this.fail(data.id, new RenderFailure(data.error.message, data.error.issues)); return; }
+      if (worker !== this.worker || !this.current || data.id !== this.current.id || 'phase' in data)
+        return;
+      if ('error' in data) {
+        this.fail(data.id, new RenderFailure(data.error.message, data.error.issues));
+        return;
+      }
       const job = this.current;
       clearTimeout(job.timer);
       this.current = null;
       this.stats.rendered++;
-      job.resolve({ report: data.report, png: data.png ? new Uint8Array(data.png) : undefined, renderMs: data.renderMs });
+      job.resolve({
+        report: data.report,
+        png: data.png ? new Uint8Array(data.png) : undefined,
+        renderMs: data.renderMs,
+      });
       this.pump();
     };
-    worker.onerror = event => { event.preventDefault?.(); if (this.current) this.fail(this.current.id, new RenderFailure(event.message || 'The render worker crashed.'), true); };
+    worker.onerror = event => {
+      event.preventDefault?.();
+      if (this.current)
+        this.fail(
+          this.current.id,
+          new RenderFailure(event.message || 'The render worker crashed.'),
+          true,
+        );
+    };
     this.worker = worker;
     return worker;
   }
@@ -75,7 +116,11 @@ export class RenderClient {
     this.stats.failed++;
     if (replace) {
       if (error.message.includes('longer than')) this.stats.timeouts++;
-      try { this.worker?.terminate(); } catch { /* gone */ }
+      try {
+        this.worker?.terminate();
+      } catch {
+        /* gone */
+      }
       this.worker = null;
     }
     job.reject(error);
@@ -83,9 +128,17 @@ export class RenderClient {
   }
 
   dispose() {
-    try { this.worker?.terminate(); } catch { /* gone */ }
+    try {
+      this.worker?.terminate();
+    } catch {
+      /* gone */
+    }
     this.worker = null;
-    if (this.current) { clearTimeout(this.current.timer); this.current.reject(new RenderFailure('Stopped.')); this.current = null; }
+    if (this.current) {
+      clearTimeout(this.current.timer);
+      this.current.reject(new RenderFailure('Stopped.'));
+      this.current = null;
+    }
     for (const job of this.queue.splice(0)) job.reject(new RenderFailure('Stopped.'));
   }
 }

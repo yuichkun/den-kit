@@ -11,9 +11,15 @@ describe('desktop settings', () => {
       const value = { model: 'gpt-6.1-sol', effort: 'high', fork: true };
       writeSettings(dir, value);
       expect(readSettings(dir)).toEqual(value);
-      expect(Object.keys(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')))).toEqual(['model', 'effort', 'fork']);
+      expect(Object.keys(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')))).toEqual([
+        'model',
+        'effort',
+        'fork',
+      ]);
       expect(() => validatedSettings({ ...value, effort: 'invented' })).toThrow();
       expect(() => validatedSettings({ ...value, model: '../../other' })).toThrow();
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

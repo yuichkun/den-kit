@@ -6,7 +6,13 @@ export const WS_PATH = '/__kit/ws';
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
 /** Close codes the bridge uses to explain a refusal. */
-export const CLOSE = { badToken: 4401, badOrigin: 4403, protocol: 4409, helloTimeout: 4408, replaced: 4410 } as const;
+export const CLOSE = {
+  badToken: 4401,
+  badOrigin: 4403,
+  protocol: 4409,
+  helloTimeout: 4408,
+  replaced: 4410,
+} as const;
 
 // ---- Status --------------------------------------------------------------------
 export interface CodexStatus {
@@ -22,7 +28,9 @@ export interface CodexStatus {
   rateLimit?: { usedPercent: number; resetsAt: number | null } | null;
 }
 
-export interface BridgeStatus { codex: CodexStatus }
+export interface BridgeStatus {
+  codex: CodexStatus;
+}
 
 // ---- LLM turns (Codex) ------------------------------------------------------------
 /**
@@ -33,11 +41,31 @@ export interface BridgeStatus { codex: CodexStatus }
 export type LlmRole = 'solo' | 'lead' | 'member';
 export const LLM_ROLES: readonly LlmRole[] = ['solo', 'lead', 'member'];
 /** Tokens, as Codex counts them for one conversation (thread/tokenUsage/updated). */
-export interface TokenUsage { input: number; cached: number; output: number; reasoning: number; total: number }
+export interface TokenUsage {
+  input: number;
+  cached: number;
+  output: number;
+  reasoning: number;
+  total: number;
+}
 /** What a kit_* tool returns to the model (the browser runs the tools; see src/ai/llm-workspace.ts). */
-export interface ToolOutput { success: boolean; text: string; imageDataUrl?: string }
-export interface LlmQuestion { id: string; header: string; question: string; options: string[]; other: boolean }
-export interface LlmError { message: string; code?: string; fix?: string }
+export interface ToolOutput {
+  success: boolean;
+  text: string;
+  imageDataUrl?: string;
+}
+export interface LlmQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options: string[];
+  other: boolean;
+}
+export interface LlmError {
+  message: string;
+  code?: string;
+  fix?: string;
+}
 /** Progress of one LLM request (`id`), in order. Exactly one `done` ends it. */
 export type LlmEvent =
   /**
@@ -81,7 +109,16 @@ export type ClientMessage =
    * that starts from a copy of the lead's conversation; when Codex cannot copy it, the new conversation
    * starts with `fallback` (den-kit's account of that conversation) before the text.
    */
-  | { t: 'llm.start'; id: string; text: string; thread?: string; instructions: string; role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }
+  | {
+      t: 'llm.start';
+      id: string;
+      text: string;
+      thread?: string;
+      instructions: string;
+      role?: LlmRole;
+      images?: string[];
+      fork?: { thread: string; fallback: string };
+    }
   /** Add `text` (and pictures) to the running turn of request `target` (answered with `steered` or a failed `done`). */
   | { t: 'llm.steer'; id: string; target: string; text: string; images?: string[] }
   | { t: 'llm.stop'; id: string }
@@ -103,63 +140,153 @@ export type ServerMessage =
 export function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
-const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
+const isId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 128;
 /** Pictures sent with a request: absent, or up to MAX_LLM_IMAGES data:image/ URLs of at most MAX_TOOL_IMAGE characters. */
 function images(value: unknown): string[] | undefined | null {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > MAX_LLM_IMAGES) return null;
-  return value.every(v => typeof v === 'string' && v.startsWith('data:image/') && v.length <= MAX_TOOL_IMAGE) ? value as string[] : null;
+  return value.every(
+    v => typeof v === 'string' && v.startsWith('data:image/') && v.length <= MAX_TOOL_IMAGE,
+  )
+    ? (value as string[])
+    : null;
 }
 
 /** Shape check for messages from the browser (the bridge never trusts the socket). */
 export function parseClientMessage(raw: string): ClientMessage | { error: string } {
   let data: unknown;
-  try { data = JSON.parse(raw); } catch { return { error: 'not JSON' }; }
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { error: 'not JSON' };
+  }
   if (!isObject(data) || typeof data.t !== 'string') return { error: 'missing message type' };
   switch (data.t) {
-    case 'hello': return typeof data.protocol === 'number' && typeof data.token === 'string' && typeof data.tab === 'string' ? { t: 'hello', protocol: data.protocol, token: data.token, tab: data.tab.slice(0, 64) } : { error: 'bad hello' };
-    case 'status.get': return typeof data.id === 'string' ? { t: 'status.get', id: data.id } : { error: 'status.get needs id' };
-    case 'telemetry': return isObject(data.record) ? { t: 'telemetry', record: data.record } : { error: 'bad telemetry' };
+    case 'hello':
+      return typeof data.protocol === 'number' &&
+        typeof data.token === 'string' &&
+        typeof data.tab === 'string'
+        ? { t: 'hello', protocol: data.protocol, token: data.token, tab: data.tab.slice(0, 64) }
+        : { error: 'bad hello' };
+    case 'status.get':
+      return typeof data.id === 'string'
+        ? { t: 'status.get', id: data.id }
+        : { error: 'status.get needs id' };
+    case 'telemetry':
+      return isObject(data.record)
+        ? { t: 'telemetry', record: data.record }
+        : { error: 'bad telemetry' };
     case 'llm.start': {
-      if (!isId(data.id) || typeof data.text !== 'string' || typeof data.instructions !== 'string' || (data.thread !== undefined && !isId(data.thread))) return { error: 'bad llm.start' };
-      if (!data.text.trim() || data.text.length > MAX_LLM_TEXT) return { error: `llm.start text must be 1–${MAX_LLM_TEXT} characters` };
-      if (data.instructions.length > MAX_INSTRUCTIONS) return { error: 'llm.start instructions are too long' };
-      if (data.role !== undefined && !LLM_ROLES.includes(data.role as LlmRole)) return { error: 'bad llm.start role' };
+      if (
+        !isId(data.id) ||
+        typeof data.text !== 'string' ||
+        typeof data.instructions !== 'string' ||
+        (data.thread !== undefined && !isId(data.thread))
+      )
+        return { error: 'bad llm.start' };
+      if (!data.text.trim() || data.text.length > MAX_LLM_TEXT)
+        return { error: `llm.start text must be 1–${MAX_LLM_TEXT} characters` };
+      if (data.instructions.length > MAX_INSTRUCTIONS)
+        return { error: 'llm.start instructions are too long' };
+      if (data.role !== undefined && !LLM_ROLES.includes(data.role as LlmRole))
+        return { error: 'bad llm.start role' };
       const pictures = images(data.images);
-      if (pictures === null) return { error: `llm.start images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
+      if (pictures === null)
+        return { error: `llm.start images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
       let fork: { thread: string; fallback: string } | undefined;
       if (data.fork !== undefined) {
         const f = data.fork;
-        if (!isObject(f) || !isId(f.thread) || typeof f.fallback !== 'string' || f.fallback.length > MAX_FORK_TEXT) return { error: 'bad llm.start fork' };
-        if (data.role !== 'member') return { error: 'only a member starts from a copy of the lead\'s conversation' };
+        if (
+          !isObject(f) ||
+          !isId(f.thread) ||
+          typeof f.fallback !== 'string' ||
+          f.fallback.length > MAX_FORK_TEXT
+        )
+          return { error: 'bad llm.start fork' };
+        if (data.role !== 'member')
+          return { error: "only a member starts from a copy of the lead's conversation" };
         fork = { thread: f.thread, fallback: f.fallback };
       }
-      return { t: 'llm.start', id: data.id, text: data.text, thread: data.thread as string | undefined, instructions: data.instructions, ...(data.role ? { role: data.role as LlmRole } : {}), ...(pictures?.length ? { images: pictures } : {}), ...(fork ? { fork } : {}) };
+      return {
+        t: 'llm.start',
+        id: data.id,
+        text: data.text,
+        thread: data.thread as string | undefined,
+        instructions: data.instructions,
+        ...(data.role ? { role: data.role as LlmRole } : {}),
+        ...(pictures?.length ? { images: pictures } : {}),
+        ...(fork ? { fork } : {}),
+      };
     }
     case 'llm.steer': {
-      if (!isId(data.id) || !isId(data.target) || typeof data.text !== 'string' || !data.text.trim() || data.text.length > MAX_LLM_TEXT) return { error: 'bad llm.steer' };
+      if (
+        !isId(data.id) ||
+        !isId(data.target) ||
+        typeof data.text !== 'string' ||
+        !data.text.trim() ||
+        data.text.length > MAX_LLM_TEXT
+      )
+        return { error: 'bad llm.steer' };
       const pictures = images(data.images);
-      if (pictures === null) return { error: `llm.steer images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
-      return { t: 'llm.steer', id: data.id, target: data.target, text: data.text, ...(pictures?.length ? { images: pictures } : {}) };
+      if (pictures === null)
+        return { error: `llm.steer images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
+      return {
+        t: 'llm.steer',
+        id: data.id,
+        target: data.target,
+        text: data.text,
+        ...(pictures?.length ? { images: pictures } : {}),
+      };
     }
-    case 'llm.stop': return isId(data.id) ? { t: 'llm.stop', id: data.id } : { error: 'bad llm.stop' };
+    case 'llm.stop':
+      return isId(data.id) ? { t: 'llm.stop', id: data.id } : { error: 'bad llm.stop' };
     case 'llm.answer': {
-      if (!isId(data.id) || !isId(data.question) || !isObject(data.answers)) return { error: 'bad llm.answer' };
+      if (!isId(data.id) || !isId(data.question) || !isObject(data.answers))
+        return { error: 'bad llm.answer' };
       const answers: Record<string, string[]> = {};
       for (const [key, value] of Object.entries(data.answers)) {
-        if (!Array.isArray(value) || !value.every(v => typeof v === 'string' && v.length <= 2000)) return { error: 'bad llm.answer' };
+        if (!Array.isArray(value) || !value.every(v => typeof v === 'string' && v.length <= 2000))
+          return { error: 'bad llm.answer' };
         answers[key.slice(0, 200)] = value as string[];
       }
       return { t: 'llm.answer', id: data.id, question: data.question, answers };
     }
-    case 'llm.forget': return isId(data.thread) ? { t: 'llm.forget', thread: data.thread } : { error: 'bad llm.forget' };
+    case 'llm.forget':
+      return isId(data.thread)
+        ? { t: 'llm.forget', thread: data.thread }
+        : { error: 'bad llm.forget' };
     case 'tool.result': {
       const o = data.output;
-      if (!isId(data.id) || !isId(data.callId) || !isObject(o) || typeof o.success !== 'boolean' || typeof o.text !== 'string') return { error: 'bad tool.result' };
-      if (o.imageDataUrl !== undefined && (typeof o.imageDataUrl !== 'string' || !o.imageDataUrl.startsWith('data:image/') || o.imageDataUrl.length > MAX_TOOL_IMAGE)) return { error: 'bad tool.result image' };
-      return { t: 'tool.result', id: data.id, callId: data.callId, output: { success: o.success, text: o.text.slice(0, MAX_TOOL_TEXT), imageDataUrl: o.imageDataUrl as string | undefined } };
+      if (
+        !isId(data.id) ||
+        !isId(data.callId) ||
+        !isObject(o) ||
+        typeof o.success !== 'boolean' ||
+        typeof o.text !== 'string'
+      )
+        return { error: 'bad tool.result' };
+      if (
+        o.imageDataUrl !== undefined &&
+        (typeof o.imageDataUrl !== 'string' ||
+          !o.imageDataUrl.startsWith('data:image/') ||
+          o.imageDataUrl.length > MAX_TOOL_IMAGE)
+      )
+        return { error: 'bad tool.result image' };
+      return {
+        t: 'tool.result',
+        id: data.id,
+        callId: data.callId,
+        output: {
+          success: o.success,
+          text: o.text.slice(0, MAX_TOOL_TEXT),
+          imageDataUrl: o.imageDataUrl as string | undefined,
+        },
+      };
     }
-    case 'codex.retry': return { t: 'codex.retry' };
-    default: return { error: `unknown message type "${String(data.t)}"` };
+    case 'codex.retry':
+      return { t: 'codex.retry' };
+    default:
+      return { error: `unknown message type "${String(data.t)}"` };
   }
 }

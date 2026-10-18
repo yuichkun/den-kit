@@ -6,7 +6,12 @@ describe('settings IPC deadlines', () => {
   it('ends a hung operation and safely ignores its late result', async () => {
     vi.useFakeTimers();
     let resolve!: (value: string) => void;
-    const pending = desktopRequest(new Promise<string>(r => { resolve = r; }), 100);
+    const pending = desktopRequest(
+      new Promise<string>(r => {
+        resolve = r;
+      }),
+      100,
+    );
     const failure = expect(pending).rejects.toThrow('timed out');
     await vi.advanceTimersByTimeAsync(100);
     await failure;
@@ -16,7 +21,9 @@ describe('settings IPC deadlines', () => {
   });
   it('preserves a failed operation and clears its deadline', async () => {
     vi.useFakeTimers();
-    await expect(desktopRequest(Promise.reject(new Error('Connection closed.')))).rejects.toThrow('Connection closed');
+    await expect(desktopRequest(Promise.reject(new Error('Connection closed.')))).rejects.toThrow(
+      'Connection closed',
+    );
     expect(vi.getTimerCount()).toBe(0);
   });
 });

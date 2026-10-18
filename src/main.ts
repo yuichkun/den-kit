@@ -15,11 +15,16 @@ import './plugin/fonts.ts';
 import './editor/style.css';
 
 // A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
-if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator) void import('./pod/browserpod.ts').then(m => m.clearForeignServiceWorkers());
+if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator)
+  void import('./pod/browserpod.ts').then(m => m.clearForeignServiceWorkers());
 defineWidgets();
 const query = new URLSearchParams(location.search);
-const number = (key: string) => query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : undefined;
-const session = new KitSession({ compileTimeoutMs: number('compileTimeout'), rotateAfter: number('rotateAfter') });
+const number = (key: string) =>
+  query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : undefined;
+const session = new KitSession({
+  compileTimeoutMs: number('compileTimeout'),
+  rotateAfter: number('rotateAfter'),
+});
 // Nothing saved yet (the very first launch): open on the start screen.
 const firstRun = !session.restore('bass') && !query.has('noStart');
 // The local AI bridge (started by `dev`); without it the editor runs as in CP1 and shows "AI offline".
@@ -32,10 +37,34 @@ session.llm = new LlmController(session, session.requests, session.bridge);
 const apiKey = shell?.runtime.apiKey ?? podConfig.apiKey;
 const audience = shell ? 'desktop' : 'developer';
 const pod: PodFactory = podConfig.fakeUrl
-  ? { kind: 'fake', audience, create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!) }
+  ? {
+      kind: 'fake',
+      audience,
+      create: async () => (await import('./pod/fake-host.ts')).connectFakePod(podConfig.fakeUrl!),
+    }
   : apiKey
-    ? { kind: 'browserpod', audience, create: async progress => (await import('./pod/browserpod.ts')).bootBrowserPod({ apiKey, audience, storageKey: 'den-kit', log: progress }) }
-    : { kind: null, audience, create: () => Promise.reject(new Error('Project tools are unavailable.')), reason: shell ? 'Project tools are unavailable in this app build.' : 'Project tools are not configured.', fix: shell ? 'Contact the app maintainer for an updated build.' : 'Put BROWSERPOD_API_KEY=… in .env (a key from console.browserpod.io), then restart `npm run dev`.' };
+    ? {
+        kind: 'browserpod',
+        audience,
+        create: async progress =>
+          (await import('./pod/browserpod.ts')).bootBrowserPod({
+            apiKey,
+            audience,
+            storageKey: 'den-kit',
+            log: progress,
+          }),
+      }
+    : {
+        kind: null,
+        audience,
+        create: () => Promise.reject(new Error('Project tools are unavailable.')),
+        reason: shell
+          ? 'Project tools are unavailable in this app build.'
+          : 'Project tools are not configured.',
+        fix: shell
+          ? 'Contact the app maintainer for an updated build.'
+          : 'Put BROWSERPOD_API_KEY=… in .env (a key from console.browserpod.io), then restart `npm run dev`.',
+      };
 session.pod = new PodSession(session, pod);
 // Dev/test handle: e2e tests and the CP2 bridge client drive the same session.
 (window as unknown as { __kit: KitSession }).__kit = session;

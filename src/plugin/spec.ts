@@ -4,10 +4,32 @@
 import type { ControlKind, Skin } from '../core/skins.ts';
 import type { AssetMeta, Fill, UiElement, Underlay, WidgetStyle } from '../core/ui.ts';
 
-export type WidgetType = 'ui.knob' | 'ui.slider' | 'ui.toggle' | 'ui.button' | 'ui.xy' | 'ui.keyboard' | 'ui.scope' | 'ui.meter';
-export const WIDGET_TYPES: readonly WidgetType[] = ['ui.knob', 'ui.slider', 'ui.toggle', 'ui.button', 'ui.xy', 'ui.keyboard', 'ui.scope', 'ui.meter'];
+export type WidgetType =
+  | 'ui.knob'
+  | 'ui.slider'
+  | 'ui.toggle'
+  | 'ui.button'
+  | 'ui.xy'
+  | 'ui.keyboard'
+  | 'ui.scope'
+  | 'ui.meter';
+export const WIDGET_TYPES: readonly WidgetType[] = [
+  'ui.knob',
+  'ui.slider',
+  'ui.toggle',
+  'ui.button',
+  'ui.xy',
+  'ui.keyboard',
+  'ui.scope',
+  'ui.meter',
+];
 
-export interface Rect { x: number; y: number; w: number; h: number }
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 export interface WidgetSpec {
   id: string;
   type: WidgetType;
@@ -25,7 +47,9 @@ export interface WidgetSpec {
   skin: Skin;
   style?: WidgetStyle;
 }
-export type PluginItem = { kind: 'widget'; id: string; widget: WidgetSpec } | { kind: 'element'; id: string; element: UiElement };
+export type PluginItem =
+  | { kind: 'widget'; id: string; widget: WidgetSpec }
+  | { kind: 'element'; id: string; element: UiElement };
 export interface PluginSpec {
   width: number;
   height: number;

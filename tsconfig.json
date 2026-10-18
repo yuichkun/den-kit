@@ -11,16 +11,8 @@
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "lib": [
-      "ES2023",
-      "DOM",
-      "DOM.Iterable",
-      "WebWorker.ImportScripts"
-    ],
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    "types": ["node", "vite/client"]
   },
   "include": [
     "src/**/*.ts",

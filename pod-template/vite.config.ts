@@ -13,8 +13,16 @@ export default defineConfig({
     port: Number(process.env.PORT ?? 5173),
     strictPort: true,
     allowedHosts: true,
-    hmr: { overlay: false, ...(process.env.KIT_HMR_CLIENT_PORT ? { clientPort: Number(process.env.KIT_HMR_CLIENT_PORT) } : {}) },
-    headers: { 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'cross-origin' },
+    hmr: {
+      overlay: false,
+      ...(process.env.KIT_HMR_CLIENT_PORT
+        ? { clientPort: Number(process.env.KIT_HMR_CLIENT_PORT) }
+        : {}),
+    },
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
   },
   build: { target: 'es2022' },
 });
@@ -33,13 +41,23 @@ function watchNewFolders(): Plugin {
       const seen = new Set<string>();
       const scan = (dir: string) => {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
-          if (!entry.isDirectory() || ['node_modules', 'dist', '.git'].includes(entry.name)) continue;
+          if (!entry.isDirectory() || ['node_modules', 'dist', '.git'].includes(entry.name))
+            continue;
           const path = join(dir, entry.name);
-          if (!seen.has(path)) { seen.add(path); server.watcher.add(path); }
+          if (!seen.has(path)) {
+            seen.add(path);
+            server.watcher.add(path);
+          }
           scan(path);
         }
       };
-      const look = () => { try { scan(server.config.root); } catch { /* a folder went away meanwhile */ } };
+      const look = () => {
+        try {
+          scan(server.config.root);
+        } catch {
+          /* a folder went away meanwhile */
+        }
+      };
       look();
       const timer = setInterval(look, 1000);
       server.httpServer?.on('close', () => clearInterval(timer));

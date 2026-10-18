@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import { attachmentsOf, describeAttachments } from '../../../src/ai/attachments.ts';
-import { handEditsSince, lineForAi, readSavedLines, savedLine } from '../../../src/ai/conversation.ts';
+import {
+  handEditsSince,
+  lineForAi,
+  readSavedLines,
+  savedLine,
+} from '../../../src/ai/conversation.ts';
 import { KitSession, type StorageLike } from '../../../src/editor/session.ts';
 import { catalog } from '../../../src/blocks/index.ts';
 import { applyIntents } from '../../../src/core/ops.ts';
@@ -14,41 +19,135 @@ import { FakeLlmTransport } from '../../helpers/fake-llm-transport.ts';
 class MemoryStorage implements StorageLike {
   data = new Map<string, string>();
   failWrites = false;
-  getItem(key: string) { return this.data.get(key) ?? null; }
-  setItem(key: string, value: string) { if (this.failWrites) throw new Error('QuotaExceededError'); this.data.set(key, value); }
-  removeItem(key: string) { this.data.delete(key); }
+  getItem(key: string) {
+    return this.data.get(key) ?? null;
+  }
+  setItem(key: string, value: string) {
+    if (this.failWrites) throw new Error('QuotaExceededError');
+    this.data.set(key, value);
+  }
+  removeItem(key: string) {
+    this.data.delete(key);
+  }
 }
-const makeSession = (storage: StorageLike | null = null) => new KitSession({
-  storage,
-  createWorker: () => ({ postMessage() {}, terminate() {}, onmessage: null, onerror: null, onmessageerror: null }) as never,
-  engine: { setParam() {}, unload() {}, running: false } as never,
-});
-const historicalLine = (id: string, text: string, route: 'lexicon' | 'jev' | 'jev-target' = 'lexicon'): Outcome => ({ id, text, status: 'applied', route, ms: 3, label: `Saved edit: ${text}` });
+const makeSession = (storage: StorageLike | null = null) =>
+  new KitSession({
+    storage,
+    createWorker: () =>
+      ({
+        postMessage() {},
+        terminate() {},
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+      }) as never,
+    engine: { setParam() {}, unload() {}, running: false } as never,
+  });
+const historicalLine = (
+  id: string,
+  text: string,
+  route: 'lexicon' | 'jev' | 'jev-target' = 'lexicon',
+): Outcome => ({ id, text, status: 'applied', route, ms: 3, label: `Saved edit: ${text}` });
 
 describe('what the LLM is told about the conversation', () => {
   it('one line per request, with the result, what it was about, and an undo', () => {
-    expect(lineForAi({ id: 'a', text: 'brighter', status: 'applied', route: 'lexicon', ms: 3, label: 'brightness up ×medium → filter1', undone: true, attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }] }))
-      .toBe('- earlier request: “brighter” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)');
-    expect(lineForAi({ id: 'b', text: 'explain', status: 'reply', route: 'llm', ms: 9, reply: 'An oscillator\ngoes into a filter.' })).toBe('- LLM request: “explain” → answered: An oscillator goes into a filter.');
-    expect(lineForAi({ id: 'c', text: '???', status: 'nothing', route: 'none', ms: 1, message: 'Not sure what to change.' })).toBe('- earlier request: “???” → nothing changed (Not sure what to change.)');
+    expect(
+      lineForAi({
+        id: 'a',
+        text: 'brighter',
+        status: 'applied',
+        route: 'lexicon',
+        ms: 3,
+        label: 'brightness up ×medium → filter1',
+        undone: true,
+        attached: [{ id: 'filter1', kind: 'module', label: 'Filter' }],
+      }),
+    ).toBe(
+      '- earlier request: “brighter” [about: filter1] → brightness up ×medium → filter1 (then undone with ⌘Z)',
+    );
+    expect(
+      lineForAi({
+        id: 'b',
+        text: 'explain',
+        status: 'reply',
+        route: 'llm',
+        ms: 9,
+        reply: 'An oscillator\ngoes into a filter.',
+      }),
+    ).toBe('- LLM request: “explain” → answered: An oscillator goes into a filter.');
+    expect(
+      lineForAi({
+        id: 'c',
+        text: '???',
+        status: 'nothing',
+        route: 'none',
+        ms: 1,
+        message: 'Not sure what to change.',
+      }),
+    ).toBe('- earlier request: “???” → nothing changed (Not sure what to change.)');
   });
-  it('hand edits since a moment: the person\'s own, counted; loads and AI edits are not theirs', () => {
-    const tx = (label: string, at: number, author: Transaction['author'] = { kind: 'human' }, replaced = false): Transaction => ({ id: label + at, author, label, ops: [], at, baseRevision: 0, replaced });
-    const entries = [tx('Move', 5), tx('Panel Cutoff', 20), tx('Panel Cutoff', 30), tx('AI: brighter', 40, { kind: 'ai-fast', handler: 'lexicon' }), tx('Start from Nebula', 50, { kind: 'human' }, true), tx('Connect lfo1 → filter1', 60)];
+  it("hand edits since a moment: the person's own, counted; loads and AI edits are not theirs", () => {
+    const tx = (
+      label: string,
+      at: number,
+      author: Transaction['author'] = { kind: 'human' },
+      replaced = false,
+    ): Transaction => ({ id: label + at, author, label, ops: [], at, baseRevision: 0, replaced });
+    const entries = [
+      tx('Move', 5),
+      tx('Panel Cutoff', 20),
+      tx('Panel Cutoff', 30),
+      tx('AI: brighter', 40, { kind: 'ai-fast', handler: 'lexicon' }),
+      tx('Start from Nebula', 50, { kind: 'human' }, true),
+      tx('Connect lfo1 → filter1', 60),
+    ];
     expect(handEditsSince(entries, 10)).toBe('Panel Cutoff ×2, Connect lfo1 → filter1');
     expect(handEditsSince(entries, 60)).toBeNull();
-    expect(handEditsSince(Array.from({ length: 14 }, (_, i) => tx(`Edit ${i}`, 100 + i)), 0, 3)).toBe('Edit 0, Edit 1, Edit 2 and 11 more');
+    expect(
+      handEditsSince(
+        Array.from({ length: 14 }, (_, i) => tx(`Edit ${i}`, 100 + i)),
+        0,
+        3,
+      ),
+    ).toBe('Edit 0, Edit 1, Edit 2 and 11 more');
   });
 });
 
 describe('saving the conversation', () => {
   it('a line saved while it ran comes back stopped; malformed lines are left out', () => {
-    const running: Outcome = { id: 'r1', text: 'wobble it', status: 'thinking', route: 'llm', ms: 900, live: true, activity: 'editing…', steps: ['+ lfo2'] };
+    const running: Outcome = {
+      id: 'r1',
+      text: 'wobble it',
+      status: 'thinking',
+      route: 'llm',
+      ms: 900,
+      live: true,
+      activity: 'editing…',
+      steps: ['+ lfo2'],
+    };
     const saved = savedLine(running);
-    expect(saved).toMatchObject({ status: 'stopped', message: 'Interrupted (the page was reloaded).' });
+    expect(saved).toMatchObject({
+      status: 'stopped',
+      message: 'Interrupted (the page was reloaded).',
+    });
     expect(saved.live).toBeUndefined();
     expect(saved.activity).toBeUndefined();
-    const read = readSavedLines([saved, null, 42, { id: 'x' }, { id: 'y', text: 'hi', status: 'exploded', route: 'llm' }, { id: 'z', text: 'ok', status: 'applied', route: 'lexicon', ms: 'NaN', label: 7, attached: [{ id: 'f', label: 'F', kind: 'module' }, { nope: 1 }] }]);
+    const read = readSavedLines([
+      saved,
+      null,
+      42,
+      { id: 'x' },
+      { id: 'y', text: 'hi', status: 'exploded', route: 'llm' },
+      {
+        id: 'z',
+        text: 'ok',
+        status: 'applied',
+        route: 'lexicon',
+        ms: 'NaN',
+        label: 7,
+        attached: [{ id: 'f', label: 'F', kind: 'module' }, { nope: 1 }],
+      },
+    ]);
     expect(read.map(l => l.id)).toEqual(['r1', 'z']);
     expect(read[1]).toMatchObject({ ms: 0, attached: [{ id: 'f', label: 'F' }] });
     expect(read[1]!.label).toBeUndefined();
@@ -59,7 +158,11 @@ describe('saving the conversation', () => {
     const first = makeSession(storage);
     first.restore('bass');
     const requests1 = new AiRequests(first);
-    const oldLines = [historicalLine('lex', 'longer release'), historicalLine('jev', 'open the tone', 'jev'), historicalLine('target', 'this filter', 'jev-target')];
+    const oldLines = [
+      historicalLine('lex', 'longer release'),
+      historicalLine('jev', 'open the tone', 'jev'),
+      historicalLine('target', 'this filter', 'jev-target'),
+    ];
     for (const line of oldLines) requests1.upsert(line);
     requests1.persist();
     first.saveNow();
@@ -68,7 +171,10 @@ describe('saving the conversation', () => {
     expect(second.restore('bass')).toBe(true);
     expect(second.conversation.value).toBe(conversation);
     expect(new AiRequests(second).history.value).toEqual(oldLines);
-    storage.setItem('den-kit:conversation', JSON.stringify({ id: conversation, docId: 'someone-else', lines: oldLines }));
+    storage.setItem(
+      'den-kit:conversation',
+      JSON.stringify({ id: conversation, docId: 'someone-else', lines: oldLines }),
+    );
     const third = makeSession(storage);
     third.restore('bass');
     expect(third.conversation.value).not.toBe(conversation);
@@ -129,41 +235,81 @@ describe('conversation lifecycle and historical edits', () => {
     expect(requests.earlier.value.map(o => o.text)).toEqual(['longer release', 'build a pad']);
   });
 
-  it.each(['lexicon', 'jev'] as const)('undo and redo of a historical %s edit update its conversation line', handler => {
-    const before = session.doc.value.nodes.gain1!.values.gain;
-    expect(session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }], { author: { kind: 'ai-fast', handler }, label: 'Saved AI edit' }).ok).toBe(true);
-    const txId = session.history.peek()!.id;
-    requests.upsert({ ...historicalLine('saved', 'make it quieter', handler), txId });
-    session.undo();
-    expect(session.doc.value.nodes.gain1!.values.gain).toBe(before);
-    expect(requests.history.value[0]!.undone).toBe(true);
-    expect(requests.outcome.value).toBeNull();
-    session.redo();
-    expect(session.doc.value.nodes.gain1!.values.gain).toBe(0.3);
-    expect(requests.history.value[0]!.undone).toBe(false);
-  });
+  it.each(['lexicon', 'jev'] as const)(
+    'undo and redo of a historical %s edit update its conversation line',
+    handler => {
+      const before = session.doc.value.nodes.gain1!.values.gain;
+      expect(
+        session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.3 }], {
+          author: { kind: 'ai-fast', handler },
+          label: 'Saved AI edit',
+        }).ok,
+      ).toBe(true);
+      const txId = session.history.peek()!.id;
+      requests.upsert({ ...historicalLine('saved', 'make it quieter', handler), txId });
+      session.undo();
+      expect(session.doc.value.nodes.gain1!.values.gain).toBe(before);
+      expect(requests.history.value[0]!.undone).toBe(true);
+      expect(requests.outcome.value).toBeNull();
+      session.redo();
+      expect(session.doc.value.nodes.gain1!.values.gain).toBe(0.3);
+      expect(requests.history.value[0]!.undone).toBe(false);
+    },
+  );
 });
 
 describe('attachments', () => {
   it('modules, controls, things on the plugin and cables, by id; unknown ids are left out', () => {
     let doc = starter('pad', catalog);
-    doc = applyIntents(doc, [
-      { op: 'setLabel', node: 'filter1', label: 'Tone' },
-      { op: 'addNode', node: { id: 'knob1', type: 'ui.knob', label: 'Cutoff' } },
-      { op: 'addElement', element: { id: 'title1', kind: 'text', text: 'A very long title for the plugin', rect: { x: 0, y: 0, w: 200, h: 30 } } },
-    ], catalog).doc;
+    doc = applyIntents(
+      doc,
+      [
+        { op: 'setLabel', node: 'filter1', label: 'Tone' },
+        { op: 'addNode', node: { id: 'knob1', type: 'ui.knob', label: 'Cutoff' } },
+        {
+          op: 'addElement',
+          element: {
+            id: 'title1',
+            kind: 'text',
+            text: 'A very long title for the plugin',
+            rect: { x: 0, y: 0, w: 200, h: 30 },
+          },
+        },
+      ],
+      catalog,
+    ).doc;
     const knob = doc.nodes.knob1!;
-    const edge = Object.values(doc.edges).find(e => e.from.node !== 'filter1' && e.to.node !== 'filter1')!;
-    const list = attachmentsOf(doc, catalog, ['filter1', knob.id, 'title1', 'ghost'], [edge.id, 'e999']);
-    expect(list.map(a => [a.id, a.kind])).toEqual([['filter1', 'module'], [knob.id, 'control'], ['title1', 'element'], [edge.id, 'cable']]);
+    const edge = Object.values(doc.edges).find(
+      e => e.from.node !== 'filter1' && e.to.node !== 'filter1',
+    )!;
+    const list = attachmentsOf(
+      doc,
+      catalog,
+      ['filter1', knob.id, 'title1', 'ghost'],
+      [edge.id, 'e999'],
+    );
+    expect(list.map(a => [a.id, a.kind])).toEqual([
+      ['filter1', 'module'],
+      [knob.id, 'control'],
+      ['title1', 'element'],
+      [edge.id, 'cable'],
+    ]);
     // A cable that touches an attached module comes with it (a box selection takes those too).
-    const touching = Object.values(doc.edges).find(e => e.to.node === 'filter1' || e.from.node === 'filter1')!;
-    expect(attachmentsOf(doc, catalog, ['filter1'], [touching.id]).map(a => a.id)).toEqual(['filter1']);
+    const touching = Object.values(doc.edges).find(
+      e => e.to.node === 'filter1' || e.from.node === 'filter1',
+    )!;
+    expect(attachmentsOf(doc, catalog, ['filter1'], [touching.id]).map(a => a.id)).toEqual([
+      'filter1',
+    ]);
     expect(list[0]!.label).toBe('Lowpass “Tone”');
     expect(list[1]!.label).toBe('Knob “Cutoff”');
     expect(list[2]!.label).toBe('text “A very long title for t…”');
-    expect(list[3]!.label).toBe(`${edge.from.node}.${edge.from.port} → ${edge.to.node}.${edge.to.port}`);
-    expect(describeAttachments(list)).toMatch(/^filter1 — Lowpass “Tone”; knob1 — Knob “Cutoff” \(a control\); title1 — text “.*” on the plugin screen; e\w+ — cable /);
+    expect(list[3]!.label).toBe(
+      `${edge.from.node}.${edge.from.port} → ${edge.to.node}.${edge.to.port}`,
+    );
+    expect(describeAttachments(list)).toMatch(
+      /^filter1 — Lowpass “Tone”; knob1 — Knob “Cutoff” \(a control\); title1 — text “.*” on the plugin screen; e\w+ — cable /,
+    );
   });
 });
 
@@ -182,12 +328,16 @@ describe('the LLM is told what happened', () => {
   it('a new conversation includes historical lines; later turns include only new history and hand edits', async () => {
     requests.upsert(historicalLine('old-lex', 'longer release'));
     const first = requests.run('now add a wobble');
-    expect(startText()).toMatch(/Earlier in this conversation[^\n]*:\n- earlier request: “longer release” → [^\n]+\n/);
+    expect(startText()).toMatch(
+      /Earlier in this conversation[^\n]*:\n- earlier request: “longer release” → [^\n]+\n/,
+    );
     transport.event(first.id, { kind: 'thread', thread: 'th1', fresh: false });
     transport.done(first.id);
     await new Promise(r => setTimeout(r, 5));
     requests.upsert(historicalLine('old-jev', 'brighter', 'jev'));
-    session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.4 }], { label: 'Panel Gain' });
+    session.commit([{ op: 'setValue', node: 'gain1', port: 'gain', value: 0.4 }], {
+      label: 'Panel Gain',
+    });
     requests.run('more of that');
     const text = startText();
     expect(transport.last('llm.start')!.thread).toBe('th1');
@@ -201,10 +351,21 @@ describe('the LLM is told what happened', () => {
     const before = JSON.stringify(session.doc.value);
     const attached = attachmentsOf(session.doc.value, catalog, ['filter1']);
     const o = requests.run('brighter', { attached });
-    expect(startText()).toMatch(/The person attached \(points at\) these: filter1 — Lowpass\. The request is about them/);
+    expect(startText()).toMatch(
+      /The person attached \(points at\) these: filter1 — Lowpass\. The request is about them/,
+    );
     expect(o.attached).toEqual(attached);
-    requests.run('and that cable', { attached: attachmentsOf(session.doc.value, catalog, [], [Object.keys(session.doc.value.edges)[0]!]) });
-    expect(String(transport.last('llm.steer')!.text)).toMatch(/^\[den-kit\] The user adds, while you work:\n\[den-kit\] The person attached \(points at\) these: e\w+ — cable /);
+    requests.run('and that cable', {
+      attached: attachmentsOf(
+        session.doc.value,
+        catalog,
+        [],
+        [Object.keys(session.doc.value.edges)[0]!],
+      ),
+    });
+    expect(String(transport.last('llm.steer')!.text)).toMatch(
+      /^\[den-kit\] The user adds, while you work:\n\[den-kit\] The person attached \(points at\) these: e\w+ — cable /,
+    );
     expect(JSON.stringify(session.doc.value)).toBe(before);
   });
 

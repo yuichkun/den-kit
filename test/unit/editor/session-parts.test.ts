@@ -10,8 +10,19 @@ function makeSession() {
   const set: Array<[string, number]> = [];
   const session = new KitSession({
     storage: null,
-    createWorker: () => ({ postMessage() {}, terminate() {}, onmessage: null, onerror: null, onmessageerror: null }) as never,
-    engine: { setParam: (name: string, value: number) => set.push([name, value]), unload() {}, running: false } as never,
+    createWorker: () =>
+      ({
+        postMessage() {},
+        terminate() {},
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+      }) as never,
+    engine: {
+      setParam: (name: string, value: number) => set.push([name, value]),
+      unload() {},
+      running: false,
+    } as never,
   });
   session.replace(starter('bass', catalog), 'Bass', false);
   return { session, set };
@@ -21,7 +32,10 @@ function withParts() {
   const s = makeSession();
   const r = s.session.commit([{ op: 'makePart', ids: ['osc1', 'filter1', 'vca1'], name: 'Tone' }]);
   if (!r.ok) throw r.error;
-  const r2 = s.session.commit([{ op: 'addNode', node: { id: 'tone2', type: 'kit.part', part: 'tone' } }, { op: 'connect', from: { node: 'tone2', port: 'out' }, to: { node: 'out1', port: 'right' } }]);
+  const r2 = s.session.commit([
+    { op: 'addNode', node: { id: 'tone2', type: 'kit.part', part: 'tone' } },
+    { op: 'connect', from: { node: 'tone2', port: 'out' }, to: { node: 'out1', port: 'right' } },
+  ]);
   if (!r2.ok) throw r2.error;
   return s;
 }
@@ -71,7 +85,14 @@ describe('knobs reach the AudioParams they stand for, without recompiling', () =
     expect(session.generated.value.values.tone2_filter1_resonance).toBe(3);
     expect(session.generated.value.values.tone1_filter1_resonance).toBe(0.707);
     set.length = 0;
-    session.commit([{ op: 'disconnect', id: Object.values(session.doc.value.edges).find(e => e.to.node === 'filter1' && e.to.port === 'cutoff')!.id }]);
+    session.commit([
+      {
+        op: 'disconnect',
+        id: Object.values(session.doc.value.edges).find(
+          e => e.to.node === 'filter1' && e.to.port === 'cutoff',
+        )!.id,
+      },
+    ]);
     const after = session.generated.value.hash;
     expect(after).not.toBe(hash); // a cable: structural
     set.length = 0;

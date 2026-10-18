@@ -44,21 +44,21 @@ undo steps.
 
 These shortcuts apply outside text inputs. The table uses macOS key names.
 
-| Shortcut | Action |
-| --- | --- |
-| `Enter` / `⌘K` | Focus the AI input. |
-| `⌥⌘E` | Switch between Patch and Plugin. |
-| `⌘E` | Switch the Plugin view between Play and Edit. |
-| `⇧⌘F` | Toggle the full-screen Plugin view. |
-| `⌘Z` / `⇧⌘Z` | Undo / redo. |
-| `⌘A` | Select all. |
-| Arrow keys / `Shift` + arrow keys | Move the selection / use larger steps. |
-| `⌘C` / `⌘V` / `⌘D` | Copy / paste / duplicate. |
-| `Delete` | Delete the selection. |
-| `⌘G` / `⇧⌘G` in Patch | Create / unpack a part. |
-| `⇧Space` in Plugin Edit mode | Add a control, decoration, or code part. |
-| `P` in Patch or Plugin | Sketch over the view for an AI request. |
-| `⌘J` | Show or hide the AI panel. |
+| Shortcut                          | Action                                        |
+| --------------------------------- | --------------------------------------------- |
+| `Enter` / `⌘K`                    | Focus the AI input.                           |
+| `⌥⌘E`                             | Switch between Patch and Plugin.              |
+| `⌘E`                              | Switch the Plugin view between Play and Edit. |
+| `⇧⌘F`                             | Toggle the full-screen Plugin view.           |
+| `⌘Z` / `⇧⌘Z`                      | Undo / redo.                                  |
+| `⌘A`                              | Select all.                                   |
+| Arrow keys / `Shift` + arrow keys | Move the selection / use larger steps.        |
+| `⌘C` / `⌘V` / `⌘D`                | Copy / paste / duplicate.                     |
+| `Delete`                          | Delete the selection.                         |
+| `⌘G` / `⇧⌘G` in Patch             | Create / unpack a part.                       |
+| `⇧Space` in Plugin Edit mode      | Add a control, decoration, or code part.      |
+| `P` in Patch or Plugin            | Sketch over the view for an AI request.       |
+| `⌘J`                              | Show or hide the AI panel.                    |
 
 ## Saving and backups
 

@@ -74,17 +74,18 @@ None of this is needed to open or test pull requests.
 4. **GitHub environment.** Under Settings → Environments, create `release`, allow deployments only
    from `main` (the Release workflow runs on pushes to `main`), and add these secrets:
 
-   | Secret | Value |
-   | --- | --- |
-   | `CSC_LINK` | The base64 text of the `.p12` file |
-   | `CSC_KEY_PASSWORD` | The `.p12` password |
-   | `APPLE_API_KEY_P8` | The full contents of the `.p8` file |
-   | `APPLE_API_KEY_ID` | The API key's Key ID |
-   | `APPLE_API_ISSUER` | The Issuer ID |
+   | Secret               | Value                                      |
+   | -------------------- | ------------------------------------------ |
+   | `CSC_LINK`           | The base64 text of the `.p12` file         |
+   | `CSC_KEY_PASSWORD`   | The `.p12` password                        |
+   | `APPLE_API_KEY_P8`   | The full contents of the `.p8` file        |
+   | `APPLE_API_KEY_ID`   | The API key's Key ID                       |
+   | `APPLE_API_ISSUER`   | The Issuer ID                              |
    | `BROWSERPOD_API_KEY` | The BrowserPod key for the distributed app |
 
    To notarize with an Apple ID instead of an API key, set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
    and `APPLE_TEAM_ID`, and leave the three `APPLE_API_*` secrets empty.
+
 5. **Repository settings.** Enable immutable releases, and allow only collaborators to create pull
    requests (Settings → General → Features). Protect `main` with pull requests and the `verify` and
    `desktop-package` checks, and make sure tag rules allow the workflow to create `v*` tags. A

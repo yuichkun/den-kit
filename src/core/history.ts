@@ -27,7 +27,14 @@ export interface Transaction {
   replaced?: boolean;
 }
 
-export const authorLabel = (a: Author) => a.kind === 'human' ? 'you' : a.kind === 'ai-fast' ? `fast:${a.handler}` : a.kind === 'ai-llm' ? `llm:${a.take}` : `system:${a.reason}`;
+export const authorLabel = (a: Author) =>
+  a.kind === 'human'
+    ? 'you'
+    : a.kind === 'ai-fast'
+      ? `fast:${a.handler}`
+      : a.kind === 'ai-llm'
+        ? `llm:${a.take}`
+        : `system:${a.reason}`;
 
 const sameAuthor = (a: Author, b: Author) => authorLabel(a) === authorLabel(b);
 
@@ -36,13 +43,26 @@ export class History {
   private redoStack: Transaction[] = [];
   readonly limit: number;
   readonly mergeWindowMs: number;
-  constructor(limit = 500, mergeWindowMs = 1500) { this.limit = limit; this.mergeWindowMs = mergeWindowMs; }
+  constructor(limit = 500, mergeWindowMs = 1500) {
+    this.limit = limit;
+    this.mergeWindowMs = mergeWindowMs;
+  }
 
-  get canUndo() { return this.undoStack.length > 0; }
-  get canRedo() { return this.redoStack.length > 0; }
-  get size() { return this.undoStack.length; }
-  peek(): Transaction | undefined { return this.undoStack.at(-1); }
-  entries(): readonly Transaction[] { return this.undoStack; }
+  get canUndo() {
+    return this.undoStack.length > 0;
+  }
+  get canRedo() {
+    return this.redoStack.length > 0;
+  }
+  get size() {
+    return this.undoStack.length;
+  }
+  peek(): Transaction | undefined {
+    return this.undoStack.at(-1);
+  }
+  entries(): readonly Transaction[] {
+    return this.undoStack;
+  }
 
   /** Record an applied transaction. Empty transactions are ignored. */
   record(tx: Transaction) {
@@ -55,29 +75,42 @@ export class History {
       last.label = tx.label;
       return;
     }
-    if (last && tx.gesture && last.gesture === tx.gesture && sameAuthor(last.author, tx.author)
-      && tx.at - last.at <= this.mergeWindowMs && !tx.ops.some(isStructural) && !last.ops.some(isStructural)) {
+    if (
+      last &&
+      tx.gesture &&
+      last.gesture === tx.gesture &&
+      sameAuthor(last.author, tx.author) &&
+      tx.at - last.at <= this.mergeWindowMs &&
+      !tx.ops.some(isStructural) &&
+      !last.ops.some(isStructural)
+    ) {
       last.ops = mergeValueOps([...last.ops, ...tx.ops]);
       last.at = tx.at;
       return;
     }
     this.undoStack.push({ ...tx, ops: [...tx.ops] });
-    if (this.undoStack.length > this.limit) this.undoStack.splice(0, this.undoStack.length - this.limit);
+    if (this.undoStack.length > this.limit)
+      this.undoStack.splice(0, this.undoStack.length - this.limit);
   }
 
   undo(doc: PatchDocument): { doc: PatchDocument; tx: Transaction } | null {
-    const tx = this.undoStack.pop(); if (!tx) return null;
+    const tx = this.undoStack.pop();
+    if (!tx) return null;
     this.redoStack.push(tx);
     return { doc: applyResolvedOps(doc, invertAll(tx.ops)), tx };
   }
 
   redo(doc: PatchDocument): { doc: PatchDocument; tx: Transaction } | null {
-    const tx = this.redoStack.pop(); if (!tx) return null;
+    const tx = this.redoStack.pop();
+    if (!tx) return null;
     this.undoStack.push(tx);
     return { doc: applyResolvedOps(doc, tx.ops), tx };
   }
 
-  clear() { this.undoStack = []; this.redoStack = []; }
+  clear() {
+    this.undoStack = [];
+    this.redoStack = [];
+  }
 }
 
 /** Collapse repeated edits of the same target (a value, a field, an element field, the look…) to first.from → last.to. */
@@ -85,8 +118,18 @@ function mergeValueOps(ops: ResolvedOp[]): ResolvedOp[] {
   const out: ResolvedOp[] = [];
   const index = new Map<string, number>();
   for (const op of ops) {
-    const key = op.op === 'setValue' ? `v:${op.node}:${op.port}` : op.op === 'setField' ? `f:${op.node}:${op.field}` : op.op === 'setElement' ? `e:${op.id}:${op.field}`
-      : op.op === 'setUi' ? `u:${op.field}` : op.op === 'setSize' ? 's' : null;
+    const key =
+      op.op === 'setValue'
+        ? `v:${op.node}:${op.port}`
+        : op.op === 'setField'
+          ? `f:${op.node}:${op.field}`
+          : op.op === 'setElement'
+            ? `e:${op.id}:${op.field}`
+            : op.op === 'setUi'
+              ? `u:${op.field}`
+              : op.op === 'setSize'
+                ? 's'
+                : null;
     if (key && index.has(key)) {
       const at = index.get(key)!;
       out[at] = { ...(out[at] as typeof op), to: (op as { to: unknown }).to } as ResolvedOp;

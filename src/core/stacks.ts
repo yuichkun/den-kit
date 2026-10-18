@@ -13,7 +13,13 @@ import { clampPortValue, type Catalog, type PortDef } from './catalog.ts';
 import { MAX_COUNT, SPREAD_KINDS, type PatchNode, type Spread } from './schema.ts';
 
 /** Kinds of node that can run as copies. */
-const STACKABLE_KINDS: ReadonlySet<string> = new Set(['block', 'prim', 'codebox', 'history', 'part']);
+const STACKABLE_KINDS: ReadonlySet<string> = new Set([
+  'block',
+  'prim',
+  'codebox',
+  'history',
+  'part',
+]);
 
 /** Can a node of this type run as copies? */
 export function stackable(catalog: Catalog, type: string): boolean {
@@ -35,15 +41,24 @@ export function hasStacks(nodes: Iterable<PatchNode>, catalog: Catalog): boolean
 
 /** Knobs whose value can differ between copies: numeric knobs (not audio inputs, gates, note-bound or fixed inputs). */
 export function spreadable(port: PortDef | undefined): boolean {
-  return !!port && port.type === 'signal' && port.role !== 'audio' && !port.binding && !port.constant && !port.hidden;
+  return (
+    !!port &&
+    port.type === 'signal' &&
+    port.role !== 'audio' &&
+    !port.binding &&
+    !port.constant &&
+    !port.hidden
+  );
 }
 
 /** Where copy k of n sits, from −1 (the first) to +1 (the last); 0 for a single copy. */
-export const position = (k: number, n: number) => n > 1 ? 2 * k / (n - 1) - 1 : 0;
+export const position = (k: number, n: number) => (n > 1 ? (2 * k) / (n - 1) - 1 : 0);
 
 const fmix = (h: number) => {
-  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
   return (h ^ (h >>> 16)) >>> 0;
 };
 /** A number in [0, 1) fixed by a seed and a copy's place (copy numbers from the outermost stack in). More copies keep the earlier ones' values. */
@@ -54,17 +69,28 @@ export function random01(seed: number, path: readonly number[]): number {
 }
 
 /** The value copy k of n takes on a knob whose own value is `base`. */
-export function spreadValue(base: number, spread: Spread, k: number, n: number, port: PortDef): number {
+export function spreadValue(
+  base: number,
+  spread: Spread,
+  k: number,
+  n: number,
+  port: PortDef,
+): number {
   let v = base;
   switch (spread.kind) {
-    case 'range': case 'random': {
+    case 'range':
+    case 'random': {
       const t = spread.kind === 'range' ? position(k, n) : 2 * random01(spread.seed ?? 1, [k]) - 1;
       const offset = (spread.amount ?? 0) * t;
       v = port.scale === 'log' && base > 0 ? base * 2 ** offset : base + offset;
       break;
     }
-    case 'harmonic': v = base * (k + 1); break;
-    case 'each': v = spread.values?.[k] ?? base; break;
+    case 'harmonic':
+      v = base * (k + 1);
+      break;
+    case 'each':
+      v = spread.values?.[k] ?? base;
+      break;
   }
   return Number.isFinite(v) ? clampPortValue(port, v) : base;
 }
@@ -76,19 +102,29 @@ export function spreadValue(base: number, spread: Spread, k: number, n: number, 
  * any other gets the offset added; drawn values keep their distance from the
  * knob's own value `base`.
  */
-export function spreadShape(spread: Spread, k: number, n: number, port: PortDef, base: number): { scale: number; offset: number } {
+export function spreadShape(
+  spread: Spread,
+  k: number,
+  n: number,
+  port: PortDef,
+  base: number,
+): { scale: number; offset: number } {
   const log = port.scale === 'log';
   switch (spread.kind) {
-    case 'range': case 'random': {
+    case 'range':
+    case 'random': {
       const t = spread.kind === 'range' ? position(k, n) : 2 * random01(spread.seed ?? 1, [k]) - 1;
       const offset = (spread.amount ?? 0) * t;
       return log ? { scale: 2 ** offset, offset: 0 } : { scale: 1, offset };
     }
-    case 'harmonic': return { scale: k + 1, offset: 0 };
+    case 'harmonic':
+      return { scale: k + 1, offset: 0 };
     case 'each': {
       const v = spread.values?.[k];
       if (v === undefined || !Number.isFinite(v)) return { scale: 1, offset: 0 };
-      return log && base > 0 && v > 0 ? { scale: v / base, offset: 0 } : { scale: 1, offset: v - base };
+      return log && base > 0 && v > 0
+        ? { scale: v / base, offset: 0 }
+        : { scale: 1, offset: v - base };
     }
   }
   return { scale: 1, offset: 0 };
@@ -97,34 +133,49 @@ export function spreadShape(spread: Spread, k: number, n: number, port: PortDef,
 /** The furthest a spread may reach, either way: 10 octaves on a log knob, the knob's whole range otherwise. */
 export function spreadReach(port: PortDef): number {
   if (port.scale === 'log') return 10;
-  const lo = port.uiMin ?? port.min, hi = port.uiMax ?? port.max;
-  return lo !== undefined && hi !== undefined && Number.isFinite(hi - lo) ? Math.max(hi - lo, 1e-6) : 1e6;
+  const lo = port.uiMin ?? port.min,
+    hi = port.uiMax ?? port.max;
+  return lo !== undefined && hi !== undefined && Number.isFinite(hi - lo)
+    ? Math.max(hi - lo, 1e-6)
+    : 1e6;
 }
 
 /** The unit a spread's amount is in on this knob. */
-export const spreadUnit = (port: PortDef) => port.scale === 'log' ? 'oct' : port.unit ?? '';
+export const spreadUnit = (port: PortDef) => (port.scale === 'log' ? 'oct' : (port.unit ?? ''));
 
 /** Check a spread (from an edit or a file): a reason when it cannot be used, else the spread as kept (amounts and values pulled into range). */
 export function checkSpread(raw: unknown, port: PortDef): Spread | string {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 'a spread is {kind, amount?, seed?, values?}';
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    return 'a spread is {kind, amount?, seed?, values?}';
   const r = raw as Record<string, unknown>;
-  if (!SPREAD_KINDS.includes(r.kind as Spread['kind'])) return `kind must be one of ${SPREAD_KINDS.join(', ')}`;
+  if (!SPREAD_KINDS.includes(r.kind as Spread['kind']))
+    return `kind must be one of ${SPREAD_KINDS.join(', ')}`;
   const spread: Spread = { kind: r.kind as Spread['kind'] };
   if (r.amount !== undefined) {
-    if (typeof r.amount !== 'number' || !Number.isFinite(r.amount)) return 'amount must be a finite number';
+    if (typeof r.amount !== 'number' || !Number.isFinite(r.amount))
+      return 'amount must be a finite number';
     const reach = spreadReach(port);
     spread.amount = Math.min(reach, Math.max(-reach, r.amount));
   }
   if (r.seed !== undefined) {
-    if (typeof r.seed !== 'number' || !Number.isInteger(r.seed) || r.seed < 0 || r.seed > 2147483647) return 'seed must be a whole number from 0 to 2147483647';
+    if (
+      typeof r.seed !== 'number' ||
+      !Number.isInteger(r.seed) ||
+      r.seed < 0 ||
+      r.seed > 2147483647
+    )
+      return 'seed must be a whole number from 0 to 2147483647';
     spread.seed = r.seed;
   }
   if (r.values !== undefined) {
-    if (!Array.isArray(r.values) || r.values.length > MAX_COUNT) return `values is a list of up to ${MAX_COUNT} numbers`;
-    if (!r.values.every(v => typeof v === 'number' && Number.isFinite(v))) return 'values must all be finite numbers';
+    if (!Array.isArray(r.values) || r.values.length > MAX_COUNT)
+      return `values is a list of up to ${MAX_COUNT} numbers`;
+    if (!r.values.every(v => typeof v === 'number' && Number.isFinite(v)))
+      return 'values must all be finite numbers';
     spread.values = (r.values as number[]).map(v => clampPortValue(port, v));
   }
-  if ((spread.kind === 'range' || spread.kind === 'random') && spread.amount === undefined) spread.amount = 0;
+  if ((spread.kind === 'range' || spread.kind === 'random') && spread.amount === undefined)
+    spread.amount = 0;
   if (spread.kind === 'random' && spread.seed === undefined) spread.seed = 1;
   if (spread.kind === 'each' && !spread.values) spread.values = [];
   return spread;
@@ -136,6 +187,7 @@ export function describeSpread(spread: Spread, port: PortDef): string {
   const amount = `±${Math.round(Math.abs(spread.amount ?? 0) * 1000) / 1000}${unit ? ` ${unit}` : ''}`;
   if (spread.kind === 'range') return `range ${amount}`;
   if (spread.kind === 'random') return `random ${amount} (seed ${spread.seed ?? 1})`;
-  if (spread.kind === 'each') return `each copy its own (${(spread.values ?? []).map(v => Math.round(v * 1000) / 1000).join(', ')})`;
+  if (spread.kind === 'each')
+    return `each copy its own (${(spread.values ?? []).map(v => Math.round(v * 1000) / 1000).join(', ')})`;
   return 'harmonic (×1, ×2, ×3…)';
 }

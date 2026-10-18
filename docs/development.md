@@ -41,12 +41,12 @@ available alongside the required AI workflow.
 
 Development settings in a local `.env` file:
 
-| Variable | Purpose |
-| --- | --- |
-| `KIT_CODEX_MODEL` | Override the default Codex model. |
+| Variable           | Purpose                                                 |
+| ------------------ | ------------------------------------------------------- |
+| `KIT_CODEX_MODEL`  | Override the default Codex model.                       |
 | `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
-| `KIT_PORT` | Editor port; defaults to `5180`. |
-| `KIT_BRIDGE_PORT` | Local AI bridge port; defaults to `5181`. |
+| `KIT_PORT`         | Editor port; defaults to `5180`.                        |
+| `KIT_BRIDGE_PORT`  | Local AI bridge port; defaults to `5181`.               |
 
 ### Project workspace
 

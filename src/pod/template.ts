@@ -6,7 +6,11 @@
 import { GENERATED_FILES, type ScreenProject } from '../core/project.ts';
 import type { WidgetSpec } from '../plugin/spec.ts';
 
-const raw = import.meta.glob('/pod-template/**/*', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const raw = import.meta.glob('/pod-template/**/*', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
 /** (Dotfiles are not picked up by the glob.) */
 const GITIGNORE = 'node_modules\ndist\n';
 
@@ -25,7 +29,10 @@ export function templateFiles(): Record<string, string> {
  * Files to put in a work: while the work has no project yet, the template comes
  * with them (a part never arrives without the project that shows it).
  */
-export function withTemplate(project: ScreenProject | undefined, files: Record<string, string | null>): Record<string, string | null> {
+export function withTemplate(
+  project: ScreenProject | undefined,
+  files: Record<string, string | null>,
+): Record<string, string | null> {
   return project ? files : { ...templateFiles(), ...files };
 }
 
@@ -60,17 +67,28 @@ export default part({
 `;
 }
 
-const KIND: Partial<Record<WidgetSpec['type'], string>> = { 'ui.knob': 'knob', 'ui.slider': 'slider', 'ui.toggle': 'switch', 'ui.button': 'button', 'ui.xy': 'xy' };
+const KIND: Partial<Record<WidgetSpec['type'], string>> = {
+  'ui.knob': 'knob',
+  'ui.slider': 'slider',
+  'ui.toggle': 'switch',
+  'ui.button': 'button',
+  'ui.xy': 'xy',
+};
 const literal = (v: unknown) => JSON.stringify(v);
 
 /** src/kit/controls.ts for the patch's controls (knobs, sliders, switches, buttons, XY pads; on the plugin or not). */
 export function controlsSource(controls: Readonly<Record<string, WidgetSpec>>): string {
   const lines: string[] = [];
   for (const c of Object.values(controls).sort((a, b) => a.id.localeCompare(b.id))) {
-    const kind = KIND[c.type]; if (!kind) continue;
+    const kind = KIND[c.type];
+    if (!kind) continue;
     const fields: string[] = [`kind: ${literal(kind)}`, `label: ${literal(c.label)}`];
     if (kind === 'knob' || kind === 'slider') {
-      fields.push(`min: ${Number(c.config.min ?? 0)}`, `max: ${Number(c.config.max ?? 1)}`, `scale: ${literal(c.config.scale === 'log' ? 'log' : 'linear')}`);
+      fields.push(
+        `min: ${Number(c.config.min ?? 0)}`,
+        `max: ${Number(c.config.max ?? 1)}`,
+        `scale: ${literal(c.config.scale === 'log' ? 'log' : 'linear')}`,
+      );
       if (c.config.unit) fields.push(`unit: ${literal(String(c.config.unit))}`);
     }
     lines.push(`  ${literal(c.id)}: { ${fields.join(', ')} },`);

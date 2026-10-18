@@ -6,13 +6,24 @@ import { BASE_CSS, DkElement, col, escapeHtml, safeUrl } from './base.ts';
 export class DkToggle extends DkElement {
   static observedAttributes = ['value', 'label', 'momentary', 'skin', 'params'];
   protected static override readonly painted = ['value'];
-  get value() { return this.getAttribute('value') === 'true' || this.getAttribute('value') === '1'; }
+  get value() {
+    return this.getAttribute('value') === 'true' || this.getAttribute('value') === '1';
+  }
   // Vue sets `value` as a property (the element has one), so it must land in the attribute.
-  set value(v: boolean) { const x: unknown = v; this.setAttribute('value', String(x === true || x === 'true' || x === '1')); }
-  private get kind() { return ['button', 'footswitch', 'switch', 'image'].includes(this.skinName) ? this.skinName : 'button'; }
+  set value(v: boolean) {
+    const x: unknown = v;
+    this.setAttribute('value', String(x === true || x === 'true' || x === '1'));
+  }
+  private get kind() {
+    return ['button', 'footswitch', 'switch', 'image'].includes(this.skinName)
+      ? this.skinName
+      : 'button';
+  }
 
   protected build() {
-    const momentary = this.hasAttribute('momentary'), params = this.readParams(), kind = this.kind;
+    const momentary = this.hasAttribute('momentary'),
+      params = this.readParams(),
+      kind = this.kind;
     const label = this.getAttribute('label') ?? (momentary ? 'Push' : 'On/Off');
     let body: string;
     if (kind === 'footswitch') {
@@ -23,7 +34,8 @@ export class DkToggle extends DkElement {
       const slide = this.p(params, 'style', 'lever') === 'slide';
       body = `<div class="sw">${this.p(params, 'label', 'bottom') === 'top' ? `<div class="label" part="label">${escapeHtml(label)}</div>` : ''}<div class="row"><span class="txt on-t">${escapeHtml(this.p(params, 'onText', 'ON'))}</span><button part="button" class="${slide ? 'slide' : 'lever'}" aria-label="${escapeHtml(label)}"><i></i></button><span class="txt off-t">${escapeHtml(this.p(params, 'offText', 'OFF'))}</span></div>${this.p(params, 'label', 'bottom') === 'bottom' ? `<div class="label" part="label">${escapeHtml(label)}</div>` : ''}</div>`;
     } else if (kind === 'image') {
-      const off = safeUrl(params.off), on = safeUrl(params.on);
+      const off = safeUrl(params.off),
+        on = safeUrl(params.on);
       body = `<button part="button" class="imgbtn" aria-label="${escapeHtml(label)}">${off ? `<img class="off" src="${off}" alt="" draggable="false">` : ''}${on ? `<img class="on" src="${on}" alt="" draggable="false">` : ''}${!off && !on ? escapeHtml(label) : ''}</button>`;
     } else body = `<button part="button" class="plain">${escapeHtml(label)}</button>`;
     const on = col(params.on, 'var(--dk-accent,#5ec4ff)');
@@ -56,11 +68,26 @@ export class DkToggle extends DkElement {
       .imgbtn.on .off{display:none}
       </style>${body}`;
     const button = this.$<HTMLButtonElement>('button');
-    const set = (v: boolean) => { this.setAttribute('value', String(v)); this.paint(); this.emit('input', v); this.emit('change', v); };
+    const set = (v: boolean) => {
+      this.setAttribute('value', String(v));
+      this.paint();
+      this.emit('input', v);
+      this.emit('change', v);
+    };
     if (momentary) {
-      button.addEventListener('pointerdown', e => { button.setPointerCapture(e.pointerId); this.holding = true; set(true); });
-      const release = () => { if (!this.holding) return; set(false); this.ended(); };
-      button.addEventListener('pointerup', release); button.addEventListener('pointercancel', release); button.addEventListener('lostpointercapture', release);
+      button.addEventListener('pointerdown', e => {
+        button.setPointerCapture(e.pointerId);
+        this.holding = true;
+        set(true);
+      });
+      const release = () => {
+        if (!this.holding) return;
+        set(false);
+        this.ended();
+      };
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('lostpointercapture', release);
     } else button.addEventListener('click', () => set(!this.value));
     this.paint();
   }
@@ -69,6 +96,7 @@ export class DkToggle extends DkElement {
     const on = this.value;
     const button = this.$<HTMLButtonElement>('button');
     button?.setAttribute('aria-pressed', String(on));
-    for (const el of [button, this.$<HTMLElement>('.fs'), this.$<HTMLElement>('.sw')]) el?.classList.toggle('on', on);
+    for (const el of [button, this.$<HTMLElement>('.fs'), this.$<HTMLElement>('.sw')])
+      el?.classList.toggle('on', on);
   }
 }

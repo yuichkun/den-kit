@@ -14,7 +14,16 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { CLOSE, MAX_FRAME_BYTES, PROTOCOL_VERSION, WS_PATH, parseClientMessage, type BridgeStatus, type ClientMessage, type ServerMessage } from '../src/ai/protocol.ts';
+import {
+  CLOSE,
+  MAX_FRAME_BYTES,
+  PROTOCOL_VERSION,
+  WS_PATH,
+  parseClientMessage,
+  type BridgeStatus,
+  type ClientMessage,
+  type ServerMessage,
+} from '../src/ai/protocol.ts';
 import { Telemetry } from './telemetry.ts';
 import type { CodexClient, TurnSink } from './codex/client.ts';
 
@@ -39,7 +48,12 @@ export interface BridgeOptions {
   handleHttp?: (req: IncomingMessage, res: ServerResponse) => void;
 }
 
-interface Tab { socket: WebSocket; id: string; tab: string; alive: boolean }
+interface Tab {
+  socket: WebSocket;
+  id: string;
+  tab: string;
+  alive: boolean;
+}
 
 export interface Bridge {
   readonly port: number;
@@ -58,13 +72,17 @@ export function expandOrigins(origins: string[]): Set<string> {
   for (const origin of origins) {
     try {
       const url = new URL(origin);
-      for (const host of ['127.0.0.1', 'localhost']) out.add(`${url.protocol}//${host}${url.port ? `:${url.port}` : ''}`);
-    } catch { /* ignore malformed entries */ }
+      for (const host of ['127.0.0.1', 'localhost'])
+        out.add(`${url.protocol}//${host}${url.port ? `:${url.port}` : ''}`);
+    } catch {
+      /* ignore malformed entries */
+    }
   }
   return out;
 }
 
-const isLoopbackHost = (host: string | undefined) => !!host && /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host);
+const isLoopbackHost = (host: string | undefined) =>
+  !!host && /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host);
 
 export async function createBridge(options: BridgeOptions = {}): Promise<Bridge> {
   const token = options.token ?? randomBytes(24).toString('base64url');
@@ -77,9 +95,16 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const codex = options.codex;
   const llmGraceMs = options.llmGraceMs ?? 30000;
-  const status = (): BridgeStatus => ({ codex: codex ? codex.status : { state: 'off', detail: 'dev was started with KIT_CODEX=off.' } });
-  const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
-  const broadcastStatus = () => { const s = status(); for (const t of tabs) send(t.socket, { t: 'status', status: s }); };
+  const status = (): BridgeStatus => ({
+    codex: codex ? codex.status : { state: 'off', detail: 'dev was started with KIT_CODEX=off.' },
+  });
+  const send = (socket: WebSocket, message: ServerMessage) => {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+  };
+  const broadcastStatus = () => {
+    const s = status();
+    for (const t of tabs) send(t.socket, { t: 'status', status: s });
+  };
   const unsubscribeCodex = codex?.onStatus(() => broadcastStatus());
 
   // ---- LLM routing (by tab id, which survives reconnects) ----
@@ -87,12 +112,25 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   const keyOf = (tabName: string, id: string) => `${tabName}${SEP}${id}`;
   const running = new Map<string, Set<string>>(); // tab id → request keys
   const threads = new Map<string, Set<string>>(); // tab id → conversations
-  const away = new Map<string, { messages: ServerMessage[]; timer: ReturnType<typeof setTimeout> }>();
-  const add = (map: Map<string, Set<string>>, tabName: string, value: string) => { let set = map.get(tabName); if (!set) map.set(tabName, set = new Set()); set.add(value); };
-  const connected = (tabName: string) => { for (const t of tabs) if (t.tab === tabName) return t; return undefined; };
+  const away = new Map<
+    string,
+    { messages: ServerMessage[]; timer: ReturnType<typeof setTimeout> }
+  >();
+  const add = (map: Map<string, Set<string>>, tabName: string, value: string) => {
+    let set = map.get(tabName);
+    if (!set) map.set(tabName, (set = new Set()));
+    set.add(value);
+  };
+  const connected = (tabName: string) => {
+    for (const t of tabs) if (t.tab === tabName) return t;
+    return undefined;
+  };
   function deliver(tabName: string, message: ServerMessage) {
     const t = connected(tabName);
-    if (t) { send(t.socket, message); return; }
+    if (t) {
+      send(t.socket, message);
+      return;
+    }
     const a = away.get(tabName);
     if (a && a.messages.length < 5000) a.messages.push(message);
   }
@@ -101,10 +139,18 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       event: event => {
         if (event.kind === 'thread') add(threads, tabName, event.thread);
         if (event.kind === 'done') running.get(tabName)?.delete(keyOf(tabName, id));
-        if (event.kind === 'steered') event = { ...event, target: event.target.slice(tabName.length + SEP.length) };
+        if (event.kind === 'steered')
+          event = { ...event, target: event.target.slice(tabName.length + SEP.length) };
         deliver(tabName, { t: 'llm.event', id, event });
       },
-      toolCall: call => deliver(tabName, { t: 'tool.call', id, callId: call.callId, tool: call.tool, args: call.args }),
+      toolCall: call =>
+        deliver(tabName, {
+          t: 'tool.call',
+          id,
+          callId: call.callId,
+          tool: call.tool,
+          args: call.args,
+        }),
     };
   }
   /** A tab went away: keep its LLM work for a while, then stop it. */
@@ -115,7 +161,8 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       away.delete(tabName);
       for (const key of running.get(tabName) ?? []) codex.stopTurn(key, 'The editor tab closed.');
       for (const thread of threads.get(tabName) ?? []) codex.forget(thread);
-      running.delete(tabName); threads.delete(tabName);
+      running.delete(tabName);
+      threads.delete(tabName);
       log(`tab ${tabName} did not come back; its LLM requests were stopped`);
     }, llmGraceMs);
     timer.unref?.();
@@ -124,14 +171,35 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   /** The same tab is back: deliver what it missed and ask again for tool results it never sent. */
   function rejoin(tab: Tab) {
     const a = away.get(tab.tab);
-    if (a) { clearTimeout(a.timer); away.delete(tab.tab); for (const m of a.messages) send(tab.socket, m); }
+    if (a) {
+      clearTimeout(a.timer);
+      away.delete(tab.tab);
+      for (const m of a.messages) send(tab.socket, m);
+    }
     if (!codex) return;
     for (const key of running.get(tab.tab) ?? []) {
       const id = key.slice(tab.tab.length + 1);
-      for (const call of codex.pendingToolCalls(key)) send(tab.socket, { t: 'tool.call', id, callId: call.callId, tool: call.tool, args: call.args });
+      for (const call of codex.pendingToolCalls(key))
+        send(tab.socket, {
+          t: 'tool.call',
+          id,
+          callId: call.callId,
+          tool: call.tool,
+          args: call.args,
+        });
     }
   }
-  const llmOff = (socket: WebSocket, id: string) => send(socket, { t: 'llm.event', id, event: { kind: 'done', status: 'failed', error: { message: 'The LLM path is off in this bridge (KIT_CODEX=off).', code: 'off' }, ms: 0 } });
+  const llmOff = (socket: WebSocket, id: string) =>
+    send(socket, {
+      t: 'llm.event',
+      id,
+      event: {
+        kind: 'done',
+        status: 'failed',
+        error: { message: 'The LLM path is off in this bridge (KIT_CODEX=off).', code: 'off' },
+        ms: 0,
+      },
+    });
   const originAllowed = (origin: string | undefined) => !!origin && origins.has(origin);
 
   // HTTP: only the token endpoint (same-origin pages may re-read the token after a bridge restart).
@@ -140,46 +208,98 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
     if (req.method === 'GET' && url.pathname === TOKEN_PATH) {
       const site = req.headers['sec-fetch-site'];
       const origin = req.headers.origin;
-      const ok = isLoopbackHost(req.headers.host) && (site === undefined || site === 'same-origin') && (origin === undefined || originAllowed(origin));
-      if (!ok) { res.writeHead(403, { 'content-type': 'text/plain' }).end('forbidden'); return; }
-      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ token, protocol: PROTOCOL_VERSION }));
+      const ok =
+        isLoopbackHost(req.headers.host) &&
+        (site === undefined || site === 'same-origin') &&
+        (origin === undefined || originAllowed(origin));
+      if (!ok) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('forbidden');
+        return;
+      }
+      res
+        .writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        .end(JSON.stringify({ token, protocol: PROTOCOL_VERSION }));
       return;
     }
-    if (options.handleHttp) { options.handleHttp(req, res); return; }
+    if (options.handleHttp) {
+      options.handleHttp(req, res);
+      return;
+    }
     res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    if (url.pathname !== WS_PATH || !isLoopbackHost(req.headers.host)) { socket.end('HTTP/1.1 404 Not Found\r\n\r\n'); return; }
+    if (url.pathname !== WS_PATH || !isLoopbackHost(req.headers.host)) {
+      socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+      return;
+    }
     wss.handleUpgrade(req, socket, head, ws => {
       // Refuse with a close code (not an HTTP status) so the browser can tell the reason.
-      if (!originAllowed(req.headers.origin)) { log(`refused origin ${String(req.headers.origin)}`); ws.close(CLOSE.badOrigin, 'origin not allowed'); return; }
+      if (!originAllowed(req.headers.origin)) {
+        log(`refused origin ${String(req.headers.origin)}`);
+        ws.close(CLOSE.badOrigin, 'origin not allowed');
+        return;
+      }
       accept(ws);
     });
   });
 
   function accept(socket: WebSocket) {
     let tab: Tab | undefined;
-    const helloTimer = setTimeout(() => { if (!tab) socket.close(CLOSE.helloTimeout, 'no hello'); }, helloTimeoutMs);
+    const helloTimer = setTimeout(() => {
+      if (!tab) socket.close(CLOSE.helloTimeout, 'no hello');
+    }, helloTimeoutMs);
     socket.on('message', (data, isBinary) => {
-      if (isBinary) { send(socket, { t: 'error', message: 'binary frames are not supported' }); return; }
+      if (isBinary) {
+        send(socket, { t: 'error', message: 'binary frames are not supported' });
+        return;
+      }
       const parsed = parseClientMessage(data.toString());
-      if ('error' in parsed) { send(socket, { t: 'error', message: parsed.error }); return; }
+      if ('error' in parsed) {
+        send(socket, { t: 'error', message: parsed.error });
+        return;
+      }
       if (!tab) {
-        if (parsed.t !== 'hello') { socket.close(CLOSE.protocol, 'hello first'); return; }
-        if (parsed.token !== token) { socket.close(CLOSE.badToken, 'bad token'); return; }
-        if (parsed.protocol !== PROTOCOL_VERSION) { send(socket, { t: 'error', message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart dev` }); socket.close(CLOSE.protocol, 'protocol mismatch'); return; }
+        if (parsed.t !== 'hello') {
+          socket.close(CLOSE.protocol, 'hello first');
+          return;
+        }
+        if (parsed.token !== token) {
+          socket.close(CLOSE.badToken, 'bad token');
+          return;
+        }
+        if (parsed.protocol !== PROTOCOL_VERSION) {
+          send(socket, {
+            t: 'error',
+            message: `protocol ${parsed.protocol} is not supported (bridge speaks ${PROTOCOL_VERSION}); reload the page or restart dev`,
+          });
+          socket.close(CLOSE.protocol, 'protocol mismatch');
+          return;
+        }
         clearTimeout(helloTimer);
         // The same tab on a new socket (a reconnect that beat the old socket's close): the new one wins.
         const previous = connected(parsed.tab);
-        if (previous) { tabs.delete(previous); previous.socket.close(CLOSE.replaced, 'replaced by a newer connection'); }
+        if (previous) {
+          tabs.delete(previous);
+          previous.socket.close(CLOSE.replaced, 'replaced by a newer connection');
+        }
         tab = { socket, id: `t${nextTab++}`, tab: parsed.tab, alive: true };
         tabs.add(tab);
-        socket.on('pong', () => { if (tab) tab.alive = true; });
-        const mine = [...running.get(parsed.tab) ?? []].map(key => key.slice(parsed.tab.length + SEP.length));
-        send(socket, { t: 'welcome', protocol: PROTOCOL_VERSION, bridge: BRIDGE_VERSION, status: status(), running: mine });
+        socket.on('pong', () => {
+          if (tab) tab.alive = true;
+        });
+        const mine = [...(running.get(parsed.tab) ?? [])].map(key =>
+          key.slice(parsed.tab.length + SEP.length),
+        );
+        send(socket, {
+          t: 'welcome',
+          protocol: PROTOCOL_VERSION,
+          bridge: BRIDGE_VERSION,
+          status: status(),
+          running: mine,
+        });
         rejoin(tab);
         return;
       }
@@ -196,33 +316,78 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   function handle(tab: Tab, message: ClientMessage) {
     switch (message.t) {
-      case 'hello': send(tab.socket, { t: 'error', message: 'already said hello' }); return;
-      case 'status.get': send(tab.socket, { t: 'status', id: message.id, status: status() }); return;
+      case 'hello':
+        send(tab.socket, { t: 'error', message: 'already said hello' });
+        return;
+      case 'status.get':
+        send(tab.socket, { t: 'status', id: message.id, status: status() });
+        return;
       case 'telemetry': {
         const text = JSON.stringify(message.record);
-        if (text.length > MAX_TELEMETRY_BYTES) { send(tab.socket, { t: 'error', message: 'telemetry record too large' }); return; }
+        if (text.length > MAX_TELEMETRY_BYTES) {
+          send(tab.socket, { t: 'error', message: 'telemetry record too large' });
+          return;
+        }
         telemetry?.write('trace', { tab: tab.tab, ...message.record });
         return;
       }
       case 'llm.start': {
-        if (!codex) { llmOff(tab.socket, message.id); return; }
+        if (!codex) {
+          llmOff(tab.socket, message.id);
+          return;
+        }
         const key = keyOf(tab.tab, message.id);
         add(running, tab.tab, key);
         // Only the tab's own conversations can be continued.
-        const thread = message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
+        const thread =
+          message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
         // A member may start from a copy of one of the tab's own conversations only.
-        const fork = message.fork ? { thread: threads.get(tab.tab)?.has(message.fork.thread) ? message.fork.thread : '', fallback: message.fork.fallback } : undefined;
-        codex.startTurn({ key, text: message.text, thread, instructions: message.instructions, role: message.role, images: message.images, fork }, sinkFor(tab.tab, message.id));
+        const fork = message.fork
+          ? {
+              thread: threads.get(tab.tab)?.has(message.fork.thread) ? message.fork.thread : '',
+              fallback: message.fork.fallback,
+            }
+          : undefined;
+        codex.startTurn(
+          {
+            key,
+            text: message.text,
+            thread,
+            instructions: message.instructions,
+            role: message.role,
+            images: message.images,
+            fork,
+          },
+          sinkFor(tab.tab, message.id),
+        );
         return;
       }
       case 'llm.steer':
-        if (!codex) { llmOff(tab.socket, message.id); return; }
-        codex.steer({ key: keyOf(tab.tab, message.id), target: keyOf(tab.tab, message.target), text: message.text, images: message.images }, sinkFor(tab.tab, message.id));
+        if (!codex) {
+          llmOff(tab.socket, message.id);
+          return;
+        }
+        codex.steer(
+          {
+            key: keyOf(tab.tab, message.id),
+            target: keyOf(tab.tab, message.target),
+            text: message.text,
+            images: message.images,
+          },
+          sinkFor(tab.tab, message.id),
+        );
         return;
-      case 'llm.stop': codex?.stopTurn(keyOf(tab.tab, message.id)); return;
+      case 'llm.stop':
+        codex?.stopTurn(keyOf(tab.tab, message.id));
+        return;
       case 'llm.answer': {
         const prefix = keyOf(tab.tab, '');
-        if (!codex?.answer(message.question, message.answers, key => key.startsWith(prefix))) send(tab.socket, { t: 'error', message: 'That question is no longer open.', ref: message.id });
+        if (!codex?.answer(message.question, message.answers, key => key.startsWith(prefix)))
+          send(tab.socket, {
+            t: 'error',
+            message: 'That question is no longer open.',
+            ref: message.id,
+          });
         return;
       }
       case 'llm.forget':
@@ -233,31 +398,48 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         codex?.toolResult(message.callId, message.output, key => key === owner);
         return;
       }
-      case 'codex.retry': void codex?.retry(); return;
-
+      case 'codex.retry':
+        void codex?.retry();
+        return;
     }
   }
 
   const heartbeat = setInterval(() => {
     for (const t of tabs) {
-      if (!t.alive) { t.socket.terminate(); continue; }
+      if (!t.alive) {
+        t.socket.terminate();
+        continue;
+      }
       t.alive = false;
-      try { t.socket.ping(); } catch { /* closed meanwhile */ }
+      try {
+        t.socket.ping();
+      } catch {
+        /* closed meanwhile */
+      }
     }
   }, options.heartbeatMs ?? 15000);
   heartbeat.unref();
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(options.port ?? 0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+    server.listen(options.port ?? 0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
 
   return {
-    port, token, server, status,
-    setOrigins(next) { origins = expandOrigins(next); },
-    tabs: () => [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: running.get(t.tab)?.size ?? 0 })),
+    port,
+    token,
+    server,
+    status,
+    setOrigins(next) {
+      origins = expandOrigins(next);
+    },
+    tabs: () =>
+      [...tabs].map(t => ({ id: t.id, tab: t.tab, pending: running.get(t.tab)?.size ?? 0 })),
     async close() {
       clearInterval(heartbeat);
       for (const a of away.values()) clearTimeout(a.timer);
