@@ -35,9 +35,8 @@ authentication and BrowserPod configuration for the normal den-kit workflow.
 ### AI configuration
 
 Authentication is stored in `.codex-home`, separate from your normal Codex
-configuration and excluded from Git. AI requests use the signed-in account's
-ChatGPT allowance. Direct patch and interface editing is available alongside
-the required AI workflow.
+configuration and excluded from Git. Direct patch and interface editing is
+available alongside the required AI workflow.
 
 Development settings in a local `.env` file:
 

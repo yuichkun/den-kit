@@ -1,8 +1,7 @@
 # Using den-kit
 
 den-kit runs as the macOS app or in a current version of Chrome. The Plugin view is an
-instrument's interface inside den-kit; exporting a standalone DAW plugin is not
-supported.
+instrument's interface inside den-kit.
 
 Audio requires **48 kHz**. On macOS, set the output device to 48 kHz in Audio MIDI Setup
 if necessary. Click the start overlay to enable audio and MIDI.
@@ -58,7 +57,7 @@ These shortcuts apply outside text inputs. The table uses macOS key names.
 | `Delete` | Delete the selection. |
 | `⌘G` / `⇧⌘G` in Patch | Create / unpack a part. |
 | `⇧Space` in Plugin Edit mode | Add a control, decoration, or code part. |
-| `P` | Sketch over the current view for an AI request. |
+| `P` in Patch or Plugin | Sketch over the view for an AI request. |
 | `⌘J` | Show or hide the AI panel. |
 
 ## Saving and backups
@@ -84,9 +83,8 @@ The workspace provides `npm run check`, `npm run lint`, and `npm run build`.
 
 ## Known limitations
 
-- Audio runs at 48 kHz; other sample rates are not supported.
-- The browser target is current Chrome. BrowserPod needs recent WebAssembly
-  features, and only one den-kit tab can own its workspace at a time.
+- BrowserPod needs recent WebAssembly features, and only one den-kit tab can own
+  its workspace at a time.
 - Native npm binaries do not run inside BrowserPod; use browser-compatible or
   WebAssembly packages for code parts.
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
