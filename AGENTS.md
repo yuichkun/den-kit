@@ -73,8 +73,9 @@ The repository and GitHub are public.
 - Notion and Linear are private. Do not copy, quote or summarize them in the repository
   or on GitHub; the one exception is README's description of what den-kit is for.
 - Keep issue IDs out of commit messages and pull request titles and descriptions.
-- Describe the current state only. Do not write how things used to be or what changed,
-  such as "previously", "now uses" or "was changed to". Git history keeps that.
+- In docs and code comments, describe the current state only. Do not write how things
+  used to be or what changed, such as "previously", "now uses" or "was changed to".
+  Changes are described in commit messages and pull requests.
 
 ## Rules for changes
 
