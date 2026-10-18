@@ -44,6 +44,7 @@ function key(e: KeyboardEvent) {
   <div class="palette" @pointerdown.stop>
     <input ref="input" v-model="query" type="text" placeholder="Add a block… (osc, filter, delay, knob)" data-testid="palette-search" @input="active = 0" @keydown="key" />
     <ul>
+      <!-- prettier-ignore -->
       <li v-for="(d, i) in matches" :key="d.type" :class="{ active: i === active }" :data-type="d.type" @mouseenter="active = i" @click="emit('pick', d.type)">
         <b>{{ d.title }}</b> <span class="cat">{{ d.category === 'mine' ? 'my part' : d.category }}</span>
         <div class="muted">{{ d.summary }}</div>

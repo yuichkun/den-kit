@@ -94,6 +94,9 @@ export default defineConfig({
       { extends: true, test: { name: 'integration', include: ['test/integration/**/*.test.ts'], environment: 'node', maxWorkers: 1, testTimeout: 180000, hookTimeout: 180000 } },
     ],
   },
+  // In templates, Vue removes white space that holds a line break between two elements and keeps other
+  // white space as one space. So a space that shows between inline elements stays on one line
+  // (<!-- prettier-ignore -->), and text shown with white-space: pre-wrap is bound with v-text.
   fmt: {
     singleQuote: true, semi: true, arrowParens: 'avoid', printWidth: 100, sortPackageJson: false,
     // The pod's own tooling files: npm writes package.json and package-lock.json there, and ESLint reads eslint.config.js.

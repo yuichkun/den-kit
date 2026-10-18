@@ -118,7 +118,7 @@ const fmt = (v: number) => { const a = Math.abs(v); return a >= 1000 ? `${(v / 1
           <button v-if="spreadOf(p)?.kind === 'random'" class="small" title="Other random values" :data-reroll="p.id" @click="reroll(p)">⟳</button>
         </div>
         <svg class="bars nodrag" :class="{ each: spreadOf(p)?.kind === 'each' }" viewBox="0 0 100 24" preserveAspectRatio="none" :data-bars="p.id" @pointerdown="drawBars(p, $event)">
-          <title>{{ values(p).map((v, k) => `${k + 1}: ${fmt(v)}${p.unit ? ` ${p.unit}` : ''}`).join('\n') }} (drag to give each copy its own value)</title>
+          <title v-text="`${values(p).map((v, k) => `${k + 1}: ${fmt(v)}${p.unit ? ` ${p.unit}` : ''}`).join('\n')} (drag to give each copy its own value)`" />
           <rect v-for="(v, k) in values(p)" :key="k" :x="k * 100 / count + 0.4" :width="Math.max(0.6, 100 / count - 0.8)" :y="24 * (1 - height(p, v))" :height="24 * height(p, v)" />
         </svg>
         <div class="ends muted"><span>{{ fmt(values(p)[0]!) }}</span><span>{{ fmt(values(p).at(-1)!) }} {{ p.unit }}</span></div>

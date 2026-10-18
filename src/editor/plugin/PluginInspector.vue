@@ -146,7 +146,7 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
         <template v-else-if="element.kind === 'code'">
           <div class="row"><label>Part</label><select :value="element.part" data-testid="code-part-select" @change="setEl({ part: ($event.target as HTMLSelectElement).value }, 'Code part')"><option v-for="p in (partList.includes(element.part) ? partList : [element.part, ...partList])" :key="p" :value="p">{{ p }}</option></select></div>
           <div class="muted small" data-testid="code-part-state">{{ partPath(element.part) }} · {{ codeReport ? codeReport.state : (session.pod?.message.value || 'not loaded') }}</div>
-          <div v-if="codeReport?.error" class="code-error small" data-testid="code-part-error">{{ codeReport.error }}</div>
+          <div v-if="codeReport?.error" class="code-error small" data-testid="code-part-error" v-text="codeReport.error" />
           <div v-for="(spec, key) in propSpecs" :key="key" class="row" :data-prop="key">
             <label>{{ spec.label ?? key }}</label>
             <input v-if="spec.type === 'number'" type="number" :min="spec.min" :max="spec.max" :step="spec.step ?? 'any'" :value="propValue(String(key), spec)" @change="setProp(String(key), Number(($event.target as HTMLInputElement).value))" />

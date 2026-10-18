@@ -230,7 +230,7 @@ defineExpose({ focus });
                 <div v-if="a.step && a.status === 'working' && o.live" class="lane-step">{{ a.step }}</div>
               </li>
             </ul>
-            <div v-if="o.reply && o.reply.trim() !== (o.message ?? '').trim()" class="reply" data-testid="ai-reply">{{ o.reply }}</div>
+            <div v-if="o.reply && o.reply.trim() !== (o.message ?? '').trim()" class="reply" data-testid="ai-reply" v-text="o.reply" />
           </template>
         </div>
         <div class="meta">

@@ -165,6 +165,7 @@ export function podCheck(): PodCheck { shared ??= new PodCheck(); return shared;
     <div class="terminal">
       <div ref="shell" class="lines" data-testid="pod-log">
         <div v-for="e in log" :key="e.id" class="entry" :class="[e.who, { failed: !e.running && e.exitCode !== 0 && e.exitCode !== null }]" :data-entry="e.id">
+          <!-- prettier-ignore -->
           <div class="cmd"><span class="who">{{ WHO[e.who] }}</span> <span class="prompt">$</span> <span class="c" v-html="highlight(e.command, 'bash')" /> <span class="exit">{{ e.running ? '…' : e.timedOut ? 'stopped (too long)' : e.exitCode === null ? '' : `exit ${e.exitCode}` }}{{ e.running || !e.ms ? '' : ` · ${secs(e.ms)}` }}</span></div>
           <pre v-if="e.output" class="out">{{ e.output.length > 6000 ? `…${e.output.slice(-6000)}` : e.output }}</pre>
         </div>
