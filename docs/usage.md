@@ -3,8 +3,7 @@
 den-kit runs as the macOS app or in a current version of Chrome. The Plugin view is an
 instrument's interface inside den-kit.
 
-Audio requires **48 kHz**. On macOS, set the output device to 48 kHz in Audio MIDI Setup
-if necessary. Click the start overlay to enable audio and MIDI.
+Click the start overlay to enable audio and MIDI.
 
 ## The macOS app
 

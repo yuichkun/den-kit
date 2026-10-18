@@ -30,8 +30,7 @@ npm run dev
 
 Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
 authentication and BrowserPod configuration for the normal den-kit workflow.
-[Using den-kit](usage.md) covers the supported browser, audio setup and the basic
-workflow.
+[Using den-kit](usage.md) covers the supported browser and the basic workflow.
 
 ### AI configuration
 
