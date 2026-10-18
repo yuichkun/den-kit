@@ -2,14 +2,15 @@
 
 ## Run from source
 
-Use **Node.js 24**, a **ChatGPT account** for AI requests, and a **BrowserPod API
-key** for the required workspace. Dependencies are installed from npm; you do not
-need a separate checkout or build of den.
+Use **Node.js 24**, the [Vite+](https://viteplus.dev/guide/) command `vp`, a
+**ChatGPT account** for AI requests, and a **BrowserPod API key** for the required
+workspace. Dependencies are installed from npm; you do not need a separate checkout
+or build of den.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git
 cd den-kit
-npm ci
+vp install --frozen-lockfile
 ```
 
 For source development, create a key in the
@@ -23,9 +24,9 @@ The repository includes the Codex CLI used by den-kit. Sign in with your ChatGPT
 account, check the environment, and start the editor:
 
 ```sh
-npm run codex:login
-npm run doctor
-npm run dev
+vp run codex:login
+vp run doctor
+vp run dev
 ```
 
 Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
@@ -58,7 +59,7 @@ and checks. First startup includes package installation and requires network
 access. BrowserPod also supplies the AI's project environment.
 
 Keep `.env` and credentials out of version control. The development server
-passes the BrowserPod key to the local page; a regular `npm run build` excludes
+passes the BrowserPod key to the local page; a regular `vp run build` excludes
 it from the web renderer.
 
 ## Build the macOS app
@@ -67,8 +68,8 @@ On macOS, install dependencies and set `BROWSERPOD_API_KEY` in `.env` or the
 build environment, then run:
 
 ```sh
-npm run desktop:package
-npm run desktop:run
+vp run desktop:package
+vp run desktop:run
 ```
 
 The bundle is written to `release/mac-arm64/den-kit.app` on Apple silicon or
@@ -88,29 +89,32 @@ Mac's architecture. The packaging scripts build macOS apps only. Signed releases
 
 ### Reset the app's data
 
-To test a fresh installation, quit den-kit and run `npm run desktop:clean`.
+To test a fresh installation, quit den-kit and run `vp run desktop:clean`.
 This permanently deletes `~/Library/Application Support/den-kit/`, including
 ChatGPT sign-in, the autosaved work, conversations, imported assets, project
 disks and installed dependencies, settings, and caches. Export any work you want
 to keep first. The command refuses to delete data while den-kit is running.
-Use `npm run desktop:clean -- --dry-run` to print the target without deleting it.
+Use `vp run desktop:clean --dry-run` to print the target without deleting it.
 The app bundle, exported files, and repository `.env` are preserved.
 
 ## Checks and tests
 
 ```sh
-npm run check
-npm run build
-npx playwright install chromium
-npm test
+vp check
+vp run typecheck
+vp run build
+vp exec playwright install chromium
+vp run test
 ```
 
-Run suites separately with `npm run test:unit`, `npm run test:integration`, and
-`npm run test:e2e`. Browser tests need Chromium; `CHROMIUM_PATH` can select an
+`vp check` checks formatting and lint; `vp check --fix` fixes what it can.
+`vp run typecheck` checks types with vue-tsc, and `vp run build` runs it first.
+Run suites separately with `vp run test:unit`, `vp run test:integration`, and
+`vp run test:e2e`. Browser tests need Chromium; `CHROMIUM_PATH` can select an
 existing installation. Automated regression tests use model and pod substitutes
 rather than paid AI or BrowserPod services. Pod tests execute local commands
 and may download npm dependencies.
 
-After building the macOS bundle, `npm run desktop:check` verifies it with an
-isolated profile. `npm run desktop:check -- --real` additionally uses local
+After building the macOS bundle, `vp run desktop:check` verifies it with an
+isolated profile. `vp run desktop:check --real` additionally uses local
 ChatGPT authentication and real BrowserPod resources, consuming service usage.

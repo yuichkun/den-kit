@@ -84,5 +84,5 @@ and the [API definitions](../pod-template/src/kit/index.ts) describe how to writ
   dynamic `import()` can still load and execute remote JavaScript. Imported
   works and AI-generated Canvas code can therefore make network requests.
 - Works can be exported as editable JSON, but not as standalone DAW plugins or
-  self-contained web instruments. `npm run build` builds the den-kit renderer,
+  self-contained web instruments. `vp run build` builds the den-kit renderer,
   not a distributable instrument.
