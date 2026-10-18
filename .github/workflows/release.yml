@@ -69,12 +69,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: .node-version
-          package-manager-cache: false
           # No dependency cache in the signing job.
-      - run: npm ci
+          cache: false
+          run-install: false
+      - run: vp install --frozen-lockfile
       - name: Write the App Store Connect API key for notarization
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -96,10 +97,10 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          npm run desktop:build
-          npx electron-builder --config electron-builder.yml --mac --publish never -c.forceCodeSigning=true
+          vp run desktop:build
+          vp exec electron-builder --config electron-builder.yml --mac --publish never -c.forceCodeSigning=true
       - name: Check signing, notarization, both architectures and the update feed
-        run: npm run desktop:check-artifacts -- release --notarized
+        run: vp run desktop:check-artifacts release --notarized
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-release-${{ github.sha }}
