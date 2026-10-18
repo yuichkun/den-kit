@@ -39,7 +39,7 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | Running from source, building the macOS app, checks and tests | [docs/development.md](docs/development.md) |
 | What each source directory holds | [docs/architecture.md](docs/architecture.md) |
 | A module's role and its rules | The comment at the top of the module |
-| Releases | [RELEASE.md](RELEASE.md) |
+| Releases and release notes | [RELEASE.md](RELEASE.md) and [CHANGELOG.md](CHANGELOG.md) |
 | Code parts, the `kit` API and the in-app AI | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
 | What CI runs | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | What a pull request description holds | [.github/pull_request_template.md](.github/pull_request_template.md) |
@@ -73,9 +73,10 @@ The repository and GitHub are public.
 - Notion and Linear are private. Do not copy, quote or summarize them in the repository
   or on GitHub; the one exception is README's description of what den-kit is for.
 - Keep issue IDs out of commit messages and pull request titles and descriptions.
-- In docs and code comments, describe the current state only. Do not write how things
-  used to be or what changed, such as "previously", "now uses" or "was changed to".
-  Changes are described in commit messages and pull requests.
+- Docs and code comments describe the current state only: do not write how things used
+  to be or what changed, such as "previously", "now uses" or "was changed to". Changes
+  are recorded only in commit messages, pull requests and the two history records,
+  [CHANGELOG.md](CHANGELOG.md) and [docs/migration.md](docs/migration.md).
 
 ## Rules for changes
 

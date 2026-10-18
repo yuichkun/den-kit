@@ -12,8 +12,7 @@
 
 ## Checks
 
-- [ ] `npm run check`
-- [ ] `npm run build`
-- [ ] `npm test`, or the suites that cover the change
+<!-- The checks you ran from https://github.com/yuichkun/den-kit/blob/main/docs/development.md#checks-and-tests, and their results. -->
+
 - [ ] Docs and module header comments match the change
 - [ ] No team members' real names, private planning or issue IDs in this description or the commits
