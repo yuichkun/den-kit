@@ -117,7 +117,7 @@ try {
 for (const [name, path] of [
   ['vue', 'node_modules/vue/package.json'],
   ['@vue-flow/core', 'node_modules/@vue-flow/core/package.json'],
-  ['vite', 'node_modules/vite/package.json'],
+  ['vite-plus', 'node_modules/vite-plus/package.json'],
 ] as const) {
   report(
     existsSync(join(kit, path)) ? 'PASS' : 'FAIL',

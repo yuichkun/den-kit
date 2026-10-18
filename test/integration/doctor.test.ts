@@ -2,7 +2,7 @@
 // An HTTP trap verifies that retired Jev environment settings never trigger a request.
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -76,6 +76,12 @@ describe('doctor', () => {
       'scripts/doctor.ts',
       { ...codexEnv('home-ok', true), KIT_DOCTOR_TOOL_WAIT_MS: '1500' },
       ['--deep'],
+    );
+    const vitePlus = JSON.parse(
+      readFileSync(join(KIT_ROOT, 'node_modules/vite-plus/package.json'), 'utf8'),
+    ).version as string;
+    expect(line(out, 'vite-plus')).toMatch(
+      new RegExp(`^PASS\\s+vite-plus\\s+${vitePlus.replaceAll('.', '\\.')}$`),
     );
     expect(line(out, 'Codex CLI')).toMatch(/^PASS.*0\.160\.1 \(KIT_CODEX_BIN\)/);
     expect(line(out, 'CODEX_HOME')).toMatch(/^WARN.*KIT_CODEX_HOME/);
