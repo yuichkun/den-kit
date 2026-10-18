@@ -165,7 +165,10 @@ onMounted(() => {
   window.addEventListener('storage', storageChanged);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
-  window.addEventListener('pagehide', () => session.saveNow());
+  // The audio closes before the page goes away (unless it waits in the back/forward cache). Chrome can deadlock tearing
+  // down a page whose AudioWorklet still plays: the page's main thread waits for the audio output thread, which never
+  // returns, so a reload or a navigation never finishes. Closing the context stops the output while the worklet runs.
+  window.addEventListener('pagehide', e => { session.saveNow(); if (!e.persisted) void session.engine.dispose(); });
   document.addEventListener('fullscreenchange', fullscreenChange);
   window.addEventListener('resize', onResize);
 });

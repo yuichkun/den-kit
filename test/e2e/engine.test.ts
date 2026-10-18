@@ -200,4 +200,15 @@ describe('audio engine', () => {
     assert.ok(await second.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('den-kit:autosave:broken'))));
     await context.close();
   });
+
+  it('leaving the page closes the audio while the page is still whole; a page kept in the back/forward cache keeps playing', async () => {
+    const { page, errors } = await ready();
+    await page.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+    assert.equal(await kit(page, k => k.engine.ctx?.state), 'running');
+    // Closed by the time pagehide returns, before the browser tears the page down.
+    assert.equal(await kit(page, k => { const ctx = k.engine.ctx; dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })); return ctx.state; }), 'closed');
+    await page.waitForFunction(() => (window as unknown as K).__kit.engineState.value === 'off');
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
 });
