@@ -3,7 +3,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, outputPeak, startAudio, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { openKit, outputPeak, reloadKit, startAudio, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 type K = { __kit: any };
 let h: Harness;
@@ -184,7 +184,7 @@ describe('audio engine', () => {
     await waitCompiled(page);
     const record = await kit(page, k => { k.commit([{ op: 'setName', name: 'Persist me' }, { op: 'setValue', node: 'filter1', port: 'resonance', value: 2.5 }]); k.saveNow(); return localStorage.getItem('den-kit:autosave'); });
     await page.evaluate(() => sessionStorage.setItem('kit-e2e-keep', '1'));
-    await page.reload();
+    await reloadKit(page);
     await page.waitForFunction(() => (window as unknown as K).__kit?.doc.value.name === 'Persist me', null, { timeout: 60000 });
     assert.equal(await kit(page, k => k.doc.value.nodes.filter1.values.resonance), 2.5);
     await page.close();
