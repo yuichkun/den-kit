@@ -2,26 +2,57 @@
 // registers these tools with Codex (dynamicTools) and the browser executes them
 // against the live patch (src/ai/llm-workspace.ts).
 
-export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
+export interface ToolSpec {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 
-const portRef = { type: 'object', properties: { node: { type: 'string' }, port: { type: 'string' } }, required: ['node', 'port'], additionalProperties: false };
-const rect = { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'], additionalProperties: false };
+const portRef = {
+  type: 'object',
+  properties: { node: { type: 'string' }, port: { type: 'string' } },
+  required: ['node', 'port'],
+  additionalProperties: false,
+};
+const rect = {
+  type: 'object',
+  properties: {
+    x: { type: 'number' },
+    y: { type: 'number' },
+    w: { type: 'number' },
+    h: { type: 'number' },
+  },
+  required: ['x', 'y', 'w', 'h'],
+  additionalProperties: false,
+};
 
 export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_get_patch',
-    description: 'Read the patch as it is now: every module (id, type, label, settings, knob values, codebox code) and every cable, plus a readable summary and any problems. Call this first, and again whenever you are unsure of ids or an edit was refused (the user edits too).',
+    description:
+      'Read the patch as it is now: every module (id, type, label, settings, knob values, codebox code) and every cable, plus a readable summary and any problems. Call this first, and again whenever you are unsure of ids or an edit was refused (the user edits too).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'kit_list_blocks',
-    description: 'List the module types you can add (type, title, category, one-line summary). Optionally filter by category: voice, source, filter, envelope, modulation, fx, dynamics, math, io, ui, code.',
-    inputSchema: { type: 'object', properties: { category: { type: 'string' } }, additionalProperties: false },
+    description:
+      'List the module types you can add (type, title, category, one-line summary). Optionally filter by category: voice, source, filter, envelope, modulation, fx, dynamics, math, io, ui, code.',
+    inputSchema: {
+      type: 'object',
+      properties: { category: { type: 'string' } },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_describe_block',
-    description: 'Full description of one module type: its inputs (units, ranges, defaults, what an unconnected input does), outputs, construction settings and usage notes. Use it before wiring a type you have not used yet.',
-    inputSchema: { type: 'object', properties: { type: { type: 'string' } }, required: ['type'], additionalProperties: false },
+    description:
+      'Full description of one module type: its inputs (units, ranges, defaults, what an unconnected input does), outputs, construction settings and usage notes. Use it before wiring a type you have not used yet.',
+    inputSchema: {
+      type: 'object',
+      properties: { type: { type: 'string' } },
+      required: ['type'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_apply_ops',
@@ -43,7 +74,7 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  A parameter can have its own knob range: "range":{"min":0,"max":1,"unit":"st","scale"?:"log"} on addParam, or {"op":"updatePart","part":"saw","ranges":{"detune":{"min":0,"max":1,"unit":"st"}}} (null = the inner knob\'s). Give one when the knob inside is a math block (its range is huge).',
       '  {"op":"updatePart","part":"drop","name":"Rain drop","doc":"One drop: a noise burst through a bandpass"} · {"op":"unpackPart","node":"drop2"}  (back to ordinary modules) · {"op":"detachPart","node":"drop2"}  (this use gets its own copy)',
       '  {"op":"placeMyPart","id":"rainDrop"}  (a part the person saved in My parts — kit_list_blocks lists them — comes into this patch with one use; then use it like any part)',
-      'Faces (a part\'s own little screen; kit_get_patch says each part\'s face):',
+      "Faces (a part's own little screen; kit_get_patch says each part's face):",
       '  {"op":"putFace","node":"drop1","at":{"x":24,"y":96}}  (put the face of this use on the plugin: controls wired to its parameters plus decorations, grouped as "drop1Face"; putting it again replaces it in place; "at" optional)',
       '  {"op":"updatePart","part":"drop","face":{"width":220,"height":130,"controls":[{"param":"cutoff","type":"ui.knob","rect":{"x":12,"y":28,"w":84,"h":96},"label":"Tone"}],"elements":[{"kind":"text","text":"DROP","rect":{"x":12,"y":6,"w":196,"h":20}}]}}  (the part\'s own face: rects inside the face box; controls only for its parameters; text and lamps bind to a control by parameter id; null = the default face, its name over a knob per parameter). Then putFace each use to show it.',
       '  {"op":"makeScreenPart","ids":["shape3","text2","image1"],"name"?:"Logo"}  (decorations on the plugin become a part that is only a screen — no sound — so it can be kept in My parts and put on other plugins; they become its use\'s face)',
@@ -65,12 +96,97 @@ export const KIT_TOOLS: ToolSpec[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        ops: { type: 'array', minItems: 1, maxItems: 96, items: { type: 'object', properties: {
-          op: { type: 'string', enum: ['addNode', 'removeNode', 'connect', 'disconnect', 'disconnectInput', 'setValue', 'setConfig', 'setLabel', 'move', 'setName', 'setText', 'setTheme', 'addControl', 'setPanel', 'setRect', 'setStyle', 'setLook', 'addElement', 'updateElement', 'removeElement', 'arrange', 'group', 'ungroup', 'setPanelSize', 'addAsset', 'wearLook', 'setBrief', 'makePart', 'unpackPart', 'detachPart', 'updatePart', 'addParam', 'removeParam', 'setCount', 'setSpread', 'placeMyPart', 'putFace', 'makeScreenPart'] },
-          node: {}, id: { type: 'string' }, from: portRef, to: {}, replace: { type: 'boolean' }, port: { type: 'string' }, value: {}, clamp: { type: 'boolean' }, key: { type: 'string' }, label: {}, pos: {}, name: { type: 'string' }, text: { type: 'string' }, theme: { type: 'string' },
-          for: portRef, type: { type: 'string' }, panel: {}, rect: rect, style: {}, look: {}, element: { type: 'object' }, set: { type: 'object' }, ids: { type: 'array', items: { type: 'string' } }, width: { type: 'number' }, height: { type: 'number' }, asset: { type: 'object' }, work: { type: 'string' }, brief: {},
-          part: { type: 'string' }, doc: {}, labels: { type: 'object' }, range: { type: 'object' }, ranges: { type: 'object' }, count: { type: 'number' }, spread: {}, at: { type: 'object' }, face: {},
-        }, required: ['op'] } },
+        ops: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 96,
+          items: {
+            type: 'object',
+            properties: {
+              op: {
+                type: 'string',
+                enum: [
+                  'addNode',
+                  'removeNode',
+                  'connect',
+                  'disconnect',
+                  'disconnectInput',
+                  'setValue',
+                  'setConfig',
+                  'setLabel',
+                  'move',
+                  'setName',
+                  'setText',
+                  'setTheme',
+                  'addControl',
+                  'setPanel',
+                  'setRect',
+                  'setStyle',
+                  'setLook',
+                  'addElement',
+                  'updateElement',
+                  'removeElement',
+                  'arrange',
+                  'group',
+                  'ungroup',
+                  'setPanelSize',
+                  'addAsset',
+                  'wearLook',
+                  'setBrief',
+                  'makePart',
+                  'unpackPart',
+                  'detachPart',
+                  'updatePart',
+                  'addParam',
+                  'removeParam',
+                  'setCount',
+                  'setSpread',
+                  'placeMyPart',
+                  'putFace',
+                  'makeScreenPart',
+                ],
+              },
+              node: {},
+              id: { type: 'string' },
+              from: portRef,
+              to: {},
+              replace: { type: 'boolean' },
+              port: { type: 'string' },
+              value: {},
+              clamp: { type: 'boolean' },
+              key: { type: 'string' },
+              label: {},
+              pos: {},
+              name: { type: 'string' },
+              text: { type: 'string' },
+              theme: { type: 'string' },
+              for: portRef,
+              type: { type: 'string' },
+              panel: {},
+              rect: rect,
+              style: {},
+              look: {},
+              element: { type: 'object' },
+              set: { type: 'object' },
+              ids: { type: 'array', items: { type: 'string' } },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              asset: { type: 'object' },
+              work: { type: 'string' },
+              brief: {},
+              part: { type: 'string' },
+              doc: {},
+              labels: { type: 'object' },
+              range: { type: 'object' },
+              ranges: { type: 'object' },
+              count: { type: 'number' },
+              spread: {},
+              at: { type: 'object' },
+              face: {},
+            },
+            required: ['op'],
+          },
+        },
       },
       required: ['ops'],
       additionalProperties: false,
@@ -78,14 +194,37 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_write_codebox',
-    description: 'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
+    description:
+      'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
     inputSchema: {
       type: 'object',
       properties: {
         node: { type: 'string' },
         code: { type: 'string' },
-        inputs: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, type: { type: 'string', enum: ['signal', 'gate'] } }, required: ['id', 'type'], additionalProperties: false } },
-        outputs: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, type: { type: 'string', enum: ['signal', 'gate'] } }, required: ['id', 'type'], additionalProperties: false } },
+        inputs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              type: { type: 'string', enum: ['signal', 'gate'] },
+            },
+            required: ['id', 'type'],
+            additionalProperties: false,
+          },
+        },
+        outputs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              type: { type: 'string', enum: ['signal', 'gate'] },
+            },
+            required: ['id', 'type'],
+            additionalProperties: false,
+          },
+        },
       },
       required: ['node', 'code', 'inputs', 'outputs'],
       additionalProperties: false,
@@ -93,57 +232,141 @@ export const KIT_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_listen',
-    description: 'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
-    inputSchema: { type: 'object', properties: { phrase: { type: 'string', enum: ['bass', 'chord', 'hits', 'chords', 'drums', 'noise'] }, seconds: { type: 'number', minimum: 0.5, maximum: 8 } }, additionalProperties: false },
+    description:
+      'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phrase: { type: 'string', enum: ['bass', 'chord', 'hits', 'chords', 'drums', 'noise'] },
+        seconds: { type: 'number', minimum: 0.5, maximum: 8 },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_get_plugin',
-    description: 'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations and code parts with their exact fields), controls kept off it, groups, assets and the screen project\'s parts. With "canvas": one canvas element\'s whole code.',
-    inputSchema: { type: 'object', properties: { canvas: { type: 'string' } }, additionalProperties: false },
+    description:
+      'Read the plugin screen as it is now: its size and look (colour and font tokens, background, default skins), everything on it back to front (controls with their skin, value, range and what they drive; decorations and code parts with their exact fields), controls kept off it, groups, assets and the screen project\'s parts. With "canvas": one canvas element\'s whole code.',
+    inputSchema: {
+      type: 'object',
+      properties: { canvas: { type: 'string' } },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_ui_reference',
-    description: 'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, canvas, code; style and textStyle fields), "canvas" (drawing code, including taking the mouse to move controls), "code" (code parts: the screen project in the pod), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
-    inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['look', 'fonts', 'skins', 'elements', 'canvas', 'code', 'pictures', 'looks', 'layout'] }, control: { type: 'string' } }, additionalProperties: false },
+    description:
+      'How to build the plugin screen, by topic: "look" (tokens, background fills, css), "fonts", "skins" (every control skin and its parameters; narrow with "control": knob, slider, toggle, button, xy, keyboard, scope, meter), "elements" (text, shape, image, svg, led, canvas, code; style and textStyle fields), "canvas" (drawing code, including taking the mouse to move controls), "code" (code parts: the screen project in the pod), "pictures" (bundled pictures by id), "looks" (ready looks from the showcase works), "layout" (what reads well). No topic: an overview.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          enum: [
+            'look',
+            'fonts',
+            'skins',
+            'elements',
+            'canvas',
+            'code',
+            'pictures',
+            'looks',
+            'layout',
+          ],
+        },
+        control: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_view_picture',
-    description: 'Look at a picture: one the person added (a reference photo, a sketch, the picture laid under the editor) or a bundled one, with its main colours (and the picture itself when your model accepts images). Use it when the person points at a picture ("like this photo", "follow my sketch").',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    description:
+      'Look at a picture: one the person added (a reference photo, a sketch, the picture laid under the editor) or a bundled one, with its main colours (and the picture itself when your model accepts images). Use it when the person points at a picture ("like this photo", "follow my sketch").',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_look',
-    description: 'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words.',
-    inputSchema: { type: 'object', properties: { as: { type: 'string', enum: ['design', 'seen'] }, view: { type: 'string', enum: ['plugin', 'patch', 'window'] } }, additionalProperties: false },
+    description:
+      'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        as: { type: 'string', enum: ['design', 'seen'] },
+        view: { type: 'string', enum: ['plugin', 'patch', 'window'] },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_bash',
     description: [
-      'Run a bash command in the pod: a Linux environment inside the person\'s browser with bash, git, Node, npm and the usual tools, in the folder of the work\'s screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm install a package, npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<\'EOF\' … EOF.',
+      "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm install a package, npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF.",
       'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. No network beyond the npm registry and GitHub.',
     ].join('\n'),
-    inputSchema: { type: 'object', properties: { command: { type: 'string' }, timeout_s: { type: 'number', minimum: 1, maximum: 600 } }, required: ['command'], additionalProperties: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string' },
+        timeout_s: { type: 'number', minimum: 1, maximum: 600 },
+      },
+      required: ['command'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_read_file',
-    description: 'Read a file of the screen project (path relative to it, e.g. "AGENTS.md", "src/parts/reels.ts", "src/kit/index.ts"), whole or lines from_line..to_line.',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' }, from_line: { type: 'number' }, to_line: { type: 'number' } }, required: ['path'], additionalProperties: false },
+    description:
+      'Read a file of the screen project (path relative to it, e.g. "AGENTS.md", "src/parts/reels.ts", "src/kit/index.ts"), whole or lines from_line..to_line.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        from_line: { type: 'number' },
+        to_line: { type: 'number' },
+      },
+      required: ['path'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_write_file',
-    description: 'Write a whole file of the screen project (path relative to it; folders are made). It is kept in the work at once, and code parts that use it reload on the plugin (the result says how they are doing). src/kit/controls.ts is made by den-kit from the patch: change the patch\'s controls instead.',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false },
+    description:
+      "Write a whole file of the screen project (path relative to it; folders are made). It is kept in the work at once, and code parts that use it reload on the plugin (the result says how they are doing). src/kit/controls.ts is made by den-kit from the patch: change the patch's controls instead.",
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_finish',
-    description: 'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z. A member also reports to the lead: names (ids and names others rely on, e.g. "knob3 Drive → drive1.amount"), needs (what it needed outside its scope) and problems (what is left).',
-    inputSchema: { type: 'object', properties: { summary: { type: 'string' }, names: { type: 'array', items: { type: 'string' } }, needs: { type: 'array', items: { type: 'string' } }, problems: { type: 'array', items: { type: 'string' } } }, required: ['summary'], additionalProperties: false },
+    description:
+      'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z. A member also reports to the lead: names (ids and names others rely on, e.g. "knob3 Drive → drive1.amount"), needs (what it needed outside its scope) and problems (what is left).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string' },
+        names: { type: 'array', items: { type: 'string' } },
+        needs: { type: 'array', items: { type: 'string' } },
+        problems: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['summary'],
+      additionalProperties: false,
+    },
   },
 ];
 
 const scopeSchema = {
   type: 'object',
-  description: 'What the member may change. "sound": "all" (the whole patch) or {"parts":["drop"]} (inside those parts) or {"nodes":["filter1","env2"]} (those modules and the ones it adds). "screen": "all" (the whole plugin screen: look, brief, size, every control\'s place and style, decorations) or {"elements":["text1","knob3"]} (those controls and decorations and the ones it adds) or {"area":{"x":0,"y":0,"w":360,"h":200}} (what lies in that part of the screen and what it adds there). "project": "all" (the screen project in the pod: kit_bash, kit_write_file; one holder at a time). Scopes of members working at the same time must not overlap; yours is what is left.',
+  description:
+    'What the member may change. "sound": "all" (the whole patch) or {"parts":["drop"]} (inside those parts) or {"nodes":["filter1","env2"]} (those modules and the ones it adds). "screen": "all" (the whole plugin screen: look, brief, size, every control\'s place and style, decorations) or {"elements":["text1","knob3"]} (those controls and decorations and the ones it adds) or {"area":{"x":0,"y":0,"w":360,"h":200}} (what lies in that part of the screen and what it adds there). "project": "all" (the screen project in the pod: kit_bash, kit_write_file; one holder at a time). Scopes of members working at the same time must not overlap; yours is what is left.',
   properties: { sound: {}, screen: {}, project: { type: 'string', enum: ['all'] } },
   additionalProperties: false,
 };
@@ -152,14 +375,30 @@ const scopeSchema = {
 export const LEAD_TOOLS: ToolSpec[] = [
   {
     name: 'kit_delegate',
-    description: 'Start members: other AIs like you (same model, same tools) that work on parts of this request at the same time as you, each in its own scope. It returns at once with their ids; then do your own part outside their scopes, or call kit_wait. Use it only for parts that are substantial and independent once the names they share are fixed (land those first). Give each a short name the person sees, the goal (the result), why (what the person cares about, one sentence), its scope and when it is done; not how to build it. den-kit gives each member the person\'s own words, the recent conversation, what the person attached or sketched and the current state of its scope. context: "brief" (default), "full" (this whole conversation as well: for many rounds of taste talk) or "bare" (only your brief: mechanical jobs).',
+    description:
+      'Start members: other AIs like you (same model, same tools) that work on parts of this request at the same time as you, each in its own scope. It returns at once with their ids; then do your own part outside their scopes, or call kit_wait. Use it only for parts that are substantial and independent once the names they share are fixed (land those first). Give each a short name the person sees, the goal (the result), why (what the person cares about, one sentence), its scope and when it is done; not how to build it. den-kit gives each member the person\'s own words, the recent conversation, what the person attached or sketched and the current state of its scope. context: "brief" (default), "full" (this whole conversation as well: for many rounds of taste talk) or "bare" (only your brief: mechanical jobs).',
     inputSchema: {
       type: 'object',
       properties: {
-        members: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'object', properties: {
-          name: { type: 'string' }, goal: { type: 'string' }, why: { type: 'string' }, scope: scopeSchema, done: { type: 'string' }, notes: { type: 'string' },
-          context: { type: 'string', enum: ['brief', 'full', 'bare'] },
-        }, required: ['name', 'goal', 'scope', 'done'], additionalProperties: false } },
+        members: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              goal: { type: 'string' },
+              why: { type: 'string' },
+              scope: scopeSchema,
+              done: { type: 'string' },
+              notes: { type: 'string' },
+              context: { type: 'string', enum: ['brief', 'full', 'bare'] },
+            },
+            required: ['name', 'goal', 'scope', 'done'],
+            additionalProperties: false,
+          },
+        },
       },
       required: ['members'],
       additionalProperties: false,
@@ -167,18 +406,42 @@ export const LEAD_TOOLS: ToolSpec[] = [
   },
   {
     name: 'kit_wait',
-    description: 'Wait for members: returns when the members named (default: all working ones) have finished, with their reports (summary, names, needs, problems, what landed, time, tokens), or after timeout_s (default 60, at most 60) with their progress so far, or at once when the person adds something to the request. Call it again to keep waiting.',
-    inputSchema: { type: 'object', properties: { members: { type: 'array', items: { type: 'string' } }, timeout_s: { type: 'number', minimum: 5, maximum: 60 } }, additionalProperties: false },
+    description:
+      'Wait for members: returns when the members named (default: all working ones) have finished, with their reports (summary, names, needs, problems, what landed, time, tokens), or after timeout_s (default 60, at most 60) with their progress so far, or at once when the person adds something to the request. Call it again to keep waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        members: { type: 'array', items: { type: 'string' } },
+        timeout_s: { type: 'number', minimum: 5, maximum: 60 },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_tell',
-    description: 'Add instructions to a member that is working (it reads them at its next step). "marks": numbers of the person\'s sketch marks to pass along with their picture.',
-    inputSchema: { type: 'object', properties: { member: { type: 'string' }, text: { type: 'string' }, marks: { type: 'array', items: { type: 'number' } } }, required: ['member', 'text'], additionalProperties: false },
+    description:
+      'Add instructions to a member that is working (it reads them at its next step). "marks": numbers of the person\'s sketch marks to pass along with their picture.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        member: { type: 'string' },
+        text: { type: 'string' },
+        marks: { type: 'array', items: { type: 'number' } },
+      },
+      required: ['member', 'text'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'kit_stop_member',
-    description: 'Stop a member that is working (what it already changed stays; its scope comes back to you).',
-    inputSchema: { type: 'object', properties: { member: { type: 'string' }, why: { type: 'string' } }, required: ['member'], additionalProperties: false },
+    description:
+      'Stop a member that is working (what it already changed stays; its scope comes back to you).',
+    inputSchema: {
+      type: 'object',
+      properties: { member: { type: 'string' }, why: { type: 'string' } },
+      required: ['member'],
+      additionalProperties: false,
+    },
   },
 ];
 export const LEAD_TOOL_NAMES = new Set(LEAD_TOOLS.map(t => t.name));
@@ -200,7 +463,8 @@ const POD_START_MS = 10 * 60_000;
 export function toolDeadlineMs(tool: string, args: unknown, base: number): number {
   if (tool === 'kit_bash') {
     const t = (args as { timeout_s?: unknown } | null)?.timeout_s;
-    const seconds = typeof t === 'number' && Number.isFinite(t) ? Math.min(600, Math.max(1, t)) : 120;
+    const seconds =
+      typeof t === 'number' && Number.isFinite(t) ? Math.min(600, Math.max(1, t)) : 120;
     return Math.max(base, seconds * 1000 + POD_START_MS);
   }
   if (tool === 'kit_read_file' || tool === 'kit_write_file') return Math.max(base, POD_START_MS);
@@ -213,7 +477,10 @@ export function toolDeadlineMs(tool: string, args: unknown, base: number): numbe
 }
 
 /** The rules the LLM works under; `blocks` is the catalogue summary from the browser. A lead and a member get their part of the rules too. */
-export function developerInstructions(blocks: string, role: 'solo' | 'lead' | 'member' = 'solo'): string {
+export function developerInstructions(
+  blocks: string,
+  role: 'solo' | 'lead' | 'member' = 'solo',
+): string {
   return `${baseInstructions(blocks)}${role === 'lead' ? LEAD_RULES : role === 'member' ? MEMBER_RULES : ''}`;
 }
 

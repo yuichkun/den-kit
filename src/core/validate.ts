@@ -23,68 +23,178 @@ export interface Validation {
 }
 
 /** Check a patch. Parts are expanded first; what is found inside them is reported on the part (with the path inside). */
-export function validate(doc: PatchDocument, catalog: Catalog, options: FlattenOptions = {}): Validation {
+export function validate(
+  doc: PatchDocument,
+  catalog: Catalog,
+  options: FlattenOptions = {},
+): Validation {
   const flat = flatten(doc, catalog, options);
   const { issues, analysis } = validateGraph(flat.doc, catalog);
   // How big a patch may be is a matter of weight (what it expands into), not of how many boxes are drawn.
   const cost = estimateCost(flat.doc, catalog, analysis, flat.origin);
   const weight = weightIssues(doc, cost);
-  if (!flat.expanded) return { issues: [...issues, ...weight], analysis, flat, flatAnalysis: analysis, cost };
+  if (!flat.expanded)
+    return { issues: [...issues, ...weight], analysis, flat, flatAnalysis: analysis, cost };
   const seen = new Set<string>();
   const mapped = [...flat.issues, ...issues.map(i => mapIssue(i, flat))].filter(i => {
     const key = `${i.severity}|${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.message}`;
     if (seen.has(key)) return false;
-    seen.add(key); return true;
+    seen.add(key);
+    return true;
   });
-  return { issues: [...mapped, ...weight], analysis: mapAnalysis(analysis, flat), flat, flatAnalysis: analysis, cost };
+  return {
+    issues: [...mapped, ...weight],
+    analysis: mapAnalysis(analysis, flat),
+    flat,
+    flatAnalysis: analysis,
+    cost,
+  };
 }
 
 /** Too big to build (an error), or likely to stutter (a warning), with what weighs most. */
 function weightIssues(doc: PatchDocument, cost: Cost): Issue[] {
-  const top = Object.entries(cost.byNode).filter(([id]) => doc.nodes[id] && doc.nodes[id]!.inside === undefined).sort((a, b) => b[1] - a[1]).slice(0, 3)
-    .filter(([, cpu]) => cpu >= 0.01).map(([id, cpu]) => `${id}${(doc.nodes[id]!.count ?? 1) > 1 ? ` ×${doc.nodes[id]!.count}` : ''} ${formatCpu(cpu).replace(' CPU', '')}`);
+  const top = Object.entries(cost.byNode)
+    .filter(([id]) => doc.nodes[id] && doc.nodes[id]!.inside === undefined)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .filter(([, cpu]) => cpu >= 0.01)
+    .map(
+      ([id, cpu]) =>
+        `${id}${(doc.nodes[id]!.count ?? 1) > 1 ? ` ×${doc.nodes[id]!.count}` : ''} ${formatCpu(cpu).replace(' CPU', '')}`,
+    );
   const most = top.length ? ` Most of it: ${top.join(', ')}.` : '';
-  if (cost.kB > COST_LIMITS.maxKB) return [{ severity: 'error', code: 'too-big', message: `With its parts and copies expanded the program would be about ${Math.round(cost.kB)} kB; the limit in this PoC is ${COST_LIMITS.maxKB} kB (bigger takes too long to build and cannot run in time).${most} Use fewer copies, fewer voices or smaller parts.` }];
-  if (cost.cpu > COST_LIMITS.warnCpu) return [{ severity: 'warning', code: 'heavy', message: `Estimated ${formatCpu(cost.cpu)} of one core, so it may stutter.${most} (Measured on a cloud machine; a recent Mac is usually faster.) Fewer copies, fewer voices or smaller parts make it lighter.` }];
+  if (cost.kB > COST_LIMITS.maxKB)
+    return [
+      {
+        severity: 'error',
+        code: 'too-big',
+        message: `With its parts and copies expanded the program would be about ${Math.round(cost.kB)} kB; the limit in this PoC is ${COST_LIMITS.maxKB} kB (bigger takes too long to build and cannot run in time).${most} Use fewer copies, fewer voices or smaller parts.`,
+      },
+    ];
+  if (cost.cpu > COST_LIMITS.warnCpu)
+    return [
+      {
+        severity: 'warning',
+        code: 'heavy',
+        message: `Estimated ${formatCpu(cost.cpu)} of one core, so it may stutter.${most} (Measured on a cloud machine; a recent Mac is usually faster.) Fewer copies, fewer voices or smaller parts make it lighter.`,
+      },
+    ];
   return [];
 }
 
-function validateGraph(doc: PatchDocument, catalog: Catalog): { issues: Issue[]; analysis: Analysis } {
+function validateGraph(
+  doc: PatchDocument,
+  catalog: Catalog,
+): { issues: Issue[]; analysis: Analysis } {
   const issues: Issue[] = [];
   const nodes = Object.values(doc.nodes).sort((a, b) => a.id.localeCompare(b.id));
 
   const counts = new Map<string, number>();
   for (const node of nodes) {
     const def = catalog.find(node.type);
-    if (!def) { issues.push({ severity: 'error', code: 'unknown-type', node: node.id, message: `Unknown node type "${node.type}" (missing block). It is kept but cannot be compiled.` }); continue; }
+    if (!def) {
+      issues.push({
+        severity: 'error',
+        code: 'unknown-type',
+        node: node.id,
+        message: `Unknown node type "${node.type}" (missing block). It is kept but cannot be compiled.`,
+      });
+      continue;
+    }
     counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
     for (const c of def.config) {
       if (!Object.hasOwn(node.config, c.id)) continue;
       const reason = checkConfigValue(c, node.config[c.id]);
-      if (reason) issues.push({ severity: 'error', code: 'bad-config', node: node.id, message: reason });
+      if (reason)
+        issues.push({ severity: 'error', code: 'bad-config', node: node.id, message: reason });
     }
     for (const port of catalog.inputs(node)) {
       if (!Object.hasOwn(node.values, port.id)) continue;
       const reason = checkPortValue(port, node.values[port.id]);
-      if (reason) issues.push({ severity: 'error', code: 'bad-value', node: node.id, port: port.id, message: reason });
+      if (reason)
+        issues.push({
+          severity: 'error',
+          code: 'bad-value',
+          node: node.id,
+          port: port.id,
+          message: reason,
+        });
     }
-    if (def.kind === 'codebox' && !(node.code ?? '').trim()) issues.push({ severity: 'error', code: 'codebox-empty', node: node.id, message: 'Codebox has no code yet.' });
+    if (def.kind === 'codebox' && !(node.code ?? '').trim())
+      issues.push({
+        severity: 'error',
+        code: 'codebox-empty',
+        node: node.id,
+        message: 'Codebox has no code yet.',
+      });
     if (node.type === 'kit.voiceIn') {
-      const capacity = Number(node.config.capacity ?? 1), held = Number(node.config.heldCapacity ?? 16);
-      if (node.config.mode === 'mono' && capacity !== 1) issues.push({ severity: 'error', code: 'bad-config', node: node.id, message: 'Mono Voice In has exactly one voice (capacity 1).' });
-      if (held < capacity) issues.push({ severity: 'error', code: 'bad-config', node: node.id, message: 'heldCapacity must be at least capacity.' });
+      const capacity = Number(node.config.capacity ?? 1),
+        held = Number(node.config.heldCapacity ?? 16);
+      if (node.config.mode === 'mono' && capacity !== 1)
+        issues.push({
+          severity: 'error',
+          code: 'bad-config',
+          node: node.id,
+          message: 'Mono Voice In has exactly one voice (capacity 1).',
+        });
+      if (held < capacity)
+        issues.push({
+          severity: 'error',
+          code: 'bad-config',
+          node: node.id,
+          message: 'heldCapacity must be at least capacity.',
+        });
     }
   }
-  for (const def of catalog.list()) if (def.singleton && (counts.get(def.type) ?? 0) > 1) issues.push({ severity: 'error', code: 'duplicate-singleton', message: `Only one ${def.title} is allowed per patch.` });
+  for (const def of catalog.list())
+    if (def.singleton && (counts.get(def.type) ?? 0) > 1)
+      issues.push({
+        severity: 'error',
+        code: 'duplicate-singleton',
+        message: `Only one ${def.title} is allowed per patch.`,
+      });
 
   const drivers = new Map<string, string>();
   for (const edge of Object.values(doc.edges).sort((a, b) => a.id.localeCompare(b.id))) {
-    const from = doc.nodes[edge.from.node], to = doc.nodes[edge.to.node];
-    if (!from || !to) { issues.push({ severity: 'error', code: 'dangling-edge', edge: edge.id, message: `Cable ${edge.id} refers to a missing node.` }); continue; }
-    if (catalog.has(from.type) && !catalog.output(from, edge.from.port)) issues.push({ severity: 'error', code: 'unknown-port', edge: edge.id, node: from.id, port: edge.from.port, message: `${from.id} has no output "${edge.from.port}".` });
-    if (catalog.has(to.type) && !catalog.input(to, edge.to.port)) issues.push({ severity: 'error', code: 'unknown-port', edge: edge.id, node: to.id, port: edge.to.port, message: `${to.id} has no input "${edge.to.port}".` });
+    const from = doc.nodes[edge.from.node],
+      to = doc.nodes[edge.to.node];
+    if (!from || !to) {
+      issues.push({
+        severity: 'error',
+        code: 'dangling-edge',
+        edge: edge.id,
+        message: `Cable ${edge.id} refers to a missing node.`,
+      });
+      continue;
+    }
+    if (catalog.has(from.type) && !catalog.output(from, edge.from.port))
+      issues.push({
+        severity: 'error',
+        code: 'unknown-port',
+        edge: edge.id,
+        node: from.id,
+        port: edge.from.port,
+        message: `${from.id} has no output "${edge.from.port}".`,
+      });
+    if (catalog.has(to.type) && !catalog.input(to, edge.to.port))
+      issues.push({
+        severity: 'error',
+        code: 'unknown-port',
+        edge: edge.id,
+        node: to.id,
+        port: edge.to.port,
+        message: `${to.id} has no input "${edge.to.port}".`,
+      });
     const key = `${edge.to.node}.${edge.to.port}`;
-    if (drivers.has(key)) issues.push({ severity: 'error', code: 'multiple-drivers', edge: edge.id, node: to.id, port: edge.to.port, message: `${key} has more than one cable; use a Mix or Add node.` });
+    if (drivers.has(key))
+      issues.push({
+        severity: 'error',
+        code: 'multiple-drivers',
+        edge: edge.id,
+        node: to.id,
+        port: edge.to.port,
+        message: `${key} has more than one cable; use a Mix or Add node.`,
+      });
     drivers.set(key, edge.id);
   }
 
@@ -92,16 +202,49 @@ function validateGraph(doc: PatchDocument, catalog: Catalog): { issues: Issue[];
   issues.push(...analysis.issues);
 
   const outs = nodes.filter(n => n.type === 'kit.out');
-  if (!outs.length && nodes.some(n => catalog.find(n.type)?.kind !== 'comment')) issues.push({ severity: 'warning', code: 'no-output', message: 'Nothing is connected to an Out node, so the patch is silent.' });
-  for (const out of outs) if (!Object.values(doc.edges).some(e => e.to.node === out.id)) issues.push({ severity: 'warning', code: 'out-unconnected', node: out.id, message: 'Out has no input.' });
+  if (!outs.length && nodes.some(n => catalog.find(n.type)?.kind !== 'comment'))
+    issues.push({
+      severity: 'warning',
+      code: 'no-output',
+      message: 'Nothing is connected to an Out node, so the patch is silent.',
+    });
+  for (const out of outs)
+    if (!Object.values(doc.edges).some(e => e.to.node === out.id))
+      issues.push({
+        severity: 'warning',
+        code: 'out-unconnected',
+        node: out.id,
+        message: 'Out has no input.',
+      });
   for (const mix of nodes.filter(n => n.type === 'kit.voiceMix')) {
-    if (!Object.values(doc.edges).some(e => e.to.node === mix.id && e.to.port === 'in')) issues.push({ severity: 'warning', code: 'mix-unconnected', node: mix.id, port: 'in', message: 'Voice Mix has no input.' });
-    if (!Object.values(doc.edges).some(e => e.to.node === mix.id && e.to.port === 'done')) issues.push({ severity: 'info', code: 'mix-done-default', node: mix.id, port: 'done', message: 'Voices are freed at note-off because "done" is unconnected; connect the amp envelope\'s done to let releases ring.' });
+    if (!Object.values(doc.edges).some(e => e.to.node === mix.id && e.to.port === 'in'))
+      issues.push({
+        severity: 'warning',
+        code: 'mix-unconnected',
+        node: mix.id,
+        port: 'in',
+        message: 'Voice Mix has no input.',
+      });
+    if (!Object.values(doc.edges).some(e => e.to.node === mix.id && e.to.port === 'done'))
+      issues.push({
+        severity: 'info',
+        code: 'mix-done-default',
+        node: mix.id,
+        port: 'done',
+        message:
+          'Voices are freed at note-off because "done" is unconnected; connect the amp envelope\'s done to let releases ring.',
+      });
   }
   for (const node of nodes) {
     const def = catalog.find(node.type);
-    if (!def || def.kind === 'comment' || def.kind === 'widget' || analysis.live.has(node.id)) continue;
-    issues.push({ severity: 'info', code: 'not-live', node: node.id, message: `${node.id} does not reach an output and is skipped.` });
+    if (!def || def.kind === 'comment' || def.kind === 'widget' || analysis.live.has(node.id))
+      continue;
+    issues.push({
+      severity: 'info',
+      code: 'not-live',
+      node: node.id,
+      message: `${node.id} does not reach an output and is skipped.`,
+    });
   }
   return { issues, analysis };
 }

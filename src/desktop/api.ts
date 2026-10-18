@@ -1,8 +1,17 @@
 import type { CodexStatus } from '../ai/protocol.ts';
 import type { PageRect } from '../editor/screen-share.ts';
 
-export interface DesktopSettings { model: string; effort: string; fork: boolean }
-export interface DesktopModel { id: string; name: string; isDefault: boolean; efforts: string[] }
+export interface DesktopSettings {
+  model: string;
+  effort: string;
+  fork: boolean;
+}
+export interface DesktopModel {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  efforts: string[];
+}
 /** In-app updates. `off` in development and isolated checks; `move` when the app runs outside Applications. */
 export type UpdateStatus =
   | { state: 'off' | 'move' | 'idle' | 'checking' | 'current' }
@@ -21,7 +30,10 @@ export interface DesktopInfo {
   loginError?: string;
   update: UpdateStatus;
 }
-export interface DesktopRuntime { token: string; apiKey: string | null }
+export interface DesktopRuntime {
+  token: string;
+  apiKey: string | null;
+}
 export interface DesktopAPI {
   runtime: DesktopRuntime;
   capturePage(rect: PageRect): Promise<string>;
@@ -37,5 +49,10 @@ export interface DesktopAPI {
   installUpdate(): Promise<void>;
 }
 
-declare global { interface Window { denKitShell?: DesktopAPI } }
-export const desktop = (): DesktopAPI | null => typeof window === 'undefined' ? null : window.denKitShell ?? null;
+declare global {
+  interface Window {
+    denKitShell?: DesktopAPI;
+  }
+}
+export const desktop = (): DesktopAPI | null =>
+  typeof window === 'undefined' ? null : (window.denKitShell ?? null);

@@ -1,14 +1,30 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
 
 const fakes: FakeCodex[] = [];
-afterEach(async () => { while (fakes.length) await fakes.pop()!.cleanup(); });
-const until = async (fn: () => boolean) => { const end = Date.now() + 5000; while (!fn()) { if (Date.now() > end) throw new Error('Account did not settle.'); await new Promise(r => setTimeout(r, 10)); } };
-function setup(options: Parameters<typeof fakeCodex>[0] = {}) { const f = fakeCodex(options); fakes.push(f); return f; }
+afterEach(async () => {
+  while (fakes.length) await fakes.pop()!.cleanup();
+});
+const until = async (fn: () => boolean) => {
+  const end = Date.now() + 5000;
+  while (!fn()) {
+    if (Date.now() > end) throw new Error('Account did not settle.');
+    await new Promise(r => setTimeout(r, 10));
+  }
+};
+function setup(options: Parameters<typeof fakeCodex>[0] = {}) {
+  const f = fakeCodex(options);
+  fakes.push(f);
+  return f;
+}
 
 describe('desktop ChatGPT account', () => {
   it('completes the browser sign-in, becomes ready, then signs out', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success' }, client: { loginInstruction: 'Open Settings.' } });
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'success' },
+      client: { loginInstruction: 'Open Settings.' },
+    });
     await f.client.start();
     expect(f.client.status.state).toBe('login');
     expect(f.client.chatGPTSignedIn).toBe(false);
@@ -52,7 +68,10 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('refreshes the actual account after sign-in on a ready unauthenticated transport without restarting it', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_AUTH: 'no-auth', FAKE_CODEX_LOGIN: 'success' } });
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_AUTH: 'no-auth', FAKE_CODEX_LOGIN: 'success' },
+    });
     await f.client.start();
     expect(f.client.ready).toBe(true);
     expect(f.client.chatGPTSignedIn).toBe(false);
@@ -80,7 +99,14 @@ describe('desktop ChatGPT account', () => {
     expect(f.violations()).toEqual([]);
   });
 
-  it.each(['completed-only', 'completed-before-save', 'updated-first', 'file-first', 'silent', 'early-completion'])('confirms %s sign-in without restarting the OAuth process', async login => {
+  it.each([
+    'completed-only',
+    'completed-before-save',
+    'updated-first',
+    'file-first',
+    'silent',
+    'early-completion',
+  ])('confirms %s sign-in without restarting the OAuth process', async login => {
     const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: login } });
     await f.client.start();
     const models = f.sent('model/list').length;
@@ -95,8 +121,12 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('keeps checking until the account read completes instead of reporting success from OAuth alone', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'checking');
     expect(f.client.chatGPTSignedIn).toBe(false);
     expect(f.client.ready).toBe(false);
@@ -105,22 +135,38 @@ describe('desktop ChatGPT account', () => {
     expect(f.client.ready).toBe(true);
   });
 
-  it.each(['hang', 'error'])('ends a failed account confirmation (%s) with a recoverable error', async confirm => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: confirm }, client: { timeouts: { requestMs: 200 } } });
-    await f.client.start(); await f.client.signIn();
-    await until(() => f.client.login.state === 'error');
-    expect(f.client.login.error).toMatch(/could not be confirmed/);
-    expect(f.client.ready).toBe(false);
-    await until(() => f.sent('account/login/cancel').length === 1);
-    await f.client.retry();
-    expect(f.client.ready).toBe(true);
-    expect(f.client.chatGPTSignedIn).toBe(true);
-    expect(f.client.login.state).toBe('complete');
-  });
+  it.each(['hang', 'error'])(
+    'ends a failed account confirmation (%s) with a recoverable error',
+    async confirm => {
+      const f = setup({
+        signedIn: false,
+        env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: confirm },
+        client: { timeouts: { requestMs: 200 } },
+      });
+      await f.client.start();
+      await f.client.signIn();
+      await until(() => f.client.login.state === 'error');
+      expect(f.client.login.error).toMatch(/could not be confirmed/);
+      expect(f.client.ready).toBe(false);
+      await until(() => f.sent('account/login/cancel').length === 1);
+      await f.client.retry();
+      expect(f.client.ready).toBe(true);
+      expect(f.client.chatGPTSignedIn).toBe(true);
+      expect(f.client.login.state).toBe('complete');
+    },
+  );
 
   it('keeps the OAuth attempt alive after a failed poll before browser completion', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_LOGIN_DELAY_MS: '300', FAKE_CODEX_PRELOGIN_READ_FAILURE: '1' } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: {
+        FAKE_CODEX_LOGIN: 'completed-only',
+        FAKE_CODEX_LOGIN_DELAY_MS: '300',
+        FAKE_CODEX_PRELOGIN_READ_FAILURE: '1',
+      },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.sent('account/read').length >= 3);
     expect(f.client.login.state).toBe('waiting');
     expect(f.sent('account/login/cancel')).toHaveLength(0);
@@ -131,8 +177,13 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('still cancels at the overall deadline when pre-completion polls keep failing', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_PRELOGIN_READ_FAILURE: '1' }, client: { loginTimeoutMs: 200 } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_PRELOGIN_READ_FAILURE: '1' },
+      client: { loginTimeoutMs: 200 },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'error');
     expect(f.client.login.error).toMatch(/timed out/);
     await until(() => f.sent('account/login/cancel').length === 1);
@@ -141,46 +192,77 @@ describe('desktop ChatGPT account', () => {
     await f.client.cancelSignIn();
   });
 
-  it.each(['ok', 'error'])('performs the queued confirmation (%s) after an older poll fails', async confirmation => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_LOGIN_DELAY_MS: '150', FAKE_CODEX_PRELOGIN_READ_FAILURE: 'late', FAKE_CODEX_CONFIRM: confirmation } });
-    await f.client.start(); await f.client.signIn();
-    await until(() => f.client.login.state === 'checking');
-    expect(f.sent('account/login/cancel')).toHaveLength(0);
-    await until(() => f.client.login.state === (confirmation === 'ok' ? 'complete' : 'error'));
-    expect(f.client.ready).toBe(confirmation === 'ok');
-    expect(f.sent('account/read').length).toBeGreaterThanOrEqual(3);
-    if (confirmation === 'ok') expect(f.sent('account/login/cancel')).toHaveLength(0);
-    else await until(() => f.sent('account/login/cancel').length === 1);
-    expect(f.client.stats.boots).toBe(1);
-  });
-
-  it.each(['normal', 'delay'])('rechecks a recovered account even when cancellation acknowledgement is %s', async cancel => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once', FAKE_CODEX_CANCEL: cancel } });
-    await f.client.start(); await f.client.signIn();
-    await until(() => f.sent('account/login/cancel').length === 1);
-    await until(() => f.client.ready);
-    expect(f.client.chatGPTSignedIn).toBe(true);
-    expect(f.client.login).toEqual({ state: 'complete', error: undefined });
-    expect(f.client.stats.boots).toBe(1);
-  });
-
-  it.each(['ok', 'error'])('honors an account update queued during a failing confirmation (%s)', async result => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: `overlap-${result}` } });
-    await f.client.start(); await f.client.signIn();
-    await until(() => f.client.login.state === (result === 'ok' ? 'complete' : 'error'));
-    // Boot, pre-completion poll, failed confirmation, and notification-triggered confirmation.
-    expect(f.sent('account/read').length).toBeGreaterThanOrEqual(4);
-    expect(f.client.ready).toBe(result === 'ok');
-    if (result === 'ok') {
+  it.each(['ok', 'error'])(
+    'performs the queued confirmation (%s) after an older poll fails',
+    async confirmation => {
+      const f = setup({
+        signedIn: false,
+        env: {
+          FAKE_CODEX_LOGIN: 'completed-only',
+          FAKE_CODEX_LOGIN_DELAY_MS: '150',
+          FAKE_CODEX_PRELOGIN_READ_FAILURE: 'late',
+          FAKE_CODEX_CONFIRM: confirmation,
+        },
+      });
+      await f.client.start();
+      await f.client.signIn();
+      await until(() => f.client.login.state === 'checking');
       expect(f.sent('account/login/cancel')).toHaveLength(0);
-      expect(f.client.login.error).toBeUndefined();
-    } else await until(() => f.sent('account/login/cancel').length === 1);
-    expect(f.client.stats.boots).toBe(1);
-  });
+      await until(() => f.client.login.state === (confirmation === 'ok' ? 'complete' : 'error'));
+      expect(f.client.ready).toBe(confirmation === 'ok');
+      expect(f.sent('account/read').length).toBeGreaterThanOrEqual(3);
+      if (confirmation === 'ok') expect(f.sent('account/login/cancel')).toHaveLength(0);
+      else await until(() => f.sent('account/login/cancel').length === 1);
+      expect(f.client.stats.boots).toBe(1);
+    },
+  );
+
+  it.each(['normal', 'delay'])(
+    'rechecks a recovered account even when cancellation acknowledgement is %s',
+    async cancel => {
+      const f = setup({
+        signedIn: false,
+        env: {
+          FAKE_CODEX_LOGIN: 'completed-only',
+          FAKE_CODEX_CONFIRM: 'error-once',
+          FAKE_CODEX_CANCEL: cancel,
+        },
+      });
+      await f.client.start();
+      await f.client.signIn();
+      await until(() => f.sent('account/login/cancel').length === 1);
+      await until(() => f.client.ready);
+      expect(f.client.chatGPTSignedIn).toBe(true);
+      expect(f.client.login).toEqual({ state: 'complete', error: undefined });
+      expect(f.client.stats.boots).toBe(1);
+    },
+  );
+
+  it.each(['ok', 'error'])(
+    'honors an account update queued during a failing confirmation (%s)',
+    async result => {
+      const f = setup({
+        signedIn: false,
+        env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: `overlap-${result}` },
+      });
+      await f.client.start();
+      await f.client.signIn();
+      await until(() => f.client.login.state === (result === 'ok' ? 'complete' : 'error'));
+      // Boot, pre-completion poll, failed confirmation, and notification-triggered confirmation.
+      expect(f.sent('account/read').length).toBeGreaterThanOrEqual(4);
+      expect(f.client.ready).toBe(result === 'ok');
+      if (result === 'ok') {
+        expect(f.sent('account/login/cancel')).toHaveLength(0);
+        expect(f.client.login.error).toBeUndefined();
+      } else await until(() => f.sent('account/login/cancel').length === 1);
+      expect(f.client.stats.boots).toBe(1);
+    },
+  );
 
   it('expires an unfinished browser sign-in and allows another attempt', async () => {
     const f = setup({ signedIn: false, client: { loginTimeoutMs: 160 } });
-    await f.client.start(); await f.client.signIn();
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'error');
     expect(f.client.login.error).toMatch(/timed out/);
     expect(f.client.status.state).toBe('login');
@@ -192,7 +274,8 @@ describe('desktop ChatGPT account', () => {
 
   it('reports a failed browser sign-in without leaving settings locked', async () => {
     const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'failure' } });
-    await f.client.start(); await f.client.signIn();
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'error');
     expect(f.client.login.error).toMatch(/declined/);
     expect(f.client.ready).toBe(false);
@@ -202,7 +285,8 @@ describe('desktop ChatGPT account', () => {
 
   it('clears the waiting state after the OAuth process crashes', async () => {
     const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'crash' } });
-    await f.client.start(); await f.client.signIn();
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.stats.boots === 2 && f.client.status.state === 'login');
     expect(f.client.login.state).toBe('error');
     expect(f.client.login.error).toMatch(/interrupted/);
@@ -213,7 +297,11 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('cancels while obtaining the login URL and ignores its late failure', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'hang-start' }, client: { timeouts: { requestMs: 160 } } });
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'hang-start' },
+      client: { timeouts: { requestMs: 160 } },
+    });
     await f.client.start();
     const signingIn = f.client.signIn().catch(error => error as Error);
     await until(() => f.client.login.state === 'starting');
@@ -224,8 +312,15 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('ignores an old login completion after canceling and starting another sign-in', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LATE_LOGIN: '1' }, client: { loginTimeoutMs: 1000 } });
-    await f.client.start(); await f.client.signIn(); await f.client.cancelSignIn(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LATE_LOGIN: '1' },
+      client: { loginTimeoutMs: 1000 },
+    });
+    await f.client.start();
+    await f.client.signIn();
+    await f.client.cancelSignIn();
+    await f.client.signIn();
     await new Promise(r => setTimeout(r, 180));
     expect(f.client.login.state).toBe('waiting');
     expect(f.client.chatGPTSignedIn).toBe(false);
@@ -233,8 +328,12 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('ignores a pending account read after cancellation', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'checking');
     await f.client.cancelSignIn();
     await new Promise(r => setTimeout(r, 200));
@@ -253,30 +352,46 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('cancels a pending sign-in without accepting its failure as a new login', async () => {
-    const f = setup({ signedIn: false }); await f.client.start();
-    await f.client.signIn(); await f.client.cancelSignIn();
+    const f = setup({ signedIn: false });
+    await f.client.start();
+    await f.client.signIn();
+    await f.client.cancelSignIn();
     expect(f.client.login).toEqual({ state: 'idle', error: undefined });
     expect(f.client.ready).toBe(false);
     expect(f.sent('account/login/cancel')).toHaveLength(1);
   });
 
-  it.each(['error', 'hang'])('ends the OAuth process after cancellation fails (%s) before allowing a new sign-in', async fault => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_CANCEL: fault }, client: { timeouts: { requestMs: 200 } } });
-    await f.client.start(); await f.client.signIn();
-    const cancel = f.client.cancelSignIn();
-    expect(f.client.login.state).toBe('canceling');
-    const next = f.client.signIn();
-    expect(f.sent('account/login/start')).toHaveLength(1);
-    await cancel; await next;
-    expect(f.client.stats.boots).toBe(2);
-    expect(f.sent('account/login/start')).toHaveLength(2);
-    expect(f.client.login.state).toBe('waiting');
-    expect(f.client.chatGPTSignedIn).toBe(false);
-  });
+  it.each(['error', 'hang'])(
+    'ends the OAuth process after cancellation fails (%s) before allowing a new sign-in',
+    async fault => {
+      const f = setup({
+        signedIn: false,
+        env: { FAKE_CODEX_CANCEL: fault },
+        client: { timeouts: { requestMs: 200 } },
+      });
+      await f.client.start();
+      await f.client.signIn();
+      const cancel = f.client.cancelSignIn();
+      expect(f.client.login.state).toBe('canceling');
+      const next = f.client.signIn();
+      expect(f.sent('account/login/start')).toHaveLength(1);
+      await cancel;
+      await next;
+      expect(f.client.stats.boots).toBe(2);
+      expect(f.sent('account/login/start')).toHaveLength(2);
+      expect(f.client.login.state).toBe('waiting');
+      expect(f.client.chatGPTSignedIn).toBe(false);
+    },
+  );
 
   it('also stops an expired OAuth flow when its cancellation request hangs', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_CANCEL: 'hang' }, client: { loginTimeoutMs: 100, timeouts: { requestMs: 200 } } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_CANCEL: 'hang' },
+      client: { loginTimeoutMs: 100, timeouts: { requestMs: 200 } },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.stats.boots === 2 && f.client.login.state === 'error');
     expect(f.client.status.state).toBe('login');
     expect(f.client.chatGPTSignedIn).toBe(false);
@@ -284,8 +399,13 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('removes credentials saved while cancellation was hanging before allowing another sign-in', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang' }, client: { timeouts: { requestMs: 200 } } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang' },
+      client: { timeouts: { requestMs: 200 } },
+    });
+    await f.client.start();
+    await f.client.signIn();
     const statuses: string[] = [];
     f.client.onStatus(status => statuses.push(status.state));
     await f.client.cancelSignIn();
@@ -301,8 +421,12 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('also unwinds a completed account when canceled during confirmation', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'delay' },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'checking');
     await f.client.cancelSignIn();
     expect(f.sent('account/logout')).toHaveLength(1);
@@ -312,8 +436,13 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('does not make a canceled account usable if clearing its credentials fails', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang', FAKE_CODEX_LOGOUT: 'error' }, client: { timeouts: { requestMs: 200 } } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'success', FAKE_CODEX_CANCEL: 'hang', FAKE_CODEX_LOGOUT: 'error' },
+      client: { timeouts: { requestMs: 200 } },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await f.client.cancelSignIn();
     expect(f.client.ready).toBe(false);
     expect(f.client.login.state).toBe('error');
@@ -329,14 +458,23 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('requires explicit sign-out before starting a different ChatGPT login', async () => {
-    const f = setup(); await f.client.start();
+    const f = setup();
+    await f.client.start();
     await expect(f.client.signIn()).rejects.toThrow('Sign out before');
     expect(f.sent('account/login/start')).toHaveLength(0);
   });
 
   it('honors explicit cancellation that joins cleanup started by a confirmation error', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once', FAKE_CODEX_CANCEL: 'delay' } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: {
+        FAKE_CODEX_LOGIN: 'completed-only',
+        FAKE_CODEX_CONFIRM: 'error-once',
+        FAKE_CODEX_CANCEL: 'delay',
+      },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.sent('account/login/cancel').length === 1);
     expect(f.client.login.state).toBe('canceling');
     const statuses: string[] = [];
@@ -353,7 +491,8 @@ describe('desktop ChatGPT account', () => {
 
   it('keeps repeated explicit cancellation idempotent while the replacement process finishes booting', async () => {
     const f = setup({ signedIn: false, env: { FAKE_CODEX_MODELS_DELAY_MS: '150' } });
-    await f.client.start(); await f.client.signIn();
+    await f.client.start();
+    await f.client.signIn();
     const canceled = f.client.cancelSignIn();
     await until(() => f.sent('model/list').length === 2);
     await Promise.all([canceled, f.client.cancelSignIn()]);
@@ -364,9 +503,15 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('honors explicit cancellation dispatched after failed-confirmation cleanup has settled', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once' } });
-    await f.client.start(); await f.client.signIn();
-    await until(() => f.sent('account/login/cancel').length === 1 && f.client.login.state === 'error');
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'completed-only', FAKE_CODEX_CONFIRM: 'error-once' },
+    });
+    await f.client.start();
+    await f.client.signIn();
+    await until(
+      () => f.sent('account/login/cancel').length === 1 && f.client.login.state === 'error',
+    );
     await f.client.cancelSignIn();
     await new Promise(r => setTimeout(r, 150));
     expect(f.client.login.state).toBe('idle');
@@ -377,7 +522,8 @@ describe('desktop ChatGPT account', () => {
 
   it('honors a queued cancellation after the same in-app sign-in has been confirmed', async () => {
     const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'success' } });
-    await f.client.start(); await f.client.signIn();
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.login.state === 'complete');
     await f.client.cancelSignIn();
     expect(f.client.chatGPTSignedIn).toBe(false);
@@ -387,8 +533,13 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('records cancellation even when the failed authentication process has exited', async () => {
-    const f = setup({ signedIn: false, env: { FAKE_CODEX_LOGIN: 'crash' }, client: { restart: { baseMs: 1000, maxMs: 1000 } } });
-    await f.client.start(); await f.client.signIn();
+    const f = setup({
+      signedIn: false,
+      env: { FAKE_CODEX_LOGIN: 'crash' },
+      client: { restart: { baseMs: 1000, maxMs: 1000 } },
+    });
+    await f.client.start();
+    await f.client.signIn();
     await until(() => f.client.stats.exits === 1);
     f.signIn(); // Credentials persisted just before the callback process exited.
     await f.client.cancelSignIn();
@@ -399,13 +550,19 @@ describe('desktop ChatGPT account', () => {
   });
 
   it('keeps an in-progress sign-in alive when settings are requested', async () => {
-    const f = setup({ signedIn: false }); await f.client.start(); await f.client.signIn();
-    await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow('Complete or cancel');
-    expect(f.client.login.state).toBe('waiting'); expect(f.sent('initialize')).toHaveLength(1);
+    const f = setup({ signedIn: false });
+    await f.client.start();
+    await f.client.signIn();
+    await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow(
+      'Complete or cancel',
+    );
+    expect(f.client.login.state).toBe('waiting');
+    expect(f.sent('initialize')).toHaveLength(1);
   });
 
   it('changes model, effort and conversation-copy settings for the next request', async () => {
-    const f = setup(); await f.client.start();
+    const f = setup();
+    await f.client.start();
     await f.client.configure({ model: 'gpt-6-luna', effort: 'low', fork: true });
     expect(f.client.status.model).toBe('GPT-6-Luna');
     expect(f.client.ready).toBe(true);

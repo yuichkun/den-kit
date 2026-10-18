@@ -1,21 +1,44 @@
 // The LLM path end to end below the browser: a WebSocket tab ↔ the bridge ↔
 // CodexClient ↔ the fake app-server process. Tool calls are answered here with
 // canned results; the browser's real tools are covered in llm-workspace and e2e.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { PROTOCOL_VERSION, WS_PATH, type LlmEvent, type ServerMessage, type ToolOutput } from '../../src/ai/protocol.ts';
+import {
+  PROTOCOL_VERSION,
+  WS_PATH,
+  type LlmEvent,
+  type ServerMessage,
+  type ToolOutput,
+} from '../../src/ai/protocol.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
 import type { CodexClientOptions } from '../../bridge/codex/client.ts';
 
 const ORIGIN = 'http://127.0.0.1:5180';
 const cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
+afterEach(async () => {
+  while (cleanups.length) await cleanups.pop()!();
+});
 
-async function setup(options: { signedIn?: boolean; env?: Record<string, string>; client?: Partial<CodexClientOptions>; graceMs?: number; start?: boolean } = {}) {
+async function setup(
+  options: {
+    signedIn?: boolean;
+    env?: Record<string, string>;
+    client?: Partial<CodexClientOptions>;
+    graceMs?: number;
+    start?: boolean;
+  } = {},
+) {
   const fake = fakeCodex(options);
-  const bridge = await createBridge({ origins: [ORIGIN], codex: fake.client, llmGraceMs: options.graceMs ?? 30000 });
-  cleanups.push(async () => { await bridge.close(); await fake.cleanup(); });
+  const bridge = await createBridge({
+    origins: [ORIGIN],
+    codex: fake.client,
+    llmGraceMs: options.graceMs ?? 30000,
+  });
+  cleanups.push(async () => {
+    await bridge.close();
+    await fake.cleanup();
+  });
   if (options.start !== false) await fake.client.start();
   return { fake, bridge };
 }
@@ -25,24 +48,42 @@ async function tab(bridge: Bridge, name = 'tab-a'): Promise<TestSocket> {
   expect((await s.nextOf('welcome')).t).toBe('welcome');
   return s;
 }
-const until = async (fn: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('condition not met'); await new Promise(r => setTimeout(r, 10)); } };
+const until = async (fn: () => boolean, ms = 5000) => {
+  const end = Date.now() + ms;
+  while (!fn()) {
+    if (Date.now() > end) throw new Error('condition not met');
+    await new Promise(r => setTimeout(r, 10));
+  }
+};
 
 type Answer = (call: { tool: string; args: unknown; callId: string }) => ToolOutput | null;
-const canned: Answer = call => ({
-  kit_get_patch: { success: true, text: '{"nodes":[{"id":"cut1"},{"id":"filter1"}]}' },
-  kit_apply_ops: { success: true, text: 'Applied 7 edits. Compiled OK in 0.4 s.' },
-  kit_listen: { success: true, text: 'Peak −6 dB.', imageDataUrl: 'data:image/png;base64,iVBORw0KGgo=' },
-  kit_finish: { success: true, text: 'OK.' },
-  kit_write_codebox: { success: true, text: 'Code saved. Compiled OK in 0.2 s.' },
-} as Record<string, ToolOutput>)[call.tool] ?? { success: false, text: 'unknown' };
+const canned: Answer = call =>
+  (
+    {
+      kit_get_patch: { success: true, text: '{"nodes":[{"id":"cut1"},{"id":"filter1"}]}' },
+      kit_apply_ops: { success: true, text: 'Applied 7 edits. Compiled OK in 0.4 s.' },
+      kit_listen: {
+        success: true,
+        text: 'Peak −6 dB.',
+        imageDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      },
+      kit_finish: { success: true, text: 'OK.' },
+      kit_write_codebox: { success: true, text: 'Code saved. Compiled OK in 0.2 s.' },
+    } as Record<string, ToolOutput>
+  )[call.tool] ?? { success: false, text: 'unknown' };
 
 /** Collect one request's events until `done` (or `steered`), answering its tool calls. */
-async function collect(s: TestSocket, id: string, answer: Answer = canned, options: { timeoutMs?: number; until?: (e: LlmEvent) => boolean } = {}) {
+async function collect(
+  s: TestSocket,
+  id: string,
+  answer: Answer = canned,
+  options: { timeoutMs?: number; until?: (e: LlmEvent) => boolean } = {},
+) {
   const events: LlmEvent[] = [];
   const calls: Array<{ tool: string; args: unknown; callId: string }> = [];
   const end = Date.now() + (options.timeoutMs ?? 10000);
   for (;;) {
-    const m = await s.next(Math.max(1, end - Date.now())) as ServerMessage;
+    const m = (await s.next(Math.max(1, end - Date.now()))) as ServerMessage;
     if (process.env.DEBUG_COLLECT) console.log(id, JSON.stringify(m).slice(0, 160));
     if (m.t === 'tool.call' && m.id === id) {
       calls.push({ tool: m.tool, args: m.args, callId: m.callId });
@@ -52,19 +93,27 @@ async function collect(s: TestSocket, id: string, answer: Answer = canned, optio
     }
     if (m.t !== 'llm.event' || m.id !== id) continue;
     events.push(m.event);
-    if (m.event.kind === 'done' || m.event.kind === 'steered' || options.until?.(m.event)) return { events, calls };
+    if (m.event.kind === 'done' || m.event.kind === 'steered' || options.until?.(m.event))
+      return { events, calls };
   }
 }
-const start = (s: TestSocket, id: string, text: string, thread?: string) => s.send({ t: 'llm.start', id, text, thread, instructions: 'You edit a synth patch.' });
-const doneOf = (events: LlmEvent[]) => events.find((e): e is Extract<LlmEvent, { kind: 'done' }> => e.kind === 'done');
+const start = (s: TestSocket, id: string, text: string, thread?: string) =>
+  s.send({ t: 'llm.start', id, text, thread, instructions: 'You edit a synth patch.' });
+const doneOf = (events: LlmEvent[]) =>
+  events.find((e): e is Extract<LlmEvent, { kind: 'done' }> => e.kind === 'done');
 const noViolations = (fake: FakeCodex) => expect(fake.violations()).toEqual([]);
 
 describe('bounded model connection states', () => {
   it('keeps the connection deadline even when an idle check finds a pending tool', async () => {
-    const { bridge, fake } = await setup({ client: { timeouts: { idleMs: 60, retryMs: 150, toolMs: 1000 } } });
+    const { bridge, fake } = await setup({
+      client: { timeouts: { idleMs: 60, retryMs: 150, toolMs: 1000 } },
+    });
     const s = await tab(bridge);
     start(s, 'pending', 'connection failure during tool');
-    expect(doneOf((await collect(s, 'pending', () => null)).events)).toMatchObject({ status: 'failed', error: { code: 'connection-timeout' } });
+    expect(doneOf((await collect(s, 'pending', () => null)).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'connection-timeout' },
+    });
     expect(fake.client.busy).toBe(false);
     noViolations(fake);
   });
@@ -76,7 +125,12 @@ describe('bounded model connection states', () => {
     const call = await s.nextOf('tool.call');
     await new Promise(r => setTimeout(r, 180));
     expect(fake.client.busy).toBe(true);
-    s.send({ t: 'tool.result', id: 'tool', callId: call.callId, output: { success: true, text: '{}' } });
+    s.send({
+      t: 'tool.result',
+      id: 'tool',
+      callId: call.callId,
+      output: { success: true, text: '{}' },
+    });
     expect(doneOf((await collect(s, 'tool')).events)?.status).toBe('completed');
     noViolations(fake);
   });
@@ -87,7 +141,10 @@ describe('bounded model connection states', () => {
     start(s, 'failed', 'persistent connection failure');
     const { events } = await collect(s, 'failed');
     expect(events.filter(e => e.kind === 'retrying').length).toBeGreaterThan(1);
-    expect(doneOf(events)).toMatchObject({ status: 'failed', error: { code: 'connection-timeout' } });
+    expect(doneOf(events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'connection-timeout' },
+    });
     expect(fake.client.busy).toBe(false);
     expect(fake.sent('turn/interrupt')).toHaveLength(1);
     expect(fake.sent('thread/unsubscribe')).toHaveLength(1);
@@ -112,7 +169,10 @@ describe('bounded model connection states', () => {
     const { bridge, fake } = await setup({ client: { timeouts: { idleMs: 150 } } });
     const s = await tab(bridge);
     start(s, 'silent', 'silent model');
-    expect(doneOf((await collect(s, 'silent')).events)).toMatchObject({ status: 'failed', error: { code: 'response-timeout' } });
+    expect(doneOf((await collect(s, 'silent')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'response-timeout' },
+    });
     expect(fake.client.busy).toBe(false);
     noViolations(fake);
   });
@@ -137,10 +197,18 @@ describe('Codex start-up and status', () => {
     const s = await tab(bridge);
     s.send({ t: 'status.get', id: 's1' });
     const { status } = await s.nextOf('status');
-    expect(status.codex).toMatchObject({ state: 'ok', model: 'GPT-6.1-Sol', images: true, plan: 'plus' });
+    expect(status.codex).toMatchObject({
+      state: 'ok',
+      model: 'GPT-6.1-Sol',
+      images: true,
+      plan: 'plus',
+    });
     await until(() => bridge.status().codex.rateLimit?.usedPercent === 12);
     const init = fake.sent('initialize')[0]!.params as Record<string, unknown>;
-    expect(init).toMatchObject({ clientInfo: { name: 'den-kit' }, capabilities: { experimentalApi: true, requestAttestation: false } });
+    expect(init).toMatchObject({
+      clientInfo: { name: 'den-kit' },
+      capabilities: { experimentalApi: true, requestAttestation: false },
+    });
     noViolations(fake);
   });
 
@@ -166,7 +234,10 @@ describe('Codex start-up and status', () => {
   });
 
   it('an app-server that never answers initialize is stopped and restarted', async () => {
-    const { fake } = await setup({ env: { FAKE_CODEX_FAULT: 'hang-initialize' }, client: { timeouts: { initializeMs: 200 } } });
+    const { fake } = await setup({
+      env: { FAKE_CODEX_FAULT: 'hang-initialize' },
+      client: { timeouts: { initializeMs: 200 } },
+    });
     await until(() => fake.client.status.state === 'error', 8000);
     expect(fake.client.status.detail).toMatch(/initialize got no reply/);
   });
@@ -184,22 +255,61 @@ describe('a turn', () => {
     const s = await tab(bridge);
     start(s, 'r1', 'wobble the cutoff');
     const { events, calls } = await collect(s, 'r1');
-    expect(calls.map(c => c.tool)).toEqual(['kit_get_patch', 'kit_apply_ops', 'kit_listen', 'kit_finish']);
+    expect(calls.map(c => c.tool)).toEqual([
+      'kit_get_patch',
+      'kit_apply_ops',
+      'kit_listen',
+      'kit_finish',
+    ]);
     expect(events[0]).toMatchObject({ kind: 'thread', fresh: false });
     expect(events.map(e => e.kind)).toContain('started');
     expect(events.map(e => e.kind)).toContain('activity'); // thinking
-    expect(events.filter(e => e.kind === 'delta').map(e => (e as { text: string }).text).join('')).toBe('Done.');
+    expect(
+      events
+        .filter(e => e.kind === 'delta')
+        .map(e => (e as { text: string }).text)
+        .join(''),
+    ).toBe('Done.');
     expect(events.filter(e => e.kind === 'done')).toHaveLength(1);
     expect(doneOf(events)!.status).toBe('completed');
 
     const thread = fake.sent('thread/start')[0]!.params as Record<string, unknown>;
-    expect(thread).toMatchObject({ ephemeral: true, environments: [], sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: 'You edit a synth patch.', config: { web_search: 'disabled' } });
-    expect((thread.config as { features: Record<string, boolean> }).features).toMatchObject({ multi_agent: false, apps: false, shell_tool: false, plugins: false });
-    expect((thread.dynamicTools as Array<{ name: string }>).map(t => t.name)).toEqual(['kit_get_patch', 'kit_list_blocks', 'kit_describe_block', 'kit_apply_ops', 'kit_write_codebox', 'kit_listen', 'kit_get_plugin', 'kit_ui_reference', 'kit_view_picture', 'kit_look', 'kit_bash', 'kit_read_file', 'kit_write_file', 'kit_finish']);
+    expect(thread).toMatchObject({
+      ephemeral: true,
+      environments: [],
+      sandbox: 'read-only',
+      approvalPolicy: 'never',
+      developerInstructions: 'You edit a synth patch.',
+      config: { web_search: 'disabled' },
+    });
+    expect((thread.config as { features: Record<string, boolean> }).features).toMatchObject({
+      multi_agent: false,
+      apps: false,
+      shell_tool: false,
+      plugins: false,
+    });
+    expect((thread.dynamicTools as Array<{ name: string }>).map(t => t.name)).toEqual([
+      'kit_get_patch',
+      'kit_list_blocks',
+      'kit_describe_block',
+      'kit_apply_ops',
+      'kit_write_codebox',
+      'kit_listen',
+      'kit_get_plugin',
+      'kit_ui_reference',
+      'kit_view_picture',
+      'kit_look',
+      'kit_bash',
+      'kit_read_file',
+      'kit_write_file',
+      'kit_finish',
+    ]);
     expect(String(thread.cwd)).toContain('work');
     // The spectrogram went back as an image because the model accepts images.
     const listen = fake.replies().find(r => JSON.stringify(r).includes('Peak'))!;
-    expect((listen.result as { contentItems: Array<{ type: string }> }).contentItems.map(c => c.type)).toEqual(['inputText', 'inputImage']);
+    expect(
+      (listen.result as { contentItems: Array<{ type: string }> }).contentItems.map(c => c.type),
+    ).toEqual(['inputText', 'inputImage']);
     noViolations(fake);
   });
 
@@ -230,12 +340,20 @@ describe('a turn', () => {
     const steered = await collect(s, 'r2');
     expect(steered.events).toEqual([{ kind: 'steered', target: 'r1' }]);
     const { calls, events } = await collect(s, 'r1');
-    expect(calls.find(c => c.tool === 'kit_apply_ops')!.args).toEqual({ ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 150 }] });
+    expect(calls.find(c => c.tool === 'kit_apply_ops')!.args).toEqual({
+      ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 150 }],
+    });
     expect(doneOf(events)!.status).toBe('completed');
-    expect(fake.sent('turn/steer')[0]!.params).toMatchObject({ expectedTurnId: expect.any(String), input: [{ type: 'text', text: 'make it darker', text_elements: [] }] });
+    expect(fake.sent('turn/steer')[0]!.params).toMatchObject({
+      expectedTurnId: expect.any(String),
+      input: [{ type: 'text', text: 'make it darker', text_elements: [] }],
+    });
     // Steering a finished request fails, so the browser sends it as a new request.
     s.send({ t: 'llm.steer', id: 'r3', target: 'r1', text: 'more' });
-    expect(doneOf((await collect(s, 'r3')).events)).toMatchObject({ status: 'failed', error: { code: 'not-steerable' } });
+    expect(doneOf((await collect(s, 'r3')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'not-steerable' },
+    });
     noViolations(fake);
   });
 
@@ -257,9 +375,15 @@ describe('a turn', () => {
     const { bridge } = await setup();
     const s = await tab(bridge);
     start(s, 'r1', 'usage limit please');
-    expect(doneOf((await collect(s, 'r1')).events)).toMatchObject({ status: 'failed', error: { code: 'usageLimitExceeded', fix: expect.stringMatching(/limit to reset/) } });
+    expect(doneOf((await collect(s, 'r1')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'usageLimitExceeded', fix: expect.stringMatching(/limit to reset/) },
+    });
     start(s, 'r2', 'unauthorized please');
-    expect(doneOf((await collect(s, 'r2')).events)).toMatchObject({ status: 'failed', error: { code: 'unauthorized', fix: expect.stringMatching(/codex:login/) } });
+    expect(doneOf((await collect(s, 'r2')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'unauthorized', fix: expect.stringMatching(/codex:login/) },
+    });
   });
 
   it('an error Codex will retry is progress, not failure', async () => {
@@ -277,8 +401,26 @@ describe('a turn', () => {
     start(s, 'r1', 'run a shell command');
     const { events } = await collect(s, 'r1');
     const said = JSON.parse((events.find(e => e.kind === 'message') as { text: string }).text);
-    expect(said).toEqual({ command: 'decline', file: 'decline', perms: 'turn', mcp: 'decline', legacy: { denied: { rejection: expect.any(String) } }, time: 'number', unknown: 'error' });
-    expect(events.filter(e => e.kind === 'activity' && e.what === 'blocked').map(e => (e as { detail: string }).detail)).toEqual(['a shell command', 'a file change', 'extra permissions', 'an MCP request', 'a shell command']);
+    expect(said).toEqual({
+      command: 'decline',
+      file: 'decline',
+      perms: 'turn',
+      mcp: 'decline',
+      legacy: { denied: { rejection: expect.any(String) } },
+      time: 'number',
+      unknown: 'error',
+    });
+    expect(
+      events
+        .filter(e => e.kind === 'activity' && e.what === 'blocked')
+        .map(e => (e as { detail: string }).detail),
+    ).toEqual([
+      'a shell command',
+      'a file change',
+      'extra permissions',
+      'an MCP request',
+      'a shell command',
+    ]);
     expect(fake.client.stats.declined).toBe(5);
     noViolations(fake);
   });
@@ -289,7 +431,10 @@ describe('a turn', () => {
     start(s, 'r1', 'ask me with codex');
     const { events } = await collect(s, 'r1', canned, { until: e => e.kind === 'question' });
     const q = events.at(-1) as Extract<LlmEvent, { kind: 'question' }>;
-    expect(q).toMatchObject({ blocking: true, items: [{ id: 'size', question: 'How big?', options: ['Small', 'Large'] }] });
+    expect(q).toMatchObject({
+      blocking: true,
+      items: [{ id: 'size', question: 'How big?', options: ['Small', 'Large'] }],
+    });
     s.send({ t: 'llm.answer', id: 'r1', question: q.question, answers: { size: ['Large'] } });
     const rest = await collect(s, 'r1');
     expect(rest.events.find(e => e.kind === 'message')).toMatchObject({ text: 'You chose Large.' });
@@ -306,7 +451,9 @@ describe('a turn', () => {
     start(s, 'r1', 'unknown tool please');
     const { events, calls } = await collect(s, 'r1');
     expect(calls).toEqual([]);
-    expect(events.find(e => e.kind === 'message')).toMatchObject({ text: expect.stringMatching(/^refused: Unknown tool "kit_rm_rf"/) });
+    expect(events.find(e => e.kind === 'message')).toMatchObject({
+      text: expect.stringMatching(/^refused: Unknown tool "kit_rm_rf"/),
+    });
   });
 
   it('a tab that never answers a tool call: the call fails after the deadline and the turn stops', async () => {
@@ -314,7 +461,10 @@ describe('a turn', () => {
     const s = await tab(bridge);
     start(s, 'r1', 'hang forever');
     const { events } = await collect(s, 'r1', () => null);
-    expect(doneOf(events)).toMatchObject({ status: 'interrupted', error: { message: expect.stringMatching(/did not answer a tool call/) } });
+    expect(doneOf(events)).toMatchObject({
+      status: 'interrupted',
+      error: { message: expect.stringMatching(/did not answer a tool call/) },
+    });
     const reply = fake.replies().find(r => JSON.stringify(r).includes('did not answer in time'));
     expect(reply).toBeDefined();
     noViolations(fake);
@@ -342,7 +492,10 @@ describe('a turn', () => {
     const s = await tab(bridge);
     start(s, 'r1', 'crash now');
     const { events } = await collect(s, 'r1');
-    expect(doneOf(events)).toMatchObject({ status: 'failed', error: { code: 'crashed', message: expect.stringMatching(/restarts by itself/) } });
+    expect(doneOf(events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'crashed', message: expect.stringMatching(/restarts by itself/) },
+    });
     await until(() => fake.client.status.state === 'ok');
     start(s, 'r2', 'explain this');
     expect(doneOf((await collect(s, 'r2')).events)!.status).toBe('completed');
@@ -353,21 +506,37 @@ describe('a turn', () => {
     const s = await tab(bridge);
     for (const id of ['a', 'b', 'c', 'd']) start(s, id, 'slow please');
     start(s, 'e', 'slow please');
-    expect(doneOf((await collect(s, 'e')).events)).toMatchObject({ status: 'failed', error: { code: 'busy' } });
+    expect(doneOf((await collect(s, 'e')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'busy' },
+    });
     for (const id of ['a', 'b', 'c', 'd']) s.send({ t: 'llm.stop', id });
   });
 });
 
 describe('members, pictures and token counts (U8)', () => {
-  const tools = (params: Record<string, unknown>) => (params.dynamicTools as Array<{ name: string }>).map(t => t.name);
+  const tools = (params: Record<string, unknown>) =>
+    (params.dynamicTools as Array<{ name: string }>).map(t => t.name);
   it('the role picks the tools: a lead can start members, a member and a request alone cannot', async () => {
     const { bridge, fake } = await setup();
     const s = await tab(bridge);
-    for (const [id, role] of [['p1', 'lead'], ['p2', 'member'], ['p3', 'solo']] as const) {
-      s.send({ t: 'llm.start', id, text: 'explain', instructions: 'You edit a synth patch.', role });
+    for (const [id, role] of [
+      ['p1', 'lead'],
+      ['p2', 'member'],
+      ['p3', 'solo'],
+    ] as const) {
+      s.send({
+        t: 'llm.start',
+        id,
+        text: 'explain',
+        instructions: 'You edit a synth patch.',
+        role,
+      });
       expect(doneOf((await collect(s, id)).events)!.status).toBe('completed');
     }
-    const [lead, member, solo] = fake.sent('thread/start').map(m => tools(m.params as Record<string, unknown>));
+    const [lead, member, solo] = fake
+      .sent('thread/start')
+      .map(m => tools(m.params as Record<string, unknown>));
     for (const name of ['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']) {
       expect(lead).toContain(name);
       expect(member).not.toContain(name);
@@ -382,32 +551,65 @@ describe('members, pictures and token counts (U8)', () => {
     s.send({ t: 'llm.start', id: 'u1', text: 'unknown tool', instructions: 'x', role: 'member' });
     const { events, calls } = await collect(s, 'u1');
     expect(calls).toEqual([]);
-    expect(events.find(e => e.kind === 'message')).toMatchObject({ text: expect.stringMatching(/^refused: Unknown tool/) });
+    expect(events.find(e => e.kind === 'message')).toMatchObject({
+      text: expect.stringMatching(/^refused: Unknown tool/),
+    });
     noViolations(fake);
   });
   it('pictures come with a request and with an addition to it', async () => {
     const { bridge, fake } = await setup();
     const s = await tab(bridge);
     const png = 'data:image/png;base64,iVBORw0KGgo=';
-    s.send({ t: 'llm.start', id: 'k1', text: 'look at my sketch', instructions: 'x', images: [png, png] });
+    s.send({
+      t: 'llm.start',
+      id: 'k1',
+      text: 'look at my sketch',
+      instructions: 'x',
+      images: [png, png],
+    });
     const first = await collect(s, 'k1', canned, { until: e => e.kind === 'message' });
     expect(first.events.find(e => e.kind === 'message')).toMatchObject({ text: 'pictures: 2' });
     s.send({ t: 'llm.steer', id: 'k2', target: 'k1', text: 'and this one', images: [png] });
     const rest = await collect(s, 'k1');
-    expect(rest.events.filter(e => e.kind === 'message').at(-1)).toMatchObject({ text: 'after "and this one": pictures 3' });
+    expect(rest.events.filter(e => e.kind === 'message').at(-1)).toMatchObject({
+      text: 'after "and this one": pictures 3',
+    });
     const input = (fake.sent('turn/start')[0]!.params as { input: Array<{ type: string }> }).input;
     expect(input.map(i => i.type)).toEqual(['text', 'image', 'image']);
-    expect((fake.sent('turn/steer')[0]!.params as { input: Array<{ type: string }> }).input.map(i => i.type)).toEqual(['text', 'image']);
+    expect(
+      (fake.sent('turn/steer')[0]!.params as { input: Array<{ type: string }> }).input.map(
+        i => i.type,
+      ),
+    ).toEqual(['text', 'image']);
     noViolations(fake);
   });
   it('pictures that are not data:image URLs, too many of them, or a fork for anyone but a member are refused', async () => {
     const { bridge } = await setup();
     const s = await tab(bridge);
-    s.send({ t: 'llm.start', id: 'b1', text: 'x', instructions: 'x', images: ['https://example.com/a.png'] });
+    s.send({
+      t: 'llm.start',
+      id: 'b1',
+      text: 'x',
+      instructions: 'x',
+      images: ['https://example.com/a.png'],
+    });
     expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/images/) });
-    s.send({ t: 'llm.start', id: 'b2', text: 'x', instructions: 'x', images: Array(5).fill('data:image/png;base64,AA') });
+    s.send({
+      t: 'llm.start',
+      id: 'b2',
+      text: 'x',
+      instructions: 'x',
+      images: Array(5).fill('data:image/png;base64,AA'),
+    });
     expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/images/) });
-    s.send({ t: 'llm.start', id: 'b3', text: 'x', instructions: 'x', role: 'lead', fork: { thread: 'abc', fallback: 'y' } });
+    s.send({
+      t: 'llm.start',
+      id: 'b3',
+      text: 'x',
+      instructions: 'x',
+      role: 'lead',
+      fork: { thread: 'abc', fallback: 'y' },
+    });
     expect(await s.nextOf('error')).toMatchObject({ message: expect.stringMatching(/member/) });
   });
   it('token counts of a conversation reach the tab', async () => {
@@ -415,45 +617,105 @@ describe('members, pictures and token counts (U8)', () => {
     const s = await tab(bridge);
     start(s, 't1', 'count my tokens');
     const { events } = await collect(s, 't1');
-    const usage = events.filter((e): e is Extract<LlmEvent, { kind: 'usage' }> => e.kind === 'usage');
-    expect(usage[0]).toMatchObject({ total: { input: 1200, output: 300, cached: 900, reasoning: 120, total: 1500 }, last: { input: 1200 }, window: 272000 });
-    expect(usage.at(-1)).toMatchObject({ total: { input: 1600, output: 400, cached: 1250 }, last: { input: 400, output: 100 } });
+    const usage = events.filter(
+      (e): e is Extract<LlmEvent, { kind: 'usage' }> => e.kind === 'usage',
+    );
+    expect(usage[0]).toMatchObject({
+      total: { input: 1200, output: 300, cached: 900, reasoning: 120, total: 1500 },
+      last: { input: 1200 },
+      window: 272000,
+    });
+    expect(usage.at(-1)).toMatchObject({
+      total: { input: 1600, output: 400, cached: 1250 },
+      last: { input: 400, output: 100 },
+    });
   });
-  it('a member starts from a copy of the lead\'s conversation when forking is on, with its own rules and the same isolation', async () => {
+  it("a member starts from a copy of the lead's conversation when forking is on, with its own rules and the same isolation", async () => {
     const { bridge, fake } = await setup({ client: { fork: true } });
     const s = await tab(bridge);
     s.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'You lead.', role: 'lead' });
     const lead = await collect(s, 'L1');
     const thread = (lead.events.find(e => e.kind === 'thread') as { thread: string }).thread;
-    s.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: Screen.', instructions: 'You are a member.', role: 'member', fork: { thread, fallback: '[den-kit] The conversation so far: …' } });
+    s.send({
+      t: 'llm.start',
+      id: 'M1',
+      text: '[den-kit] You are a member. Your part: Screen.',
+      instructions: 'You are a member.',
+      role: 'member',
+      fork: { thread, fallback: '[den-kit] The conversation so far: …' },
+    });
     const member = await collect(s, 'M1');
     expect(member.events.find(e => e.kind === 'thread')).toMatchObject({ forked: true });
-    expect(member.events.find(e => e.kind === 'message')).toMatchObject({ text: 'forked=yes; begins: [den-kit] You are a member. Your part: Screen.' });
-    expect(fake.sent('thread/fork')[0]!.params).toMatchObject({ threadId: thread, ephemeral: true, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: 'You are a member.', config: { web_search: 'disabled' } });
+    expect(member.events.find(e => e.kind === 'message')).toMatchObject({
+      text: 'forked=yes; begins: [den-kit] You are a member. Your part: Screen.',
+    });
+    expect(fake.sent('thread/fork')[0]!.params).toMatchObject({
+      threadId: thread,
+      ephemeral: true,
+      sandbox: 'read-only',
+      approvalPolicy: 'never',
+      developerInstructions: 'You are a member.',
+      config: { web_search: 'disabled' },
+    });
     noViolations(fake);
   });
-  it('when Codex cannot copy the conversation (or forking is off), the member starts fresh with den-kit\'s account first', async () => {
-    for (const setupOptions of [{ client: { fork: true }, env: { FAKE_CODEX_FORK: 'refuse' } }, {}]) {
+  it("when Codex cannot copy the conversation (or forking is off), the member starts fresh with den-kit's account first", async () => {
+    for (const setupOptions of [
+      { client: { fork: true }, env: { FAKE_CODEX_FORK: 'refuse' } },
+      {},
+    ]) {
       const { bridge, fake } = await setup(setupOptions);
       const s = await tab(bridge);
-      s.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'You lead.', role: 'lead' });
-      const thread = ((await collect(s, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }).thread;
-      s.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: Sound.', instructions: 'You are a member.', role: 'member', fork: { thread, fallback: '[den-kit] You are a member — the conversation so far: …' } });
+      s.send({
+        t: 'llm.start',
+        id: 'L1',
+        text: 'explain',
+        instructions: 'You lead.',
+        role: 'lead',
+      });
+      const thread = (
+        (await collect(s, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }
+      ).thread;
+      s.send({
+        t: 'llm.start',
+        id: 'M1',
+        text: '[den-kit] You are a member. Your part: Sound.',
+        instructions: 'You are a member.',
+        role: 'member',
+        fork: { thread, fallback: '[den-kit] You are a member — the conversation so far: …' },
+      });
       const member = await collect(s, 'M1');
       expect(member.events.find(e => e.kind === 'thread')).toMatchObject({ forked: false });
-      expect(member.events.find(e => e.kind === 'message')).toMatchObject({ text: expect.stringMatching(/^forked=no; begins: \[den-kit\] You are a member — the conversation so far/) });
-      expect(tools(fake.sent('thread/start').at(-1)!.params as Record<string, unknown>)).not.toContain('kit_delegate');
+      expect(member.events.find(e => e.kind === 'message')).toMatchObject({
+        text: expect.stringMatching(
+          /^forked=no; begins: \[den-kit\] You are a member — the conversation so far/,
+        ),
+      });
+      expect(
+        tools(fake.sent('thread/start').at(-1)!.params as Record<string, unknown>),
+      ).not.toContain('kit_delegate');
       noViolations(fake);
     }
   });
-  it('another tab\'s conversation cannot be copied', async () => {
+  it("another tab's conversation cannot be copied", async () => {
     const { bridge, fake } = await setup({ client: { fork: true } });
     const a = await tab(bridge, 'tab-a');
     a.send({ t: 'llm.start', id: 'L1', text: 'explain', instructions: 'x', role: 'lead' });
-    const thread = ((await collect(a, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }).thread;
+    const thread = (
+      (await collect(a, 'L1')).events.find(e => e.kind === 'thread') as { thread: string }
+    ).thread;
     const b = await tab(bridge, 'tab-b');
-    b.send({ t: 'llm.start', id: 'M1', text: '[den-kit] You are a member. Your part: X.', instructions: 'x', role: 'member', fork: { thread, fallback: 'nothing of yours' } });
-    expect((await collect(b, 'M1')).events.find(e => e.kind === 'thread')).toMatchObject({ forked: false });
+    b.send({
+      t: 'llm.start',
+      id: 'M1',
+      text: '[den-kit] You are a member. Your part: X.',
+      instructions: 'x',
+      role: 'member',
+      fork: { thread, fallback: 'nothing of yours' },
+    });
+    expect((await collect(b, 'M1')).events.find(e => e.kind === 'thread')).toMatchObject({
+      forked: false,
+    });
     expect(fake.sent('thread/fork')).toEqual([]);
   });
   it('effort "ultra" is not sent (it would start Codex\'s own sub-agents)', async () => {
@@ -470,7 +732,10 @@ describe('tabs coming and going', () => {
     const { bridge, fake } = await setup();
     const s1 = await tab(bridge, 'tab-r');
     start(s1, 'r1', 'wobble the cutoff');
-    const first = await collect(s1, 'r1', () => null, { until: () => false, timeoutMs: 1500 }).catch(() => null);
+    const first = await collect(s1, 'r1', () => null, {
+      until: () => false,
+      timeoutMs: 1500,
+    }).catch(() => null);
     void first;
     s1.ws.close();
     await new Promise(r => setTimeout(r, 100));
@@ -501,7 +766,9 @@ describe('tabs coming and going', () => {
     b.send({ t: 'llm.answer', id: 'r1', question: q.question, answers: { size: ['Small'] } });
     expect((await b.nextOf('error')).message).toMatch(/no longer open/);
     a.send({ t: 'llm.answer', id: 'r1', question: q.question, answers: { size: ['Large'] } });
-    expect((await collect(a, 'r1')).events.find(e => e.kind === 'message')).toMatchObject({ text: 'You chose Large.' });
+    expect((await collect(a, 'r1')).events.find(e => e.kind === 'message')).toMatchObject({
+      text: 'You chose Large.',
+    });
   });
 
   it('without Codex the bridge says the LLM path is off', async () => {
@@ -510,7 +777,10 @@ describe('tabs coming and going', () => {
     const s = await tab(bridge);
     expect(bridge.status().codex.state).toBe('off');
     start(s, 'r1', 'hello');
-    expect(doneOf((await collect(s, 'r1')).events)).toMatchObject({ status: 'failed', error: { code: 'off' } });
+    expect(doneOf((await collect(s, 'r1')).events)).toMatchObject({
+      status: 'failed',
+      error: { code: 'off' },
+    });
   });
 
   it('malformed LLM messages are refused with a reason', async () => {
@@ -518,7 +788,12 @@ describe('tabs coming and going', () => {
     const s = await tab(bridge);
     s.send({ t: 'llm.start', id: 'r1', text: '', instructions: '' });
     expect((await s.nextOf('error')).message).toMatch(/llm.start text/);
-    s.send({ t: 'tool.result', id: 'r1', callId: 'c', output: { success: true, text: 'x', imageDataUrl: 'javascript:alert(1)' } });
+    s.send({
+      t: 'tool.result',
+      id: 'r1',
+      callId: 'c',
+      output: { success: true, text: 'x', imageDataUrl: 'javascript:alert(1)' },
+    });
     expect((await s.nextOf('error')).message).toMatch(/image/);
   });
 });

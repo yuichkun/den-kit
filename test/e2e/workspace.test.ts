@@ -8,12 +8,31 @@ import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { openKit, reloadKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 
-const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
+const kit = (page: Page, fn: (k: any) => unknown): Promise<any> =>
+  page.evaluate(`(${fn.toString()})(window.__kit)`);
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
-const overlaps = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-const active = (page: Page) => page.evaluate(() => { const el = document.activeElement as HTMLElement | null; return el ? `${el.tagName.toLowerCase()}${el.dataset.testid ? `[${el.dataset.testid}]` : ''}` : ''; });
+const overlaps = (
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const active = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return el
+      ? `${el.tagName.toLowerCase()}${el.dataset.testid ? `[${el.dataset.testid}]` : ''}`
+      : '';
+  });
 async function settled(page: Page, text: string, timeout = 30000) {
-  await page.waitForFunction(t => { const o = (window as any).__kit.requests.history.value.filter((x: any) => x.text === t).at(-1); return o && !o.live && o.status !== 'working' && o.status !== 'thinking'; }, text, { timeout });
+  await page.waitForFunction(
+    t => {
+      const o = (window as any).__kit.requests.history.value
+        .filter((x: any) => x.text === t)
+        .at(-1);
+      return o && !o.live && o.status !== 'working' && o.status !== 'thinking';
+    },
+    text,
+    { timeout },
+  );
   return kit(page, k => k.requests.history.value.at(-1));
 }
 /** Four knobs on the plugin (one transaction). */
@@ -23,15 +42,23 @@ const KNOBS = `k => {
 }`;
 
 let h: Harness;
-before(async () => { h = await startHarness({ codex: true }); });
-after(async () => { await h?.close(); });
+before(async () => {
+  h = await startHarness({ codex: true });
+});
+after(async () => {
+  await h?.close();
+});
 
 describe('the AI panel', () => {
   it('sits next to the canvas and never over it, at any width; ⌘J hides it and the canvas takes the room', async () => {
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 760 }]) {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1100, height: 760 },
+    ]) {
       const { page, errors } = await openKit(h, { viewport });
       await waitCompiled(page);
-      const dock = await box(page, '[data-testid=ai-dock]'), canvas = await box(page, '[data-testid=workspace]');
+      const dock = await box(page, '[data-testid=ai-dock]'),
+        canvas = await box(page, '[data-testid=workspace]');
       assert.ok(!overlaps(dock, canvas), `${viewport.width}: ${JSON.stringify({ dock, canvas })}`);
       assert.ok(dock.height > viewport.height * 0.85, 'full height');
       assert.ok(dock.width <= viewport.width * 0.37 + 1, 'gives way on a narrow window');
@@ -42,8 +69,16 @@ describe('the AI panel', () => {
       await page.waitForSelector('[data-testid=ai-result][data-status=applied]');
       const line = await box(page, '[data-testid=ai-result]');
       assert.ok(!overlaps(line, canvas));
-      assert.ok(await page.$eval('[data-testid=ai-result] .ask', el => parseFloat(getComputedStyle(el).fontSize)) >= 16);
-      assert.ok(await page.$eval('[data-testid=ai-input]', el => parseFloat(getComputedStyle(el).fontSize)) >= 16);
+      assert.ok(
+        (await page.$eval('[data-testid=ai-result] .ask', el =>
+          parseFloat(getComputedStyle(el).fontSize),
+        )) >= 16,
+      );
+      assert.ok(
+        (await page.$eval('[data-testid=ai-input]', el =>
+          parseFloat(getComputedStyle(el).fontSize),
+        )) >= 16,
+      );
       await page.keyboard.press('Escape'); // leave the prompt
       await page.keyboard.press('Control+j');
       await page.waitForSelector('[data-testid=ai-dock]', { state: 'hidden' });
@@ -68,7 +103,10 @@ describe('the AI panel', () => {
     await page.keyboard.press('Escape');
     assert.notEqual(await active(page), 'textarea[ai-input]');
     await page.keyboard.press('Control+a'); // a canvas key, no click needed
-    assert.equal(await kit(page, k => k.selection.value.length), await kit(page, k => Object.keys(k.doc.value.nodes).length));
+    assert.equal(
+      await kit(page, k => k.selection.value.length),
+      await kit(page, k => Object.keys(k.doc.value.nodes).length),
+    );
     await page.keyboard.press('Control+z');
     assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), release);
     assert.deepEqual(errors, []);
@@ -78,7 +116,9 @@ describe('the AI panel', () => {
   it('requests go to the LLM without choosing a route; Esc stops it; no buttons to pick', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
-    await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, { timeout: 30000 });
+    await page.waitForFunction(() => (window as any).__kit.bridge.codexReady, null, {
+      timeout: 30000,
+    });
     await page.keyboard.press('Control+k');
     await page.keyboard.type('make it pop somehow');
     await page.keyboard.press('Enter');
@@ -111,28 +151,45 @@ describe('patch keys', () => {
     await page.keyboard.press('Control+z');
     assert.equal(await kit(page, k => k.doc.value.nodes.osc1.pos.x), x0);
     await page.keyboard.press('Control+a');
-    assert.equal(await kit(page, k => k.selection.value.length), await kit(page, k => Object.keys(k.doc.value.nodes).length));
-    const zoom = () => page.evaluate(() => Number(/scale\(([\d.]+)\)/.exec((document.querySelector('.vue-flow__transformationpane') as HTMLElement).style.transform)?.[1] ?? 1));
-    const waitZoom = (expected: number, tolerance = 0.00001) => page.waitForFunction(({ expected, tolerance }) => {
-      const pane = document.querySelector('.vue-flow__transformationpane') as HTMLElement;
-      const viewport = document.querySelector('.vue-flow__viewport') as HTMLElement & { __transition?: unknown };
-      const actual = Number(/scale\(([\d.]+)\)/.exec(pane.style.transform)?.[1] ?? 1);
-      // Vue Flow's d3 transition remains on the viewport until the animated
-      // zoom finishes. A second key before that can replace the first step.
-      return !viewport.__transition && Math.abs(actual - expected) < tolerance;
-    }, { expected, tolerance });
+    assert.equal(
+      await kit(page, k => k.selection.value.length),
+      await kit(page, k => Object.keys(k.doc.value.nodes).length),
+    );
+    const zoom = () =>
+      page.evaluate(() =>
+        Number(
+          /scale\(([\d.]+)\)/.exec(
+            (document.querySelector('.vue-flow__transformationpane') as HTMLElement).style
+              .transform,
+          )?.[1] ?? 1,
+        ),
+      );
+    const waitZoom = (expected: number, tolerance = 0.00001) =>
+      page.waitForFunction(
+        ({ expected, tolerance }) => {
+          const pane = document.querySelector('.vue-flow__transformationpane') as HTMLElement;
+          const viewport = document.querySelector('.vue-flow__viewport') as HTMLElement & {
+            __transition?: unknown;
+          };
+          const actual = Number(/scale\(([\d.]+)\)/.exec(pane.style.transform)?.[1] ?? 1);
+          // Vue Flow's d3 transition remains on the viewport until the animated
+          // zoom finishes. A second key before that can replace the first step.
+          return !viewport.__transition && Math.abs(actual - expected) < tolerance;
+        },
+        { expected, tolerance },
+      );
     const z0 = await zoom();
     await page.keyboard.press('Control+Equal');
     await waitZoom(z0 * 1.2);
-    assert.ok(await zoom() > z0);
+    assert.ok((await zoom()) > z0);
     await page.keyboard.press('Control+Minus');
     await waitZoom(z0);
     await page.keyboard.press('Control+Minus');
     await waitZoom(z0 / 1.2);
-    assert.ok(await zoom() < z0);
+    assert.ok((await zoom()) < z0);
     await page.keyboard.press('Shift+Digit1');
     await waitZoom(z0, 0.05);
-    assert.ok(Math.abs(await zoom() - z0) < 0.05, 'fit brings the whole patch back');
+    assert.ok(Math.abs((await zoom()) - z0) < 0.05, 'fit brings the whole patch back');
     await page.keyboard.press('Escape');
     assert.equal(await kit(page, k => k.selection.value.length), 0);
     assert.deepEqual(errors, []);
@@ -147,9 +204,16 @@ describe('the plugin view', () => {
     await page.evaluate(`(${KNOBS})(window.__kit)`);
     await page.keyboard.press('Control+Alt+KeyE');
     await page.waitForSelector('[data-testid=plugin-view]');
-    const win = await box(page, '[data-testid=plugin-window]'), panel = await box(page, '[data-testid=panel]');
-    assert.ok(Number(await page.getAttribute('[data-testid=panel]', 'data-scale')) > 1, 'scaled up to the window');
-    assert.ok(Math.abs(panel.width - win.width) < 2 || Math.abs(panel.height - win.height) < 2, 'fills one side of the window');
+    const win = await box(page, '[data-testid=plugin-window]'),
+      panel = await box(page, '[data-testid=panel]');
+    assert.ok(
+      Number(await page.getAttribute('[data-testid=panel]', 'data-scale')) > 1,
+      'scaled up to the window',
+    );
+    assert.ok(
+      Math.abs(panel.width - win.width) < 2 || Math.abs(panel.height - win.height) < 2,
+      'fills one side of the window',
+    );
     // Edit by keyboard: select, nudge, select all, take off, undo.
     await page.keyboard.press('Control+e');
     await page.waitForSelector('[data-testid=plugin-edit].active');
@@ -157,7 +221,11 @@ describe('the plugin view', () => {
     const x0 = await kit(page, k => k.doc.value.nodes.kres.panel.x);
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Shift+ArrowRight');
-    assert.equal(await kit(page, k => k.doc.value.nodes.kres.panel.x), x0 + 1 + 10, 'design-tool steps: 1 px, Shift 10 px');
+    assert.equal(
+      await kit(page, k => k.doc.value.nodes.kres.panel.x),
+      x0 + 1 + 10,
+      'design-tool steps: 1 px, Shift 10 px',
+    );
     await page.keyboard.press('Control+a');
     assert.equal(await kit(page, k => k.selection.value.length), 4);
     await page.keyboard.press('Delete');
@@ -169,7 +237,11 @@ describe('the plugin view', () => {
     // Full screen: only the plugin, scaled to the whole window; Esc comes back.
     await page.keyboard.press('Control+Shift+KeyF');
     await page.waitForSelector('[data-testid=leave-focus]');
-    assert.ok(!(await page.isVisible('.toolbar')) && !(await page.isVisible('[data-testid=ai-dock]')) && !(await page.isVisible('[data-testid=keyboard]')));
+    assert.ok(
+      !(await page.isVisible('.toolbar')) &&
+        !(await page.isVisible('[data-testid=ai-dock]')) &&
+        !(await page.isVisible('[data-testid=keyboard]')),
+    );
     const full = await box(page, '[data-testid=plugin-window]');
     assert.ok(full.width >= 1430 && full.height >= 890, JSON.stringify(full));
     await page.keyboard.press('Escape');
@@ -212,7 +284,9 @@ describe('widgets under the mouse', () => {
     await page.mouse.down();
     await page.waitForFunction(() => (window as any).__kit.heldNotes.value.length === 1);
     await page.mouse.up();
-    await page.waitForFunction(() => (window as any).__kit.heldNotes.value.length === 0, null, { timeout: 2000 });
+    await page.waitForFunction(() => (window as any).__kit.heldNotes.value.length === 0, null, {
+      timeout: 2000,
+    });
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -229,7 +303,9 @@ describe('the start screen', () => {
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
     assert.equal(await kit(page, k => k.doc.value.name), 'Afterglow');
-    await page.waitForFunction(() => (window as any).__kit.engineState.value === 'running', null, { timeout: 30000 });
+    await page.waitForFunction(() => (window as any).__kit.engineState.value === 'running', null, {
+      timeout: 30000,
+    });
     await waitCompiled(page);
     // Asked for again: Esc leaves the patch as it is.
     const before = await kit(page, k => k.doc.value.revision);
@@ -249,7 +325,11 @@ describe('the start screen', () => {
     assert.equal(line.route, 'llm');
     assert.equal(h.codex!.sent('turn/start').length, requestsBefore + 1);
     assert.equal(line.status, 'applied', JSON.stringify(line));
-    assert.ok(await kit(page, k => Object.values<any>(k.doc.value.nodes).some((n: any) => n.type === 'kit.voiceIn')));
+    assert.ok(
+      await kit(page, k =>
+        Object.values<any>(k.doc.value.nodes).some((n: any) => n.type === 'kit.voiceIn'),
+      ),
+    );
     assert.ok(await page.isVisible('[data-testid=ai-dock]'));
     // A later launch with a saved patch does not show it.
     await page.evaluate(() => sessionStorage.setItem('kit-e2e-keep', '1'));

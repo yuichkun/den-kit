@@ -3,35 +3,85 @@
 // an update with what changes shown first (the uses keep their values), and
 // carried in files. Broken bundles and files are refused or repaired with a
 // reason, never half-placed.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { generate } from '../../../src/core/codegen.ts';
-import { bundleHash, checkBundle, describeDiff, diffBundles, emptyLibrary, extractBundle, KEEP_VERSIONS, latest, LIBRARY_SCHEMA, mergeLibrary, parseLibrary, removeFromLibrary, saveToLibrary, serializeLibrary, type Library, type PartBundle } from '../../../src/core/library.ts';
-import { applyIntents, applyResolvedOps, invertAll, OpError, type Intent, type ResolvedOp } from '../../../src/core/ops.ts';
+import {
+  bundleHash,
+  checkBundle,
+  describeDiff,
+  diffBundles,
+  emptyLibrary,
+  extractBundle,
+  KEEP_VERSIONS,
+  latest,
+  LIBRARY_SCHEMA,
+  mergeLibrary,
+  parseLibrary,
+  removeFromLibrary,
+  saveToLibrary,
+  serializeLibrary,
+  type Library,
+  type PartBundle,
+} from '../../../src/core/library.ts';
+import {
+  applyIntents,
+  applyResolvedOps,
+  invertAll,
+  OpError,
+  type Intent,
+  type ResolvedOp,
+} from '../../../src/core/ops.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
 import { clone, emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
 import { starter } from '../../../src/core/starters.ts';
 import { validate } from '../../../src/core/validate.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
-const failure = (fn: () => unknown): OpError => { try { fn(); } catch (error) { if (error instanceof OpError) return error; throw error; } throw new Error('expected an OpError'); };
-const same = (a: PatchDocument, b: PatchDocument) => expect({ ...a, revision: 0 }).toEqual({ ...b, revision: 0 });
-function undoes(before: PatchDocument, r: { doc: PatchDocument; ops: ResolvedOp[] }) { same(applyResolvedOps(r.doc, invertAll(r.ops)), before); }
+const failure = (fn: () => unknown): OpError => {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof OpError) return error;
+    throw error;
+  }
+  throw new Error('expected an OpError');
+};
+const same = (a: PatchDocument, b: PatchDocument) =>
+  expect({ ...a, revision: 0 }).toEqual({ ...b, revision: 0 });
+function undoes(before: PatchDocument, r: { doc: PatchDocument; ops: ResolvedOp[] }) {
+  same(applyResolvedOps(r.doc, invertAll(r.ops)), before);
+}
 
 /** The bass with its oscillator and filter made into part Tone (use tone1), the filter's cutoff an input and its resonance a parameter. */
-const toned = () => apply(starter('bass', catalog), { op: 'makePart', ids: ['osc1', 'filter1'], name: 'Tone' }).doc;
+const toned = () =>
+  apply(starter('bass', catalog), { op: 'makePart', ids: ['osc1', 'filter1'], name: 'Tone' }).doc;
 /** Tone with a part Inner (the filter) inside it. */
 const nested = () => apply(toned(), { op: 'makePart', ids: ['filter1'], name: 'Inner' }).doc;
 /** Save part `id` of `doc` into `lib`, and record it in the patch (as the session does). */
 function save(lib: Library, doc: PatchDocument, id: string, now = 1) {
   const r = saveToLibrary(lib, doc, id, now);
-  return { ...r, doc: r.unchanged ? doc : apply(doc, { op: 'updatePart', part: id, from: r.from }).doc };
+  return {
+    ...r,
+    doc: r.unchanged ? doc : apply(doc, { op: 'updatePart', part: id, from: r.from }).doc,
+  };
 }
 /** A patch with just Out, to place things in. */
-const blank = () => apply(emptyDocument('blank'), { op: 'addNode', node: { id: 'out1', type: 'kit.out' } }).doc;
-const place = (doc: PatchDocument, lib: Library, id: string, extra: Partial<Extract<Intent, { op: 'importPart' }>> = {}) => {
+const blank = () =>
+  apply(emptyDocument('blank'), { op: 'addNode', node: { id: 'out1', type: 'kit.out' } }).doc;
+const place = (
+  doc: PatchDocument,
+  lib: Library,
+  id: string,
+  extra: Partial<Extract<Intent, { op: 'importPart' }>> = {},
+) => {
   const v = latest(lib.parts[id]!);
-  return apply(doc, { op: 'importPart', bundle: v.bundle, from: { id, version: v.version, hash: bundleHash(v.bundle) }, ...extra });
+  return apply(doc, {
+    op: 'importPart',
+    bundle: v.bundle,
+    from: { id, version: v.version, hash: bundleHash(v.bundle) },
+    ...extra,
+  });
 };
 
 describe('a bundle: a part and what it needs', () => {
@@ -40,9 +90,16 @@ describe('a bundle: a part and what it needs', () => {
     const b = extractBundle(doc, 'tone');
     expect(b.part.id).toBe('tone');
     expect(Object.keys(b.parts)).toEqual(['inner']);
-    expect(Object.keys(b.nodes).sort()).toEqual(Object.values(doc.nodes).filter(n => n.inside === 'tone' || n.inside === 'inner').map(n => n.id).sort());
+    expect(Object.keys(b.nodes).sort()).toEqual(
+      Object.values(doc.nodes)
+        .filter(n => n.inside === 'tone' || n.inside === 'inner')
+        .map(n => n.id)
+        .sort(),
+    );
     expect(Object.values(b.nodes).every(n => n.iface === undefined)).toBe(true);
-    expect(Object.values(b.edges).every(e => b.nodes[e.from.node] && b.nodes[e.to.node])).toBe(true);
+    expect(Object.values(b.edges).every(e => b.nodes[e.from.node] && b.nodes[e.to.node])).toBe(
+      true,
+    );
     expect(checkBundle(b, catalog)).toEqual(b);
     // Moving the whole part or renaming its nodes is not a change; turning a knob inside is.
     const moved = clone(b);
@@ -54,16 +111,57 @@ describe('a bundle: a part and what it needs', () => {
   });
   it('a broken bundle is refused with the reason', () => {
     const b = extractBundle(nested(), 'tone');
-    const broken = (fn: (x: PartBundle & Record<string, unknown>) => void) => { const x = clone(b) as PartBundle & Record<string, unknown>; fn(x); return checkBundle(x, catalog); };
+    const broken = (fn: (x: PartBundle & Record<string, unknown>) => void) => {
+      const x = clone(b) as PartBundle & Record<string, unknown>;
+      fn(x);
+      return checkBundle(x, catalog);
+    };
     expect(checkBundle(null, catalog)).toMatch(/\{part, parts, nodes, edges\}/);
-    expect(broken(x => { x.part.id = 'Bad id'; })).toMatch(/bad id/);
-    expect(broken(x => { Object.values(x.nodes)[0]!.type = 'den.nope'; })).toMatch(/does not know/);
-    expect(broken(x => { Object.values(x.nodes)[0]!.inside = 'elsewhere'; })).toMatch(/not inside one of the bundle's parts/);
-    expect(broken(x => { const e = Object.values(x.edges)[0]!; e.to.node = 'ghost'; })).toMatch(/joins a node the bundle does not carry/);
-    expect(broken(x => { x.nodes.knob9 = { id: 'knob9', type: 'ui.knob', pos: { x: 0, y: 0 }, config: {}, values: {}, inside: 'tone' }; })).toMatch(/cannot be inside a part/);
-    expect(broken(x => { x.part.inputs[0]!.node = Object.values(x.nodes).find(n => n.type === 'den.oscillator')!.id; })).toMatch(/not one of its Part input nodes/);
+    expect(
+      broken(x => {
+        x.part.id = 'Bad id';
+      }),
+    ).toMatch(/bad id/);
+    expect(
+      broken(x => {
+        Object.values(x.nodes)[0]!.type = 'den.nope';
+      }),
+    ).toMatch(/does not know/);
+    expect(
+      broken(x => {
+        Object.values(x.nodes)[0]!.inside = 'elsewhere';
+      }),
+    ).toMatch(/not inside one of the bundle's parts/);
+    expect(
+      broken(x => {
+        const e = Object.values(x.edges)[0]!;
+        e.to.node = 'ghost';
+      }),
+    ).toMatch(/joins a node the bundle does not carry/);
+    expect(
+      broken(x => {
+        x.nodes.knob9 = {
+          id: 'knob9',
+          type: 'ui.knob',
+          pos: { x: 0, y: 0 },
+          config: {},
+          values: {},
+          inside: 'tone',
+        };
+      }),
+    ).toMatch(/cannot be inside a part/);
+    expect(
+      broken(x => {
+        x.part.inputs[0]!.node = Object.values(x.nodes).find(n => n.type === 'den.oscillator')!.id;
+      }),
+    ).toMatch(/not one of its Part input nodes/);
     // A part inside itself.
-    expect(broken(x => { const use = Object.values(x.nodes).find(n => n.type === 'kit.part')!; x.nodes.loop9 = { ...clone(use), id: 'loop9', inside: 'inner', part: 'inner' }; })).toMatch(/used inside itself/);
+    expect(
+      broken(x => {
+        const use = Object.values(x.nodes).find(n => n.type === 'kit.part')!;
+        x.nodes.loop9 = { ...clone(use), id: 'loop9', inside: 'inner', part: 'inner' };
+      }),
+    ).toMatch(/used inside itself/);
   });
 });
 
@@ -77,13 +175,22 @@ describe('saving, placing and updating', () => {
     const again = save(r.library, r.doc, 'tone', 2);
     expect(again.unchanged).toBe(true);
     expect(again.library).toBe(r.library);
-    const changed = apply(again.doc, { op: 'setConfig', node: 'osc1', key: 'waveform', value: 'sine' }).doc;
+    const changed = apply(again.doc, {
+      op: 'setConfig',
+      node: 'osc1',
+      key: 'waveform',
+      value: 'sine',
+    }).doc;
     const v2 = save(again.library, changed, 'tone', 3);
     expect(v2.version).toBe(2);
     expect(v2.library.parts.tone!.versions.map(v => v.version)).toEqual([1, 2]);
     expect(v2.doc.parts.tone!.from!.version).toBe(2);
     // A part saved from another patch with the same name gets its own id.
-    const other = save(v2.library, apply(starter('bass', catalog), { op: 'makePart', ids: ['osc1'], name: 'Tone' }).doc, 'tone');
+    const other = save(
+      v2.library,
+      apply(starter('bass', catalog), { op: 'makePart', ids: ['osc1'], name: 'Tone' }).doc,
+      'tone',
+    );
     expect(other.entry.id).toBe('tone2');
   });
   it('placed in another patch, the part comes in whole (ids made free) and sounds; placing it again adds a use', () => {
@@ -101,22 +208,39 @@ describe('saving, placing and updating', () => {
     expect(use.pos).toEqual({ x: 100, y: 900 });
     expect(validate(r.doc, catalog).issues.filter(i => i.severity === 'error')).toEqual([]);
     // The placed copy is the saved one, whatever its ids are now.
-    expect(bundleHash(extractBundle(r.doc, def.id))).toBe(bundleHash(latest(lib.parts.tone!).bundle));
+    expect(bundleHash(extractBundle(r.doc, def.id))).toBe(
+      bundleHash(latest(lib.parts.tone!).bundle),
+    );
     undoes(busy, r);
     // Into an empty patch it keeps its own ids, and a use wired to Out plays.
     const plain = place(blank(), lib, 'tone');
     expect(Object.keys(plain.doc.parts).sort()).toEqual(['inner', 'tone']);
-    const wired = apply(plain.doc, { op: 'connect', from: { node: plain.created[0]!, port: 'out' }, to: { node: 'out1', port: 'left' } }).doc;
+    const wired = apply(plain.doc, {
+      op: 'connect',
+      from: { node: plain.created[0]!, port: 'out' },
+      to: { node: 'out1', port: 'left' },
+    }).doc;
     expect(generate(wired, catalog).source).not.toBe('');
   });
-  it('a newer version is offered with what changes; updating keeps each use\'s values where the knob stays, drops what went, and undoes exactly', () => {
+  it("a newer version is offered with what changes; updating keeps each use's values where the knob stays, drops what went, and undoes exactly", () => {
     const first = save(emptyLibrary(), toned(), 'tone');
     // Elsewhere: the part is placed twice, one use with its own resonance.
     let elsewhere = place(blank(), first.library, 'tone').doc;
     const use1 = Object.values(elsewhere.nodes).find(n => n.type === 'kit.part')!.id;
-    elsewhere = apply(elsewhere, { op: 'addNode', node: { id: 'second1', type: 'kit.part', part: elsewhere.nodes[use1]!.part! } }, { op: 'setValue', node: use1, port: 'resonance', value: 3 }).doc;
+    elsewhere = apply(
+      elsewhere,
+      {
+        op: 'addNode',
+        node: { id: 'second1', type: 'kit.part', part: elsewhere.nodes[use1]!.part! },
+      },
+      { op: 'setValue', node: use1, port: 'resonance', value: 3 },
+    ).doc;
     // Back home: v2 adds a parameter (the oscillator's waveform cannot be one; add the filter's drive? use an LFO rate) and drops the cutoff input.
-    let home = apply(first.doc, { op: 'addNode', node: { id: 'lfo9', type: 'den.lfo', inside: 'tone' } }, { op: 'addParam', part: 'tone', node: 'lfo9', port: 'rate', id: 'rate', label: 'Rate' }).doc;
+    let home = apply(
+      first.doc,
+      { op: 'addNode', node: { id: 'lfo9', type: 'den.lfo', inside: 'tone' } },
+      { op: 'addParam', part: 'tone', node: 'lfo9', port: 'rate', id: 'rate', label: 'Rate' },
+    ).doc;
     const cutoffIn = home.parts.tone!.inputs.find(p => p.id === 'cutoff')!.node;
     home = apply(home, { op: 'removeNode', id: cutoffIn }).doc;
     const v2 = save(first.library, home, 'tone', 5);
@@ -126,9 +250,16 @@ describe('saving, placing and updating', () => {
     const diff = diffBundles(before, latest(v2.library.parts.tone!).bundle);
     expect(diff.params).toEqual({ added: ['Rate'], removed: [] });
     expect(diff.inputs.removed).toEqual(['cutoff']);
-    expect(describeDiff(diff)).toMatch(/adds the knob “Rate”; removes the input “cutoff” \(their cables go\)/);
+    expect(describeDiff(diff)).toMatch(
+      /adds the knob “Rate”; removes the input “cutoff” \(their cables go\)/,
+    );
     const v = latest(v2.library.parts.tone!);
-    const r = apply(elsewhere, { op: 'replacePart', part: defId, bundle: v.bundle, from: { id: 'tone', version: 2, hash: bundleHash(v.bundle) } });
+    const r = apply(elsewhere, {
+      op: 'replacePart',
+      part: defId,
+      bundle: v.bundle,
+      from: { id: 'tone', version: 2, hash: bundleHash(v.bundle) },
+    });
     const doc = r.doc;
     expect(doc.parts[defId]!.from!.version).toBe(2);
     expect(doc.nodes[use1]!.values).toMatchObject({ resonance: 3, rate: expect.any(Number) });
@@ -143,20 +274,50 @@ describe('saving, placing and updating', () => {
     const bundle = clone(latest(lib.parts.tone!).bundle);
     Object.values(bundle.nodes)[0]!.type = 'den.nope';
     expect(failure(() => apply(blank(), { op: 'importPart', bundle })).code).toBe('bad-bundle');
-    expect(failure(() => apply(toned(), { op: 'replacePart', part: 'tone', bundle })).code).toBe('bad-bundle');
-    expect(failure(() => apply(toned(), { op: 'replacePart', part: 'nope', bundle: latest(lib.parts.tone!).bundle })).code).toBe('unknown-part');
-    expect(failure(() => apply(blank(), { op: 'importPart', bundle: latest(lib.parts.tone!).bundle, inside: 'nope' })).code).toBe('unknown-part');
-    expect(failure(() => apply(blank(), { op: 'importPart', bundle: latest(lib.parts.tone!).bundle, node: 'out1' })).code).toBe('duplicate-id');
-    expect(failure(() => apply(toned(), { op: 'updatePart', part: 'tone', from: { id: '', version: 0 } })).code).toBe('bad-value');
+    expect(failure(() => apply(toned(), { op: 'replacePart', part: 'tone', bundle })).code).toBe(
+      'bad-bundle',
+    );
+    expect(
+      failure(() =>
+        apply(toned(), { op: 'replacePart', part: 'nope', bundle: latest(lib.parts.tone!).bundle }),
+      ).code,
+    ).toBe('unknown-part');
+    expect(
+      failure(() =>
+        apply(blank(), {
+          op: 'importPart',
+          bundle: latest(lib.parts.tone!).bundle,
+          inside: 'nope',
+        }),
+      ).code,
+    ).toBe('unknown-part');
+    expect(
+      failure(() =>
+        apply(blank(), { op: 'importPart', bundle: latest(lib.parts.tone!).bundle, node: 'out1' }),
+      ).code,
+    ).toBe('duplicate-id');
+    expect(
+      failure(() =>
+        apply(toned(), { op: 'updatePart', part: 'tone', from: { id: '', version: 0 } }),
+      ).code,
+    ).toBe('bad-value');
   });
   it('ids can be pinned (the AI lands what it tried); a pinned id that is taken is refused', () => {
     const lib = save(emptyLibrary(), toned(), 'tone').library;
     const bundle = latest(lib.parts.tone!).bundle;
-    const r = apply(blank(), { op: 'importPart', bundle, ids: { parts: { tone: 'myTone' }, nodes: { osc1: 'oscA' } }, node: 'tone9' });
+    const r = apply(blank(), {
+      op: 'importPart',
+      bundle,
+      ids: { parts: { tone: 'myTone' }, nodes: { osc1: 'oscA' } },
+      node: 'tone9',
+    });
     expect(r.doc.parts.myTone).toBeDefined();
     expect(r.doc.nodes.oscA!.inside).toBe('myTone');
     expect(r.created).toEqual(['tone9']);
-    expect(failure(() => apply(blank(), { op: 'importPart', bundle, ids: { nodes: { osc1: 'out1' } } })).code).toBe('duplicate-id');
+    expect(
+      failure(() => apply(blank(), { op: 'importPart', bundle, ids: { nodes: { osc1: 'out1' } } }))
+        .code,
+    ).toBe('duplicate-id');
   });
   it('a saved part survives the patch file round trip with where it came from', () => {
     const r = save(emptyLibrary(), toned(), 'tone');
@@ -169,12 +330,23 @@ describe('saving, placing and updating', () => {
 
 describe('My parts files', () => {
   it('round trip; versions are kept up to the limit, oldest first out', () => {
-    let lib = emptyLibrary(), doc = toned();
+    let lib = emptyLibrary(),
+      doc = toned();
     for (let i = 0; i < KEEP_VERSIONS + 3; i++) {
-      doc = apply(doc, { op: 'setValue', node: 'tone1', port: 'resonance', value: 1 + i * 0.1 }, { op: 'setConfig', node: 'osc1', key: 'waveform', value: i % 2 ? 'saw' : 'sine' }).doc;
-      doc = apply(doc, { op: 'setValue', node: 'filter1', port: 'resonance', value: 0.6 + i * 0.1 }).doc;
+      doc = apply(
+        doc,
+        { op: 'setValue', node: 'tone1', port: 'resonance', value: 1 + i * 0.1 },
+        { op: 'setConfig', node: 'osc1', key: 'waveform', value: i % 2 ? 'saw' : 'sine' },
+      ).doc;
+      doc = apply(doc, {
+        op: 'setValue',
+        node: 'filter1',
+        port: 'resonance',
+        value: 0.6 + i * 0.1,
+      }).doc;
       const r = save(lib, doc, 'tone', i);
-      lib = r.library; doc = r.doc;
+      lib = r.library;
+      doc = r.doc;
     }
     expect(lib.parts.tone!.versions).toHaveLength(KEEP_VERSIONS);
     expect(latest(lib.parts.tone!).version).toBe(KEEP_VERSIONS + 3);
@@ -186,32 +358,63 @@ describe('My parts files', () => {
     expect(back.library).toEqual(lib);
   });
   it('broken files are refused; broken parts and versions are dropped with a reason', () => {
-    expect(parseLibrary('{', catalog)).toMatchObject({ ok: false, error: expect.stringMatching(/Not valid JSON/) });
+    expect(parseLibrary('{', catalog)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/Not valid JSON/),
+    });
     expect(parseLibrary({ schema: 'something-else' }, catalog)).toMatchObject({ ok: false });
-    expect(parseLibrary({ schema: LIBRARY_SCHEMA, version: 99, parts: {} }, catalog)).toMatchObject({ ok: false, error: expect.stringMatching(/version 99/) });
+    expect(parseLibrary({ schema: LIBRARY_SCHEMA, version: 99, parts: {} }, catalog)).toMatchObject(
+      { ok: false, error: expect.stringMatching(/version 99/) },
+    );
     const lib = save(emptyLibrary(), toned(), 'tone').library;
     const raw = JSON.parse(serializeLibrary(lib));
     raw.parts.tone.versions.push({ version: 2, savedAt: 2, bundle: { part: { id: 'tone' } } });
-    raw.parts.tone.versions.push({ version: 1, savedAt: 3, bundle: raw.parts.tone.versions[0].bundle });
+    raw.parts.tone.versions.push({
+      version: 1,
+      savedAt: 3,
+      bundle: raw.parts.tone.versions[0].bundle,
+    });
     raw.parts['Bad id'] = { versions: [] };
     raw.parts.empty = { name: 'Empty', versions: [{ version: 1, bundle: null }] };
     const read = parseLibrary(raw, catalog);
     if (!read.ok) throw new Error(read.error);
     expect(Object.keys(read.library.parts)).toEqual(['tone']);
     expect(read.library.parts.tone!.versions.map(v => v.version)).toEqual([1]);
-    expect(read.report.map(i => i.code).sort()).toEqual(['dropped-my-part', 'dropped-my-part', 'dropped-version', 'dropped-version', 'dropped-version']);
+    expect(read.report.map(i => i.code).sort()).toEqual([
+      'dropped-my-part',
+      'dropped-my-part',
+      'dropped-version',
+      'dropped-version',
+      'dropped-version',
+    ]);
   });
   it('merging a file adds new parts and new versions after the ones here, never the same content twice; removing takes a part out', () => {
     const a = save(emptyLibrary(), toned(), 'tone');
-    const changed = apply(a.doc, { op: 'setConfig', node: 'osc1', key: 'waveform', value: 'sine' }).doc;
+    const changed = apply(a.doc, {
+      op: 'setConfig',
+      node: 'osc1',
+      key: 'waveform',
+      value: 'sine',
+    }).doc;
     const b = save(a.library, changed, 'tone', 2);
-    const otherDoc = apply(starter('pad', catalog), { op: 'makePart', ids: ['lfo1', 'pdepth1'], name: 'Wobble' }).doc;
-    const incoming = save(save(emptyLibrary(), changed, 'tone', 9).library, otherDoc, 'wobble', 10).library;
+    const otherDoc = apply(starter('pad', catalog), {
+      op: 'makePart',
+      ids: ['lfo1', 'pdepth1'],
+      name: 'Wobble',
+    }).doc;
+    const incoming = save(
+      save(emptyLibrary(), changed, 'tone', 9).library,
+      otherDoc,
+      'wobble',
+      10,
+    ).library;
     const merged = mergeLibrary(a.library, incoming);
     expect(merged.added).toEqual(['wobble']);
     expect(merged.updated).toEqual(['tone']);
     expect(merged.library.parts.tone!.versions.map(v => v.version)).toEqual([1, 2]);
-    expect(bundleHash(latest(merged.library.parts.tone!).bundle)).toBe(bundleHash(latest(b.library.parts.tone!).bundle));
+    expect(bundleHash(latest(merged.library.parts.tone!).bundle)).toBe(
+      bundleHash(latest(b.library.parts.tone!).bundle),
+    );
     expect(mergeLibrary(merged.library, incoming)).toMatchObject({ added: [], updated: [] });
     expect(Object.keys(removeFromLibrary(merged.library, 'wobble').parts)).toEqual(['tone']);
     expect(removeFromLibrary(merged.library, 'nope')).toBe(merged.library);

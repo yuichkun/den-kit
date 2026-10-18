@@ -21,7 +21,11 @@ defineExpose({ focus: () => area.value?.focus(), textarea: area });
 </script>
 
 <template>
-  <div class="code-area" :class="$attrs.class as string | undefined" :style="$attrs.style as string | undefined">
+  <div
+    class="code-area"
+    :class="$attrs.class as string | undefined"
+    :style="$attrs.style as string | undefined"
+  >
     <pre ref="paint" class="paint" aria-hidden="true"><code v-html="html" /></pre>
     <textarea
       ref="area"
@@ -39,12 +43,62 @@ defineExpose({ focus: () => area.value?.focus(), textarea: area });
 
 <style scoped>
 /* The look is set with variables: --code-font, --code-bg, --code-fg, --code-pad, --code-caret, --code-resize. */
-.code-area { position: relative; min-height: 0; min-width: 0; font: var(--code-font, 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace); tab-size: 2; background: var(--code-bg, #0f1115); color: var(--code-fg, #d6d6d6); }
-.paint, textarea { box-sizing: border-box; margin: 0; border: 0; padding: var(--code-pad, 10px); font: inherit; letter-spacing: normal; tab-size: inherit; white-space: pre; overflow-wrap: normal; text-align: left; }
-.paint { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: inherit; background: transparent; }
+.code-area {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  font: var(--code-font, 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace);
+  tab-size: 2;
+  background: var(--code-bg, #0f1115);
+  color: var(--code-fg, #d6d6d6);
+}
+.paint,
+textarea {
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  padding: var(--code-pad, 10px);
+  font: inherit;
+  letter-spacing: normal;
+  tab-size: inherit;
+  white-space: pre;
+  overflow-wrap: normal;
+  text-align: left;
+}
+.paint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: inherit;
+  background: transparent;
+}
 /* Room past the end, so the colours can scroll as far as the text above them. */
-.paint code { display: block; width: max-content; min-width: 100%; padding: 0 48px 48px 0; font: inherit; }
-textarea { position: relative; display: block; width: 100%; height: 100%; resize: var(--code-resize, none); outline: none; border-radius: 0; background: transparent; color: transparent; caret-color: var(--code-caret, #f0f0f0); overflow: auto; }
-textarea::selection { background: rgba(94, 160, 255, 0.35); color: transparent; }
-textarea::placeholder { color: #6b6b6b; }
+.paint code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 48px 48px 0;
+  font: inherit;
+}
+textarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  resize: var(--code-resize, none);
+  outline: none;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--code-caret, #f0f0f0);
+  overflow: auto;
+}
+textarea::selection {
+  background: rgba(94, 160, 255, 0.35);
+  color: transparent;
+}
+textarea::placeholder {
+  color: #6b6b6b;
+}
 </style>

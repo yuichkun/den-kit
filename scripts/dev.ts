@@ -17,10 +17,17 @@ const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
 
 const telemetry = new Telemetry(join(root, '.logs'));
 // The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
-const codex = process.env.KIT_CODEX === 'off' ? undefined : new CodexClient({
-  kitRoot: root, model: process.env.KIT_CODEX_MODEL, effort: process.env.KIT_CODEX_EFFORT, fork: process.env.KIT_CODEX_FORK === '1', telemetry,
-  log: line => console.log(`  [bridge] ${line}`),
-});
+const codex =
+  process.env.KIT_CODEX === 'off'
+    ? undefined
+    : new CodexClient({
+        kitRoot: root,
+        model: process.env.KIT_CODEX_MODEL,
+        effort: process.env.KIT_CODEX_EFFORT,
+        fork: process.env.KIT_CODEX_FORK === '1',
+        telemetry,
+        log: line => console.log(`  [bridge] ${line}`),
+      });
 
 let bridge;
 try {
@@ -34,35 +41,67 @@ try {
   });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(/EADDRINUSE/.test(message) ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run dev.` : `Could not start the AI bridge: ${message}`);
+  console.error(
+    /EADDRINUSE/.test(message)
+      ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run dev.`
+      : `Could not start the AI bridge: ${message}`,
+  );
   process.exit(1);
 }
 process.env.KIT_BRIDGE_TOKEN = bridge.token;
 process.env.KIT_BRIDGE_PORT = String(bridge.port);
 
 try {
-  const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, strictPort: true, host: '127.0.0.1' } });
+  const server = await createServer({
+    root,
+    configFile: `${root}/vite.config.ts`,
+    server: { port, strictPort: true, host: '127.0.0.1' },
+  });
   await server.listen();
-  console.log(`\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`);
+  console.log(
+    `\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`,
+  );
   console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  logs .logs`);
   // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.
-  console.log(`  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in .env to give the AI a pod: bash, git, Node, npm)'}`);
+  console.log(
+    `  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in .env to give the AI a pod: bash, git, Node, npm)'}`,
+  );
   if (codex) {
     // Start Codex after the editor is up; its state shows in the editor (and here).
     let last = '';
     codex.onStatus(s => {
-      const line = s.state === 'ok' ? `LLM ready: ${s.model ?? 'Codex'}${s.plan ? ` (ChatGPT ${s.plan})` : ''}` : s.state === 'login' ? `LLM: Codex is not signed in → ${s.fix ?? ''}` : s.state === 'error' ? `LLM error: ${s.detail ?? ''}${s.fix ? ` → ${s.fix}` : ''}` : '';
-      if (line && line !== last) { last = line; console.log(`  [bridge] ${line}`); }
+      const line =
+        s.state === 'ok'
+          ? `LLM ready: ${s.model ?? 'Codex'}${s.plan ? ` (ChatGPT ${s.plan})` : ''}`
+          : s.state === 'login'
+            ? `LLM: Codex is not signed in → ${s.fix ?? ''}`
+            : s.state === 'error'
+              ? `LLM error: ${s.detail ?? ''}${s.fix ? ` → ${s.fix}` : ''}`
+              : '';
+      if (line && line !== last) {
+        last = line;
+        console.log(`  [bridge] ${line}`);
+      }
     });
     void codex.start();
   } else console.log('  LLM off (KIT_CODEX=off)');
   console.log('');
   let stopping = false;
-  const stop = async () => { if (stopping) return; stopping = true; await Promise.allSettled([server.close(), bridge.close()]); process.exit(0); };
-  process.on('SIGINT', stop); process.on('SIGTERM', stop);
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    await Promise.allSettled([server.close(), bridge.close()]);
+    process.exit(0);
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
 } catch (error) {
   await bridge.close();
   const message = error instanceof Error ? error.message : String(error);
-  console.error(/EADDRINUSE|already in use/i.test(message) ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run dev.` : message);
+  console.error(
+    /EADDRINUSE|already in use/i.test(message)
+      ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run dev.`
+      : message,
+  );
   process.exit(1);
 }

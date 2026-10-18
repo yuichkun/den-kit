@@ -1,5 +1,14 @@
 // How a control's value reads as text (knob readouts, bound text on the plugin).
-const digits = (v: number) => { const a = Math.abs(v); return a === 0 ? '0' : a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(a >= 1 ? 2 : 3); };
+const digits = (v: number) => {
+  const a = Math.abs(v);
+  return a === 0
+    ? '0'
+    : a >= 100
+      ? v.toFixed(0)
+      : a >= 10
+        ? v.toFixed(1)
+        : v.toFixed(a >= 1 ? 2 : 3);
+};
 export function formatValue(value: number, unit: string) {
   const abs = Math.abs(value);
   // Short times read as milliseconds and high frequencies as kHz, like the patch view.

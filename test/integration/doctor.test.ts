@@ -1,8 +1,8 @@
 // `doctor` and `codex:login` against the fake Codex CLI through KIT_CODEX_BIN.
 // An HTTP trap verifies that retired Jev environment settings never trigger a request.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -14,43 +14,98 @@ let legacyCalls = 0;
 let dir: string;
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kit-doctor-'));
-  legacyEndpoint = createServer((_request, response) => { legacyCalls++; response.writeHead(500); response.end('Retired service must not be called.'); });
+  legacyEndpoint = createServer((_request, response) => {
+    legacyCalls++;
+    response.writeHead(500);
+    response.end('Retired service must not be called.');
+  });
   await new Promise<void>(resolve => legacyEndpoint.listen(0, '127.0.0.1', resolve));
   legacyUrl = `http://127.0.0.1:${(legacyEndpoint.address() as { port: number }).port}`;
 });
-afterAll(async () => { await new Promise<void>(resolve => legacyEndpoint.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); });
+afterAll(async () => {
+  await new Promise<void>(resolve => legacyEndpoint.close(() => resolve()));
+  rmSync(dir, { recursive: true, force: true });
+});
 
-function run(script: string, env: Record<string, string>, args: string[] = []): Promise<{ code: number; out: string }> {
+function run(
+  script: string,
+  env: Record<string, string>,
+  args: string[] = [],
+): Promise<{ code: number; out: string }> {
   return new Promise(resolve => {
-    execFile(process.execPath, [script, ...args], { cwd: KIT_ROOT, env: { ...process.env, KIT_PORT: '59180', KIT_BRIDGE_PORT: '59181', ...env }, timeout: 120000 }, (error, stdout, stderr) => {
-      resolve({ code: error ? (typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 1) : 0, out: `${stdout}${stderr}` });
-    });
+    execFile(
+      process.execPath,
+      [script, ...args],
+      {
+        cwd: KIT_ROOT,
+        env: { ...process.env, KIT_PORT: '59180', KIT_BRIDGE_PORT: '59181', ...env },
+        timeout: 120000,
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          code: error
+            ? typeof (error as { code?: unknown }).code === 'number'
+              ? (error as { code: number }).code
+              : 1
+            : 0,
+          out: `${stdout}${stderr}`,
+        });
+      },
+    );
   });
 }
 function codexEnv(name: string, signedIn: boolean) {
   const home = join(dir, name);
   mkdirSync(home, { recursive: true });
   if (signedIn) writeFileSync(join(home, 'auth.json'), '{"fake":true}');
-  return { KIT_CODEX_BIN: FAKE_CODEX, KIT_CODEX_HOME: home, TYPESAFE_API_KEY: 'doctor-key', KIT_JEV_BASE: legacyUrl, ...fakeCodexEnv(join(dir, `${name}.jsonl`)) };
+  return {
+    KIT_CODEX_BIN: FAKE_CODEX,
+    KIT_CODEX_HOME: home,
+    TYPESAFE_API_KEY: 'doctor-key',
+    KIT_JEV_BASE: legacyUrl,
+    ...fakeCodexEnv(join(dir, `${name}.jsonl`)),
+  };
 }
-const line = (out: string, name: string) => out.split('\n').find(l => new RegExp(`^(PASS|WARN|FAIL|SKIP)\\s+${name}\\b`).test(l)) ?? `(no ${name} line)\n${out}`;
+const line = (out: string, name: string) =>
+  out.split('\n').find(l => new RegExp(`^(PASS|WARN|FAIL|SKIP)\\s+${name}\\b`).test(l)) ??
+  `(no ${name} line)\n${out}`;
 
 describe('doctor', () => {
   it('a signed-in Codex passes every check; --deep makes the ping round trip and records it', async () => {
-    const { code, out } = await run('scripts/doctor.ts', { ...codexEnv('home-ok', true), KIT_DOCTOR_TOOL_WAIT_MS: '1500' }, ['--deep']);
+    const { code, out } = await run(
+      'scripts/doctor.ts',
+      { ...codexEnv('home-ok', true), KIT_DOCTOR_TOOL_WAIT_MS: '1500' },
+      ['--deep'],
+    );
+    const vitePlus = JSON.parse(
+      readFileSync(join(KIT_ROOT, 'node_modules/vite-plus/package.json'), 'utf8'),
+    ).version as string;
+    expect(line(out, 'vite-plus')).toMatch(
+      new RegExp(`^PASS\\s+vite-plus\\s+${vitePlus.replaceAll('.', '\\.')}$`),
+    );
     expect(line(out, 'Codex CLI')).toMatch(/^PASS.*0\.160\.1 \(KIT_CODEX_BIN\)/);
     expect(line(out, 'CODEX_HOME')).toMatch(/^WARN.*KIT_CODEX_HOME/);
     expect(line(out, 'Codex sign-in')).toMatch(/^PASS.*Logged in using ChatGPT/);
-    expect(line(out, 'Codex app-server')).toMatch(/^PASS.*ChatGPT plus · GPT-6\.1-Sol \(sees images\)/);
+    expect(line(out, 'Codex app-server')).toMatch(
+      /^PASS.*ChatGPT plus · GPT-6\.1-Sol \(sees images\)/,
+    );
     expect(line(out, 'Codex isolation')).toMatch(/^PASS\s+Codex isolation\s+no instruction files/);
     expect(line(out, 'Codex live request')).toMatch(/^PASS.*kit_ping round trip · reply “pong”/);
     // What members, sketches and shared screens need (U8).
-    expect(line(out, 'Codex members')).toMatch(/^PASS.*two requests at once: one finished in [\d.]+ s while the other's tool call was held/);
-    expect(line(out, 'Codex pictures')).toMatch(/^PASS.*with the request and added while it worked: “red blue”/);
+    expect(line(out, 'Codex members')).toMatch(
+      /^PASS.*two requests at once: one finished in [\d.]+ s while the other's tool call was held/,
+    );
+    expect(line(out, 'Codex pictures')).toMatch(
+      /^PASS.*with the request and added while it worked: “red blue”/,
+    );
     expect(line(out, 'Codex fork')).toMatch(/^PASS.*copies a conversation/);
-    expect(line(out, 'Codex long tool wait')).toMatch(/^PASS.*a tool call answered after 1\.5 s; the request went on/);
+    expect(line(out, 'Codex long tool wait')).toMatch(
+      /^PASS.*a tool call answered after 1\.5 s; the request went on/,
+    );
     expect(line(out, 'Codex token counts')).toMatch(/^PASS.*[\d,]+ tokens for these checks/);
-    const recording = line(out, 'Codex recording').replace(/^PASS\s+Codex recording\s+/, '').trim();
+    const recording = line(out, 'Codex recording')
+      .replace(/^PASS\s+Codex recording\s+/, '')
+      .trim();
     expect(existsSync(join(KIT_ROOT, recording.replace(/^kit\//, '')))).toBe(true);
     rmSync(join(KIT_ROOT, recording.replace(/^kit\//, '')));
     expect(out).not.toMatch(/Jev|doctor-key/);
@@ -66,27 +121,44 @@ describe('doctor', () => {
     expect(code).toBe(1);
   }, 150000);
 
-  it('--deep: a Codex that cannot copy a conversation is a warning, not a failure (members start from den-kit\'s account)', async () => {
-    const { code, out } = await run('scripts/doctor.ts', { ...codexEnv('home-nofork', true), KIT_DOCTOR_TOOL_WAIT_MS: '300', FAKE_CODEX_FORK: 'refuse' }, ['--deep']);
-    expect(line(out, 'Codex fork')).toMatch(/^WARN.*cannot copy the conversation \(.*no rollout found/);
+  it("--deep: a Codex that cannot copy a conversation is a warning, not a failure (members start from den-kit's account)", async () => {
+    const { code, out } = await run(
+      'scripts/doctor.ts',
+      {
+        ...codexEnv('home-nofork', true),
+        KIT_DOCTOR_TOOL_WAIT_MS: '300',
+        FAKE_CODEX_FORK: 'refuse',
+      },
+      ['--deep'],
+    );
+    expect(line(out, 'Codex fork')).toMatch(
+      /^WARN.*cannot copy the conversation \(.*no rollout found/,
+    );
     expect(out).toContain('leave KIT_CODEX_FORK unset');
     expect(line(out, 'Codex members')).toMatch(/^PASS/);
     expect(code, out).toBe(0);
   }, 150000);
 
   it('instruction files picked up by Codex are reported', async () => {
-    const { out } = await run('scripts/doctor.ts', { ...codexEnv('home-agents', true), FAKE_CODEX_INSTRUCTION_SOURCES: '/Users/me/.codex/AGENTS.md' });
-    expect(line(out, 'Codex isolation')).toMatch(/^WARN.*instruction files loaded: \/Users\/me\/\.codex\/AGENTS\.md/);
+    const { out } = await run('scripts/doctor.ts', {
+      ...codexEnv('home-agents', true),
+      FAKE_CODEX_INSTRUCTION_SOURCES: '/Users/me/.codex/AGENTS.md',
+    });
+    expect(line(out, 'Codex isolation')).toMatch(
+      /^WARN.*instruction files loaded: \/Users\/me\/\.codex\/AGENTS\.md/,
+    );
   }, 150000);
 });
 
 describe('codex:login', () => {
   it('creates CODEX_HOME (Codex refuses a missing one) and signs in', async () => {
     const home = join(dir, 'fresh-home');
-    const { code, out } = await run('scripts/codex-login.ts', { KIT_CODEX_BIN: FAKE_CODEX, KIT_CODEX_HOME: home });
+    const { code, out } = await run('scripts/codex-login.ts', {
+      KIT_CODEX_BIN: FAKE_CODEX,
+      KIT_CODEX_HOME: home,
+    });
     expect(code, out).toBe(0);
     expect(existsSync(join(home, 'auth.json'))).toBe(true);
     expect(out).toMatch(/picks this up by itself/);
   }, 60000);
 });
-

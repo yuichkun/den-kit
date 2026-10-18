@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ScreenShare } from '../../../src/editor/screen-share.ts';
 
 const rect = { x: 1.4, y: 2.6, width: 160, height: 100 };
@@ -11,12 +11,23 @@ function native(capturePage = vi.fn(async () => 'data:image/png;base64,picture')
 
 function imageConversion(convertToBlob = async () => new Blob(['image'])) {
   const close = vi.fn();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ blob: async () => new Blob(['captured']) })));
-  vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 160, height: 100, close })));
-  vi.stubGlobal('OffscreenCanvas', class {
-    getContext() { return { drawImage: vi.fn() }; }
-    convertToBlob = convertToBlob;
-  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ blob: async () => new Blob(['captured']) })),
+  );
+  vi.stubGlobal(
+    'createImageBitmap',
+    vi.fn(async () => ({ width: 160, height: 100, close })),
+  );
+  vi.stubGlobal(
+    'OffscreenCanvas',
+    class {
+      getContext() {
+        return { drawImage: vi.fn() };
+      }
+      convertToBlob = convertToBlob;
+    },
+  );
   return close;
 }
 
@@ -52,7 +63,12 @@ describe('native screen sharing', () => {
 
   it('discards an in-flight capture when sharing stops, even if enabled again', async () => {
     let resolveCapture!: (url: string) => void;
-    const capturePage = vi.fn(() => new Promise<string>(resolve => { resolveCapture = resolve; }));
+    const capturePage = vi.fn(
+      () =>
+        new Promise<string>(resolve => {
+          resolveCapture = resolve;
+        }),
+    );
     const { share } = native(capturePage);
     const fetchImage = vi.fn();
     vi.stubGlobal('fetch', fetchImage);
@@ -71,10 +87,14 @@ describe('native screen sharing', () => {
   it('also discards a captured picture if sharing stops while it is converted', async () => {
     let resolveConversion!: (blob: Blob) => void;
     let conversionStarted!: () => void;
-    const started = new Promise<void>(resolve => { conversionStarted = resolve; });
+    const started = new Promise<void>(resolve => {
+      conversionStarted = resolve;
+    });
     const close = imageConversion(() => {
       conversionStarted();
-      return new Promise<Blob>(resolve => { resolveConversion = resolve; });
+      return new Promise<Blob>(resolve => {
+        resolveConversion = resolve;
+      });
     });
     const { share } = native();
     await share.start();
@@ -93,7 +113,13 @@ it('preserves injected browser pictures used by screen-sharing tests', async () 
   vi.stubGlobal('denKitShell', undefined);
   vi.stubGlobal('navigator', undefined);
   const share = new ScreenShare();
-  const picture = { data: new Uint8Array([1]), mime: 'image/png' as const, width: 160, height: 100, source: 'tab' as const };
+  const picture = {
+    data: new Uint8Array([1]),
+    mime: 'image/png' as const,
+    width: 160,
+    height: 100,
+    source: 'tab' as const,
+  };
   share.stub = vi.fn(async () => picture);
   expect(share.source).toBe('tab');
   expect(await share.picture(rect)).toBe(picture);

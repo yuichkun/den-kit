@@ -6,10 +6,18 @@
 // through `set`, numbered, and the page says which writes it has taken in
 // (`acked` in the controls it sends).
 import CanvasWorker from './canvas.worker.ts?worker';
-import type { CanvasControls, CanvasFrame, CanvasPointer, CanvasPointerEvent } from './canvas-api.ts';
+import type {
+  CanvasControls,
+  CanvasFrame,
+  CanvasPointer,
+  CanvasPointerEvent,
+} from './canvas-api.ts';
 
 export type { CanvasFrame };
-export interface CanvasStatus { error: string | null; line?: number }
+export interface CanvasStatus {
+  error: string | null;
+  line?: number;
+}
 export interface CanvasEvents {
   status(status: CanvasStatus): void;
   /** The code loaded; `interactive`: it handles the mouse (exports pointer). */
@@ -33,28 +41,56 @@ export class CanvasRunner {
   private readonly snapshots = new Map<number, (blob: Blob | null) => void>();
   private readonly on: CanvasEvents;
 
-  constructor(canvas: HTMLCanvasElement, code: string, props: Record<string, unknown>, size: { w: number; h: number; ratio: number }, on: CanvasEvents) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    code: string,
+    props: Record<string, unknown>,
+    size: { w: number; h: number; ratio: number },
+    on: CanvasEvents,
+  ) {
     this.on = on;
     const offscreen = canvas.transferControlToOffscreen();
     this.worker = new CanvasWorker();
     this.worker.onmessage = (e: MessageEvent) => {
       if (this.dead) return; // stopped: what it still had on the way is not this canvas's any more
       const m = e.data;
-      if (m.type === 'drawn' || m.type === 'loaded') { this.busy = false; if (m.type === 'loaded') { this.on.status({ error: null }); this.on.loaded?.(!!m.interactive); } }
-      else if (m.type === 'error') this.on.status({ error: m.message, line: m.line });
+      if (m.type === 'drawn' || m.type === 'loaded') {
+        this.busy = false;
+        if (m.type === 'loaded') {
+          this.on.status({ error: null });
+          this.on.loaded?.(!!m.interactive);
+        }
+      } else if (m.type === 'error') this.on.status({ error: m.message, line: m.line });
       else if (m.type === 'set') this.on.set?.(String(m.id), m.values, Number(m.write));
       else if (m.type === 'cursor') this.on.cursor?.(String(m.cursor));
       else if (m.type === 'handled') this.on.handled?.(Number(m.seq));
-      else if (m.type === 'snapshot') { const done = this.snapshots.get(Number(m.seq)); this.snapshots.delete(Number(m.seq)); done?.(m.blob instanceof Blob ? m.blob : null); }
+      else if (m.type === 'snapshot') {
+        const done = this.snapshots.get(Number(m.seq));
+        this.snapshots.delete(Number(m.seq));
+        done?.(m.blob instanceof Blob ? m.blob : null);
+      }
     };
-    this.worker.onerror = e => { e.preventDefault(); if (!this.dead) this.on.status({ error: e.message || 'The canvas crashed.' }); };
-    this.busy = true; this.since = performance.now();
+    this.worker.onerror = e => {
+      e.preventDefault();
+      if (!this.dead) this.on.status({ error: e.message || 'The canvas crashed.' });
+    };
+    this.busy = true;
+    this.since = performance.now();
     this.worker.postMessage({ type: 'init', canvas: offscreen, code, props, ...size }, [offscreen]);
   }
 
-  setCode(code: string, props: Record<string, unknown>) { if (this.dead) return; this.busy = true; this.since = performance.now(); this.worker?.postMessage({ type: 'code', code, props }); }
-  setProps(props: Record<string, unknown>) { this.worker?.postMessage({ type: 'props', props }); }
-  resize(size: { w: number; h: number; ratio: number }) { this.worker?.postMessage({ type: 'resize', ...size }); }
+  setCode(code: string, props: Record<string, unknown>) {
+    if (this.dead) return;
+    this.busy = true;
+    this.since = performance.now();
+    this.worker?.postMessage({ type: 'code', code, props });
+  }
+  setProps(props: Record<string, unknown>) {
+    this.worker?.postMessage({ type: 'props', props });
+  }
+  resize(size: { w: number; h: number; ratio: number }) {
+    this.worker?.postMessage({ type: 'resize', ...size });
+  }
 
   /** Pass a mouse event on, with the controls as they are now; returns its sequence number (see `handled`), or -1 when the canvas is stopped. */
   pointer(event: CanvasPointerEvent, state: CanvasPointer, controls: CanvasControls): number {
@@ -69,8 +105,14 @@ export class CanvasRunner {
     if (this.dead || !this.worker) return Promise.resolve(null);
     const seq = ++this.seq;
     return new Promise(resolve => {
-      const timer = setTimeout(() => { this.snapshots.delete(seq); resolve(null); }, timeoutMs);
-      this.snapshots.set(seq, blob => { clearTimeout(timer); resolve(blob); });
+      const timer = setTimeout(() => {
+        this.snapshots.delete(seq);
+        resolve(null);
+      }, timeoutMs);
+      this.snapshots.set(seq, blob => {
+        clearTimeout(timer);
+        resolve(blob);
+      });
       this.worker!.postMessage({ type: 'snapshot', seq });
     });
   }
@@ -79,17 +121,31 @@ export class CanvasRunner {
   frame(data: () => CanvasFrame): boolean {
     if (this.dead || !this.worker) return false;
     if (this.busy) {
-      if (performance.now() - this.since > CANVAS_TIMEOUT_MS) { this.stop(); this.on.status({ error: `Stopped: one frame took longer than ${CANVAS_TIMEOUT_MS / 1000} s (an endless loop?). Fix the code and apply it again.` }); }
+      if (performance.now() - this.since > CANVAS_TIMEOUT_MS) {
+        this.stop();
+        this.on.status({
+          error: `Stopped: one frame took longer than ${CANVAS_TIMEOUT_MS / 1000} s (an endless loop?). Fix the code and apply it again.`,
+        });
+      }
       return false;
     }
     const f = data();
-    this.busy = true; this.since = performance.now();
+    this.busy = true;
+    this.since = performance.now();
     this.worker.postMessage({ type: 'frame', ...f }, [f.wave.buffer, f.spectrum.buffer]);
     return true;
   }
 
-  get stopped() { return this.dead; }
-  stop() { this.dead = true; this.worker?.terminate(); this.worker = null; for (const done of this.snapshots.values()) done(null); this.snapshots.clear(); }
+  get stopped() {
+    return this.dead;
+  }
+  stop() {
+    this.dead = true;
+    this.worker?.terminate();
+    this.worker = null;
+    for (const done of this.snapshots.values()) done(null);
+    this.snapshots.clear();
+  }
 }
 
 /** Each canvas's canvas → its runner, so a picture of the plugin can ask the canvas for what it shows. */

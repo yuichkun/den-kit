@@ -9,7 +9,13 @@ export interface CompileRequest {
   source: string;
   /** Node ids, used to attribute unworklet compile errors (instance names) to nodes. */
   nodes: string[];
-  codeboxes: Array<{ node: string; code: string; inputs: PortSpec[]; outputs: PortSpec[]; line: number }>;
+  codeboxes: Array<{
+    node: string;
+    code: string;
+    inputs: PortSpec[];
+    outputs: PortSpec[];
+    line: number;
+  }>;
 }
 export interface Artifact {
   hash: string;

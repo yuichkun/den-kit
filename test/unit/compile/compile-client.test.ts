@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { CompileClient, CompileFailure, type WorkerLike } from '../../../src/compile/compile-client.ts';
+import { describe, expect, it } from 'vite-plus/test';
+import {
+  CompileClient,
+  CompileFailure,
+  type WorkerLike,
+} from '../../../src/compile/compile-client.ts';
 import type { Generated } from '../../../src/core/codegen.ts';
 import type { CompileRequest } from '../../../src/compile/protocol.ts';
 
@@ -9,21 +13,70 @@ class FakeWorker implements WorkerLike {
   onmessageerror: WorkerLike['onmessageerror'] = null;
   received: CompileRequest[] = [];
   terminated = false;
-  postMessage(m: CompileRequest) { this.received.push(m); }
-  terminate() { this.terminated = true; }
-  succeed(i = this.received.length - 1) { const r = this.received[i]!; this.onmessage?.({ data: { id: r.id, result: { hash: r.hash, meta: {} as never, moduleSource: '', wasm: new ArrayBuffer(1), processorName: `p-${r.hash}`, sampleRate: 48000, compileMs: 1 } } }); }
-  fail(message: string) { const r = this.received.at(-1)!; this.onmessage?.({ data: { id: r.id, error: { message, issues: [{ severity: 'error', code: 'x', message }] } } }); }
+  postMessage(m: CompileRequest) {
+    this.received.push(m);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  succeed(i = this.received.length - 1) {
+    const r = this.received[i]!;
+    this.onmessage?.({
+      data: {
+        id: r.id,
+        result: {
+          hash: r.hash,
+          meta: {} as never,
+          moduleSource: '',
+          wasm: new ArrayBuffer(1),
+          processorName: `p-${r.hash}`,
+          sampleRate: 48000,
+          compileMs: 1,
+        },
+      },
+    });
+  }
+  fail(message: string) {
+    const r = this.received.at(-1)!;
+    this.onmessage?.({
+      data: { id: r.id, error: { message, issues: [{ severity: 'error', code: 'x', message }] } },
+    });
+  }
 }
-const gen = (hash: string): Generated => ({ source: `// ${hash}`, hash, params: [], values: {}, nodeLines: {}, codeboxes: {}, probes: [], voices: null, audioIn: false, issues: [], origin: {}, nodes: [], boxes: {} });
+const gen = (hash: string): Generated => ({
+  source: `// ${hash}`,
+  hash,
+  params: [],
+  values: {},
+  nodeLines: {},
+  codeboxes: {},
+  probes: [],
+  voices: null,
+  audioIn: false,
+  issues: [],
+  origin: {},
+  nodes: [],
+  boxes: {},
+});
 const inputs = { nodes: [], codeboxes: [] };
 
 function setup() {
   const workers: FakeWorker[] = [];
   const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
   const client = new CompileClient({
-    createWorker: () => { const w = new FakeWorker(); workers.push(w); return w; },
-    setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
-    clearTimer: t => { (t as { cleared: boolean }).cleared = true; },
+    createWorker: () => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    },
+    setTimer: (fn, ms) => {
+      const t = { fn, ms, cleared: false };
+      timers.push(t);
+      return t;
+    },
+    clearTimer: t => {
+      (t as { cleared: boolean }).cleared = true;
+    },
   });
   return { client, workers, timers };
 }
@@ -31,7 +84,12 @@ function setup() {
 describe('compile client', () => {
   it('C4 a burst of edits compiles the first and the last only; superseded ones reject', async () => {
     const { client, workers } = setup();
-    const results = ['a', 'b', 'c', 'd'].map(h => client.compile(gen(h), inputs).then(a => a.hash, e => (e as CompileFailure).kind));
+    const results = ['a', 'b', 'c', 'd'].map(h =>
+      client.compile(gen(h), inputs).then(
+        a => a.hash,
+        e => (e as CompileFailure).kind,
+      ),
+    );
     expect(workers[0]!.received.map(r => r.hash)).toEqual(['a']);
     workers[0]!.succeed();
     await Promise.resolve();
@@ -41,9 +99,11 @@ describe('compile client', () => {
   });
   it('C9 cache hits never recompile; identical in-flight requests share one compile', async () => {
     const { client, workers } = setup();
-    const p1 = client.compile(gen('a'), inputs), p2 = client.compile(gen('a'), inputs);
+    const p1 = client.compile(gen('a'), inputs),
+      p2 = client.compile(gen('a'), inputs);
     workers[0]!.succeed();
-    expect((await p1).hash).toBe('a'); expect((await p2).hash).toBe('a');
+    expect((await p1).hash).toBe('a');
+    expect((await p2).hash).toBe('a');
     await client.compile(gen('a'), inputs);
     expect(workers[0]!.received).toHaveLength(1);
     expect(client.stats.cacheHits).toBe(1);
@@ -51,7 +111,12 @@ describe('compile client', () => {
   it('C2 a hung worker is terminated at the timeout and replaced; codeboxes are blamed', async () => {
     const { client, workers, timers } = setup();
     const g = { ...gen('loop'), codeboxes: { box1: 10 } };
-    const p = client.compile(g, inputs).then(() => { throw new Error('expected failure'); }, e => e as CompileFailure);
+    const p = client.compile(g, inputs).then(
+      () => {
+        throw new Error('expected failure');
+      },
+      e => e as CompileFailure,
+    );
     timers[0]!.fn();
     const failure = await p;
     expect(failure).toMatchObject({ kind: 'timeout' });
@@ -83,12 +148,19 @@ describe('compile client', () => {
   });
   it('compile errors carry issues; dispose rejects pending work', async () => {
     const { client, workers } = setup();
-    const p = client.compile(gen('a'), inputs).then(() => { throw new Error('expected failure'); }, e => e as CompileFailure);
+    const p = client.compile(gen('a'), inputs).then(
+      () => {
+        throw new Error('expected failure');
+      },
+      e => e as CompileFailure,
+    );
     workers[0]!.fail('bad');
     expect((await p).issues[0]!.message).toBe('bad');
     const q = client.compile(gen('b'), inputs).catch(e => (e as CompileFailure).kind);
     client.dispose();
     expect(await q).toBe('disposed');
-    expect(await client.compile(gen('c'), inputs).catch(e => (e as CompileFailure).kind)).toBe('disposed');
+    expect(await client.compile(gen('c'), inputs).catch(e => (e as CompileFailure).kind)).toBe(
+      'disposed',
+    );
   });
 });

@@ -10,10 +10,15 @@ import type { Page } from 'playwright';
 import { openKit, outputPeak, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 let h: Harness;
-before(async () => { h = await startHarness({ bridge: false }); });
-after(async () => { await h?.close(); });
+before(async () => {
+  h = await startHarness({ bridge: false });
+});
+after(async () => {
+  await h?.close();
+});
 
-const kit = (page: Page, fn: (k: any) => unknown): Promise<any> => page.evaluate(`(${fn.toString()})(window.__kit)`);
+const kit = (page: Page, fn: (k: any) => unknown): Promise<any> =>
+  page.evaluate(`(${fn.toString()})(window.__kit)`);
 async function fresh() {
   const { page, errors } = await openKit(h);
   await waitCompiled(page);
@@ -35,20 +40,35 @@ describe('copies (×N)', () => {
     const { page, errors } = await fresh();
     await select(page, 'osc1');
     await page.click('[data-testid=stack-section] [data-count="8"]');
-    await page.waitForSelector('.vue-flow__node[data-id="osc1"] [data-testid=stack-badge]:has-text("×8")');
+    await page.waitForSelector(
+      '.vue-flow__node[data-id="osc1"] [data-testid=stack-badge]:has-text("×8")',
+    );
     assert.equal(await kit(page, k => k.doc.value.nodes.osc1.count), 8);
     assert.equal((await settled(page)).status, 'ok');
     assert.equal(await page.locator('.vue-flow__node[data-id="osc1"] .mod.stacked').count(), 1);
-    assert.equal(await page.locator('.kit-edge.thick[data-copies="8"]').count(), 1, 'the cable out of osc1 is thick');
-    assert.equal(await page.locator('.kit-edge.thick .sum').count(), 1, 'Σ where it meets the single filter');
-    assert.match(await page.locator('[data-testid=stack-cost]').textContent() ?? '', /Load: .*CPU here/);
+    assert.equal(
+      await page.locator('.kit-edge.thick[data-copies="8"]').count(),
+      1,
+      'the cable out of osc1 is thick',
+    );
+    assert.equal(
+      await page.locator('.kit-edge.thick .sum').count(),
+      1,
+      'Σ where it meets the single filter',
+    );
+    assert.match(
+      (await page.locator('[data-testid=stack-cost]').textContent()) ?? '',
+      /Load: .*CPU here/,
+    );
     await kit(page, k => k.noteOn(45, 100));
-    assert.ok(await outputPeak(page, 400) > 0.001, 'eight oscillators per voice still sound');
+    assert.ok((await outputPeak(page, 400)) > 0.001, 'eight oscillators per voice still sound');
     await kit(page, k => k.noteOff(45));
     // ⌘Z puts it back to one.
     await page.locator('[data-testid=patch-view]').click({ position: { x: 20, y: 20 } });
     await page.keyboard.press('Control+KeyZ');
-    await page.waitForSelector('.vue-flow__node[data-id="osc1"] [data-testid=stack-badge]', { state: 'detached' });
+    await page.waitForSelector('.vue-flow__node[data-id="osc1"] [data-testid=stack-badge]', {
+      state: 'detached',
+    });
     assert.equal(await page.locator('.kit-edge.thick').count(), 0);
     assert.deepEqual(errors, []);
     await page.close();
@@ -66,11 +86,18 @@ describe('copies (×N)', () => {
     const started = await compiles(page);
     const before = await kit(page, k => JSON.stringify(k.generated.value.values));
     // The amount slider, dragged: values move, nothing recompiles.
-    await page.locator('[data-spread-amount=resonance]').evaluate((el: HTMLInputElement) => { el.value = String(Number(el.max) * 0.8); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.locator('[data-spread-amount=resonance]').evaluate((el: HTMLInputElement) => {
+      el.value = String(Number(el.max) * 0.8);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await page.waitForTimeout(150);
     const amount = await kit(page, k => k.doc.value.nodes.filter1.spread.resonance.amount);
     assert.ok(amount > 0, `amount set (${amount})`);
-    assert.notEqual(await kit(page, k => JSON.stringify(k.generated.value.values)), before, 'the copies\' AudioParams moved');
+    assert.notEqual(
+      await kit(page, k => JSON.stringify(k.generated.value.values)),
+      before,
+      "the copies' AudioParams moved",
+    );
     const seed = await kit(page, k => k.doc.value.nodes.filter1.spread.resonance.seed);
     await page.click('[data-reroll=resonance]');
     assert.notEqual(await kit(page, k => k.doc.value.nodes.filter1.spread.resonance.seed), seed);
@@ -85,7 +112,11 @@ describe('copies (×N)', () => {
     assert.equal(each.kind, 'each');
     assert.equal(each.values.length, 4);
     assert.ok(each.values[0] > each.values[3], `drawn high to low (${each.values})`);
-    assert.equal(await kit(page, k => k.history.undoStack.length), undoDepth + 1, 'the drawing is one step');
+    assert.equal(
+      await kit(page, k => k.history.undoStack.length),
+      undoDepth + 1,
+      'the drawing is one step',
+    );
     await page.waitForTimeout(300);
     assert.equal(await compiles(page), started, 'spreading plays live: no recompile');
     await page.keyboard.press('Control+KeyZ');
@@ -105,9 +136,13 @@ describe('copies (×N)', () => {
     await page.fill('[data-testid=stack-count]', '500');
     await page.locator('[data-testid=stack-count]').press('Enter');
     await page.waitForSelector('[data-testid=banner]:has-text("the limit in this PoC")');
-    assert.equal(await kit(page, k => k.doc.value.nodes.osc1.count), 128, 'the count is held at the most copies allowed');
+    assert.equal(
+      await kit(page, k => k.doc.value.nodes.osc1.count),
+      128,
+      'the count is held at the most copies allowed',
+    );
     assert.equal((await settled(page)).status, 'error');
-    assert.ok(await outputPeak(page, 500) > 0.001, 'the last sound plays on');
+    assert.ok((await outputPeak(page, 500)) > 0.001, 'the last sound plays on');
     await page.click('[data-testid=stack-section] [data-count="1"]');
     await page.waitForSelector('[data-testid=banner]', { state: 'detached' });
     assert.equal((await settled(page)).status, 'ok');
@@ -122,19 +157,48 @@ describe('copies (×N)', () => {
     await page.waitForSelector('.grid-palette .tile[data-type="kit.splay"]');
     await page.fill('[data-testid=palette-filter]', 'copy number');
     await page.waitForSelector('.grid-palette .tile[data-type="kit.copy"]');
-    assert.equal(await page.locator('.grid-palette .tile[data-type="kit.stackSum"]').count(), 0, 'what expansion makes is not offered');
-    const r = await kit(page, k => k.commit([
-      { op: 'addNode', node: { id: 'noise9', type: 'den.seededNoise', count: 6, pos: { x: 0, y: 700 } } },
-      { op: 'addNode', node: { id: 'splay9', type: 'kit.splay', pos: { x: 260, y: 700 } } },
-      { op: 'connect', from: { node: 'noise9', port: 'out' }, to: { node: 'splay9', port: 'in' } },
-      { op: 'connect', from: { node: 'splay9', port: 'left' }, to: { node: 'out1', port: 'left' }, replace: true },
-      { op: 'connect', from: { node: 'splay9', port: 'right' }, to: { node: 'out1', port: 'right' }, replace: true },
-    ]).ok);
+    assert.equal(
+      await page.locator('.grid-palette .tile[data-type="kit.stackSum"]').count(),
+      0,
+      'what expansion makes is not offered',
+    );
+    const r = await kit(
+      page,
+      k =>
+        k.commit([
+          {
+            op: 'addNode',
+            node: { id: 'noise9', type: 'den.seededNoise', count: 6, pos: { x: 0, y: 700 } },
+          },
+          { op: 'addNode', node: { id: 'splay9', type: 'kit.splay', pos: { x: 260, y: 700 } } },
+          {
+            op: 'connect',
+            from: { node: 'noise9', port: 'out' },
+            to: { node: 'splay9', port: 'in' },
+          },
+          {
+            op: 'connect',
+            from: { node: 'splay9', port: 'left' },
+            to: { node: 'out1', port: 'left' },
+            replace: true,
+          },
+          {
+            op: 'connect',
+            from: { node: 'splay9', port: 'right' },
+            to: { node: 'out1', port: 'right' },
+            replace: true,
+          },
+        ]).ok,
+    );
     assert.equal(r, true);
     assert.equal((await settled(page)).status, 'ok');
-    assert.ok(await outputPeak(page, 300) > 0.01, 'the noises sound');
+    assert.ok((await outputPeak(page, 300)) > 0.01, 'the noises sound');
     assert.equal(await page.locator('.kit-edge.thick[data-copies="6"]').count(), 1);
-    assert.equal(await page.locator('.kit-edge.thick .sum').count(), 0, 'Splay takes every copy: nothing is summed');
+    assert.equal(
+      await page.locator('.kit-edge.thick .sum').count(),
+      0,
+      'Splay takes every copy: nothing is summed',
+    );
     assert.deepEqual(errors, []);
     await page.close();
   });

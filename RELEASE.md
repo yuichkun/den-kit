@@ -10,7 +10,7 @@ Releases. Ordinary pull requests and merges never publish anything.
 1. Start from current `main` on a branch named `release/vX.Y.Z` in this repository (not a fork).
    Use plain version numbers; prereleases and `0.0.0` are not release targets. Versions before
    `1.0.0` are previews.
-2. Run `npm run release:version -- X.Y.Z`. This updates `package.json` and `package-lock.json` only.
+2. Run `vp run release:version X.Y.Z`. This updates `package.json` and `package-lock.json` only.
    It does not create a tag, commit, push or publish.
 3. In `CHANGELOG.md`, move the relevant entries from **Unreleased** into `## X.Y.Z — YYYY-MM-DD`.
 4. Open the pull request with the title `vX.Y.Z — <headline>`. Its description becomes the public
@@ -74,17 +74,18 @@ None of this is needed to open or test pull requests.
 4. **GitHub environment.** Under Settings → Environments, create `release`, allow deployments only
    from `main` (the Release workflow runs on pushes to `main`), and add these secrets:
 
-   | Secret | Value |
-   | --- | --- |
-   | `CSC_LINK` | The base64 text of the `.p12` file |
-   | `CSC_KEY_PASSWORD` | The `.p12` password |
-   | `APPLE_API_KEY_P8` | The full contents of the `.p8` file |
-   | `APPLE_API_KEY_ID` | The API key's Key ID |
-   | `APPLE_API_ISSUER` | The Issuer ID |
+   | Secret               | Value                                      |
+   | -------------------- | ------------------------------------------ |
+   | `CSC_LINK`           | The base64 text of the `.p12` file         |
+   | `CSC_KEY_PASSWORD`   | The `.p12` password                        |
+   | `APPLE_API_KEY_P8`   | The full contents of the `.p8` file        |
+   | `APPLE_API_KEY_ID`   | The API key's Key ID                       |
+   | `APPLE_API_ISSUER`   | The Issuer ID                              |
    | `BROWSERPOD_API_KEY` | The BrowserPod key for the distributed app |
 
    To notarize with an Apple ID instead of an API key, set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
    and `APPLE_TEAM_ID`, and leave the three `APPLE_API_*` secrets empty.
+
 5. **Repository settings.** Enable immutable releases, and allow only collaborators to create pull
    requests (Settings → General → Features). Protect `main` with pull requests and the `verify` and
    `desktop-package` checks, and make sure tag rules allow the workflow to create `v*` tags. A
@@ -98,16 +99,16 @@ None of this is needed to open or test pull requests.
 
 ## Building and checking locally
 
-- `npm run desktop:dist` builds the `.dmg` and `.zip` packages for both architectures. It signs them
+- `vp run desktop:dist` builds the `.dmg` and `.zip` packages for both architectures. It signs them
   when a Developer ID Application identity is in your keychain and never publishes. It notarizes and
   staples the signed apps when `APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
   `APPLE_API_ISSUER` are set, or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`, or
   `APPLE_KEYCHAIN_PROFILE` with a profile saved by `xcrun notarytool store-credentials`. Without
   them, or for apps that are not signed with a Developer ID, it skips notarization.
-- `npm run desktop:check-artifacts -- release [--signed | --notarized]` checks the output: both
+- `vp run desktop:check-artifacts release [--signed | --notarized]` checks the output: both
   architectures, the update feed, the bundled Codex CLI, and optionally the signature and
   notarization.
-- `npm run desktop:check-update` proves the update path end to end. After `npm run desktop:build`, it
+- `vp run desktop:check-update` proves the update path end to end. After `vp run desktop:build`, it
   builds the current version and the next two patch versions for this Mac, installs the oldest into a
   temporary folder and serves the others from `127.0.0.1`. It checks that den-kit installs the first
   update when it quits normally without reopening, installs the second through **Restart now**, and

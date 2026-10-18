@@ -25,10 +25,13 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      # vp comes from the lockfile like every other dependency, not from an outside install script.
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run build
-      - run: npm test
+      - run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: vp check
+      - run: vp exec playwright install --with-deps chromium
+      - run: vp run build
+      - run: vp run test
 
   # Package both Mac architectures without signing, secrets or publication, so packaging problems show up
   # in the pull request instead of in a release.
@@ -43,14 +46,16 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      # vp comes from the lockfile like every other dependency, not from an outside install script.
       - run: npm ci
+      - run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Build unsigned packages for Apple silicon and Intel
         env:
           # A placeholder: this build is never distributed and must not receive the operator's key.
           BROWSERPOD_API_KEY: ci-placeholder-not-a-browserpod-key
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
-          npm run desktop:build
-          npx electron-builder --config electron-builder.yml --mac --publish never -c.mac.identity=null
+          vp run desktop:build
+          vp exec electron-builder --config electron-builder.yml --mac --publish never -c.mac.identity=null
       - name: Check both architectures, the update feed and the bundled Codex CLI
-        run: npm run desktop:check-artifacts -- release
+        run: vp run desktop:check-artifacts release

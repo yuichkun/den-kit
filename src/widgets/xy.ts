@@ -8,11 +8,14 @@ export class DkXy extends DkElement {
   private trail: Array<{ x: number; y: number; t: number }> = [];
   private frame = 0;
   private trailFrames = 0;
-  private get kind() { return this.skinName === 'glow' ? 'glow' : 'pad'; }
+  private get kind() {
+    return this.skinName === 'glow' ? 'glow' : 'pad';
+  }
 
   protected build() {
     cancelAnimationFrame(this.frame);
-    const params = this.readParams(), glow = this.kind === 'glow';
+    const params = this.readParams(),
+      glow = this.kind === 'glow';
     const dot = col(params.dot, 'var(--dk-accent,#5ec4ff)');
     this.trailFrames = glow ? this.p(params, 'trail', 24) : 0;
     const size = glow ? this.p(params, 'size', 18) : 14;
@@ -33,45 +36,84 @@ export class DkXy extends DkElement {
       this.holding = true;
       const set = (m: PointerEvent) => {
         const r = pad.getBoundingClientRect();
-        const nx = Math.min(1, Math.max(0, (m.clientX - r.left) / r.width)), ny = Math.min(1, Math.max(0, 1 - (m.clientY - r.top) / r.height));
-        this.setAttribute('x', String(nx)); this.setAttribute('y', String(ny)); this.paint(); this.emit('input', { x: nx, y: ny });
+        const nx = Math.min(1, Math.max(0, (m.clientX - r.left) / r.width)),
+          ny = Math.min(1, Math.max(0, 1 - (m.clientY - r.top) / r.height));
+        this.setAttribute('x', String(nx));
+        this.setAttribute('y', String(ny));
+        this.paint();
+        this.emit('input', { x: nx, y: ny });
       };
       set(e);
-      const up = () => { pad.removeEventListener('pointermove', set as EventListener); pad.removeEventListener('pointerup', up); pad.removeEventListener('pointercancel', up); this.ended(); this.emit('change', { x: this.num('x', 0.5), y: this.num('y', 0.5) }); };
-      pad.addEventListener('pointermove', set as EventListener); pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);
+      const up = () => {
+        pad.removeEventListener('pointermove', set as EventListener);
+        pad.removeEventListener('pointerup', up);
+        pad.removeEventListener('pointercancel', up);
+        this.ended();
+        this.emit('change', { x: this.num('x', 0.5), y: this.num('y', 0.5) });
+      };
+      pad.addEventListener('pointermove', set as EventListener);
+      pad.addEventListener('pointerup', up);
+      pad.addEventListener('pointercancel', up);
     });
     this.paint();
     if (this.trailFrames) this.frame = requestAnimationFrame(this.drawTrail);
   }
-  override disconnectedCallback() { super.disconnectedCallback(); cancelAnimationFrame(this.frame); }
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    cancelAnimationFrame(this.frame);
+  }
 
   protected paint() {
-    const x = this.num('x', 0.5), y = this.num('y', 0.5);
-    const dot = this.$<HTMLElement>('.dot'); if (!dot) return;
-    dot.style.left = `${x * 100}%`; dot.style.top = `${(1 - y) * 100}%`;
-    const h = this.$<HTMLElement>('.cross .h'), v = this.$<HTMLElement>('.cross .v');
-    if (h && v) { Object.assign(h.style, { left: '0', right: '0', height: '1px', top: `${(1 - y) * 100}%` }); Object.assign(v.style, { top: '0', bottom: '0', width: '1px', left: `${x * 100}%` }); }
+    const x = this.num('x', 0.5),
+      y = this.num('y', 0.5);
+    const dot = this.$<HTMLElement>('.dot');
+    if (!dot) return;
+    dot.style.left = `${x * 100}%`;
+    dot.style.top = `${(1 - y) * 100}%`;
+    const h = this.$<HTMLElement>('.cross .h'),
+      v = this.$<HTMLElement>('.cross .v');
+    if (h && v) {
+      Object.assign(h.style, { left: '0', right: '0', height: '1px', top: `${(1 - y) * 100}%` });
+      Object.assign(v.style, { top: '0', bottom: '0', width: '1px', left: `${x * 100}%` });
+    }
     if (this.trailFrames) this.trail.push({ x, y, t: performance.now() });
   }
 
   /** The trail fades over `trail` frames (about 1/60 s each), also after the finger lifts. */
   private drawTrail = () => {
     this.frame = requestAnimationFrame(this.drawTrail);
-    const canvas = this.$<HTMLCanvasElement>('canvas'); if (!canvas) return;
-    const w = canvas.clientWidth * devicePixelRatio, h = canvas.clientHeight * devicePixelRatio;
+    const canvas = this.$<HTMLCanvasElement>('canvas');
+    if (!canvas) return;
+    const w = canvas.clientWidth * devicePixelRatio,
+      h = canvas.clientHeight * devicePixelRatio;
     if (!w || !h) return;
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-    const g = canvas.getContext('2d'); if (!g) return;
-    const now = performance.now(), life = this.trailFrames * 16.7;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    const now = performance.now(),
+      life = this.trailFrames * 16.7;
     this.trail = this.trail.filter(p => now - p.t < life).slice(-400);
     g.clearRect(0, 0, w, h);
     if (this.trail.length < 2) return;
     const color = this.canvasColor(this.readParams().dot ?? 'accent', '#5ec4ff');
-    g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = color; g.shadowColor = color; g.shadowBlur = 12 * devicePixelRatio;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.strokeStyle = color;
+    g.shadowColor = color;
+    g.shadowBlur = 12 * devicePixelRatio;
     for (let i = 1; i < this.trail.length; i++) {
-      const a = this.trail[i - 1]!, b = this.trail[i]!, k = 1 - (now - b.t) / life;
-      g.globalAlpha = Math.max(0, k) * 0.9; g.lineWidth = (2 + 6 * k) * devicePixelRatio;
-      g.beginPath(); g.moveTo(a.x * w, (1 - a.y) * h); g.lineTo(b.x * w, (1 - b.y) * h); g.stroke();
+      const a = this.trail[i - 1]!,
+        b = this.trail[i]!,
+        k = 1 - (now - b.t) / life;
+      g.globalAlpha = Math.max(0, k) * 0.9;
+      g.lineWidth = (2 + 6 * k) * devicePixelRatio;
+      g.beginPath();
+      g.moveTo(a.x * w, (1 - a.y) * h);
+      g.lineTo(b.x * w, (1 - b.y) * h);
+      g.stroke();
     }
     g.globalAlpha = 1;
   };

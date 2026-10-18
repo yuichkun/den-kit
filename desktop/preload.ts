@@ -2,8 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopAPI, DesktopRuntime } from '../src/desktop/api.ts';
 
 // Only the app's top-level page receives the API; code-part iframes receive no Node/IPC powers.
-const originArgument = process.argv.find(arg => arg.startsWith('--den-kit-origin='))?.slice('--den-kit-origin='.length);
-const expectedOrigin = originArgument && /^http:\/\/127\.0\.0\.1:\d+$/.test(originArgument) ? originArgument : 'http://127.0.0.1:5247';
+const originArgument = process.argv
+  .find(arg => arg.startsWith('--den-kit-origin='))
+  ?.slice('--den-kit-origin='.length);
+const expectedOrigin =
+  originArgument && /^http:\/\/127\.0\.0\.1:\d+$/.test(originArgument)
+    ? originArgument
+    : 'http://127.0.0.1:5247';
 if (process.isMainFrame && location.origin === expectedOrigin) {
   const api: DesktopAPI = {
     runtime: ipcRenderer.sendSync('den-kit:runtime') as DesktopRuntime,
@@ -19,7 +24,9 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     installUpdate: () => ipcRenderer.invoke('den-kit:install-update'),
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
-  ipcRenderer.on('den-kit:open-settings', () => window.dispatchEvent(new Event('den-kit:open-settings')));
+  ipcRenderer.on('den-kit:open-settings', () =>
+    window.dispatchEvent(new Event('den-kit:open-settings')),
+  );
   // The page reads the new state through info(); event details do not cross the isolated world.
   ipcRenderer.on('den-kit:update', () => window.dispatchEvent(new Event('den-kit:update')));
 }

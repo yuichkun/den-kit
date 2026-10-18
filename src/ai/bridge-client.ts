@@ -1,13 +1,29 @@
 // Browser side of the local AI bridge. Keeps one WebSocket open with backoff,
 // forwards LLM events, and degrades to "AI offline" without blocking the editor.
 import { shallowRef, ref } from 'vue';
-import { CLOSE, PROTOCOL_VERSION, WS_PATH, type BridgeStatus, type ClientMessage, type LlmRole, type ServerMessage, type ToolOutput } from './protocol.ts';
+import {
+  CLOSE,
+  PROTOCOL_VERSION,
+  WS_PATH,
+  type BridgeStatus,
+  type ClientMessage,
+  type LlmRole,
+  type ServerMessage,
+  type ToolOutput,
+} from './protocol.ts';
 
 /** How an LLM turn starts besides its text: the role (tools), pictures, a member's copy of the lead's conversation. */
-export interface LlmStartOptions { role?: LlmRole; images?: string[]; fork?: { thread: string; fallback: string } }
+export interface LlmStartOptions {
+  role?: LlmRole;
+  images?: string[];
+  fork?: { thread: string; fallback: string };
+}
 
 /** What the LLM controller hears from the bridge. */
-export type LlmInbound = Extract<ServerMessage, { t: 'llm.event' | 'tool.call' }> | { t: 'error'; message: string; ref: string } | { t: 'welcome'; running: string[] };
+export type LlmInbound =
+  | Extract<ServerMessage, { t: 'llm.event' | 'tool.call' }>
+  | { t: 'error'; message: string; ref: string }
+  | { t: 'welcome'; running: string[] };
 
 export type BridgeState = 'disabled' | 'connecting' | 'online' | 'offline' | 'refused';
 
@@ -56,29 +72,74 @@ export class BridgeClient {
     this.token = options.token;
     this.url = options.url ?? defaultUrl();
     this.tab = options.tab ?? Math.random().toString(36).slice(2, 10);
-    this.createSocket = options.createSocket ?? (url => new WebSocket(url) as unknown as SocketLike);
+    this.createSocket =
+      options.createSocket ?? (url => new WebSocket(url) as unknown as SocketLike);
     this.fetchToken = options.fetchToken ?? defaultFetchToken;
     this.backoff = options.backoff ?? { baseMs: 500, maxMs: 10000 };
   }
 
-  get online() { return this.state.value === 'online'; }
-  onStatus(listener: (s: BridgeStatus) => void) { this.statusListeners.add(listener); return () => this.statusListeners.delete(listener); }
-  /** Codex is signed in and running. */
-  get codexReady() { return this.online && this.status.value?.codex.state === 'ok'; }
-  onLlm(listener: (m: LlmInbound) => void) { this.llmListeners.add(listener); return () => { this.llmListeners.delete(listener); }; }
-  // LLM requests: false when the message could not be sent (offline).
-  llmStart(id: string, text: string, instructions: string, thread?: string, options: LlmStartOptions = {}) {
-    return this.post({ t: 'llm.start', id, text, instructions, ...(thread ? { thread } : {}), ...(options.role ? { role: options.role } : {}), ...(options.images?.length ? { images: options.images } : {}), ...(options.fork ? { fork: options.fork } : {}) });
+  get online() {
+    return this.state.value === 'online';
   }
-  llmSteer(id: string, target: string, text: string, images?: string[]) { return this.post({ t: 'llm.steer', id, target, text, ...(images?.length ? { images } : {}) }); }
-  llmStop(id: string) { return this.post({ t: 'llm.stop', id }); }
-  llmAnswer(id: string, question: string, answers: Record<string, string[]>) { return this.post({ t: 'llm.answer', id, question, answers }); }
-  llmForget(thread: string) { return this.post({ t: 'llm.forget', thread }); }
-  toolResult(id: string, callId: string, output: ToolOutput) { return this.post({ t: 'tool.result', id, callId, output }); }
-  codexRetry() { return this.post({ t: 'codex.retry' }); }
+  onStatus(listener: (s: BridgeStatus) => void) {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+  /** Codex is signed in and running. */
+  get codexReady() {
+    return this.online && this.status.value?.codex.state === 'ok';
+  }
+  onLlm(listener: (m: LlmInbound) => void) {
+    this.llmListeners.add(listener);
+    return () => {
+      this.llmListeners.delete(listener);
+    };
+  }
+  // LLM requests: false when the message could not be sent (offline).
+  llmStart(
+    id: string,
+    text: string,
+    instructions: string,
+    thread?: string,
+    options: LlmStartOptions = {},
+  ) {
+    return this.post({
+      t: 'llm.start',
+      id,
+      text,
+      instructions,
+      ...(thread ? { thread } : {}),
+      ...(options.role ? { role: options.role } : {}),
+      ...(options.images?.length ? { images: options.images } : {}),
+      ...(options.fork ? { fork: options.fork } : {}),
+    });
+  }
+  llmSteer(id: string, target: string, text: string, images?: string[]) {
+    return this.post({ t: 'llm.steer', id, target, text, ...(images?.length ? { images } : {}) });
+  }
+  llmStop(id: string) {
+    return this.post({ t: 'llm.stop', id });
+  }
+  llmAnswer(id: string, question: string, answers: Record<string, string[]>) {
+    return this.post({ t: 'llm.answer', id, question, answers });
+  }
+  llmForget(thread: string) {
+    return this.post({ t: 'llm.forget', thread });
+  }
+  toolResult(id: string, callId: string, output: ToolOutput) {
+    return this.post({ t: 'tool.result', id, callId, output });
+  }
+  codexRetry() {
+    return this.post({ t: 'codex.retry' });
+  }
 
   start() {
-    if (!this.token) { this.state.value = 'disabled'; this.detail.value = 'AI offline: start the editor with `npm run dev` to enable the AI bridge.'; return; }
+    if (!this.token) {
+      this.state.value = 'disabled';
+      this.detail.value =
+        'AI offline: start the editor with `npm run dev` to enable the AI bridge.';
+      return;
+    }
     this.stopped = false;
     this.open();
   }
@@ -87,27 +148,49 @@ export class BridgeClient {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    const s = this.socket; this.socket = null;
-    if (s) { s.onclose = null; s.close(1000, 'stopped'); }
+    const s = this.socket;
+    this.socket = null;
+    if (s) {
+      s.onclose = null;
+      s.close(1000, 'stopped');
+    }
     this.state.value = 'offline';
   }
 
-  telemetry(record: Record<string, unknown>) { this.post({ t: 'telemetry', record }); }
+  telemetry(record: Record<string, unknown>) {
+    this.post({ t: 'telemetry', record });
+  }
 
   // ---- connection ------------------------------------------------------------
   private open() {
     if (this.stopped) return;
     this.state.value = 'connecting';
     let socket: SocketLike;
-    try { socket = this.createSocket(this.url); } catch (error) { this.scheduleRetry(`Could not open the AI bridge socket: ${String(error)}`); return; }
+    try {
+      socket = this.createSocket(this.url);
+    } catch (error) {
+      this.scheduleRetry(`Could not open the AI bridge socket: ${String(error)}`);
+      return;
+    }
     this.socket = socket;
     let welcomed = false;
     socket.onopen = () => {
-      socket.send(JSON.stringify({ t: 'hello', protocol: PROTOCOL_VERSION, token: this.token ?? '', tab: this.tab } satisfies ClientMessage));
+      socket.send(
+        JSON.stringify({
+          t: 'hello',
+          protocol: PROTOCOL_VERSION,
+          token: this.token ?? '',
+          tab: this.tab,
+        } satisfies ClientMessage),
+      );
     };
     socket.onmessage = event => {
       let message: ServerMessage;
-      try { message = JSON.parse(String(event.data)) as ServerMessage; } catch { return; }
+      try {
+        message = JSON.parse(String(event.data)) as ServerMessage;
+      } catch {
+        return;
+      }
       if (!message || typeof message !== 'object') return;
       switch (message.t) {
         case 'welcome':
@@ -119,60 +202,108 @@ export class BridgeClient {
           this.setStatus(message.status);
           for (const l of this.llmListeners) l({ t: 'welcome', running: message.running ?? [] });
           return;
-        case 'status': this.setStatus(message.status); return;
-        case 'llm.event': case 'tool.call': for (const l of this.llmListeners) l(message); return;
+        case 'status':
+          this.setStatus(message.status);
+          return;
+        case 'llm.event':
+        case 'tool.call':
+          for (const l of this.llmListeners) l(message);
+          return;
         case 'error':
-          if (message.ref) for (const l of this.llmListeners) l({ t: 'error', message: message.message, ref: message.ref });
+          if (message.ref)
+            for (const l of this.llmListeners)
+              l({ t: 'error', message: message.message, ref: message.ref });
           else if (!welcomed) this.detail.value = message.message;
           else console.warn(`[den-kit] bridge: ${message.message}`);
           return;
       }
     };
-    socket.onerror = () => { /* onclose follows with the reason */ };
+    socket.onerror = () => {
+      /* onclose follows with the reason */
+    };
     socket.onclose = event => {
       if (this.socket !== socket) return;
       this.socket = null;
       if (this.stopped) return;
-      if (event.code === CLOSE.badOrigin) { this.refuse('AI bridge refused this page (origin). Open the editor at the address `npm run dev` prints.'); return; }
-      if (event.code === CLOSE.protocol) { this.refuse(`AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run dev\`.`); return; }
-      if (event.code === CLOSE.badToken) { void this.refreshToken(); return; }
-      this.scheduleRetry(welcomed ? 'AI bridge disconnected; reconnecting…' : 'AI offline: the bridge is not running (start the editor with `npm run dev`).');
+      if (event.code === CLOSE.badOrigin) {
+        this.refuse(
+          'AI bridge refused this page (origin). Open the editor at the address `npm run dev` prints.',
+        );
+        return;
+      }
+      if (event.code === CLOSE.protocol) {
+        this.refuse(
+          `AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run dev\`.`,
+        );
+        return;
+      }
+      if (event.code === CLOSE.badToken) {
+        void this.refreshToken();
+        return;
+      }
+      this.scheduleRetry(
+        welcomed
+          ? 'AI bridge disconnected; reconnecting…'
+          : 'AI offline: the bridge is not running (start the editor with `npm run dev`).',
+      );
     };
   }
 
   private async refreshToken() {
     const fresh = await this.fetchToken().catch(() => null);
     if (this.stopped) return;
-    if (fresh && fresh !== this.token) { this.token = fresh; this.scheduleRetry('AI bridge restarted; reconnecting…', 0); return; }
+    if (fresh && fresh !== this.token) {
+      this.token = fresh;
+      this.scheduleRetry('AI bridge restarted; reconnecting…', 0);
+      return;
+    }
     this.refuse('AI bridge rejected this page’s token. Reload the page.');
   }
 
-  private refuse(message: string) { this.state.value = 'refused'; this.detail.value = message; }
+  private refuse(message: string) {
+    this.state.value = 'refused';
+    this.detail.value = message;
+  }
 
   private scheduleRetry(message: string, delay?: number) {
     this.state.value = 'offline';
     this.detail.value = message;
     if (this.retryTimer) clearTimeout(this.retryTimer);
-    const wait = delay ?? Math.min(this.backoff.maxMs, this.backoff.baseMs * 2 ** this.attempt) * (0.75 + Math.random() * 0.5);
+    const wait =
+      delay ??
+      Math.min(this.backoff.maxMs, this.backoff.baseMs * 2 ** this.attempt) *
+        (0.75 + Math.random() * 0.5);
     this.attempt = Math.min(this.attempt + 1, 16);
     if (this.attempt > 1) this.stats.reconnects++;
-    this.retryTimer = setTimeout(() => { this.retryTimer = null; this.open(); }, wait);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.open();
+    }, wait);
   }
 
   /** Reconnect now (e.g. after the user restarted dev). */
-  retryNow() { if (this.state.value === 'online' || this.stopped) return; this.attempt = 0; this.scheduleRetry(this.detail.value, 0); }
+  retryNow() {
+    if (this.state.value === 'online' || this.stopped) return;
+    this.attempt = 0;
+    this.scheduleRetry(this.detail.value, 0);
+  }
 
   private post(message: ClientMessage): boolean {
     const s = this.socket;
     if (!s || s.readyState !== OPEN || this.state.value !== 'online') return false;
-    try { s.send(JSON.stringify(message)); this.stats.sent++; return true; } catch { return false; }
+    try {
+      s.send(JSON.stringify(message));
+      this.stats.sent++;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private setStatus(status: BridgeStatus) {
     this.status.value = status;
     for (const l of this.statusListeners) l(status);
   }
-
 }
 
 function defaultUrl() {
@@ -183,6 +314,6 @@ function defaultUrl() {
 async function defaultFetchToken(): Promise<string | null> {
   const res = await fetch('/__kit/token', { cache: 'no-store' });
   if (!res.ok) return null;
-  const data = await res.json() as { token?: unknown };
+  const data = (await res.json()) as { token?: unknown };
   return typeof data.token === 'string' ? data.token : null;
 }

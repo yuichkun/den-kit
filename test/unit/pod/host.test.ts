@@ -2,8 +2,16 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { cleanOutput, exitMarker, keepEnd, newNonce, projectPath, readExit, runnerLine } from '../../../src/pod/host.ts';
+import { describe, expect, it } from 'vite-plus/test';
+import {
+  cleanOutput,
+  exitMarker,
+  keepEnd,
+  newNonce,
+  projectPath,
+  readExit,
+  runnerLine,
+} from '../../../src/pod/host.ts';
 
 describe('pod: terminal output', () => {
   it('drops colours, cursor codes and titles, and keeps what a progress line last said', () => {
@@ -44,26 +52,49 @@ describe('pod: exit status through the marker line', () => {
       const script = join(dir, 'script.sh');
       writeFileSync(script, 'pwd\necho "to stderr" >&2\ncd /\nexit 7\n');
       const nonce = newNonce();
-      const r = spawnSync('bash', ['-c', runnerLine(nonce), 'den-kit', dir, script], { encoding: 'utf8' });
+      const r = spawnSync('bash', ['-c', runnerLine(nonce), 'den-kit', dir, script], {
+        encoding: 'utf8',
+      });
       const found = readExit(cleanOutput(r.stdout), nonce);
       expect(found).toEqual({ output: dir, exitCode: 7 });
       // A missing folder falls back to home instead of failing before the script runs.
       writeFileSync(script, 'echo ran\n');
-      const r2 = spawnSync('bash', ['-c', runnerLine(nonce), 'den-kit', join(dir, 'missing'), script], { encoding: 'utf8', env: { ...process.env, HOME: dir } });
+      const r2 = spawnSync(
+        'bash',
+        ['-c', runnerLine(nonce), 'den-kit', join(dir, 'missing'), script],
+        { encoding: 'utf8', env: { ...process.env, HOME: dir } },
+      );
       expect(readExit(cleanOutput(r2.stdout), nonce)).toEqual({ output: 'ran', exitCode: 0 });
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
 describe('pod: project paths from the AI or the person', () => {
   const dir = '/home/user/work';
   it('takes relative paths and absolute ones inside the project', () => {
-    expect(projectPath('src/parts/reels.ts', dir)).toEqual({ ok: true, path: 'src/parts/reels.ts' });
+    expect(projectPath('src/parts/reels.ts', dir)).toEqual({
+      ok: true,
+      path: 'src/parts/reels.ts',
+    });
     expect(projectPath('./src/main.ts', dir)).toEqual({ ok: true, path: 'src/main.ts' });
     expect(projectPath('/home/user/work/AGENTS.md', dir)).toEqual({ ok: true, path: 'AGENTS.md' });
   });
   it('refuses paths outside it, odd paths and what the tools make', () => {
-    for (const bad of ['/etc/passwd', '~/x', '../x', 'src/../../x', 'a//b', '', '   ', 3, 'node_modules/x/index.js', '.git/config', 'dist/index.html'])
+    for (const bad of [
+      '/etc/passwd',
+      '~/x',
+      '../x',
+      'src/../../x',
+      'a//b',
+      '',
+      '   ',
+      3,
+      'node_modules/x/index.js',
+      '.git/config',
+      'dist/index.html',
+    ])
       expect(projectPath(bad, dir).ok, String(bad)).toBe(false);
   });
 });

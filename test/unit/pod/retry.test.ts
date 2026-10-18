@@ -1,5 +1,5 @@
 import { shallowRef } from 'vue';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { catalog } from '../../../src/blocks/index.ts';
 import { starter } from '../../../src/core/starters.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
@@ -13,17 +13,30 @@ class PreviewProcess implements PodProcess {
   running = true;
   private finish!: () => void;
   constructor() {
-    this.done = new Promise(resolve => { this.finish = resolve; });
+    this.done = new Promise(resolve => {
+      this.finish = resolve;
+    });
   }
-  output() { return this.running ? 'preview running' : 'preview stopped'; }
-  crash() { if (this.running) { this.running = false; this.finish(); } }
+  output() {
+    return this.running ? 'preview running' : 'preview stopped';
+  }
+  crash() {
+    if (this.running) {
+      this.running = false;
+      this.finish();
+    }
+  }
 }
 
 function harness(initial: 'ready' | 'hang' = 'ready') {
   const doc = starter('bass', catalog);
-  doc.project = { files: { ...templateFiles(), 'src/parts/mine.ts': 'export default { mount() {} };' } };
+  doc.project = {
+    files: { ...templateFiles(), 'src/parts/mine.ts': 'export default { mount() {} };' },
+  };
   const session = { doc: shallowRef(doc), catalog } as unknown as KitSession;
-  const files = new Map<string, string>([['/home/test/work/node_modules/preserved-package/index.js', 'installed package kept']]);
+  const files = new Map<string, string>([
+    ['/home/test/work/node_modules/preserved-package/index.js', 'installed package kept'],
+  ]);
   const starts: PreviewProcess[] = [];
   const commands: Array<{ script: string; cwd?: string }> = [];
   const portalListeners = new Set<(portal: Portal) => void>();
@@ -31,41 +44,98 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
   let installationFails = false;
   const unrelated = new PreviewProcess();
   const host: PodHost = {
-    kind: 'fake', home: '/home/test',
+    kind: 'fake',
+    home: '/home/test',
     async run(script, options) {
       commands.push({ script, cwd: options?.cwd });
       const output = script.includes('find .')
-        ? [...files.keys()].filter(path => path.startsWith('/home/test/work/') && !path.includes('/node_modules/')).map(path => `./${path.slice('/home/test/work/'.length)}`).join('\n')
-        : script.includes('npm install') ? 'packages are up to date' : '';
-      return { exitCode: installationFails && script.includes('npm install') ? 1 : 0, output, timedOut: false, ms: 1 };
+        ? [...files.keys()]
+            .filter(path => path.startsWith('/home/test/work/') && !path.includes('/node_modules/'))
+            .map(path => `./${path.slice('/home/test/work/'.length)}`)
+            .join('\n')
+        : script.includes('npm install')
+          ? 'packages are up to date'
+          : '';
+      return {
+        exitCode: installationFails && script.includes('npm install') ? 1 : 0,
+        output,
+        timedOut: false,
+        ms: 1,
+      };
     },
     start() {
-      const process = new PreviewProcess(); starts.push(process);
-      if (next === 'ready') queueMicrotask(() => { for (const listener of portalListeners) listener({ port: DEV_PORT, url: `https://preview.example.test/${starts.length}/` }); });
+      const process = new PreviewProcess();
+      starts.push(process);
+      if (next === 'ready')
+        queueMicrotask(() => {
+          for (const listener of portalListeners)
+            listener({ port: DEV_PORT, url: `https://preview.example.test/${starts.length}/` });
+        });
       return process;
     },
-    async writeFile(path, text) { files.set(path, text); },
-    async readFile(path) { return files.get(path) ?? null; },
-    onPortal(listener) { portalListeners.add(listener); return () => { portalListeners.delete(listener); }; },
-    dispose() { for (const process of starts) process.crash(); },
+    async writeFile(path, text) {
+      files.set(path, text);
+    },
+    async readFile(path) {
+      return files.get(path) ?? null;
+    },
+    onPortal(listener) {
+      portalListeners.add(listener);
+      return () => {
+        portalListeners.delete(listener);
+      };
+    },
+    dispose() {
+      for (const process of starts) process.crash();
+    },
   };
   const create = vi.fn(async () => host);
   const pod = new PodSession(session, { kind: 'fake', create });
-  return { session, files, starts, commands, create, host, pod, unrelated, setNext(value: 'ready' | 'hang') { next = value; }, failInstallation(value: boolean) { installationFails = value; } };
+  return {
+    session,
+    files,
+    starts,
+    commands,
+    create,
+    host,
+    pod,
+    unrelated,
+    setNext(value: 'ready' | 'hang') {
+      next = value;
+    },
+    failInstallation(value: boolean) {
+      installationFails = value;
+    },
+  };
 }
 
 const pods: PodSession[] = [];
-beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] }));
-afterEach(() => { for (const pod of pods.splice(0)) pod.dispose(); vi.useRealTimers(); });
-async function boot(h: ReturnType<typeof harness>, ms = 1000) { pods.push(h.pod); const ready = h.pod.ensure(); await vi.advanceTimersByTimeAsync(ms); await ready; }
+beforeEach(() =>
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] }),
+);
+afterEach(() => {
+  for (const pod of pods.splice(0)) pod.dispose();
+  vi.useRealTimers();
+});
+async function boot(h: ReturnType<typeof harness>, ms = 1000) {
+  pods.push(h.pod);
+  const ready = h.pod.ensure();
+  await vi.advanceTimersByTimeAsync(ms);
+  await ready;
+}
 async function exhaustCrashBudget(h: ReturnType<typeof harness>) {
-  for (let i = 0; i < 3; i++) { h.starts.at(-1)!.crash(); await vi.advanceTimersByTimeAsync(1000); }
+  for (let i = 0; i < 3; i++) {
+    h.starts.at(-1)!.crash();
+    await vi.advanceTimersByTimeAsync(1000);
+  }
   expect(h.pod.state.value).toBe('failed');
 }
 
 describe('explicit project preview retry', () => {
   it('repairs a preview after cached ensure has completed and preserves the work and installed disk', async () => {
-    const h = harness(); await boot(h); await exhaustCrashBudget(h);
+    const h = harness();
+    await boot(h);
+    await exhaustCrashBudget(h);
     const document = JSON.stringify(h.session.doc.value);
     const files = new Map(h.files);
     const starts = h.starts.length;
@@ -75,7 +145,8 @@ describe('explicit project preview retry', () => {
     expect(await h.pod.ensure()).toBe(h.host);
     expect(h.starts.length).toBe(starts);
     const retry = h.pod.retry();
-    await vi.advanceTimersByTimeAsync(1000); await retry;
+    await vi.advanceTimersByTimeAsync(1000);
+    await retry;
     expect(h.pod.state.value).toBe('ready');
     expect(h.pod.retryable).toBe(false);
     expect(h.pod.fix.value).toBeUndefined();
@@ -86,10 +157,13 @@ describe('explicit project preview retry', () => {
   });
 
   it('resets the crash budget and deduplicates simultaneous retries', async () => {
-    const h = harness(); await boot(h); await exhaustCrashBudget(h);
+    const h = harness();
+    await boot(h);
+    await exhaustCrashBudget(h);
     const starts = h.starts.length;
     const retries = [h.pod.retry(), h.pod.retry(), h.pod.retry()];
-    await vi.advanceTimersByTimeAsync(1000); await Promise.all(retries);
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.all(retries);
     expect(h.starts.length).toBe(starts + 1);
     expect(h.pod.state.value).toBe('ready');
     h.starts.at(-1)!.crash();
@@ -99,14 +173,18 @@ describe('explicit project preview retry', () => {
   });
 
   it('requires reopening for a preview startup timeout instead of interrupting or duplicating it', async () => {
-    const h = harness('hang'); await boot(h, 181_000);
+    const h = harness('hang');
+    await boot(h, 181_000);
     expect(h.pod.state.value).toBe('failed');
     expect(h.starts[0]!.running).toBe(true);
     expect(h.pod.retryable).toBe(false);
     expect(h.pod.fix.value).toMatch(/Close and reopen den-kit/);
     h.setNext('ready');
     const before = JSON.stringify(h.session.doc.value);
-    const retry = h.pod.retry().then(() => null, error => error as Error & { fix?: string });
+    const retry = h.pod.retry().then(
+      () => null,
+      error => error as Error & { fix?: string },
+    );
     await vi.advanceTimersByTimeAsync(1000);
     const error = await retry;
     expect(error).toBeInstanceOf(Error);
@@ -123,14 +201,24 @@ describe('explicit project preview retry', () => {
   });
 
   it('keeps dependency repair guidance while a live preview survives an installation failure', async () => {
-    const h = harness(); await boot(h);
+    const h = harness();
+    await boot(h);
     const preview = h.starts[0]!;
     const originalPackage = JSON.parse(h.session.doc.value.project!.files['package.json']!);
     const changePackage = (name: string) => {
       const doc = h.session.doc.value;
-      h.session.doc.value = { ...doc, project: { files: { ...doc.project!.files, 'package.json': JSON.stringify({ ...originalPackage, name }) } } };
+      h.session.doc.value = {
+        ...doc,
+        project: {
+          files: {
+            ...doc.project!.files,
+            'package.json': JSON.stringify({ ...originalPackage, name }),
+          },
+        },
+      };
     };
-    h.failInstallation(true); changePackage('installation-fails');
+    h.failInstallation(true);
+    changePackage('installation-fails');
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.pod.state.value).toBe('failed');
     expect(h.pod.message.value).toMatch(/dependency installation failed/i);
@@ -139,7 +227,8 @@ describe('explicit project preview retry', () => {
     expect(preview.running).toBe(true);
     expect(h.pod.retryable).toBe(false);
     expect(h.starts).toHaveLength(1);
-    h.failInstallation(false); changePackage('installation-repaired');
+    h.failInstallation(false);
+    changePackage('installation-repaired');
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.pod.state.value).toBe('ready');
     expect(h.pod.fix.value).toBeUndefined();

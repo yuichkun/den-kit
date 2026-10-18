@@ -14,14 +14,37 @@
 // - createFile() wipes an existing file; read(length) may return less than asked;
 // - a server that listens on a port is announced through onPortal.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  writeSync,
+} from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { dirname } from 'node:path';
 
-interface Terminal { write(data: string): void }
+interface Terminal {
+  write(data: string): void;
+}
 /** A resizable ArrayBuffer (ES2024: den-kit's types stop at ES2023). */
-export const resizableBuffer = (length: number, maxByteLength: number): ArrayBuffer => new (ArrayBuffer as unknown as new (length: number, options: { maxByteLength: number }) => ArrayBuffer)(length, { maxByteLength });
-const freePort = () => new Promise<number>((ok, fail) => { const s = createServer(); s.unref(); s.on('error', fail); s.listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => ok(p)); }); });
+export const resizableBuffer = (length: number, maxByteLength: number): ArrayBuffer =>
+  new (ArrayBuffer as unknown as new (
+    length: number,
+    options: { maxByteLength: number },
+  ) => ArrayBuffer)(length, { maxByteLength });
+const freePort = () =>
+  new Promise<number>((ok, fail) => {
+    const s = createServer();
+    s.unref();
+    s.on('error', fail);
+    s.listen(0, '127.0.0.1', () => {
+      const p = (s.address() as AddressInfo).port;
+      s.close(() => ok(p));
+    });
+  });
 
 export class MockBrowserPod {
   /** Every run: the program, its arguments and the environment it got (for tests). */
@@ -34,34 +57,88 @@ export class MockBrowserPod {
   private readonly chunk: number;
 
   constructor(options: { home: string; path?: string; chunk?: number }) {
-    this.home = options.home; this.path = options.path ?? process.env.PATH ?? '/usr/bin:/bin'; this.chunk = options.chunk ?? 7;
+    this.home = options.home;
+    this.path = options.path ?? process.env.PATH ?? '/usr/bin:/bin';
+    this.chunk = options.chunk ?? 7;
   }
 
-  async createCustomTerminal(opts: { cols?: number; rows?: number; onOutput: (buffer: ArrayBuffer) => void }): Promise<Terminal & { attach(child: ChildProcess): void; output: (b: Buffer) => void }> {
+  async createCustomTerminal(opts: {
+    cols?: number;
+    rows?: number;
+    onOutput: (buffer: ArrayBuffer) => void;
+  }): Promise<Terminal & { attach(child: ChildProcess): void; output: (b: Buffer) => void }> {
     let child: ChildProcess | null = null;
     return {
-      write: (data: string) => { if (data.includes('\x03') && child?.pid) { try { process.kill(-child.pid, 'SIGINT'); } catch { /* gone */ } } },
-      attach: (c: ChildProcess) => { child = c; },
-      output: (b: Buffer) => { for (let i = 0; i < b.length; i += this.chunk) { const piece = b.subarray(i, i + this.chunk); const data = resizableBuffer(piece.byteLength, piece.byteLength + 64); new Uint8Array(data).set(piece); opts.onOutput(data); } },
+      write: (data: string) => {
+        if (data.includes('\x03') && child?.pid) {
+          try {
+            process.kill(-child.pid, 'SIGINT');
+          } catch {
+            /* gone */
+          }
+        }
+      },
+      attach: (c: ChildProcess) => {
+        child = c;
+      },
+      output: (b: Buffer) => {
+        for (let i = 0; i < b.length; i += this.chunk) {
+          const piece = b.subarray(i, i + this.chunk);
+          const data = resizableBuffer(piece.byteLength, piece.byteLength + 64);
+          new Uint8Array(data).set(piece);
+          opts.onOutput(data);
+        }
+      },
     };
   }
 
-  run(executable: string, args: string[], opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean }): PromiseLike<object> {
+  run(
+    executable: string,
+    args: string[],
+    opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean },
+  ): PromiseLike<object> {
     const ran = this.start(executable, args, opts);
-    return { then: ((ok?: (v: object) => unknown, fail?: (e: unknown) => unknown) => { void ran.then(ok, fail); }) as PromiseLike<object>['then'] };
+    return {
+      then: ((ok?: (v: object) => unknown, fail?: (e: unknown) => unknown) => {
+        void ran.then(ok, fail);
+      }) as PromiseLike<object>['then'],
+    };
   }
-  private async start(executable: string, args: string[], opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean }): Promise<object> {
+  private async start(
+    executable: string,
+    args: string[],
+    opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean },
+  ): Promise<object> {
     this.runs.push({ executable, args, env: opts.env, cwd: opts.cwd });
     // The pod's own environment is this machine's (its network settings too: npm needs them here), with the pod's home.
-    const own = { ...Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string')), HOME: this.home, PATH: this.path, USER: 'user' };
-    const env: Record<string, string> = opts.env ? Object.fromEntries(opts.env.map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])) : own;
+    const own = {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string'),
+      ),
+      HOME: this.home,
+      PATH: this.path,
+      USER: 'user',
+    };
+    const env: Record<string, string> = opts.env
+      ? Object.fromEntries(
+          opts.env.map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]),
+        )
+      : own;
     // A server asked for a port gets a free one here (several tests run servers); its portal says the port it asked for.
     const asked = env.PORT ? Number(env.PORT) : null;
     if (asked) env.PORT = String(await freePort());
-    const terminal = opts.terminal as Terminal & { attach(child: ChildProcess): void; output: (b: Buffer) => void };
+    const terminal = opts.terminal as Terminal & {
+      attach(child: ChildProcess): void;
+      output: (b: Buffer) => void;
+    };
     // A terminal has one output stream. Separate pipes can deliver the stdout
     // exit marker before earlier stderr bytes, making the adapter finish too soon.
-    const child = spawn('bash', ['-c', 'exec "$@" 2>&1', 'mock-browserpod', executable, ...args], { cwd: opts.cwd ?? '/', env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('bash', ['-c', 'exec "$@" 2>&1', 'mock-browserpod', executable, ...args], {
+      cwd: opts.cwd ?? '/',
+      env,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     this.children.add(child);
     terminal.attach(child);
     let announced = false;
@@ -69,21 +146,37 @@ export class MockBrowserPod {
       terminal.output(b);
       // (Only a server, given a PORT, is announced: other output may print addresses too, a proxy's for one.)
       if (asked && !announced) {
-        const m = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/.exec(b.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''));
-        if (m) { announced = true; for (const l of this.portalListeners) l({ url: `http://127.0.0.1:${m[1]}/`, port: asked ?? Number(m[1]) }); }
+        const m = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/.exec(
+          b.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''),
+        );
+        if (m) {
+          announced = true;
+          for (const l of this.portalListeners)
+            l({ url: `http://127.0.0.1:${m[1]}/`, port: asked ?? Number(m[1]) });
+        }
       }
     };
-    child.stdout!.on('data', out); child.stderr!.on('data', out);
+    child.stdout!.on('data', out);
+    child.stderr!.on('data', out);
     return new Promise((resolve, reject) => {
       child.once('error', reject);
-      child.once('close', () => { this.children.delete(child); resolve({}); });
+      child.once('close', () => {
+        this.children.delete(child);
+        resolve({});
+      });
     });
   }
 
-  onPortal(cb: (args: { url: string; port: number }) => void): void { this.portalListeners.push(cb); }
-  onOpen(): void { /* not used */ }
+  onPortal(cb: (args: { url: string; port: number }) => void): void {
+    this.portalListeners.push(cb);
+  }
+  onOpen(): void {
+    /* not used */
+  }
 
-  async createDirectory(path: string, opts?: { recursive?: boolean }): Promise<void> { mkdirSync(path, { recursive: !!opts?.recursive }); }
+  async createDirectory(path: string, opts?: { recursive?: boolean }): Promise<void> {
+    mkdirSync(path, { recursive: !!opts?.recursive });
+  }
 
   async createFile(path: string, mode: string) {
     if (mode !== 'binary' && mode !== 'utf-8') throw new Error(`createFile: bad mode "${mode}"`);
@@ -98,14 +191,33 @@ export class MockBrowserPod {
   private file(fd: number) {
     let position = 0;
     return {
-      write: async (data: ArrayBuffer) => { const n = writeSync(fd, new Uint8Array(data), 0, data.byteLength, position); position += n; return n; },
+      write: async (data: ArrayBuffer) => {
+        const n = writeSync(fd, new Uint8Array(data), 0, data.byteLength, position);
+        position += n;
+        return n;
+      },
       // Never more than 1000 bytes at a time: callers must loop.
-      read: async (length: number) => { const buf = Buffer.alloc(Math.min(length, 1000)); const n = readSync(fd, buf, 0, buf.length, position); position += n; return buf.buffer.slice(buf.byteOffset, buf.byteOffset + n); },
+      read: async (length: number) => {
+        const buf = Buffer.alloc(Math.min(length, 1000));
+        const n = readSync(fd, buf, 0, buf.length, position);
+        position += n;
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + n);
+      },
       getSize: async () => fstatSync(fd).size,
-      close: async () => { closeSync(fd); },
+      close: async () => {
+        closeSync(fd);
+      },
     };
   }
 
   /** Stop everything it started (the tab closing). */
-  dispose() { for (const c of this.children) { try { process.kill(-c.pid!, 'SIGKILL'); } catch { /* gone */ } } }
+  dispose() {
+    for (const c of this.children) {
+      try {
+        process.kill(-c.pid!, 'SIGKILL');
+      } catch {
+        /* gone */
+      }
+    }
+  }
 }

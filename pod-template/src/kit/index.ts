@@ -24,7 +24,13 @@ export type PropSpec =
   | { type: 'color'; default: string; label?: string }
   | { type: 'select'; default: string; options: readonly string[]; label?: string };
 export type PropSpecs = Record<string, PropSpec>;
-export type PropValues<P extends PropSpecs> = { [K in keyof P]: P[K] extends { type: 'number' } ? number : P[K] extends { type: 'boolean' } ? boolean : string };
+export type PropValues<P extends PropSpecs> = {
+  [K in keyof P]: P[K] extends { type: 'number' }
+    ? number
+    : P[K] extends { type: 'boolean' }
+      ? boolean
+      : string;
+};
 
 /** A knob or slider: its value in its own unit. A switch: on or off. An XY pad: x and y from 0 to 1. */
 export type ControlValue = number | boolean | { x: number; y: number };
@@ -84,4 +90,6 @@ export interface Part<P extends PropSpecs = PropSpecs> {
 }
 
 /** Declare a part (the file's default export). */
-export function part<P extends PropSpecs>(def: Part<P>): Part<P> { return def; }
+export function part<P extends PropSpecs>(def: Part<P>): Part<P> {
+  return def;
+}

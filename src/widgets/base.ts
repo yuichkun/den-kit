@@ -16,25 +16,40 @@ export const BASE_CSS = `:host{display:block;box-sizing:border-box;width:100%;he
 
 const TOKENS = ['bg', 'fg', 'accent', 'track', 'knob', 'pointer', 'muted', 'glow'];
 /** A colour parameter as CSS: tokens become their custom property. */
-export const col = (c: unknown, fallback = 'currentColor') => typeof c === 'string' && c ? TOKENS.includes(c) ? `var(--dk-${c})` : c : fallback;
+export const col = (c: unknown, fallback = 'currentColor') =>
+  typeof c === 'string' && c ? (TOKENS.includes(c) ? `var(--dk-${c})` : c) : fallback;
 
-export function escapeHtml(text: string) { return text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!); }
+export function escapeHtml(text: string) {
+  return text.replace(
+    /[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
+}
 /** A URL for a CSS url() or an <img src>: only blob:, data: and den-kit's own paths. */
 export function safeUrl(u: unknown): string {
   if (typeof u !== 'string' || !u) return '';
-  return /^(blob:|data:image\/|\/|https?:\/\/(localhost|127\.0\.0\.1)[:/])/.test(u) ? u.replace(/["\\\n]/g, '') : '';
+  return /^(blob:|data:image\/|\/|https?:\/\/(localhost|127\.0\.0\.1)[:/])/.test(u)
+    ? u.replace(/["\\\n]/g, '')
+    : '';
 }
 
 /** SVG arc on a circle of radius r around (cx, cy) from angle a0 to a1 (degrees, 0 = up). */
 export function arc(a0: number, a1: number, r = 15, cx = 20, cy = 20) {
-  const p = (a: number) => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)];
-  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  const p = (a: number) => [
+    cx + r * Math.sin((a * Math.PI) / 180),
+    cy - r * Math.cos((a * Math.PI) / 180),
+  ];
+  const [x0, y0] = p(a0),
+    [x1, y1] = p(a1);
   return `M${x0!.toFixed(3)} ${y0!.toFixed(3)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1!.toFixed(3)} ${y1!.toFixed(3)}`;
 }
 
 // Labels and value rows shrink to fit their control: a wider font (another look's) must not clip them.
 const live = new Set<DkElement>();
-if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => { for (const el of live) el.fitText(); });
+if (typeof document !== 'undefined')
+  document.fonts?.addEventListener?.('loadingdone', () => {
+    for (const el of live) el.fitText();
+  });
 
 /**
  * Each control builds its DOM once (and again only when its shape changes:
@@ -50,7 +65,10 @@ export abstract class DkElement extends HTMLElement {
   /** A pointer gesture is in progress. */
   protected holding = false;
   private stale = false;
-  constructor() { super(); this.root = this.attachShadow({ mode: 'open' }); }
+  constructor() {
+    super();
+    this.root = this.attachShadow({ mode: 'open' });
+  }
   private fitter: ResizeObserver | null = null;
   connectedCallback() {
     this.render();
@@ -58,57 +76,115 @@ export abstract class DkElement extends HTMLElement {
     this.fitter ??= new ResizeObserver(() => this.fitText());
     this.fitter.observe(this);
   }
-  disconnectedCallback() { live.delete(this); this.fitter?.disconnect(); }
+  disconnectedCallback() {
+    live.delete(this);
+    this.fitter?.disconnect();
+  }
   attributeChangedCallback(name: string) {
     if (!this.root.firstChild) return; // built when connected
-    if ((this.constructor as typeof DkElement).painted.includes(name)) { if (!this.holding) this.paint(); return; }
-    if (this.holding) { this.stale = true; return; }
+    if ((this.constructor as typeof DkElement).painted.includes(name)) {
+      if (!this.holding) this.paint();
+      return;
+    }
+    if (this.holding) {
+      this.stale = true;
+      return;
+    }
     this.render();
   }
   /** The gesture ended: catch up on a shape change that arrived meanwhile. */
-  protected ended() { this.holding = false; if (this.stale) { this.stale = false; this.render(); } else this.paint(); }
-  private render() { this.build(); this.fitText(); }
+  protected ended() {
+    this.holding = false;
+    if (this.stale) {
+      this.stale = false;
+      this.render();
+    } else this.paint();
+  }
+  private render() {
+    this.build();
+    this.fitText();
+  }
   /** Shrink each label and value row that does not fit across (never below 7 px). */
-  fitText() { for (const el of this.root.querySelectorAll<HTMLElement>('.label, .value')) this.fit(el); }
+  fitText() {
+    for (const el of this.root.querySelectorAll<HTMLElement>('.label, .value')) this.fit(el);
+  }
   protected fit(el: HTMLElement) {
     el.style.fontSize = '';
     // A centred row is as wide as its text, so measure it against the room it has (its box, or the control).
-    const room = Math.min(el.clientWidth || Infinity, el.parentElement?.clientWidth || Infinity, this.clientWidth || Infinity);
+    const room = Math.min(
+      el.clientWidth || Infinity,
+      el.parentElement?.clientWidth || Infinity,
+      this.clientWidth || Infinity,
+    );
     if (!Number.isFinite(room) || room <= 0 || !el.isConnected) return;
     const over = el.scrollWidth / room;
-    if (over > 1.01) el.style.fontSize = `${Math.max(7, parseFloat(getComputedStyle(el).fontSize) / over * 0.97)}px`;
+    if (over > 1.01)
+      el.style.fontSize = `${Math.max(7, (parseFloat(getComputedStyle(el).fontSize) / over) * 0.97)}px`;
   }
   protected abstract build(): void;
   protected abstract paint(): void;
-  protected num(name: string, fallback: number) { const v = Number(this.getAttribute(name)); return this.hasAttribute(name) && Number.isFinite(v) ? v : fallback; }
-  protected emit(type: string, detail: unknown) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
-  protected $<T extends Element>(selector: string) { return this.root.querySelector(selector) as T; }
+  protected num(name: string, fallback: number) {
+    const v = Number(this.getAttribute(name));
+    return this.hasAttribute(name) && Number.isFinite(v) ? v : fallback;
+  }
+  protected emit(type: string, detail: unknown) {
+    this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+  }
+  protected $<T extends Element>(selector: string) {
+    return this.root.querySelector(selector) as T;
+  }
   // Not `skin`/`params`: Vue sets a custom element's attributes as properties when it has a property of that name.
-  protected get skinName() { return this.getAttribute('skin') ?? ''; }
+  protected get skinName() {
+    return this.getAttribute('skin') ?? '';
+  }
   /** Skin parameters (JSON in `params`); missing or broken → {}. */
   protected readParams(): Record<string, string | number | boolean> {
-    try { const p = JSON.parse(this.getAttribute('params') ?? '{}'); return p && typeof p === 'object' && !Array.isArray(p) ? p : {}; } catch { return {}; }
+    try {
+      const p = JSON.parse(this.getAttribute('params') ?? '{}');
+      return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+    } catch {
+      return {};
+    }
   }
   /** A parameter of the fallback's type, or the fallback. */
   protected p(params: Record<string, unknown>, key: string, fallback: string): string;
   protected p(params: Record<string, unknown>, key: string, fallback: number): number;
   protected p(params: Record<string, unknown>, key: string, fallback: boolean): boolean;
-  protected p(params: Record<string, unknown>, key: string, fallback: string | number | boolean): string | number | boolean {
+  protected p(
+    params: Record<string, unknown>,
+    key: string,
+    fallback: string | number | boolean,
+  ): string | number | boolean {
     const v = params[key];
-    return typeof v === typeof fallback ? v as string | number | boolean : fallback;
+    return typeof v === typeof fallback ? (v as string | number | boolean) : fallback;
   }
   /** A colour parameter resolved for a canvas (tokens read from the element's styles). */
   protected canvasColor(c: unknown, fallback: string): string {
     if (typeof c !== 'string' || !c) return fallback;
-    if (TOKENS.includes(c)) return getComputedStyle(this).getPropertyValue(`--dk-${c}`).trim() || fallback;
+    if (TOKENS.includes(c))
+      return getComputedStyle(this).getPropertyValue(`--dk-${c}`).trim() || fallback;
     return c;
   }
   /** The label and value rows around the main part, as the skin's params place them. */
-  protected layout(main: string, params: Record<string, unknown>, options: { label?: string; value?: boolean; valueDefault?: string } = {}) {
+  protected layout(
+    main: string,
+    params: Record<string, unknown>,
+    options: { label?: string; value?: boolean; valueDefault?: string } = {},
+  ) {
     const label = options.label ?? this.getAttribute('label') ?? '';
-    const labelAt = this.p(params, 'label', 'bottom'), valueAt = options.value === false ? 'none' : this.p(params, 'value', options.valueDefault ?? 'bottom');
-    const top = labelAt === 'top' && label ? `<div class="label" part="label">${escapeHtml(label)}</div>` : '';
-    const bottom = labelAt === 'bottom' && label ? `<div class="label" part="label">${escapeHtml(label)}</div>` : '';
+    const labelAt = this.p(params, 'label', 'bottom'),
+      valueAt =
+        options.value === false
+          ? 'none'
+          : this.p(params, 'value', options.valueDefault ?? 'bottom');
+    const top =
+      labelAt === 'top' && label
+        ? `<div class="label" part="label">${escapeHtml(label)}</div>`
+        : '';
+    const bottom =
+      labelAt === 'bottom' && label
+        ? `<div class="label" part="label">${escapeHtml(label)}</div>`
+        : '';
     const value = valueAt === 'bottom' ? '<div class="value" part="value"></div>' : '';
     return `${top}${main}${bottom}${value}`;
   }
