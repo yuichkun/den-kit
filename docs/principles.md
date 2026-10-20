@@ -53,9 +53,9 @@ not part of it and can be made again, even when a work file carries a copy of it
 ## 4. Host and OS differences sit behind interfaces
 
 **den-kit runs in more than one host and on more than one OS. Whatever changes between them
-sits behind an interface, and the code for editing, sound and the plugin screen does not
-know which host or OS it runs on.** A feature that only some hosts have is offered through
-its interface, not by checking which host is running.
+sits behind an interface, and den-kit's code, apart from each host's own implementation of
+those interfaces, does not know which host or OS it runs on.** A feature that only some hosts
+have is offered through its interface, not by checking which host is running.
 
 ## 5. Build what makes music, not chat infrastructure
 
@@ -110,7 +110,7 @@ not justify breaking any principle.
 | Wrong reason | "It is only a small convenience."                                                                                                                                                                                                             |
 | Correction   | Express the change as an operation, and add an operation type when no existing one fits.                                                                                                                                                      |
 
-### Editing or AI code checks which host it runs in
+### den-kit's code checks which host it runs in
 
 | Aspect     | Detail                                                                                    |
 | ---------- | ----------------------------------------------------------------------------------------- |

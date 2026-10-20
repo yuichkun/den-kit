@@ -40,19 +40,19 @@ its comments are public (see Review guidelines).
 How the code works lives in this repository, next to the code, because it changes with
 the code. What den-kit is for, the plan and the decisions live in Notion and Linear.
 
-| Topic                                                         | Source of truth                                                                                                     |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Introduction and downloads                                    | [README.md](README.md)                                                                                              |
-| Using den-kit, and its known limitations                      | [docs/usage.md](docs/usage.md)                                                                                      |
-| Running from source, building the macOS app, checks and tests | [docs/development.md](docs/development.md)                                                                          |
-| Rules every change follows, and their priority                | [docs/principles.md](docs/principles.md)                                                                            |
-| Modules, how data moves between them, their interfaces        | [docs/architecture.md](docs/architecture.md)                                                                        |
-| A module's role and its rules                                 | The comment at the top of the module                                                                                |
-| Releases                                                      | [RELEASE.md](RELEASE.md)                                                                                            |
-| Code parts, the `kit` API and the in-app AI                   | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
-| What CI runs                                                  | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
-| What a pull request description holds                         | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |
-| Sources of the bundled showcase assets                        | [public/showcase/SOURCES.md](public/showcase/SOURCES.md)                                                            |
+| Topic                                                                    | Source of truth                                                                                                     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Introduction and downloads                                               | [README.md](README.md)                                                                                              |
+| Using den-kit, and its known limitations                                 | [docs/usage.md](docs/usage.md)                                                                                      |
+| Running from source, building the macOS app, checks and tests            | [docs/development.md](docs/development.md)                                                                          |
+| Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
+| Modules, how data moves between them, their interfaces                   | [docs/architecture.md](docs/architecture.md)                                                                        |
+| A module's role and its rules                                            | The comment at the top of the module                                                                                |
+| Releases                                                                 | [RELEASE.md](RELEASE.md)                                                                                            |
+| Code parts, the `kit` API, and what the in-app AI reads in the workspace | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
+| What CI runs                                                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
+| What a pull request description holds                                    | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |
+| Sources of the bundled showcase assets                                   | [public/showcase/SOURCES.md](public/showcase/SOURCES.md)                                                            |
 
 The code is being rewritten to [docs/principles.md](docs/principles.md) and
 [docs/architecture.md](docs/architecture.md), and code that has not been rewritten yet does
