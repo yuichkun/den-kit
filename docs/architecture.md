@@ -4,6 +4,25 @@ den-kit is a web app in Vue and TypeScript that turns patches of den blocks into
 unworklet. It runs in a host, which provides what changes from one host to another. The
 rules this structure follows are in [principles.md](principles.md).
 
+## Terms
+
+| Term               | Meaning                                                                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work               | One instrument or effect: a patch that makes the sound and a plugin screen that plays it.                                                                                                      |
+| Patch              | den blocks connected by cables.                                                                                                                                                                |
+| Parameter          | A value the patch exposes, with a name, range, unit, default and current value. The sound plays with it, and controls and code parts read and move it. A parameter can also point at an asset. |
+| Codebox            | A block of DSP written in code inside the patch.                                                                                                                                               |
+| Plugin screen      | The screen that plays a work, drawn in the work's own look.                                                                                                                                    |
+| Ready-made control | A control den-kit provides: a knob, slider, button or switch, XY pad, keyboard, scope or meter.                                                                                                |
+| Behaviors          | How a control responds to input and which values and events it sends, without any look.                                                                                                        |
+| Code part          | Part of the plugin screen written as web code in the work's files.                                                                                                                             |
+| Kit                | The API a code part uses to talk to den-kit.                                                                                                                                                   |
+| Workspace          | Where the work's files run as a web project, with packages, builds, a dev server and commands.                                                                                                 |
+| Operation          | One typed change to a work.                                                                                                                                                                    |
+| Playable build     | Static files that play a work without the editor or a workspace.                                                                                                                               |
+| Host               | The app or environment den-kit runs in.                                                                                                                                                        |
+| Agent runtime      | The outside software that runs the AI's conversation, tool calls and sub-agents.                                                                                                               |
+
 ## Modules
 
 An arrow means "imports".
@@ -64,6 +83,14 @@ share. The entry that starts them also connects two streams that do not go throu
 work: notes from the on-screen keyboard to `sound`, and the level, waveform and spectrum of
 the sound to `screen`.
 
+## Sound
+
+- `sound` describes, wires, compiles and plays the blocks of the den package. How each block
+  sounds is checked in den.
+- All DSP, codebox code included, runs as WebAssembly compiled with unworklet.
+- Notes from MIDI and the computer keyboard, the audio an effect processes, and the audio
+  output use the standard Web APIs. The host decides which devices den-kit may use.
+
 ## The work
 
 - The document holds the work's name, the patch (blocks, cables, parts and codebox
@@ -78,6 +105,8 @@ the sound to `screen`.
   the compiled audio processor (JavaScript and WebAssembly), the plugin screen and
   parameters (JSON), the built code parts and the assets. Serving a playable build needs a
   second origin for the code parts.
+- `player` never changes a work's record. Values moved while playing are the player's own
+  state, which a host such as a DAW can keep.
 - Conversations, settings and the person's consent are not part of a work. The host's
   storage keeps them.
 
@@ -104,6 +133,10 @@ the sound to `screen`.
   frame from another origin, with no host API and no network access except to the origins
   the person allowed for that work, and it talks to `screen` only through the kit. The
   [code-part guide](../pod-template/AGENTS.md) describes the kit.
+- A work can list the origins its code parts need, each with a reason, and the AI can add to
+  the list. The person allows them for that work, and the host keeps that permission in its
+  settings, never in the work, so a work never arrives with network access already allowed.
+  Outside den-kit, the host that plays the work decides whether to let them through.
 
 ## AI
 
@@ -136,7 +169,7 @@ the sound to `screen`.
 | Account        | Sign-in state, what is available to the person, and signing in and out                                                                               | Signing in through the system browser                                   |
 | Storage        | Work records, conversations and settings                                                                                                             | The app's data folder                                                   |
 | Workspace      | A workspace, or none                                                                                                                                 | BrowserPod, with a key handed out by a server                           |
-| Sandbox        | A separate origin that serves code parts and the assets they read                                                                                    | A second local origin                                                   |
+| Sandbox        | A separate origin that serves code parts and the assets they read, and lets through only the origins and devices the person allowed                  | A second local origin                                                   |
 | Screen capture | Pictures of den-kit as the person sees it                                                                                                            | A capture of the app's own window                                       |
 | Consent        | Asking at first launch, and sending analytics only with consent                                                                                      | A send address set only in distributed builds                           |
 | Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                             | electron-updater                                                        |
