@@ -1,8 +1,15 @@
 # Working on den-kit
 
 How the team works on den-kit, for every AI agent working with the team, such as Codex
-and Claude Code. The team reads it too. What den-kit is, and how it should look and
-behave, live in the sources this file points to.
+and Claude Code. The team reads it too.
+
+Team members change den-kit with AI agents. The sources this file points to say what
+den-kit is, what it delivers, and how it should look, behave and be built. Every change
+is checked against them, by CI and AI review first and then by @yuichkun, so that team
+members can decide on their own without losing what den-kit delivers or how it is
+designed, and the final review stays light. This works only when each fact has exactly
+one source: two copies drift apart, and agents that read different copies judge the same
+change differently.
 
 ## Read these first
 
@@ -17,12 +24,13 @@ you go on.
   links to the plan in Linear.
   https://app.notion.com/p/3f4449b4e81d8121999df097392ad056
 - Value list: what den-kit delivers to the people who use it. It is the goal the team
-  works toward, and every change is checked against it.
+  works toward.
   https://app.notion.com/p/3fd449b4e81d81b08b9ccba312262907
 - Design direction: https://app.notion.com/p/3f9449b4e81d81e5b63ad0b8c2ed3aa3
 - The Linear issue for the work, when there is one:
   `https://linear.app/escentier/issue/<ID>`, where `<ID>` is the issue in the branch name.
-- The sources in this repository for the area you will touch (see Where things are).
+- [docs/principles.md](docs/principles.md), and the sources in this repository for the
+  area you will touch (see Where things are).
 
 The Codex review on GitHub is the one exception: it reads only the repository, because
 its comments are public (see Review guidelines).
@@ -37,7 +45,8 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | Introduction and downloads                                    | [README.md](README.md)                                                                                              |
 | Using den-kit, and its known limitations                      | [docs/usage.md](docs/usage.md)                                                                                      |
 | Running from source, building the macOS app, checks and tests | [docs/development.md](docs/development.md)                                                                          |
-| What each source directory holds                              | [docs/architecture.md](docs/architecture.md)                                                                        |
+| Rules every change follows, and their priority                | [docs/principles.md](docs/principles.md)                                                                            |
+| Modules, how data moves between them, their interfaces        | [docs/architecture.md](docs/architecture.md)                                                                        |
 | A module's role and its rules                                 | The comment at the top of the module                                                                                |
 | Releases                                                      | [RELEASE.md](RELEASE.md)                                                                                            |
 | Code parts, the `kit` API and the in-app AI                   | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
@@ -49,9 +58,9 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 
 - Do not guess. When the sources do not answer something, say so and ask, and keep what
   you checked apart from what you think.
-- Keep one source for each fact. Link to it instead of copying it, in docs, comments,
-  issues and pull requests, and in this file: when a topic gets its own document, add a
-  row to the table above instead of repeating the topic here.
+- Link to a fact's source instead of copying it, in docs, comments, issues and pull
+  requests, and in this file: when a topic gets its own document, add a row to the table
+  above instead of repeating the topic here.
 - Keep docs short. Before you add anything to a doc or a comment of any kind, look for
   outdated text you can delete, and check whether updating what is there would do
   instead of adding.
@@ -107,7 +116,8 @@ These apply to the Codex review on GitHub and to any agent that reviews a pull r
 
 - On GitHub, use only this repository as the source of review criteria, and do not open
   or cite Notion or Linear: review comments are public.
-- Look for bugs and regressions first, then for changed behavior without tests.
+- Look for bugs and regressions first, then for anything that breaks
+  [docs/principles.md](docs/principles.md), then for changed behavior without tests.
 - Flag code that no longer matches a doc or a module's header comment, changes that make
   a source of truth wrong without updating it in the same pull request, and added doc or
   comment text that repeats another source or leaves outdated text next to it.

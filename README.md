@@ -27,7 +27,7 @@ Signed builds for macOS (Apple silicon and Intel) are on
   code parts and known limitations
 - [Development](docs/development.md): running from source, building the macOS app,
   checks and tests
-- [Architecture](docs/architecture.md): what each source directory holds
+- [Architecture](docs/architecture.md): how den-kit is structured
 
 Bug reports and suggestions are welcome as GitHub issues. Include reproduction steps and
 the relevant browser or app version, and do not include credentials or private logs.
