@@ -6,20 +6,22 @@ rules this structure follows are in [principles.md](principles.md).
 
 ## Modules
 
-An arrow means "uses".
+An arrow means "imports".
 
 ```mermaid
 flowchart TD
-  editor["editor: den-kit's own screens"]
-  ai["ai: AI requests and the AI's tools"]
+  editor["editor: editing entry, den-kit's own screens"]
+  player["player: entry that plays a playable build"]
+  ai["ai: requests, context, tools, scopes"]
   screen["screen: the plugin screen"]
-  behaviors["behaviors: how controls respond to input"]
   sound["sound: compiling and playing the patch"]
-  workspace["workspace: the work's web project"]
-  work["work: document, assets, operations, history"]
-  host["host: the interfaces a host provides"]
+  workspace["workspace: runs the work's files as a web project"]
+  behaviors["behaviors: how controls respond to input"]
+  work["work: document, files, parameters, operations, history"]
+  host["host: what a host provides"]
   desktop["desktop app"]
   editor --> ai & screen & sound & workspace & work & host
+  player --> screen & sound & work
   ai --> screen & sound & workspace & work & host
   screen --> behaviors & work
   sound --> work
@@ -27,65 +29,117 @@ flowchart TD
   desktop -. implements .-> host
 ```
 
-`work` uses no other module. `screen` does not use `editor`, so a plugin screen can be shown
-without the editing tools. The ready-made controls in `screen` and code parts, through the
-kit, respond to input with the same `behaviors`. `screen` draws a plugin screen with the
-work's own look, and `editor` draws with den-kit's design tokens. No module refers to the
-desktop app or any other host: they use `host`
-([principle 4](principles.md#4-host-and-os-differences-sit-behind-interfaces)).
+`work` imports no other module. `screen` and `sound` do not import `editor`, so `player` runs
+them outside den-kit. No module refers to the desktop app or any other host: they use `host`
+([principle 4](principles.md#4-host-and-os-differences-sit-behind-interfaces)). Code in a
+work imports none of these modules: a code part imports the kit, which includes `behaviors`,
+and any npm package; a codebox uses the unworklet core API and the asset API.
 
 ## How a change moves
 
 ```mermaid
 flowchart LR
   person["A person, in editor or screen"] -- operations --> work
-  agent["An AI agent, through the AI's tools"] -- operations --> work
+  agent["An AI agent, through the tools"] -- operations --> work
   part["A code part, through the kit"] -- value moves --> screen
   screen -- operations --> work
-  workspace -- "changed project files, as operations" --> work
-  work -- patch --> sound
-  work -- "plugin screen" --> screen
-  work -- "project files" --> workspace
-  work -- "document and assets" --> storage["host storage"]
+  workspace -- "changed files, as operations" --> work
+  work -- "patch and parameter values" --> sound
+  work -- "plugin screen and parameter values" --> screen
+  work -- files --> workspace
+  work -- record --> storage["host storage"]
 ```
 
 Every arrow into `work` carries operations
-([principle 3](principles.md#3-a-work-is-data-and-only-operations-change-it)). The agent
-runtime runs in the host and reaches the work only through den-kit's tools, which run in the
-page: each edit is tried on a copy of the work, checked and compiled, and lands only if it
-passes. `sound` compiles the patch, codebox code included, in a disposable worker, and swaps
-the result into the running audio.
+([principle 3](principles.md#3-a-work-is-data-and-only-operations-change-it)). A new
+parameter value reaches the running audio without recompiling. A change to the patch is
+compiled, codebox code included, in a disposable worker, and the result replaces the
+running audio. The agent runtime runs in the host and reaches the work only through
+den-kit's tools, which run in the page: each edit is tried on a copy of the work, checked
+and compiled, and lands only if it passes. All edits of one AI request, its sub-agents'
+included, form one undo step.
 
-## The work document
+`sound` and `screen` do not import each other, and the parameters are the only values they
+share. The entry that starts them also connects two streams that do not go through the
+work: notes from the on-screen keyboard to `sound`, and the level, waveform and spectrum of
+the sound to `screen`.
 
-The document holds the work's name, the patch (blocks, cables, parts and codebox sources),
-the plugin screen (its size, look, controls, decorations and where code parts sit) and the
-source files of the work's web project. Assets, such as pictures and fonts, are referred to
-by a hash of their content and never change: replacing one adds a new asset. The parts
-library is kept outside any work. `work` defines the versioned file format of a work.
+## The work
+
+- The document holds the work's name, the patch (blocks, cables, parts and codebox
+  sources), the parameters the patch exposes, and the plugin screen (its size, look,
+  controls, decorations and where code parts sit).
+- The work's files form one tree shaped as a web project: `package.json` and `src/` hold the
+  code parts, and `assets/` holds the assets. Text files are kept in the document. Other
+  contents are referred to by a hash of their content and never change; replacing a file
+  points it at new content.
+- `work` defines the versioned work file. It carries the record and the playable build: the
+  static files that play the work without the editor or a workspace. Those are `player`,
+  the compiled audio processor (JavaScript and WebAssembly), the plugin screen and
+  parameters (JSON), the built code parts and the assets. Serving a playable build needs a
+  second origin for the code parts.
+- Conversations, settings and the person's consent are not part of a work. The host's
+  storage keeps them.
+
+## Assets
+
+- An asset can be any file: images, including HDR, 3D models, audio, video, fonts or data.
+  den-kit reads only what its own features use: images, fonts and video on the plugin
+  screen, and audio in `sound`. Code in a work reads anything else.
+- People, the AI and the workspace's tools add files, and each addition is an operation.
+  den-kit fetches a URL itself and checks the type and size before the file becomes an
+  asset. An asset records where it came from and its license.
+- The plugin screen refers to assets by path. A code part gets their URLs from the kit,
+  served from the code part's own origin so that ordinary loaders work, and can also import
+  them when it is built. den blocks take assets through asset parameters. A codebox reads
+  them through the asset API: audio as channels of samples, anything else as bytes.
+- Assets are loaded fully into memory, up to a size limit.
 
 ## Code in a work
 
-- A codebox's source is in the document. `sound` compiles it into the audio processor that
-  runs in the AudioWorklet.
-- A code part's source is in the work's web project, which the workspace builds and serves.
-  The part is shown in a frame from another origin, which gets no host API and talks to
-  `screen` only through the kit. The [code-part guide](../pod-template/AGENTS.md) describes
-  the kit.
-- Without a workspace, den-kit still edits the patch and the plugin screen; code parts need
-  one.
+- A codebox's source is in the document. `sound` compiles it with the patch into the audio
+  processor that runs in the AudioWorklet. Codeboxes can share modules with each other.
+- A code part's source is in the work's files. While the person edits, `workspace` builds it
+  and serves it from the workspace; otherwise it comes from the playable build. It runs in a
+  frame from another origin, with no host API and no network access except to the origins
+  the person allowed for that work, and it talks to `screen` only through the kit. The
+  [code-part guide](../pod-template/AGENTS.md) describes the kit.
 
-## den
+## AI
 
-`sound` describes, wires, compiles and plays den's blocks from the den package. How each
-block sounds is checked in den.
+- `ai` holds the request flow (sending, progress, stopping), the context sent with a request
+  (the selection, sketches and sticky notes, what the person is looking at, pictures of a
+  shared screen), the tools (reading the work, applying operations, listening, looking at
+  the screen, handling assets, running workspace commands), each agent's scope and one
+  conversation per work.
+- The agent runtime holds model calls, retries, error handling, sub-agents and conversation
+  state ([principle 5](principles.md#5-build-what-makes-music-not-chat-infrastructure)). It
+  reads a URL the person pastes with its own tools; bringing something from that page into
+  the work goes through asset import.
+- The provider, the way the person signs in, and the way the tools are offered to the
+  runtime can each change without the others: the tools are defined once, and an adapter
+  offers them to each runtime.
+
+## Workspace
+
+- `workspace` keeps a working copy of the work's files in a workspace, installs packages,
+  builds and serves code parts, and runs commands for the person and the AI. Changed files
+  return to the work as operations; the record stays in the work.
+- The host decides whether a workspace is available. Without one, everything except editing
+  code parts still works, and code parts show from the playable build.
 
 ## Interfaces
 
-| Interface      | What crosses it                                                                                      | In the desktop app                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| AI             | Requests, the agent's calls to den-kit's tools and their results, progress, sign-in state and models | A local bridge to the Codex app-server, which keeps the ChatGPT sign-in |
-| Workspace      | The project's files, commands and their output, and the address of its dev server; or no workspace   | BrowserPod, with a key the host provides                                |
-| Storage        | Works, assets, conversations, settings and the parts library                                         | The app's browser storage                                               |
-| Screen capture | Pictures of den-kit as the person sees it                                                            | A capture of the app's own window                                       |
-| Host settings  | Sign-in, model and update status, and the host's own settings                                        | The app's settings and updater                                          |
+| Interface      | What the host provides                                                                                                                               | In the desktop app                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| AI             | The available providers, sign-in state, models, capabilities, usage, the notices each provider requires, and the exchange of requests and tool calls | A local bridge to the Codex app-server, which keeps the ChatGPT sign-in |
+| Account        | Sign-in state, what is available to the person, and signing in and out                                                                               | Signing in through the system browser                                   |
+| Storage        | Work records, conversations and settings                                                                                                             | The app's data folder                                                   |
+| Workspace      | A workspace, or none                                                                                                                                 | BrowserPod, with a key handed out by a server                           |
+| Sandbox        | A separate origin that serves code parts and the assets they read                                                                                    | A second local origin                                                   |
+| Screen capture | Pictures of den-kit as the person sees it                                                                                                            | A capture of the app's own window                                       |
+| Consent        | Asking at first launch, and sending analytics only with consent                                                                                      | A send address set only in distributed builds                           |
+| Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                             | electron-updater                                                        |
+
+The desktop app in `desktop/` is the host this repository ships, for macOS and Windows.
+Other hosts, such as one inside Suara Portal, implement the same interfaces.

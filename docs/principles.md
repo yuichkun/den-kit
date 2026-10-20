@@ -17,12 +17,14 @@ never sees them.
 ## 2. Assume the worst intent
 
 **Everything people make or bring into den-kit is treated as made to do harm: works, parts,
-assets, and the code in codebox and code parts, including code an AI wrote.** The harm can
-be for the maker's gain, for attention, or to harass people or hurt den-kit.
+files, and the code in codebox and code parts, including code an AI wrote.** The harm can be
+for the maker's gain, for attention, or to harass people or hurt den-kit.
 
 - Code in a work runs isolated. It cannot reach the host, the person's files, other works or
-  any network access it was not given.
-- A work, a part or an asset is checked for shape and size before it is used.
+  any network access the person has not allowed for that work.
+- Files people bring in are data. den-kit never runs them; only code in a work reads them,
+  inside its isolation.
+- A work and its files are checked for type and size before they are used.
 - Anything that costs money has a limit on its use and can be stopped.
 - Every kind of abuse can be acted on once it is found.
 
@@ -44,9 +46,9 @@ Because every change is an operation, what the AI did can be read on the patch a
 screen and fixed by hand, and undo and conflicts between people and the AI are defined in
 operations.
 
-A work's record is its document and the assets the document refers to. What is made from
-the record, such as installed packages, build output, compiled audio code and what is drawn
-on the screen, is not part of it and can be made again.
+A work's record is its document and its files. What is made from the record, such as
+installed packages, build output, compiled audio code and what is drawn on the screen, is
+not part of it and can be made again, even when a work file carries a copy of it.
 
 ## 4. Host and OS differences sit behind interfaces
 
@@ -81,22 +83,32 @@ not justify breaking any principle.
 
 ## Common violations
 
-### A service key that costs money ships inside the app
+### A key that costs money ships inside the app
 
-| Aspect       | Detail                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------- |
-| Breaks       | 1. Hold no secret you do not need                                                           |
-| Pattern      | The build puts the key into the app, so anyone who has the app can read it and spend on it. |
-| Wrong reason | "The key is kept in a CI secret, so it stays secret."                                       |
-| Correction   | Have a server hand the key out, so that it can be limited, changed and stopped at any time. |
+| Aspect       | Detail                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| Breaks       | 1. Hold no secret you do not need                                                                      |
+| Pattern      | A key for a paid service is built into the app, so anyone who has the app can read it and spend on it. |
+| Wrong reason | "The key is kept in a CI secret, so it stays secret."                                                  |
+| Correction   | Have a server hand the key out, so that it can be limited, changed and stopped at any time.            |
 
-### Code in a work can still load code from the network
+### Code or files from a work get a way out
 
-| Aspect     | Detail                                                                                                                                                                               |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Breaks     | 2. Assume the worst intent                                                                                                                                                           |
-| Pattern    | Code that a work runs has its network APIs taken away, but can still load and run remote JavaScript through dynamic `import()`, so an imported work can still make network requests. |
-| Correction | Isolate code in a work so that no way to the network is left, not only the APIs that are known.                                                                                      |
+| Aspect       | Detail                                                                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Breaks       | 2. Assume the worst intent                                                                                                                                                              |
+| Pattern      | Code a work runs is given a host API, network access the person did not allow, or a way to load more code; or a file a person brought in is put into the page as markup or run as code. |
+| Wrong reason | "Only the AI writes this code."                                                                                                                                                         |
+| Correction   | Give code in a work only the kit, open network access only to the origins the person allowed for that work, and treat files as data.                                                    |
+
+### A feature changes the work without an operation
+
+| Aspect       | Detail                                                                                                                                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Breaks       | 3. A work is data, and only operations change it                                                                                                                                                                                              |
+| Pattern      | A feature in the editor or on the plugin screen writes to the work directly, or keeps part of the work in its own state or in browser storage. The change cannot be undone, the AI does not see it, and it is lost when the work is exported. |
+| Wrong reason | "It is only a small convenience."                                                                                                                                                                                                             |
+| Correction   | Express the change as an operation, and add an operation type when no existing one fits.                                                                                                                                                      |
 
 ### Editing or AI code checks which host it runs in
 
@@ -106,10 +118,10 @@ not justify breaking any principle.
 | Pattern    | Code checks whether it runs in the desktop app, and changes what it does or what it says. |
 | Correction | Put the difference behind the host's interface, and let each host provide its own part.   |
 
-### den-kit runs a team of AI agents by hand
+### den-kit builds what the agent runtime does
 
-| Aspect     | Detail                                                                                                                                                         |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Breaks     | 5. Build what makes music, not chat infrastructure                                                                                                             |
-| Pattern    | den-kit starts more AI conversations as members of a team, writes their briefs, waits for their reports and hands them back to the lead.                       |
-| Correction | Let the agent runtime run sub-agents. den-kit gives each agent its tools and the part of the work it may change, and holds it to that part on every operation. |
+| Aspect     | Detail                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Breaks     | 5. Build what makes music, not chat infrastructure                                                                                 |
+| Pattern    | den-kit retries model calls, starts and coordinates sub-agents itself, or keeps conversation state that the runtime already keeps. |
+| Correction | Use the runtime's own feature through the AI interface. When the runtime lacks it, say so instead of building it.                  |
