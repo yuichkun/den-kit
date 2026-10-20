@@ -54,6 +54,11 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | What a pull request description holds                         | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |
 | Sources of the bundled showcase assets                        | [public/showcase/SOURCES.md](public/showcase/SOURCES.md)                                                            |
 
+The code is being rewritten to [docs/principles.md](docs/principles.md) and
+[docs/architecture.md](docs/architecture.md), and code that has not been rewritten yet does
+not follow them. New and changed code follows them, and a review flags a change only when it
+takes the code further from them. Remove this paragraph when the rewrite is done.
+
 ## How to work
 
 - Do not guess. When the sources do not answer something, say so and ask, and keep what
