@@ -12,8 +12,9 @@ rules this structure follows are in [principles.md](principles.md).
 | Patch              | den blocks connected by cables.                                                                                                                                                                |
 | Parameter          | A value the patch exposes, with a name, range, unit, default and current value. The sound plays with it, and controls and code parts read and move it. A parameter can also point at an asset. |
 | Codebox            | A block of DSP written in code inside the patch.                                                                                                                                               |
-| Plugin screen      | The screen that plays a work, drawn in the work's own look.                                                                                                                                    |
+| Plugin screen      | The screen that plays a work, drawn in the work's own look: its colors, fonts, shapes and pictures.                                                                                            |
 | Ready-made control | A control den-kit provides: a knob, slider, button or switch, XY pad, keyboard, scope or meter.                                                                                                |
+| Design system      | The look of den-kit's own screens and the default look of the ready-made controls. A work's look overrides those defaults.                                                                     |
 | Behaviors          | How a control responds to input and which values and events it sends, without any look.                                                                                                        |
 | Code part          | Part of the plugin screen written as web code in the work's files.                                                                                                                             |
 | Kit                | The API a code part uses to talk to den-kit.                                                                                                                                                   |
@@ -48,8 +49,11 @@ flowchart TD
   desktop -. implements .-> host
 ```
 
-`work` imports no other module. `screen` and `sound` do not import `editor`, so `player` runs
-them outside den-kit. No module refers to the desktop app or any other host: they use `host`
+`editor` opens a work from the host's storage and starts `sound`, `screen`, `ai` and, when the
+host provides a workspace, `workspace`. `player` opens a playable build and starts only
+`sound` and `screen`. `work` imports no other module, and `screen` and `sound` do not import
+`editor`, so `player` runs them outside den-kit. No module refers to the desktop app or any
+other host: they use `host`
 ([principle 4](principles.md#4-host-and-os-differences-sit-behind-interfaces)). Code in a
 work imports none of these modules: a code part imports the kit, which includes `behaviors`,
 and any npm package; a codebox uses the unworklet core API and the asset API.
@@ -90,12 +94,14 @@ the sound to `screen`.
 - All DSP, codebox code included, runs as WebAssembly compiled with unworklet.
 - Notes from MIDI and the computer keyboard, the audio an effect processes, and the audio
   output use the standard Web APIs. The host decides which devices den-kit may use.
+- The output passes a safety stage, a limiter, a clipper and a mute for broken audio, before
+  it reaches the speakers.
 
 ## The work
 
-- The document holds the work's name, the patch (blocks, cables, parts and codebox
-  sources), the parameters the patch exposes, and the plugin screen (its size, look,
-  controls, decorations and where code parts sit).
+- The document holds the work's name, the patch (blocks, cables and codebox sources), the
+  parameters the patch exposes, and the plugin screen (its size, look, controls, decorations
+  and where code parts sit).
 - The work's files form one tree shaped as a web project: `package.json` and `src/` hold the
   code parts, and `assets/` holds the assets. Text files are kept in the document. Other
   contents are referred to by a hash of their content and never change; replacing a file
@@ -131,7 +137,10 @@ the sound to `screen`.
 - A code part's source is in the work's files. While the person edits, `workspace` builds it
   and serves it from the workspace; otherwise it comes from the playable build. It runs in a
   frame from another origin, with no host API and no network access except to the origins
-  the person allowed for that work, and it talks to `screen` only through the kit. The
+  the person allowed for that work, and it talks to `screen` only through the kit.
+- The kit gives a code part the parameters, to read and to move (each move is an operation),
+  the sound's level, waveform and spectrum, its own settings shown in the inspector, the
+  work's look, asset URLs and the behaviors of the ready-made controls. The
   [code-part guide](../pod-template/AGENTS.md) describes the kit.
 - A work can list the origins its code parts need, each with a reason, and the AI can add to
   the list. The person allows them for that work, and the host keeps that permission in its
@@ -151,7 +160,7 @@ the sound to `screen`.
   the work goes through asset import.
 - The provider, the way the person signs in, and the way the tools are offered to the
   runtime can each change without the others: the tools are defined once, and an adapter
-  offers them to each runtime.
+  offers them to each runtime, for example through MCP.
 
 ## Workspace
 
