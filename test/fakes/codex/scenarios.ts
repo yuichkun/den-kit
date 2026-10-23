@@ -161,63 +161,6 @@ const scenarios: Scenario[] = [
       await t.call('kit_finish', { summary: 'Built a bass patch.' });
     },
   },
-  // Members first: their text quotes the person's request, which other scenarios would match.
-  {
-    name: 'team-sound',
-    match: /Your name: Sound \(m1\)/,
-    async run(t) {
-      await t.think();
-      await t.sleep(300); // long enough for the person to see both lanes working
-      await t.call('kit_apply_ops', {
-        ops: [
-          { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
-          { op: 'addNode', node: { id: 'lfo2', type: 'den.lfo', values: { rate: 4 } } },
-          {
-            op: 'connect',
-            from: { node: 'lfo2', port: 'out' },
-            to: { node: 'cut1', port: 'octaves' },
-            replace: true,
-          },
-        ],
-      });
-      const wrong = await t.call('kit_apply_ops', {
-        ops: [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }],
-      });
-      await t.call('kit_listen', { phrase: 'bass', seconds: 1 });
-      t.usage(8000, 600, 6000);
-      await t.call('kit_finish', {
-        summary: 'Squelchy bass',
-        names: ['lfo2 wobbles cut1'],
-        needs: [],
-        problems: wrong.success ? ['an edit outside my scope was not refused'] : [],
-      });
-    },
-  },
-  {
-    name: 'team-screen',
-    match: /Your name: Screen \(m2\)/,
-    async run(t) {
-      await t.think();
-      await t.call('kit_apply_ops', {
-        ops: [
-          { op: 'setLook', look: { tokens: { bg: '#000000', fg: '#39ff14', accent: '#39ff14' } } },
-          {
-            op: 'addElement',
-            element: {
-              kind: 'text',
-              text: 'ACID',
-              rect: { x: 40, y: 24, w: 300, h: 56 },
-              textStyle: { font: 'orbitron', size: 40, color: 'accent' },
-            },
-          },
-        ],
-      });
-      await t.sleep(400);
-      await t.call('kit_look', {});
-      t.usage(3000, 300);
-      await t.call('kit_finish', { summary: 'Neon screen' });
-    },
-  },
   {
     // U8b: the model asks to see what the person sees.
     name: 'see',
@@ -244,16 +187,6 @@ const scenarios: Scenario[] = [
         });
       await t.say(
         `pictures ${t.images.length} [${sizes.join(', ')}]; ${marks.length} marks: ${marks.join(' | ')}`,
-      );
-    },
-  },
-  {
-    name: 'member-start',
-    match: /\[den-kit\] You are a member/,
-    async run(t) {
-      // A member says whether it started from a copy of the lead's conversation and what its first text began with.
-      await t.say(
-        `forked=${t.forkedFrom ? 'yes' : 'no'}; begins: ${t.text.slice(0, 60).replace(/\n/g, ' ')}`,
       );
     },
   },
@@ -931,7 +864,7 @@ const scenarios: Scenario[] = [
       await t.say('ok');
     },
   },
-  // ---- U8: members, pictures, token counts ------------------------------------------------
+  // ---- Pictures and token counts ---------------------------------------------------------
   {
     name: 'tokens',
     match: /count my tokens/i,
@@ -948,69 +881,6 @@ const scenarios: Scenario[] = [
       await t.say(`pictures: ${t.images.length}`);
       const more = await t.waitForSteer(3000);
       await t.say(`after "${more ?? ''}": pictures ${t.images.length}`);
-    },
-  },
-  // A team (U8): the lead lands the seam, starts a sound member and a screen member, waits for their reports,
-  // looks once and finishes. Each member works in its own scope (an edit outside it is refused).
-  {
-    name: 'team-lead',
-    match: /acid team/i,
-    async run(t) {
-      await t.think();
-      await t.call('kit_get_patch', {});
-      const seam = await t.call('kit_apply_ops', {
-        ops: [
-          {
-            op: 'addControl',
-            for: { node: 'cut1', port: 'hz' },
-            label: 'Cutoff',
-            panel: { x: 40, y: 120, w: 96, h: 110 },
-          },
-          {
-            op: 'addControl',
-            for: { node: 'filter1', port: 'resonance' },
-            label: 'Resonance',
-            panel: { x: 160, y: 120, w: 96, h: 110 },
-          },
-        ],
-      });
-      if (!seam.success) {
-        await t.say(`seam failed: ${seam.text.slice(0, 200)}`);
-        return { status: 'failed', message: 'scenario: seam failed', info: 'other' };
-      }
-      const started = await t.call('kit_delegate', {
-        members: [
-          {
-            name: 'Sound',
-            goal: 'A squelchy acid bass',
-            why: 'The person wants it to bite',
-            scope: { sound: 'all' },
-            done: 'kit_listen says it is not silent',
-          },
-          {
-            name: 'Screen',
-            goal: 'A black screen with neon green type',
-            why: 'Neon, 303 style',
-            scope: { screen: 'all' },
-            done: 'kit_look finds nothing serious',
-          },
-        ],
-      });
-      if (!started.success) {
-        await t.say(`delegate failed: ${started.text.slice(0, 300)}`);
-        return { status: 'failed', message: 'scenario: delegate failed', info: 'other' };
-      }
-      t.usage(6000, 400, 2000);
-      let waited = await t.call('kit_wait', {});
-      for (let i = 0; i < 6 && /Still working/.test(waited.text); i++)
-        waited = await t.call('kit_wait', {});
-      await t.call('kit_look', {});
-      await t.call('kit_finish', {
-        summary: /m1 “Sound” — done[\s\S]*m2 “Screen” — done/.test(waited.text)
-          ? 'Built an acid bass and a neon screen'
-          : `members did not both finish: ${waited.text.slice(0, 200)}`,
-      });
-      await t.say('Done.');
     },
   },
   {

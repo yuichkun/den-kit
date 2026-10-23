@@ -33,13 +33,27 @@ class FakeTransport {
       this.listeners.delete(l);
     };
   }
-  llmStart(id: string, text: string, instructions: string, thread?: string) {
-    this.sent.push({ t: 'llm.start', id, text, instructions, thread });
+  llmStart(
+    id: string,
+    text: string,
+    instructions: string,
+    thread?: string,
+    options: { context?: string; images?: string[] } = {},
+  ) {
+    this.sent.push({ t: 'llm.start', id, text, instructions, thread, ...options });
     return this.online;
   }
-  llmSteer(id: string, target: string, text: string) {
-    this.sent.push({ t: 'llm.steer', id, target, text });
+  llmSteer(
+    id: string,
+    target: string,
+    text: string,
+    options: { context?: string; images?: string[] } = {},
+  ) {
+    this.sent.push({ t: 'llm.steer', id, target, text, ...options });
     return this.online;
+  }
+  conversation() {
+    return Promise.resolve(null);
   }
   llmStop(id: string) {
     this.sent.push({ t: 'llm.stop', id });
@@ -167,8 +181,10 @@ describe('a request', () => {
     const o = llm.run('wobble the cutoff');
     expect(o).toMatchObject({ status: 'thinking', route: 'llm', live: true });
     const start = t.last('llm.start')!;
-    expect(String(start.text)).toMatch(
-      /^\[den-kit\] You edit the live patch; each edit that checks out lands at once\.[\s\S]*wobble the cutoff$/,
+    // The person's words go as they are; den-kit's notes about the moment come with them.
+    expect(start.text).toBe('wobble the cutoff');
+    expect(String(start.context)).toMatch(
+      /^\[den-kit\] You edit the live work; each edit that checks out lands at once\./,
     );
     expect(String(start.instructions)).toContain('kit_get_patch');
     expect(String(start.instructions)).toContain('den.lfo');
@@ -258,16 +274,17 @@ describe('a request', () => {
     });
     llm.run('make it darker');
     expect(t.last('llm.start')!.thread).toBe('th1');
-    expect(String(t.last('llm.start')!.text)).toMatch(/may have changed since your last turn/);
+    expect(String(t.last('llm.start')!.context)).toMatch(/may have changed since your last turn/);
   });
 
-  it('a new conversation starts when a different patch is loaded', async () => {
+  it('a new conversation starts when the person loads another patch', async () => {
     const o = llm.run('explain');
     t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
     t.done(o.id);
+    expect(session.conversation.value).toBe('th1');
     session.loadStarter('pad');
+    expect(session.conversation.value).toBeNull();
     llm.run('explain again');
-    expect(t.last('llm.forget')).toEqual({ t: 'llm.forget', thread: 'th1' });
     expect(t.last('llm.start')!.thread).toBeUndefined();
   });
 });
@@ -279,7 +296,8 @@ describe('while it works', () => {
     expect(t.last('llm.steer')).toMatchObject({
       id: steer.id,
       target: first.id,
-      text: expect.stringMatching(/adds, while you work[\s\S]*make it darker/),
+      text: 'make it darker',
+      context: expect.stringMatching(/adds this while you work/),
     });
     t.event(steer.id, { kind: 'steered', target: first.id });
     expect(line(steer.id)).toMatchObject({ status: 'merged', live: false });
@@ -472,7 +490,7 @@ describe('the prompt sends every request to the LLM', () => {
     const undoSteps = session.history.size;
     const o: Outcome = requests.run(text);
     expect(o).toMatchObject({ route: 'llm', status: 'thinking' });
-    expect(String(t.last('llm.start')!.text).endsWith(`\n\n${text}`)).toBe(true);
+    expect(t.last('llm.start')!.text).toBe(text);
     expect(snapshot()).toBe(before);
     expect(session.history.size).toBe(undoSteps);
   });

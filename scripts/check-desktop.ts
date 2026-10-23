@@ -194,10 +194,8 @@ try {
     });
     console.log(JSON.stringify({ nativeSignIn: 'started and canceled' }));
   }
-  // Seed a previously saved advanced setting, then save only the ordinary settings through the UI.
-  await page.evaluate(() =>
-    window.denKitShell!.saveSettings({ model: '', effort: '', fork: true }),
-  );
+  // Seed a previously saved setting, then save the settings through the UI.
+  await page.evaluate(() => window.denKitShell!.saveSettings({ model: '', effort: 'low' }));
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.click('[data-testid=desktop-settings-open]');
   await waitForShell(page, info => !info.aiBusy);
@@ -212,7 +210,7 @@ try {
       .querySelector('[data-testid=desktop-settings] .actions [role=status]')
       ?.textContent?.includes('Saved'),
   );
-  assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
+  assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.effort, 'low');
   await page.getByRole('button', { name: 'Close settings' }).click();
   const offCapture = () =>
     page.evaluate(async () => {
@@ -295,7 +293,6 @@ try {
       image => {
         const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
           .__kit;
-        k.llm!.settings.members = 'off';
         return k.requests!.run(
           'Read the attached test screenshot. What number is displayed on the small rectangular light-grey button in the plugin canvas? Answer only with the number. Use the supplied image; do not inspect or edit the current work or delegate.',
           {
@@ -655,7 +652,6 @@ try {
       const requestId = await page.evaluate(knob => {
         const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
           .__kit;
-        k.llm!.settings.members = 'off';
         return k.requests!.run(
           `Create one code part named electron-check beside the existing wave part. Its only button has id electron-ai-button, displays AI pod followed by the current value of knob ${knob}, and on click sets that knob to 750. Use the pod tools, run TypeScript, ESLint and the production build and fix errors. Add it at x360 y180 width180 height60. Do not change other files, elements or the sound, and do not delegate. Finish once it is live.`,
         ).id;
@@ -758,17 +754,14 @@ try {
     );
   });
   assert.ok(asset);
-  const saved = await page.evaluate(() => {
+  // den-kit keeps only which conversation is the work's (the runtime keeps what was said).
+  const saved = await page.evaluate(async () => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    k.keepConversation('native-close-check');
+    const key = `den-kit:conversation:${k.doc.value.id}`;
+    while ((await k.host!.storage.read(key)) !== 'native-close-check')
+      await new Promise(r => setTimeout(r, 20));
     k.doc.value = { ...k.doc.value, name: 'Electron persistence check' };
-    k.requests!.upsert({
-      id: 'native-close-check',
-      text: 'Keep this conversation on native close',
-      route: 'llm',
-      status: 'reply',
-      reply: 'Saved without waiting for the debounce.',
-      ms: 0,
-    });
     return k.doc.value.id;
   });
   // Closing the native window must flush even a change made before the autosave debounce.
@@ -780,22 +773,28 @@ try {
   app = await launch();
   const reopened = await app.firstWindow();
   await reopened.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit);
+  // The work's conversation is read from the host's storage once the work is open.
+  await reopened
+    .waitForFunction(
+      () =>
+        (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit
+          .conversation.value !== null,
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {});
   const restored = await reopened.evaluate(async () => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
     return {
       settings: (await window.denKitShell!.info()).settings,
       doc: k.doc.value,
-      conversation: k.requests!.history.value,
+      conversation: k.conversation.value,
     };
   });
-  assert.equal(restored.settings.fork, true);
+  assert.equal(restored.settings.effort, 'low');
   assert.equal(restored.doc.name, 'Electron persistence check');
   assert.equal(restored.doc.id, saved);
-  assert.ok(
-    restored.conversation.some(
-      o => o.id === 'native-close-check' && o.reply === 'Saved without waiting for the debounce.',
-    ),
-  );
+  assert.equal(restored.conversation, 'native-close-check');
   assert.ok(restored.doc.files[asset.id]);
   assert.ok(
     await reopened.evaluate(async id => {

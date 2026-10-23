@@ -135,14 +135,17 @@ describe('sketching for the AI', () => {
         said,
         /\[den-kit\] The person sketched on the plugin \(\d+×\d+ design pixels\); the marks are numbered on the picture \(the plugin re-drawn at its design size\):\n①/,
       );
+      // den-kit's notes, the person's words and the picture, each an input of its own.
       const start = h.codex!.sent('turn/start').at(-1)! as {
-        params: { input: Array<{ type: string; url?: string }> };
+        params: { input: Array<{ type: string; text?: string; url?: string }> };
       };
       assert.deepEqual(
         start.params.input.map(i => i.type),
-        ['text', 'image'],
+        ['text', 'text', 'image'],
       );
-      assert.match(start.params.input[1]!.url!, /^data:image\/(png|jpeg);base64,/);
+      assert.match(start.params.input[0]!.text!, /^\[den-kit\]/);
+      assert.equal(start.params.input[1]!.text, 'sketch test');
+      assert.match(start.params.input[2]!.url!, /^data:image\/(png|jpeg);base64,/);
       // Done: the marks go; the line says a sketch went with it.
       await page.waitForFunction(
         () => document.querySelectorAll('[data-ink=plugin] [data-mark]').length === 0,

@@ -37,8 +37,10 @@ else, the app offers to move itself there.
 
 Every natural-language request goes through the LLM. You can keep playing and editing
 while AI works. `Esc` stops a request; applied changes remain available to undo. One AI
-request normally forms one undo step; manual edits during that request keep their own
-undo steps.
+request, including the work of any sub-agents it starts, normally forms one undo step;
+manual edits during that request keep their own undo steps. Each work has one
+conversation: when you open the work again, the next request goes on from it. Loading a
+starter over the work starts a new conversation.
 
 ## Common shortcuts
 

@@ -109,6 +109,8 @@ describe.skipIf(isProblem(command))('the real pinned Codex app-server (offline)'
           { timeoutMs: 20000 },
         ),
       ).toEqual({ turnId: turn.turn.id });
+      // A saved thread's turn can be interrupted once Codex says it started.
+      await until(() => notifications.some(n => n.method === 'turn/started'), 20000);
       await peer.request(
         'turn/interrupt',
         { threadId, turnId: turn.turn.id },

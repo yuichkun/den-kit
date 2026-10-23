@@ -279,7 +279,7 @@ describe('desktop ChatGPT account', () => {
     await until(() => f.client.login.state === 'error');
     expect(f.client.login.error).toMatch(/declined/);
     expect(f.client.ready).toBe(false);
-    await f.client.configure({ model: '', effort: '', fork: false });
+    await f.client.configure({ model: '', effort: '' });
     expect(f.client.status.state).toBe('login');
   });
 
@@ -553,17 +553,17 @@ describe('desktop ChatGPT account', () => {
     const f = setup({ signedIn: false });
     await f.client.start();
     await f.client.signIn();
-    await expect(f.client.configure({ model: '', effort: '', fork: false })).rejects.toThrow(
+    await expect(f.client.configure({ model: '', effort: '' })).rejects.toThrow(
       'Complete or cancel',
     );
     expect(f.client.login.state).toBe('waiting');
     expect(f.sent('initialize')).toHaveLength(1);
   });
 
-  it('changes model, effort and conversation-copy settings for the next request', async () => {
+  it('changes model and effort for the next request', async () => {
     const f = setup();
     await f.client.start();
-    await f.client.configure({ model: 'gpt-6-luna', effort: 'low', fork: true });
+    await f.client.configure({ model: 'gpt-6-luna', effort: 'low' });
     expect(f.client.status.model).toBe('GPT-6-Luna');
     expect(f.client.ready).toBe(true);
   });

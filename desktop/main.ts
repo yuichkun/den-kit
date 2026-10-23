@@ -216,7 +216,6 @@ async function start() {
     },
     model: settings.model || undefined,
     effort: settings.effort || undefined,
-    fork: settings.fork,
     loginInstruction: 'Open Settings and choose Sign in with ChatGPT.',
   });
   bridge = await createBridge({

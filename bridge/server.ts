@@ -136,12 +136,12 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   }
   function sinkFor(tabName: string, id: string): TurnSink {
     return {
-      event: event => {
-        if (event.kind === 'thread') add(threads, tabName, event.thread);
-        if (event.kind === 'done') running.get(tabName)?.delete(keyOf(tabName, id));
+      event: (event, agent) => {
+        if (event.kind === 'thread' && !agent) add(threads, tabName, event.thread);
+        if (event.kind === 'done' && !agent) running.get(tabName)?.delete(keyOf(tabName, id));
         if (event.kind === 'steered')
           event = { ...event, target: event.target.slice(tabName.length + SEP.length) };
-        deliver(tabName, { t: 'llm.event', id, event });
+        deliver(tabName, { t: 'llm.event', id, event, ...(agent ? { agent } : {}) });
       },
       toolCall: call =>
         deliver(tabName, {
@@ -150,6 +150,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
           callId: call.callId,
           tool: call.tool,
           args: call.args,
+          ...(call.agent ? { agent: call.agent } : {}),
         }),
     };
   }
@@ -338,27 +339,29 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         }
         const key = keyOf(tab.tab, message.id);
         add(running, tab.tab, key);
-        // Only the tab's own conversations can be continued.
-        const thread =
-          message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
-        // A member may start from a copy of one of the tab's own conversations only.
-        const fork = message.fork
-          ? {
-              thread: threads.get(tab.tab)?.has(message.fork.thread) ? message.fork.thread : '',
-              fallback: message.fork.fallback,
-            }
-          : undefined;
+        // Codex keeps den-kit's conversations in den-kit's own CODEX_HOME: any of them can go on.
+        // It is this tab's now (closed when this tab goes away, not when the one before does).
+        if (message.thread) {
+          for (const own of threads.values()) own.delete(message.thread);
+          add(threads, tab.tab, message.thread);
+        }
         codex.startTurn(
           {
             key,
             text: message.text,
-            thread,
+            context: message.context,
+            thread: message.thread,
             instructions: message.instructions,
-            role: message.role,
             images: message.images,
-            fork,
           },
           sinkFor(tab.tab, message.id),
+        );
+        return;
+      }
+      case 'llm.conversation': {
+        const socket = tab.socket;
+        void (codex ? codex.conversation(message.thread) : Promise.resolve(null)).then(lines =>
+          send(socket, { t: 'conversation', id: message.id, lines }),
         );
         return;
       }
@@ -372,6 +375,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
             key: keyOf(tab.tab, message.id),
             target: keyOf(tab.tab, message.target),
             text: message.text,
+            context: message.context,
             images: message.images,
           },
           sinkFor(tab.tab, message.id),

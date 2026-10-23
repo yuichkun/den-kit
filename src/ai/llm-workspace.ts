@@ -30,8 +30,7 @@ import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
 import { checkPlugin, formatPluginIssue } from '../screen/checks.ts';
 import type { LookResult } from '../screen/look.ts';
 
-import type { LlmRole, ToolOutput } from '../host/ai.ts';
-import { reportOf, type MemberReport } from './members.ts';
+import type { ToolOutput } from '../host/ai.ts';
 import type { PodAccess } from '../workspace/pod-session.ts';
 
 export type { PodAccess };
@@ -74,14 +73,14 @@ export interface WorkspaceDeps {
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
   pod?: PodAccess;
-  /** Alone, the lead of a team, or a member (U8). */
-  role?: LlmRole;
-  /** Why an edit (the live patch → the patch with it) is outside what this AI may change now; null: it may. */
+  /** Why an edit (the live patch → the patch with it) is outside what this agent may change now; null: it may. */
   scope?(before: PatchDocument, after: PatchDocument): string | null;
-  /** Why this AI may not use the screen project now (a member without it, the lead while a member holds it); null: it may. */
+  /** Why this agent may not use the screen project now (another agent holds it, or it is not in its scope); null: it may. */
   project?(): string | null;
-  /** The lead's team (kit_delegate, kit_wait, kit_tell, kit_stop_member). */
-  team?: Team;
+  /** kit_claim_scope: this agent says what it will change (src/ai/llm.ts checks it against the others'). */
+  claim?(args: unknown): ToolOutput;
+  /** The sub-agents still working, for the agent the person asked ("“Sound”"). */
+  working?(): string[];
   /** A picture of what the person sees now (U8b): their view, or the one asked for; or why there is none. */
   seen?(view?: 'plugin' | 'patch' | 'window'): Promise<SeenResult>;
 }
@@ -99,15 +98,6 @@ export interface SeenResult {
   };
   /** Why there is no picture. */
   reason?: string;
-}
-/** What a lead does with its members (src/ai/llm.ts runs them). */
-export interface Team {
-  delegate(args: unknown): ToolOutput | Promise<ToolOutput>;
-  wait(args: unknown): Promise<ToolOutput>;
-  tell(args: unknown): ToolOutput | Promise<ToolOutput>;
-  stop(args: unknown): ToolOutput;
-  /** Members still working ("m1 “Sound”"). */
-  working(): string[];
 }
 export interface Picture {
   png: Uint8Array | null;
@@ -128,8 +118,7 @@ export const dataUrl = (bytes: Uint8Array, mime: string) => {
 };
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS =
-  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_finish';
-const TEAM_TOOLS = new Set(['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']);
+  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
 /** Kept of a command's output for the model (the end, where errors are). */
 const MAX_COMMAND_TEXT = 12000;
 const clipEnd = (s: string, n = MAX_COMMAND_TEXT) =>
@@ -147,10 +136,8 @@ export class LlmWorkspace {
   screenTouched = false;
   /** This request changed the screen project (den-kit commits it in the pod's git at the end). */
   projectTouched = false;
-  /** Edits refused because they were outside this AI's scope. */
+  /** Edits refused because they were outside this agent's scope. */
   refused = 0;
-  /** A member's report to the lead (its kit_finish). */
-  report: MemberReport | null = null;
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
@@ -237,12 +224,16 @@ export class LlmWorkspace {
           );
         case 'kit_write_file':
           return await this.writeFile(a.path, a.content);
+        case 'kit_claim_scope':
+          return this.deps.claim
+            ? this.deps.claim(args)
+            : { success: false, text: 'Scopes are not checked here: edit as usual.' };
         case 'kit_finish': {
-          const working = this.deps.team?.working() ?? [];
+          const working = this.deps.working?.() ?? [];
           if (working.length)
             return {
               success: false,
-              text: `Members are still working (${working.join(', ')}). Wait for them with kit_wait (or stop one with kit_stop_member), check their work, then finish.`,
+              text: `Sub-agents are still working (${working.join(', ')}). Wait for them, check their work, then finish.`,
             };
           if (this.unseen && !this.remindedToLook) {
             this.remindedToLook = true;
@@ -252,20 +243,12 @@ export class LlmWorkspace {
             };
           }
           this.summary = String(a.summary ?? '').slice(0, 400) || null;
-          if (this.deps.role === 'member') {
-            this.report = reportOf(a);
-            return {
-              success: true,
-              text: 'Reported to the lead. Your edits are already on the live patch.',
-            };
-          }
           return {
             success: true,
             text: 'OK. Your edits are already on the live patch; the user can undo the whole request with one ⌘Z.',
           };
         }
         default:
-          if (TEAM_TOOLS.has(tool)) return await this.team(tool, args);
           return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
       }
     } catch (error) {
@@ -273,29 +256,6 @@ export class LlmWorkspace {
         success: false,
         text: `Tool failed: ${error instanceof Error ? error.message : String(error)}`,
       };
-    }
-  }
-
-  // ---- the team (U8) ---------------------------------------------------------------
-  private async team(tool: string, args: unknown): Promise<ToolOutput> {
-    const team = this.deps.team;
-    if (!team || this.deps.role !== 'lead')
-      return {
-        success: false,
-        text:
-          this.deps.role === 'member'
-            ? 'Members cannot start or manage members; only the lead does. Do your part and report in kit_finish.'
-            : 'Members are off for this request (the person turned them off): do the work yourself.',
-      };
-    switch (tool) {
-      case 'kit_delegate':
-        return await team.delegate(args);
-      case 'kit_wait':
-        return await team.wait(args);
-      case 'kit_tell':
-        return await team.tell(args);
-      default:
-        return team.stop(args);
     }
   }
 

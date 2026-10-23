@@ -17,9 +17,9 @@
 //   FAKE_CODEX_SPLIT      1: write every message in two chunks (tests line buffering)
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
-//   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
 //   FAKE_CODEX_LOGIN      success | completed-only | completed-before-save | updated-first | file-first | silent | early-completion | failure | crash | hang-start
 //   FAKE_CODEX_CONFIRM    hang | error | delay: account confirmation after OAuth succeeds
+//   FAKE_CODEX_ITEMS      refuse: thread/items/list fails (a saved conversation cannot be read back)
 import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -33,8 +33,6 @@ export interface TurnApi {
   readonly text: string;
   /** Pictures that came with it (data: URLs), and with each steer. */
   readonly images: string[];
-  /** This turn's conversation is a copy of another (thread/fork): its id. */
-  readonly forkedFrom: string | null;
   /** Texts steered into the turn so far. */
   readonly steers: string[];
   readonly interrupted: boolean;
@@ -181,20 +179,26 @@ interface TurnState {
   steerWaiters: Array<(t: string) => void>;
   started: number;
   images: string[];
+  /** turn/started was sent: like the real server, an interrupt before it is refused. */
+  begun: boolean;
 }
 interface ThreadState {
   id: string;
   turn: TurnState | null;
   tools: Set<string>;
   unsubscribed: boolean;
-  forkedFrom: string | null;
   usage: { input: number; cached: number; output: number; reasoning: number };
+  /** Saved (not ephemeral): it can be opened again and read back while this process runs. */
+  saved: boolean;
+  /** What was said, as thread/items/list returns it. */
+  items: Array<{ turnId: string; item: Record<string, unknown> }>;
 }
+/** A turn's text: den-kit's notes (when there are any), then the person's words, a blank line apart. */
 const textOf = (input: unknown) =>
   (input as Array<{ type: string; text?: string }>)
     .filter(i => i.type === 'text')
     .map(i => i.text)
-    .join('\n');
+    .join('\n\n');
 const imagesOf = (input: unknown) =>
   (input as Array<{ type: string; url?: string }>).filter(i => i.type === 'image').map(i => i.url!);
 const threads = new Map<string, ThreadState>();
@@ -277,28 +281,24 @@ const THREAD_START_KEYS = new Set([
   'mockExperimentalField',
   'experimentalRawEvents',
 ]);
-const THREAD_FORK_KEYS = new Set([
+const THREAD_RESUME_KEYS = new Set([
   'threadId',
-  'lastTurnId',
-  'beforeTurnId',
+  'history',
   'path',
   'model',
   'modelProvider',
   'serviceTier',
   'cwd',
-  'runtimeWorkspaceRoots',
   'approvalPolicy',
   'approvalsReviewer',
   'sandbox',
-  'permissions',
   'config',
   'baseInstructions',
   'developerInstructions',
-  'ephemeral',
-  'threadSource',
+  'personality',
   'excludeTurns',
-  'deferGoalContinuation',
 ]);
+const ITEMS_LIST_KEYS = new Set(['threadId', 'turnId', 'cursor', 'limit', 'sortDirection']);
 const TURN_START_KEYS = new Set([
   'threadId',
   'disabledPluginIds',
@@ -499,7 +499,6 @@ function api(turn: TurnState, text: string): TurnApi {
     get images() {
       return turn.images;
     },
-    forkedFrom: turn.thread.forkedFrom,
     get steers() {
       return turn.steers;
     },
@@ -527,20 +526,19 @@ function api(turn: TurnState, text: string): TurnApi {
         notify('item/agentMessage/delta', { ...ids, itemId, delta: message.slice(i, i + size) });
         await new Promise(r => setTimeout(r, 5));
       }
-      if (live())
-        notify('item/completed', {
-          item: {
-            type: 'agentMessage',
-            id: itemId,
-            text: message,
-            phase: null,
-            memoryCitation: null,
-            delivery: null,
-            questions: null,
-          },
-          ...ids,
-          completedAtMs: Date.now(),
-        });
+      if (live()) {
+        const item = {
+          type: 'agentMessage',
+          id: itemId,
+          text: message,
+          phase: null,
+          memoryCitation: null,
+          delivery: null,
+          questions: null,
+        };
+        turn.thread.items.push({ turnId: turn.id, item });
+        notify('item/completed', { item, ...ids, completedAtMs: Date.now() });
+      }
     },
     async think() {
       if (!live()) return;
@@ -1013,8 +1011,9 @@ async function handle(message: Record<string, unknown>) {
           ((params.dynamicTools as Array<{ name: string }> | undefined) ?? []).map(t => t.name),
         ),
         unsubscribed: false,
-        forkedFrom: null,
         usage: { input: 0, cached: 0, output: 0, reasoning: 0 },
+        saved: params.ephemeral === false,
+        items: [],
       };
       threads.set(thread.id, thread);
       const t = {
@@ -1057,39 +1056,28 @@ async function handle(message: Record<string, unknown>) {
       notify('thread/started', { thread: t });
       return;
     }
-    case 'thread/fork': {
+    case 'thread/resume': {
       for (const key of Object.keys(params))
-        if (!THREAD_FORK_KEYS.has(key)) {
-          violation(`thread/fork: unknown field \`${key}\``);
+        if (!THREAD_RESUME_KEYS.has(key)) {
+          violation(`thread/resume: unknown field \`${key}\``);
           refuse(id, `unknown field \`${key}\``);
           return;
         }
-      const source = threads.get(String(params.threadId));
-      if (env.FAKE_CODEX_FORK === 'refuse' || !source) {
+      const thread = threads.get(String(params.threadId));
+      if (!thread?.saved) {
         refuse(id, `no rollout found for thread id ${String(params.threadId)}`);
         return;
       }
-      if (params.ephemeral !== true)
-        violation('thread/fork: den-kit forks must be ephemeral', params);
-      // The copy keeps the source's tools (fork has no dynamicTools).
-      const thread: ThreadState = {
-        id: randomUUID(),
-        turn: null,
-        tools: new Set(source.tools),
-        unsubscribed: false,
-        forkedFrom: source.id,
-        usage: { ...source.usage },
-      };
-      threads.set(thread.id, thread);
+      thread.unsubscribed = false;
       const t = {
         id: thread.id,
         environments: null,
         extra: null,
         sessionId: thread.id,
-        forkedFromId: source.id,
+        forkedFromId: null,
         parentThreadId: null,
         preview: '',
-        ephemeral: true,
+        ephemeral: false,
         model: params.model ?? 'gpt-6.1-sol',
         modelProvider: 'openai',
         status: { type: 'idle' },
@@ -1104,7 +1092,6 @@ async function handle(message: Record<string, unknown>) {
         serviceTier: null,
         disabledPluginIds: [],
         cwd: t.cwd,
-        runtimeWorkspaceRoots: [],
         instructionSources: [],
         approvalPolicy: params.approvalPolicy ?? 'on-request',
         approvalsReviewer: 'user',
@@ -1112,11 +1099,33 @@ async function handle(message: Record<string, unknown>) {
           type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite',
           networkAccess: false,
         },
-        activePermissionProfile: null,
         reasoningEffort: null,
-        multiAgentMode: 'explicitRequestOnly',
+        collaborationMode: null,
+        turnsBackwardsCursor: null,
+        itemsBackwardsCursor: null,
       });
-      notify('thread/started', { thread: t });
+      return;
+    }
+    case 'thread/items/list': {
+      for (const key of Object.keys(params))
+        if (!ITEMS_LIST_KEYS.has(key)) {
+          violation(`thread/items/list: unknown field \`${key}\``);
+          refuse(id, `unknown field \`${key}\``);
+          return;
+        }
+      const thread = threads.get(String(params.threadId));
+      if (!thread?.saved || env.FAKE_CODEX_ITEMS === 'refuse') {
+        refuse(id, `no rollout found for thread id ${String(params.threadId)}`);
+        return;
+      }
+      const from = Number(params.cursor ?? 0) || 0;
+      const limit = typeof params.limit === 'number' ? params.limit : 50;
+      const page = thread.items.slice(from, from + limit);
+      respond(id, {
+        data: page.map(e => ({ ...e, startedAtMs: null, completedAtMs: null })),
+        nextCursor: from + limit < thread.items.length ? String(from + limit) : null,
+        backwardsCursor: null,
+      });
       return;
     }
     case 'turn/start': {
@@ -1166,8 +1175,13 @@ async function handle(message: Record<string, unknown>) {
         steerWaiters: [],
         started: Date.now(),
         images: imagesOf(params.input),
+        begun: false,
       };
       thread.turn = turn;
+      thread.items.push({
+        turnId: turn.id,
+        item: { type: 'userMessage', id: randomUUID(), clientId: null, content: params.input },
+      });
       respond(id, {
         turn: {
           id: turn.id,
@@ -1180,42 +1194,49 @@ async function handle(message: Record<string, unknown>) {
           durationMs: null,
         },
       });
-      notify('thread/status/changed', {
-        threadId: thread.id,
-        status: { type: 'active', activeFlags: [] },
-      });
-      notify('turn/started', {
-        threadId: thread.id,
-        turn: {
-          id: turn.id,
-          items: [],
-          itemsView: 'notLoaded',
-          status: 'inProgress',
-          error: null,
-          startedAt: Math.floor(Date.now() / 1000),
-          completedAt: null,
-          durationMs: null,
-        },
-      });
-      const userItem = {
-        type: 'userMessage',
-        id: randomUUID(),
-        clientId: null,
-        content: params.input,
+      const begin = () => {
+        if (!turn.active) return;
+        turn.begun = true;
+        notify('thread/status/changed', {
+          threadId: thread.id,
+          status: { type: 'active', activeFlags: [] },
+        });
+        notify('turn/started', {
+          threadId: thread.id,
+          turn: {
+            id: turn.id,
+            items: [],
+            itemsView: 'notLoaded',
+            status: 'inProgress',
+            error: null,
+            startedAt: Math.floor(Date.now() / 1000),
+            completedAt: null,
+            durationMs: null,
+          },
+        });
+        const userItem = {
+          type: 'userMessage',
+          id: randomUUID(),
+          clientId: null,
+          content: params.input,
+        };
+        notify('item/started', {
+          item: userItem,
+          threadId: thread.id,
+          turnId: turn.id,
+          startedAtMs: Date.now(),
+        });
+        notify('item/completed', {
+          item: userItem,
+          threadId: thread.id,
+          turnId: turn.id,
+          completedAtMs: Date.now(),
+        });
+        void runTurn(turn, text);
       };
-      notify('item/started', {
-        item: userItem,
-        threadId: thread.id,
-        turnId: turn.id,
-        startedAtMs: Date.now(),
-      });
-      notify('item/completed', {
-        item: userItem,
-        threadId: thread.id,
-        turnId: turn.id,
-        completedAtMs: Date.now(),
-      });
-      void runTurn(turn, text);
+      // A saved thread's turn starts a few milliseconds after the answer (measured on the real 0.160.1).
+      if (thread.saved) setTimeout(begin, 10);
+      else begin();
       return;
     }
     case 'turn/steer': {
@@ -1248,6 +1269,10 @@ async function handle(message: Record<string, unknown>) {
     }
     case 'turn/interrupt': {
       const turn = threads.get(String(params.threadId))?.turn;
+      if (turn?.active && turn.id === params.turnId && !turn.begun) {
+        refuse(id, 'no active turn to interrupt');
+        return;
+      }
       if (!turn?.active || turn.id !== params.turnId) {
         setTimeout(() => respond(id, {}), lateInterruptMs);
         log({ lateInterrupt: params.turnId });

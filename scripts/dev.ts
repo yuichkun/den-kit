@@ -24,7 +24,6 @@ const codex =
         kitRoot: root,
         model: process.env.KIT_CODEX_MODEL,
         effort: process.env.KIT_CODEX_EFFORT,
-        fork: process.env.KIT_CODEX_FORK === '1',
         telemetry,
         log: line => console.log(`  [bridge] ${line}`),
       });

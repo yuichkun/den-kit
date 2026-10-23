@@ -1,12 +1,13 @@
-// What a member of an LLM team may change (U8). The lead gives each member a
-// scope — the sound (the patch, or parts or modules of it), the screen (the
-// plugin, or elements or an area of it), the screen project in the pod — and
-// den-kit holds them to it on every edit: an edit is tried on a copy, the copy
-// is compared with the live patch object by object, and anything outside the
-// member's scope refuses the whole edit. While members work, the lead may not
-// change what they hold. The controls and their cables that existed when the
-// members started are the seam: members keep them (they place, style and set
-// them, but do not remove or rewire them).
+// What an agent working on a request may change. A sub-agent (an agent the
+// request's AI started for part of it) claims a scope — the sound (the patch,
+// or parts or modules of it), the screen (the plugin, or elements or an area of
+// it), the screen project in the pod — and den-kit holds it to that scope on
+// every edit: an edit is tried on a copy, the copy is compared with the live
+// patch object by object, and anything outside the scope refuses the whole
+// edit. While a sub-agent works, no other agent changes what it holds. The
+// controls and their cables that existed when it claimed its scope are the
+// seam: it keeps them (it places, styles and sets them, but does not remove or
+// rewire them).
 import { textFiles } from '../work/files.ts';
 import { assetsOf } from '../work/ui.ts';
 import type { Catalog } from '../work/catalog.ts';
@@ -18,12 +19,12 @@ export interface Scope {
   screen?: 'all' | { elements?: string[]; area?: Rect };
   project?: 'all';
 }
-/** What the members must keep: the controls (widget modules) and their cables when they started. */
+/** What a sub-agent must keep: the controls (widget modules) and their cables when it claimed its scope. */
 export interface Seam {
   controls: ReadonlySet<string>;
   cables: ReadonlySet<string>;
 }
-/** A member's hold: its scope, what it made itself (always its own), the seam. */
+/** A sub-agent's hold: its scope, what it made itself (always its own), the seam. */
 export interface Holding {
   scope: Scope;
   owned: ReadonlySet<string>;
@@ -40,7 +41,7 @@ const ids = (value: unknown): string[] | null =>
     : null;
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** The scope as the lead wrote it, checked against the patch (unknown ids are refused, so a typo cannot hold nothing). */
+/** The scope as the agent wrote it, checked against the patch (unknown ids are refused, so a typo cannot hold nothing). */
 export function parseScope(
   value: unknown,
   doc: PatchDocument,
@@ -128,7 +129,7 @@ export function parseScope(
 
 const rectText = (r: Rect) =>
   `x ${Math.round(r.x)}, y ${Math.round(r.y)}, ${Math.round(r.w)}×${Math.round(r.h)}`;
-/** The scope in words (for the member, the lead and the person). */
+/** The scope in words (for the agents and the person). */
 export function describeScope(scope: Scope): string {
   const parts: string[] = [];
   if (scope.sound === 'all') parts.push('the sound (the whole patch)');
@@ -213,7 +214,7 @@ export function scopesOverlap(a: Scope, b: Scope, doc: PatchDocument): string | 
   return null;
 }
 
-/** The controls and their cables now: what members keep while they work. */
+/** The controls and their cables now: what sub-agents keep while they work. */
 export function seamOf(doc: PatchDocument, catalog: Catalog): Seam {
   const controls = new Set(
     Object.values(doc.nodes)
@@ -453,7 +454,7 @@ function refusal(change: Change, c: Ctx, catalog: Catalog): string | null {
             : `adding control ${id} needs the screen (or an area it lies in)`;
         if (change.op === 'remove')
           return seam.controls.has(id)
-            ? `${named(c.before, id)} is a control the others rely on (only the lead removes it)`
+            ? `${named(c.before, id)} is a control the others rely on (only the agent the person asked removes it)`
             : screenHolds(c, id, [change.rectBefore])
               ? null
               : `${named(c.before, id)} is outside your screen`;
@@ -490,7 +491,7 @@ function refusal(change: Change, c: Ctx, catalog: Catalog): string | null {
     case 'edge': {
       const fromWidget = isWidget(c, change.from, catalog);
       if (change.op === 'remove' && seam.cables.has(change.id))
-        return `the cable ${change.from} → ${change.to} carries a control the others rely on (only the lead rewires it)`;
+        return `the cable ${change.from} → ${change.to} carries a control the others rely on (only the agent the person asked rewires it)`;
       const target = soundHolds(c, change.to, catalog);
       const source = soundHolds(c, change.from, catalog);
       const control =
@@ -556,7 +557,7 @@ function refusal(change: Change, c: Ctx, catalog: Catalog): string | null {
   }
 }
 
-/** The changes from `before` to `after` that a member holding `holding` may not make, in words (empty: allowed). */
+/** The changes from `before` to `after` that a sub-agent holding `holding` may not make, in words (empty: allowed). */
 export function outside(
   before: PatchDocument,
   after: PatchDocument,
@@ -569,14 +570,14 @@ export function outside(
   return [...new Set(reasons)];
 }
 
-/** Changes everyone may make while members work: moving modules in the patch view, control values, the name, pictures. */
+/** Changes everyone may make while sub-agents work: moving modules in the patch view, control values, the name, pictures. */
 function shared(change: Change): boolean {
   if (change.kind === 'name' || change.kind === 'assets') return true;
   if (change.kind === 'node' && change.op === 'change')
     return change.fields.every(f => f === 'pos' || (f === 'values' && change.widget));
   return false;
 }
-/** Whether this change touches what the member holds (what the lead may not change meanwhile). */
+/** Whether this change touches what a sub-agent holds (what no other agent may change meanwhile). */
 function claimed(change: Change, c: Ctx, catalog: Catalog): boolean {
   if (shared(change)) return false;
   const { scope } = c.holding;
@@ -649,19 +650,19 @@ function claimed(change: Change, c: Ctx, catalog: Catalog): boolean {
   }
 }
 
-/** What the lead may not change while these members hold their scopes, in words (empty: allowed). */
-export function heldByMembers(
+/** What an agent may not change while these other agents hold their scopes, in words (empty: allowed). */
+export function heldByOthers(
   before: PatchDocument,
   after: PatchDocument,
   catalog: Catalog,
-  members: ReadonlyArray<{ id: string; name: string; holding: Holding }>,
+  others: ReadonlyArray<{ name: string; holding: Holding }>,
   list = changes(before, after, catalog),
 ): string[] {
   const reasons: string[] = [];
   for (const change of list) {
-    for (const m of members) {
+    for (const m of others) {
       if (claimed(change, { before, after, holding: m.holding }, catalog)) {
-        reasons.push(`${describeChange(change)} is held by ${m.id} “${m.name}” while it works`);
+        reasons.push(`${describeChange(change)} is held by “${m.name}” while it works`);
         break;
       }
     }

@@ -36,7 +36,6 @@ const technical = requests.session.bridge?.wording.technical ?? true;
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
 const list = ref<HTMLElement | null>(null);
-const drawer = ref(false);
 const turns = computed(() => requests.history.value);
 const latestId = computed(() => turns.value.at(-1)?.id);
 const showEarlier = ref(false);
@@ -202,7 +201,7 @@ const tokensShort = (n: number) =>
     : n >= 1000
       ? `${(n / 1000).toFixed(1)}k tokens`
       : `${n} tokens`;
-// A member's lane keeps its own clock while it works.
+// A sub-agent's lane keeps its own clock while it works.
 const laneStarted = new Map<string, number>();
 const laneElapsed = (o: Outcome, a: AgentLane) => {
   const key = `${o.id}:${a.id}`;
@@ -227,18 +226,14 @@ const meta = (o: Outcome) =>
         technical ? via(o) : '',
         fmt(elapsed(o)),
         o.agents?.length
-          ? `${o.agents.length} ${technical ? 'member' : 'task'}${o.agents.length === 1 ? '' : 's'}`
+          ? `${o.agents.length} ${technical ? 'sub-agent' : 'task'}${o.agents.length === 1 ? '' : 's'}`
           : '',
         technical && o.tokens ? tokensShort(o.tokens) : '',
       ]
         .filter(Boolean)
         .join(' · ');
 const routeTitle = (o: Outcome) =>
-  !technical
-    ? 'Request duration'
-    : o.route === 'llm'
-      ? 'Answered by the LLM (Codex)'
-      : 'Saved request from an earlier version';
+  technical && o.route === 'llm' ? 'Answered by the LLM (Codex)' : 'Request duration';
 
 // ---- keys --------------------------------------------------------------------
 const inPrompt = (e: Event) => e.target === input.value;
@@ -394,16 +389,6 @@ defineExpose({ focus });
       <button
         type="button"
         class="icon"
-        title="AI settings"
-        data-testid="ai-drawer-toggle"
-        :class="{ active: drawer }"
-        @click="drawer = !drawer"
-      >
-        ⚙
-      </button>
-      <button
-        type="button"
-        class="icon"
         title="Hide the AI panel (⌘J)"
         data-testid="ai-close"
         @click="emit('close')"
@@ -419,28 +404,6 @@ defineExpose({ focus });
       data-testid="ai-screen-note"
     >
       {{ screen.message.value }}
-    </div>
-    <div v-if="drawer" class="drawer" data-testid="ai-drawer">
-      <div class="row">
-        <template v-if="llm">
-          <label title="Allow AI to work on independent parts of your request at the same time."
-            ><span>Parallel tasks</span
-            ><select v-model="llm.settings.members" data-testid="ai-members">
-              <option value="auto">Let AI decide</option>
-              <option value="off">One task at a time</option>
-            </select></label
-          >
-          <label v-if="technical" title="Choose how much context each delegated task receives."
-            ><span>Task context</span
-            ><select v-model="llm.settings.memberContext" data-testid="ai-member-context">
-              <option value="lead">what the lead chooses</option>
-              <option value="brief">brief, the person's words, the state</option>
-              <option value="full">all that and the whole conversation</option>
-              <option value="bare">only the lead's brief</option>
-            </select></label
-          >
-        </template>
-      </div>
     </div>
     <ol ref="list" class="history" data-testid="ai-history" @scroll="onScroll">
       <li v-if="!turns.length" class="empty" data-testid="ai-empty">
@@ -466,15 +429,15 @@ defineExpose({ focus });
       </li>
       <li v-if="requests.earlier.value.length" class="earlier" data-testid="ai-earlier">
         <button type="button" class="link" @click="showEarlier = !showEarlier">
-          {{ showEarlier ? '▾' : '▸' }} Earlier, about another patch:
+          {{ showEarlier ? '▾' : '▸' }} Earlier in this work's conversation:
           {{ requests.earlier.value.length }} request{{
             requests.earlier.value.length === 1 ? '' : 's'
           }}
-          (the AI does not see these)
         </button>
         <ol v-if="showEarlier" class="earlier-lines">
           <li v-for="o in requests.earlier.value" :key="o.id">
-            <span class="ask-old">{{ o.text }}</span> → {{ o.label ?? o.message ?? o.status }}
+            <span class="ask-old">{{ o.text }}</span
+            ><template v-if="o.reply"> → {{ o.reply }}</template>
           </li>
         </ol>
       </li>
@@ -492,12 +455,7 @@ defineExpose({ focus });
           o.id === latestId ? 'ai-result' : o.route === 'llm' ? 'ai-llm-line' : undefined
         "
       >
-        <div class="ask">
-          {{ o.text
-          }}<span v-if="o.repeats" class="again" title="Did the last change again">
-            · again: “{{ o.repeats }}”</span
-          >
-        </div>
+        <div class="ask">{{ o.text }}</div>
         <div
           v-if="o.attached?.length || o.sketch?.parts.length"
           class="attached"
@@ -554,29 +512,21 @@ defineExpose({ focus });
                 :key="a.id"
                 class="lane"
                 :class="`l-${a.status}`"
-                :data-member="a.id"
+                :data-agent="a.id"
                 :data-status="a.status"
                 :style="{ '--lane': a.color }"
               >
                 <div class="lane-head">
                   <span class="dot" :class="{ pulse: a.status === 'working' && o.live }" />
                   <span class="lane-name">{{ a.name }}</span>
-                  <span class="lane-scope" title="What this member may change">{{ a.scope }}</span>
+                  <span class="lane-scope" title="What this sub-agent may change">{{
+                    a.scope
+                  }}</span>
                   <span class="grow" />
                   <span class="lane-meta"
                     >{{ fmt(laneElapsed(o, a))
                     }}{{ technical && a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span
                   >
-                  <button
-                    v-if="a.status === 'working' && o.live"
-                    type="button"
-                    class="lane-stop"
-                    data-testid="ai-lane-stop"
-                    :title="`Stop ${a.name} (the others go on)`"
-                    @click="llm?.stopMember(a.id)"
-                  >
-                    ×
-                  </button>
                 </div>
                 <div class="lane-what" data-testid="ai-lane-what">
                   {{

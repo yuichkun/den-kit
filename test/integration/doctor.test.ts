@@ -91,14 +91,16 @@ describe('doctor', () => {
     );
     expect(line(out, 'Codex isolation')).toMatch(/^PASS\s+Codex isolation\s+no instruction files/);
     expect(line(out, 'Codex live request')).toMatch(/^PASS.*kit_ping round trip · reply “pong”/);
-    // What members, sketches and shared screens need (U8).
-    expect(line(out, 'Codex members')).toMatch(
+    // What den-kit needs beyond one request.
+    expect(line(out, 'Codex two requests')).toMatch(
       /^PASS.*two requests at once: one finished in [\d.]+ s while the other's tool call was held/,
     );
     expect(line(out, 'Codex pictures')).toMatch(
       /^PASS.*with the request and added while it worked: “red blue”/,
     );
-    expect(line(out, 'Codex fork')).toMatch(/^PASS.*copies a conversation/);
+    expect(line(out, 'Codex conversation')).toMatch(
+      /^PASS.*a saved conversation reads back \(\d+ items\)/,
+    );
     expect(line(out, 'Codex long tool wait')).toMatch(
       /^PASS.*a tool call answered after 1\.5 s; the request went on/,
     );
@@ -121,21 +123,23 @@ describe('doctor', () => {
     expect(code).toBe(1);
   }, 150000);
 
-  it("--deep: a Codex that cannot copy a conversation is a warning, not a failure (members start from den-kit's account)", async () => {
+  it('--deep: a Codex that cannot read a saved conversation back is a warning, not a failure (requests still work)', async () => {
     const { code, out } = await run(
       'scripts/doctor.ts',
       {
-        ...codexEnv('home-nofork', true),
+        ...codexEnv('home-noitems', true),
         KIT_DOCTOR_TOOL_WAIT_MS: '300',
-        FAKE_CODEX_FORK: 'refuse',
+        FAKE_CODEX_ITEMS: 'refuse',
       },
       ['--deep'],
     );
-    expect(line(out, 'Codex fork')).toMatch(
-      /^WARN.*cannot copy the conversation \(.*no rollout found/,
+    expect(line(out, 'Codex conversation')).toMatch(
+      /^WARN.*a saved conversation cannot be read back \(.*no rollout found/,
     );
-    expect(out).toContain('leave KIT_CODEX_FORK unset');
-    expect(line(out, 'Codex members')).toMatch(/^PASS/);
+    expect(out).toContain(
+      'An earlier conversation does not show again after a restart; requests still work.',
+    );
+    expect(line(out, 'Codex two requests')).toMatch(/^PASS/);
     expect(code, out).toBe(0);
   }, 150000);
 

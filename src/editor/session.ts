@@ -93,8 +93,8 @@ export interface HistoryListener {
 }
 
 const AUTOSAVE_KEY = 'den-kit:autosave';
-/** The AI conversation about the patch being worked on (kept with the autosave). */
-const CONVERSATION_KEY = 'den-kit:conversation';
+/** Which conversation (the runtime's id) is a work's: the host keeps that, never what was said. */
+const CONVERSATION_KEY = 'den-kit:conversation:';
 /** My parts: saved parts every patch can place (kept apart from any one patch). */
 export const MY_PARTS_KEY = 'den-kit:my-parts';
 /** Whether a stylus draws where it touches nothing ("off" when the person turned it off). */
@@ -118,14 +118,10 @@ export class KitSession {
   /** My parts, as last read from storage. */
   readonly myParts = shallowRef<Library>(emptyLibrary());
   readonly selection = ref<string[]>([]);
+  /** The runtime's id of the open work's AI conversation (null: none yet). */
+  readonly conversation = ref<string | null>(null);
   /** Cables selected in the patch view (they can be attached to an AI request too). */
   readonly edgeSelection = ref<string[]>([]);
-  /**
-   * The AI conversation the requests belong to. A patch someone opens (a starter, a work,
-   * an import, a new patch) starts a new one; what the AI itself puts in place (a template)
-   * stays in the conversation that asked for it.
-   */
-  readonly conversation = ref(randomId('conv'));
   /** The person is editing the plugin screen (so "darker" means the screen, not the sound). */
   readonly screenFocus = ref(false);
   /** The part being edited: the chain of uses entered from the main patch (empty: the main patch). */
@@ -269,9 +265,6 @@ export class KitSession {
       const read = readSaveRecord(record, catalog);
       if (read.ok) {
         this.replace(read.doc, 'Restored autosave', false);
-        // The conversation about this patch goes on after a reload.
-        const saved = this.loadConversation();
-        if (saved && saved.docId === read.doc.id) this.conversation.value = saved.id;
         for (const i of read.report) this.toast('warn', i.message);
         return true;
       }
@@ -288,8 +281,14 @@ export class KitSession {
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
-    // Another work: this window holds it now (and lets go of the one before).
-    if (doc.id !== previous.id) void this.lock.claim(doc.id);
+    // An undoable replacement (the person loads a starter, an example, an import) keeps the work.
+    const id = undoable ? previous.id : doc.id;
+    // Another work: this window holds it now (and lets go of the one before), and its conversation is read.
+    if (id !== previous.id) {
+      void this.lock.claim(id);
+      this.conversation.value = null;
+      void this.readConversation(id);
+    } else if (undoable && author.kind === 'human') this.keepConversation(null); // a fresh start talks afresh
     if (undoable)
       this.history.record({
         id: randomId('tx'),
@@ -306,13 +305,12 @@ export class KitSession {
       ...doc,
       panel: { ...doc.panel },
       revision: previous.revision + 1,
-      id: undoable ? previous.id : doc.id,
+      id,
     };
     this.selection.value = [];
     this.edgeSelection.value = [];
     this.partPath.value = [];
     this.solo.value = null;
-    if (author.kind === 'human') this.conversation.value = randomId('conv');
     // Marks were about the patch that was there.
     this.sketch.value = { plugin: [], patch: [] };
     this.sentMarks.value = {};
@@ -655,9 +653,8 @@ export class KitSession {
     if (this.solo.value && valid(this.solo.value) < this.solo.value.length) this.solo.value = null;
   }
 
-  /** A new work from a starter: a work of its own (its own id, disk and window). */
   loadStarter(id: StarterId) {
-    this.replace({ ...starter(id, catalog), id: randomId('patch') }, `Load ${id}`);
+    this.replace(starter(id, catalog), `Load ${id}`);
   }
   /** Start from a showcase work, optionally wearing another work's look (one undo step). */
   loadWork(work: Work, look?: Work) {
@@ -665,11 +662,7 @@ export class KitSession {
     if (look && look.id !== work.id)
       doc = applyIntents(doc, lookIntents(doc, look.build(catalog)), catalog).doc;
     this.replace(
-      {
-        ...doc,
-        id: randomId('patch'),
-        name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name,
-      },
+      { ...doc, name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name },
       `Start from ${work.title}`,
     );
   }
@@ -1147,9 +1140,7 @@ export class KitSession {
     this.saveTimer = setTimeout(() => this.saveNow(), 800);
   }
   saveNow() {
-    if (this.refused.value) return;
-    this.requests?.persist();
-    if (!this.storage) return;
+    if (this.refused.value || !this.storage) return;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
@@ -1163,30 +1154,26 @@ export class KitSession {
       );
     }
   }
-  /** The saved AI conversation (null when there is none or it cannot be read). */
-  loadConversation(): { id: string; docId: string; lines: unknown[] } | null {
+  /** Read which conversation is a work's, from the host's storage. */
+  private async readConversation(work: string) {
+    let thread: string | null = null;
     try {
-      const raw = this.storage?.getItem(CONVERSATION_KEY);
-      if (!raw) return null;
-      const data = JSON.parse(raw) as { id?: unknown; docId?: unknown; lines?: unknown };
-      return typeof data.id === 'string' &&
-        typeof data.docId === 'string' &&
-        Array.isArray(data.lines)
-        ? { id: data.id, docId: data.docId, lines: data.lines }
-        : null;
+      thread = (await this.host?.storage.read(`${CONVERSATION_KEY}${work}`)) ?? null;
     } catch {
-      return null;
+      thread = null;
     }
+    if (this.doc.value.id === work) this.conversation.value = thread;
   }
-  saveConversation(lines: unknown[]) {
-    try {
-      this.storage?.setItem(
-        CONVERSATION_KEY,
-        JSON.stringify({ id: this.conversation.value, docId: this.doc.value.id, lines }),
-      );
-    } catch {
-      /* a full storage loses the conversation, never the patch */
-    }
+  /** Keep which conversation is the open work's (null: none, the next request starts one). */
+  keepConversation(thread: string | null) {
+    this.conversation.value = thread;
+    if (this.refused.value || !this.host) return;
+    const key = `${CONVERSATION_KEY}${this.doc.value.id}`;
+    void (thread ? this.host.storage.write(key, thread) : this.host.storage.remove(key)).catch(
+      () => {
+        /* a full storage loses the conversation, never the work */
+      },
+    );
   }
   exportText() {
     return serializeDocument(this.doc.value);

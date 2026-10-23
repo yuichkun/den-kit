@@ -94,11 +94,7 @@ async function action(fn: () => Promise<unknown>, kind: SettingsAction) {
 }
 async function save() {
   if (!info.value || locked.value) return;
-  const settings: AISettings = {
-    model: model.value,
-    effort: effort.value,
-    fork: info.value.settings.fork,
-  };
+  const settings: AISettings = { model: model.value, effort: effort.value };
   await action(() => api.saveSettings(settings), 'settings');
 }
 async function reconnect() {

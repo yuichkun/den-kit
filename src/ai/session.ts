@@ -1,6 +1,7 @@
 // What the AI works with: the editing session the editor hands it. The AI reads
 // the work and changes it only through commit() (operations), compiles and
-// looks through the session's own tools, and keeps one conversation per work.
+// looks through the session's own tools, and keeps which conversation (the
+// runtime's id) is each work's.
 import type { ComputedRef, Ref, ShallowRef } from 'vue';
 import type { Catalog } from '../work/catalog.ts';
 import type { CommitOptions, History, Transaction } from '../work/history.ts';
@@ -28,7 +29,6 @@ export interface AiSession {
   readonly doc: ShallowRef<PatchDocument>;
   readonly history: History;
   readonly myParts: ShallowRef<Library>;
-  readonly conversation: Ref<string>;
   readonly partPath: Ref<string[]>;
   readonly compiler: CompileClient;
   readonly loadEpoch: Ref<number>;
@@ -56,6 +56,8 @@ export interface AiSession {
   viewRect(which: 'plugin' | 'patch' | 'workspace' | 'window'): PageRect | null;
   markSent(ids: readonly string[], request: string): void;
   releaseSent(request: string, keep?: boolean): void;
-  loadConversation(): { id: string; docId: string; lines: unknown[] } | null;
-  saveConversation(lines: unknown[]): void;
+  /** The runtime's id of the open work's conversation (null: none yet). */
+  readonly conversation: Ref<string | null>;
+  /** Keep which conversation is the open work's (null: none, the next request starts one). */
+  keepConversation(thread: string | null): void;
 }

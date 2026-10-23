@@ -1,5 +1,6 @@
 // The bridge's Codex app-server client. One app-server process for the whole
-// bridge; one ephemeral thread per conversation; one turn per LLM request.
+// bridge; one saved thread per conversation (Codex keeps it in CODEX_HOME, and a
+// later request opens it again by its id); one turn per LLM request.
 //
 // Lifecycle: start → initialize → account/read → model/list → ok. Not signed in
 // → `login` (the client watches CODEX_HOME/auth.json and restarts when it
@@ -16,7 +17,7 @@ import type {
   LlmError,
   LlmEvent,
   LlmQuestion,
-  LlmRole,
+  ConversationLine,
   TokenUsage,
   ToolOutput,
 } from '../protocol.ts';
@@ -57,7 +58,8 @@ import {
   type ThreadStartParams,
   type ThreadStartResponse,
   type ToolRequestUserInputParams,
-  type ThreadForkParams,
+  type ThreadResumeParams,
+  type ThreadItemsListResponse,
   type ThreadTokenUsageUpdatedNotification,
   type TokenUsageBreakdown,
   type TurnError,
@@ -66,10 +68,13 @@ import {
   type UserInput,
 } from './protocol.ts';
 
-/** Where one request's progress goes (the bridge forwards it to the browser tab that asked). */
+/**
+ * Where one request's progress goes (the bridge forwards it to the browser tab that asked). `agent`: the
+ * sub-agent an event is about or that made a call (none: the request's own AI).
+ */
 export interface TurnSink {
-  event(event: LlmEvent): void;
-  toolCall(call: { callId: string; tool: string; args: unknown }): void;
+  event(event: LlmEvent, agent?: string): void;
+  toolCall(call: { callId: string; tool: string; args: unknown; agent?: string }): void;
 }
 
 export interface CodexClientOptions {
@@ -85,8 +90,6 @@ export interface CodexClientOptions {
   effort?: string;
   /** Tools registered on every thread instead of each role's own (doctor --deep uses a ping tool). */
   tools?: ToolSpec[];
-  /** KIT_CODEX_FORK=1: a member asked for the lead's whole conversation starts from a copy of it (thread/fork); otherwise from den-kit's account of it. */
-  fork?: boolean;
   telemetry?: Telemetry;
   log?: (line: string) => void;
   /** Every JSON-RPC line in and out (doctor --deep records the real conversation). */
@@ -98,7 +101,7 @@ export interface CodexClientOptions {
   loginTimeoutMs?: number;
   /** Desktop UI supplies its own sign-in instructions instead of a terminal command. */
   loginInstruction?: string;
-  /** Turns running at once across the bridge (a lead and its members count each). */
+  /** Turns running at once across the bridge (requests from several windows). */
   maxTurns?: number;
 }
 interface Timeouts {
@@ -130,10 +133,18 @@ interface TurnState {
   thread: ThreadState | null;
   turnId: string | null;
   started: number;
+  /** Codex said the turn started (turn/started): only then can it be interrupted. */
+  begun: boolean;
   stopRequested: boolean;
   interruptSent: boolean;
   stopReason?: string;
-  steers: Array<{ key: string; text: string; images?: string[]; sink: TurnSink }>;
+  steers: Array<{
+    key: string;
+    text: string;
+    context?: string;
+    images?: string[];
+    sink: TurnSink;
+  }>;
   calls: Map<
     string,
     { rpcId: RequestId; timer: ReturnType<typeof setTimeout>; tool: string; args: unknown }
@@ -177,7 +188,7 @@ export const THREAD_CONFIG = {
   ),
 };
 
-/** The thread den-kit asks for: ephemeral, no environment (no shell, no files), read-only, never asks for approval, only kit_* tools. */
+/** The thread den-kit asks for: saved, no environment (no shell, no files), read-only, never asks for approval, only kit_* tools. */
 export function threadStartParams(options: {
   model?: string | null;
   cwd: string;
@@ -189,7 +200,7 @@ export function threadStartParams(options: {
     cwd: options.cwd,
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    ephemeral: true,
+    ephemeral: false,
     environments: [],
     config: THREAD_CONFIG,
     developerInstructions: options.instructions,
@@ -207,28 +218,36 @@ export const text = (value: string): UserInput => ({
   text: value,
   text_elements: [],
 });
-/** A request's input: its text, then its pictures (data: URLs). */
-export const userInput = (value: string, images?: readonly string[]): UserInput[] => [
+/**
+ * A request's input: den-kit's notes about the moment (when there are any), the person's words, then
+ * their pictures (data: URLs). The words are an input of their own, so a conversation read back later
+ * shows what the person said.
+ */
+export const userInput = (
+  value: string,
+  images?: readonly string[],
+  context?: string,
+): UserInput[] => [
+  ...(context ? [text(context)] : []),
   text(value),
   ...(images ?? []).map((url): UserInput => ({ type: 'image', url })),
 ];
-/** Turns running at once across the bridge: a lead and up to three members, or a few separate requests. */
+/** Turns running at once across the bridge (separate requests, from different windows). */
 export const MAX_TURNS = 4;
 
-/** A member's copy of the lead's conversation: the same isolation as a new thread (no shell, no files, no approvals), the member's rules. */
-export function forkParams(options: {
+/** Opening a saved conversation again: the same isolation as a new one (no shell, no files, no approvals). */
+export function resumeParams(options: {
   threadId: string;
   model?: string | null;
   cwd: string;
   instructions: string;
-}): ThreadForkParams {
+}): ThreadResumeParams {
   return {
     threadId: options.threadId,
     ...(options.model ? { model: options.model } : {}),
     cwd: options.cwd,
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    ephemeral: true,
     config: THREAD_CONFIG,
     developerInstructions: options.instructions,
   };
@@ -529,13 +548,12 @@ export class CodexClient {
     await this.peer.request('account/logout', undefined, { timeoutMs: this.timeouts.requestMs });
     await this.retry();
   }
-  async configure(settings: { model: string; effort: string; fork: boolean }) {
+  async configure(settings: { model: string; effort: string }) {
     if (this.busy) throw new Error('Finish the current AI request before changing settings.');
     if (this.signingIn || this.canceling || this.pendingCancellation)
       throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     this.options.model = settings.model || undefined;
     this.options.effort = settings.effort || undefined;
-    this.options.fork = settings.fork;
     await this.retry();
   }
   onStatus(listener: (status: CodexStatus) => void) {
@@ -1046,19 +1064,17 @@ export class CodexClient {
   }
 
   /**
-   * Start a turn (in a new thread, or continuing `thread`). Progress and the final `done` go to `sink`.
-   * `role` picks the new thread's tools; `images` come with the text; `fork` starts a member from a copy
-   * of the lead's conversation (KIT_CODEX_FORK=1), or else from a new one that begins with `fallback`.
+   * Start a turn (in a new thread, or going on with the saved `thread`). Progress and the final `done` go to
+   * `sink`. `context` (den-kit's notes) and `images` come with the person's text.
    */
   startTurn(
     request: {
       key: string;
       text: string;
+      context?: string;
       thread?: string;
       instructions: string;
-      role?: LlmRole;
       images?: string[];
-      fork?: { thread: string; fallback: string };
     },
     sink: TurnSink,
   ) {
@@ -1087,6 +1103,7 @@ export class CodexClient {
       thread: null,
       turnId: null,
       started,
+      begun: false,
       stopRequested: false,
       interruptSent: false,
       steers: [],
@@ -1103,37 +1120,38 @@ export class CodexClient {
     this.stats.turns++;
     void (async () => {
       try {
-        let input = request.text;
-        if (!thread) {
-          const tools = this.toolOverride ?? toolsFor(request.role);
-          const source = request.fork ? this.threads.get(request.fork.thread) : undefined;
-          let forked: boolean | undefined;
-          let r: ThreadStartResponse | null = null;
-          if (request.fork) {
-            forked = false;
-            if (this.options.fork && source) {
-              try {
-                r = await peer.request<ThreadStartResponse>(
-                  'thread/fork',
-                  forkParams({
-                    threadId: source.id,
-                    model: this.modelId,
-                    cwd: this.workdir,
-                    instructions: request.instructions,
-                  }),
-                  { timeoutMs: this.timeouts.requestMs },
-                );
-                forked = true;
-              } catch (error) {
-                this.log(
-                  `codex: thread/fork failed (${describeRpcError(error)}); the member starts from den-kit's account of the conversation`,
-                );
-                this.record('fork-failed', { message: describeRpcError(error) });
-              }
-            }
-            if (!forked) input = `${request.fork.fallback}\n\n${request.text}`;
+        const tools = this.toolOverride ?? toolsFor();
+        // A saved conversation that is not open here (the app restarted): open it again.
+        if (!thread && request.thread) {
+          try {
+            const r = await peer.request<ThreadStartResponse>(
+              'thread/resume',
+              resumeParams({
+                threadId: request.thread,
+                model: this.modelId,
+                cwd: this.workdir,
+                instructions: request.instructions,
+              }),
+              { timeoutMs: this.timeouts.requestMs },
+            );
+            thread = {
+              id: r.thread.id,
+              turn: null,
+              generation: this.generation,
+              tools: new Set(tools.map(t => t.name)),
+            };
+            this.threads.set(thread.id, thread);
+            sink.event({ kind: 'thread', thread: thread.id, fresh: false });
+          } catch (error) {
+            this.log(
+              `codex: thread/resume failed (${describeRpcError(error)}); a new conversation starts`,
+            );
+            this.record('resume-failed', { message: describeRpcError(error) });
           }
-          r ??= await peer.request<ThreadStartResponse>(
+          if (turn.done) return;
+        }
+        if (!thread) {
+          const r = await peer.request<ThreadStartResponse>(
             'thread/start',
             threadStartParams({
               model: this.modelId,
@@ -1153,12 +1171,11 @@ export class CodexClient {
               .catch(() => {});
             return;
           }
-          // A copy keeps the lead's tools (lead tools too: den-kit refuses those from a member).
           thread = {
             id: r.thread.id,
             turn: null,
             generation: this.generation,
-            tools: new Set(forked && source ? [...source.tools] : tools.map(t => t.name)),
+            tools: new Set(tools.map(t => t.name)),
           };
           this.threads.set(thread.id, thread);
           if (r.instructionSources?.length) {
@@ -1170,12 +1187,7 @@ export class CodexClient {
               detail: `Codex also loaded ${r.instructionSources.length} instruction file(s) from CODEX_HOME.`,
             });
           }
-          sink.event({
-            kind: 'thread',
-            thread: thread.id,
-            fresh: !!request.thread,
-            ...(forked !== undefined ? { forked } : {}),
-          });
+          sink.event({ kind: 'thread', thread: thread.id, fresh: !!request.thread });
         }
         if (turn.stopRequested) {
           this.finish(turn, 'interrupted');
@@ -1189,7 +1201,7 @@ export class CodexClient {
           'turn/start',
           {
             threadId: thread.id,
-            input: userInput(input, request.images),
+            input: userInput(request.text, request.images, request.context),
             ...(effort ? { effort } : {}),
           },
           { timeoutMs: this.timeouts.requestMs },
@@ -1208,7 +1220,10 @@ export class CodexClient {
   }
 
   /** Add text (and pictures) to a running request's turn. The steer request ends with `steered`, or a failed `done` (then send it as a new request). */
-  steer(request: { key: string; target: string; text: string; images?: string[] }, sink: TurnSink) {
+  steer(
+    request: { key: string; target: string; text: string; context?: string; images?: string[] },
+    sink: TurnSink,
+  ) {
     const turn = this.turns.get(request.target);
     if (!turn || turn.done || turn.stopRequested || !this.peer) {
       sink.event({
@@ -1219,7 +1234,13 @@ export class CodexClient {
       });
       return;
     }
-    const steer = { key: request.key, text: request.text, images: request.images, sink };
+    const steer = {
+      key: request.key,
+      text: request.text,
+      context: request.context,
+      images: request.images,
+      sink,
+    };
     if (!turn.turnId) {
       turn.steers.push(steer);
       return;
@@ -1229,7 +1250,7 @@ export class CodexClient {
 
   private sendSteer(
     turn: TurnState,
-    steer: { key: string; text: string; images?: string[]; sink: TurnSink },
+    steer: { key: string; text: string; context?: string; images?: string[]; sink: TurnSink },
   ) {
     const peer = this.peer;
     if (!peer || !turn.thread || !turn.turnId || turn.done) {
@@ -1246,7 +1267,7 @@ export class CodexClient {
         'turn/steer',
         {
           threadId: turn.thread.id,
-          input: userInput(steer.text, steer.images),
+          input: userInput(steer.text, steer.images, steer.context),
           expectedTurnId: turn.turnId,
         },
         { timeoutMs: this.timeouts.requestMs },
@@ -1287,7 +1308,7 @@ export class CodexClient {
   }
 
   private interrupt(turn: TurnState) {
-    if (turn.interruptSent || !turn.thread || !turn.turnId || !this.peer) return;
+    if (turn.interruptSent || !turn.thread || !turn.turnId || !turn.begun || !this.peer) return;
     turn.interruptSent = true;
     // Never awaited for flow: interrupting a turn that has just ended can take ~10 s to answer.
     this.peer
@@ -1354,6 +1375,40 @@ export class CodexClient {
     return this.turns.has(key);
   }
 
+  /** What was said in a saved conversation (the person's words and the AI's messages); null when it cannot be read. */
+  async conversation(threadId: string): Promise<ConversationLine[] | null> {
+    const peer = this.peer;
+    if (!this.ready || !peer) return null;
+    const lines: ConversationLine[] = [];
+    try {
+      let cursor: string | null = null;
+      for (let page = 0; page < 50; page++) {
+        const r: ThreadItemsListResponse = await peer.request<ThreadItemsListResponse>(
+          'thread/items/list',
+          { threadId, cursor, limit: 200 },
+          { timeoutMs: this.timeouts.requestMs },
+        );
+        for (const { item } of r.data) {
+          if (item.type === 'userMessage') {
+            // The person's words are the last text input (den-kit's notes come first).
+            const texts = ((item.content as UserInput[] | undefined) ?? []).filter(
+              (c): c is Extract<UserInput, { type: 'text' }> => c.type === 'text',
+            );
+            const words = texts.at(-1)?.text;
+            if (words) lines.push({ who: 'person', text: words });
+          } else if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text)
+            lines.push({ who: 'ai', text: item.text });
+        }
+        cursor = r.nextCursor;
+        if (!cursor) break;
+      }
+      return lines;
+    } catch (error) {
+      this.log(`codex: thread/items/list failed (${describeRpcError(error)})`);
+      return null;
+    }
+  }
+
   /** Forget a conversation (new patch, or the tab went away). */
   forget(threadId: string) {
     const thread = this.threads.get(threadId);
@@ -1417,7 +1472,7 @@ export class CodexClient {
     turn.sink.event({ kind: 'done', status, ...(error ? { error } : {}), ms });
   }
 
-  /** KIT_CODEX_EFFORT, except "ultra": that turns on Codex's own sub-agents, and den-kit runs its own members. */
+  /** KIT_CODEX_EFFORT, except "ultra": that starts Codex's sub-agents, which den-kit keeps off. */
   private effort(): string | undefined {
     const effort = this.options.effort?.trim();
     if (!effort) return undefined;
@@ -1425,7 +1480,7 @@ export class CodexClient {
       if (!this.warnedUltra) {
         this.warnedUltra = true;
         this.log(
-          "codex: KIT_CODEX_EFFORT=ultra is not sent (it starts Codex's own sub-agents; den-kit has its own members). Using the model's default effort.",
+          "codex: KIT_CODEX_EFFORT=ultra is not sent (it starts Codex's sub-agents, which den-kit keeps off). Using the model's default effort.",
         );
       }
       return undefined;
@@ -1624,7 +1679,12 @@ export class CodexClient {
       case 'turn/started': {
         const t = this.turnOf(p.threadId);
         const n = p as unknown as TurnNotification;
-        if (t && !t.turnId && n.turn?.id) t.turnId = n.turn.id;
+        if (!t || !n.turn?.id) return;
+        t.turnId ??= n.turn.id;
+        if (n.turn.id !== t.turnId) return;
+        t.begun = true;
+        // Esc before Codex started the turn: interrupt it now.
+        if (t.stopRequested) this.interrupt(t);
         return;
       }
       case 'turn/completed': {

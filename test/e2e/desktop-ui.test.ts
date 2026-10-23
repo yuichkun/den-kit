@@ -7,7 +7,7 @@ import { openKit, startAudio, startHarness, type Harness } from './harness.ts';
 
 const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
   version: '0.1.0',
-  settings: { model: '', effort: '', fork: true },
+  settings: { model: '', effort: '' },
   models: [
     {
       id: 'gpt-6.1-sol',
@@ -198,7 +198,7 @@ describe('desktop interface', () => {
           ?.textContent?.includes('Saved'),
       );
       assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.saved), [
-        { model: 'gpt-6-luna', effort: 'low', fork: true },
+        { model: 'gpt-6-luna', effort: 'low' },
       ]);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await page.click('[data-testid=desktop-settings-open]');

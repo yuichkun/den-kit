@@ -1,8 +1,8 @@
 // U5a in the browser: the patch canvas behaves like a drawing app (drag on
 // empty space selects, scrolling pans, a pinch or ⌘/Ctrl + wheel zooms); what
 // is selected rides along with an AI request as chips (× leaves one out); the
-// conversation about the patch survives a reload and folds away when another
-// patch is opened.
+// work's conversation, which the runtime keeps, goes on after a reload and shows
+// what was said; another work has its own.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -129,7 +129,7 @@ describe('attachments and the conversation', () => {
     await page.close();
   });
 
-  it('the conversation survives a reload; opening another patch folds it away as earlier', async () => {
+  it("the work's conversation goes on after a reload and shows what was said; another work has its own", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await page.keyboard.press('Control+k');
@@ -163,35 +163,47 @@ describe('attachments and the conversation', () => {
       'a follow-up continues the same LLM conversation',
     );
     assert.equal(await kit(page, k => k.doc.value.nodes.aenv1.values.release), 1.2);
-    // Reload (keep the storage this time): the patch and its conversation come back.
+    const thread = await kit(page, k => k.conversation.value);
+    assert.equal(thread, starts[0]!.params.threadId, "den-kit keeps the runtime's id, by work");
+    // Reload (keep the storage this time): the work comes back with its conversation, read from the runtime.
     await page.evaluate(() => {
-      (window as any).__kit.requests.persist();
       (window as any).__kit.saveNow();
       sessionStorage.setItem('kit-e2e-keep', '1');
     });
     await reloadKit(page);
     await page.waitForFunction(
-      () => (window as any).__kit?.requests?.history.value.length === 2,
+      () => (window as any).__kit?.requests?.earlier.value.length === 2,
       null,
       { timeout: 60000 },
     );
     assert.deepEqual(
-      await kit(page, k => k.requests.history.value.map((o: { text: string }) => o.text)),
+      await kit(page, k => k.requests.earlier.value.map((o: { text: string }) => o.text)),
       ['longer release', 'more'],
     );
-    await page.waitForSelector('[data-testid=ai-history] >> text=longer release');
-    // Another patch: a new conversation; the old lines fold away, marked as unseen by the AI.
+    assert.equal(await kit(page, k => k.requests.history.value.length), 0);
+    assert.match(
+      await page.locator('[data-testid=ai-earlier]').innerText(),
+      /Earlier in this work's conversation: 2 requests/,
+    );
+    // The next request goes on with the same conversation.
     await page.click('[data-testid=start-overlay]').catch(() => undefined);
+    await page.keyboard.press('Control+k');
+    await page.keyboard.type('more');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => {
+      const o = (window as any).__kit.requests.history.value.at(-1);
+      return o?.text === 'more' && o.status === 'applied';
+    });
+    const after = h.codex!.sent('turn/start').at(-1) as { params: { threadId: string } };
+    assert.equal(after.params.threadId, thread, 'after a reload, the conversation goes on');
+    // Another work: its own conversation (none yet); what was said about the other one is not shown.
     await page.keyboard.press('Control+Alt+KeyN');
     await page.waitForSelector('[data-testid=start-screen]');
     await page.click('[data-work=acid]');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-    await page.waitForSelector('[data-testid=ai-earlier]');
+    assert.equal(await kit(page, k => k.conversation.value), null);
     assert.equal(await kit(page, k => k.requests.history.value.length), 0);
-    assert.match(
-      await page.locator('[data-testid=ai-earlier]').innerText(),
-      /2 requests \(the AI does not see these\)/,
-    );
+    assert.equal(await page.locator('[data-testid=ai-earlier]').count(), 0);
     assert.deepEqual(errors, []);
     await page.close();
   });

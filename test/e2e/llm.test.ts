@@ -168,7 +168,7 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
       assert.equal(
         await page
           .locator(
-            '[data-testid=ai-panel] button:not([data-testid=ai-drawer-toggle]):not([data-testid=ai-close]):not([data-testid=ai-mic]):not([data-testid=ai-screen]):not([data-testid=ai-pen])',
+            '[data-testid=ai-panel] button:not([data-testid=ai-close]):not([data-testid=ai-mic]):not([data-testid=ai-screen]):not([data-testid=ai-pen])',
           )
           .count(),
         0,

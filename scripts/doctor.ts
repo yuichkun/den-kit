@@ -2,9 +2,10 @@
 //   Node, dependencies, ports ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
 // `npm run doctor -- --deep` also makes one real Codex request with a ping tool, then
-// tries what members, sketches and shared screens need (U8): two requests at once, a tool
-// call held as long as kit_wait may hold one, pictures with a request and added while it
-// works, a copy of a conversation (thread/fork) and token counts (about two minutes in all).
+// tries what den-kit needs beyond one request: two requests at once (two windows), a tool
+// call held as long as a kit_bash command may run, pictures with a request and added while
+// it works (sketches, shared screens), a saved conversation read back (thread/items/list)
+// and token counts (about two minutes in all).
 // It records the whole JSON-RPC conversation to .logs/codex-deep-*.jsonl.
 // Every run writes its results to .logs/doctor-*.json (secrets masked).
 import { execFile } from 'node:child_process';
@@ -26,7 +27,7 @@ import {
   spawnAppServer,
   type CodexCommand,
 } from '../bridge/codex/process.ts';
-import { describeRpcError, forkParams, text, threadStartParams } from '../bridge/codex/client.ts';
+import { describeRpcError, text, threadStartParams } from '../bridge/codex/client.ts';
 import {
   CODEX_VERSION,
   DECLINE,
@@ -265,7 +266,7 @@ async function checkCodex() {
   const proc = spawnAppServer(command, { home: home.path, cwd: workdir });
   const notes: RpcNotification[] = [];
   const recording: Array<{ at: number; dir: string; line: string }> = [];
-  /** The U8 checks' threads (their tool calls and turns), and the tokens each thread used so far. */
+  /** The deep checks' threads (their tool calls and turns), and the tokens each thread used so far. */
   const watches = new Map<string, Watch>();
   const usage = new Map<string, number>();
   const live = {
@@ -457,12 +458,12 @@ async function checkCodex() {
           `${(ms / 1000).toFixed(1)} s · kit_ping round trip · reply “${live.reply.slice(0, 40)}”`,
         );
       if (status === 'completed')
-        await teamChecks({
+        await deepChecks({
           peer,
           workdir,
           model: wanted || null,
           images: !!model?.inputModalities.includes('image'),
-          lead: started.thread.id,
+          live: started.thread.id,
           watches,
           usage,
         });
@@ -497,7 +498,7 @@ async function checkCodex() {
   }
 }
 
-// ---- What members, sketches and shared screens need (U8) ---------------------------------------
+// ---- What den-kit needs beyond one request ---------------------------------------------------
 interface Watch {
   tool(r: RpcRequest): void;
   note(method: string, p: Record<string, any>): void;
@@ -559,17 +560,18 @@ function solidPng([r, g, b]: [number, number, number], size = 32): string {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
-async function teamChecks(c: {
+async function deepChecks(c: {
   peer: RpcPeer;
   workdir: string;
   model: string | null;
   images: boolean;
-  lead: string;
+  /** The live request's conversation (saved): the one read back. */
+  live: string;
   watches: Map<string, Watch>;
   usage: Map<string, number>;
 }) {
   const { peer } = c;
-  /** How long the held tool call waits (kit_wait may hold one up to 75 s). */
+  /** How long the held tool call waits (a kit_bash command runs up to 2 minutes unless it asks for more). */
   const WAIT_MS = Number(process.env.KIT_DOCTOR_TOOL_WAIT_MS) || 75000;
   const PING_RULE =
     'This is a den-kit check. Call the kit_ping tool exactly once (no arguments), then reply with the single word: pong.';
@@ -604,7 +606,7 @@ async function teamChecks(c: {
   const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
   const opened: string[] = [];
   try {
-    // Members: two requests at once; one holds its tool call as long as a lead waiting for its members may.
+    // Two requests at once (two windows); one holds its tool call as a long kit_bash command does.
     const [a, b] = await Promise.all([thread(PING_RULE), thread(PING_RULE)]);
     opened.push(a, b);
     const held = watching(c.watches, a, r => {
@@ -613,8 +615,8 @@ async function teamChecks(c: {
     const quick = watching(c.watches, b, r => pong(r));
     const t0 = Date.now();
     await Promise.all([
-      turn(a, [text('den-kit connectivity check (member A): please ping.')]),
-      turn(b, [text('den-kit connectivity check (member B): please ping.')]),
+      turn(a, [text('den-kit connectivity check (request A): please ping.')]),
+      turn(b, [text('den-kit connectivity check (request B): please ping.')]),
     ]);
     const first = await within(quick.ended, 180000);
     const odd = () => [
@@ -623,21 +625,21 @@ async function teamChecks(c: {
     if (first !== 'completed')
       report(
         'FAIL',
-        'Codex members',
+        'Codex two requests',
         `the second of two requests at once: ${why(quick, first)}`,
-        'Members cannot work at the same time: set Members to off in the AI panel (⚙) and tell the developer.',
+        'Two windows cannot ask the AI at the same time: ask in one window at a time and tell the developer.',
       );
     else if (held.status)
       report(
         'WARN',
-        'Codex members',
+        'Codex two requests',
         'the second request ended only after the first: they took turns',
-        'Members would work one after another; den-kit still works (Members off in ⚙ compares).',
+        'Requests from two windows run one after another; den-kit still works.',
       );
     else
       report(
         'PASS',
-        'Codex members',
+        'Codex two requests',
         `two requests at once: one finished in ${seconds(Date.now() - t0)} while the other's tool call was held`,
       );
 
@@ -712,30 +714,27 @@ async function teamChecks(c: {
         );
     }
 
-    // A copy of a conversation (members that get the whole conversation, with KIT_CODEX_FORK=1).
+    // A saved conversation reads back: den-kit shows it again after a restart.
     try {
-      const copy = await peer.request<ThreadStartResponse>(
-        'thread/fork',
-        forkParams({
-          threadId: c.lead,
-          model: c.model,
-          cwd: c.workdir,
-          instructions: 'den-kit fork check',
-        }),
+      const items = await peer.request<{ data: unknown[] }>(
+        'thread/items/list',
+        { threadId: c.live, limit: 50 },
         { timeoutMs: 20000 },
       );
-      opened.push(copy.thread.id);
       report(
-        'PASS',
-        'Codex fork',
-        "copies a conversation: KIT_CODEX_FORK=1 lets members that need the whole conversation start from a copy of the lead's",
+        items.data.length ? 'PASS' : 'WARN',
+        'Codex conversation',
+        items.data.length
+          ? `a saved conversation reads back (${items.data.length} items)`
+          : 'the conversation read back empty',
+        'An earlier conversation may not show again after a restart; requests still work.',
       );
     } catch (error) {
       report(
         'WARN',
-        'Codex fork',
-        `cannot copy the conversation (${describeRpcError(error)})`,
-        "Nothing to do: such members start from den-kit's account of the conversation (leave KIT_CODEX_FORK unset).",
+        'Codex conversation',
+        `a saved conversation cannot be read back (${describeRpcError(error)})`,
+        'An earlier conversation does not show again after a restart; requests still work.',
       );
     }
 
@@ -746,23 +745,23 @@ async function teamChecks(c: {
         'FAIL',
         'Codex long tool wait',
         `a tool call answered after ${seconds(WAIT_MS)}: ${why(held, last)}`,
-        'A lead waiting for its members could lose its request: set Members to off (⚙) and tell the developer.',
+        'A request could end while a long kit_bash command runs: tell the developer.',
       );
     else
       report(
         'PASS',
         'Codex long tool wait',
-        `a tool call answered after ${seconds(WAIT_MS)}; the request went on (kit_wait holds one up to 75 s)`,
+        `a tool call answered after ${seconds(WAIT_MS)}; the request went on (a kit_bash command holds one while it runs)`,
       );
     if (odd().length)
       report(
         'FAIL',
-        'Codex members',
+        'Codex two requests',
         `Codex tried other tools: ${odd().join(', ')}`,
         'den-kit allows only its own tools; send .logs/codex-deep-*.jsonl to the developer.',
       );
 
-    // Token counts (per request and per member in the AI panel).
+    // Token counts (per request in the AI panel).
     const total = [...c.usage.values()].reduce((sum, n) => sum + n, 0);
     report(
       total ? 'PASS' : 'WARN',
@@ -773,7 +772,7 @@ async function teamChecks(c: {
       total ? undefined : 'The AI panel cannot show tokens per request; everything else works.',
     );
   } catch (error) {
-    report('FAIL', 'Codex members', describeRpcError(error));
+    report('FAIL', 'Codex two requests', describeRpcError(error));
   } finally {
     for (const id of opened)
       peer.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 5000 }).catch(() => {});

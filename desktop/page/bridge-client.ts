@@ -8,6 +8,7 @@ import type {
   AIAccount,
   AIConnection,
   AIWording,
+  ConversationLine,
   LlmInbound,
   LlmStartOptions,
 } from '../../src/host/ai.ts';
@@ -68,6 +69,9 @@ export class BridgeClient implements AI {
   private readonly backoff: { baseMs: number; maxMs: number };
   private statusListeners = new Set<(s: BridgeStatus) => void>();
   private llmListeners = new Set<(m: LlmInbound) => void>();
+  /** Conversation reads waiting for their answer. */
+  private readWaits = new Map<string, (lines: ConversationLine[] | null) => void>();
+  private reads = 0;
 
   readonly wording: AIWording;
   readonly account: AIAccount | null;
@@ -115,13 +119,38 @@ export class BridgeClient implements AI {
       text,
       instructions,
       ...(thread ? { thread } : {}),
-      ...(options.role ? { role: options.role } : {}),
+      ...(options.context ? { context: options.context } : {}),
       ...(options.images?.length ? { images: options.images } : {}),
-      ...(options.fork ? { fork: options.fork } : {}),
     });
   }
-  llmSteer(id: string, target: string, text: string, images?: string[]) {
-    return this.post({ t: 'llm.steer', id, target, text, ...(images?.length ? { images } : {}) });
+  llmSteer(id: string, target: string, text: string, options: LlmStartOptions = {}) {
+    return this.post({
+      t: 'llm.steer',
+      id,
+      target,
+      text,
+      ...(options.context ? { context: options.context } : {}),
+      ...(options.images?.length ? { images: options.images } : {}),
+    });
+  }
+  /** What was said in a conversation, read from the runtime (null: offline, or it could not be read). */
+  conversation(thread: string): Promise<ConversationLine[] | null> {
+    const id = `c${++this.reads}`;
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        this.readWaits.delete(id);
+        resolve(null);
+      }, 20_000);
+      this.readWaits.set(id, lines => {
+        clearTimeout(timer);
+        resolve(lines);
+      });
+      if (!this.post({ t: 'llm.conversation', id, thread })) {
+        clearTimeout(timer);
+        this.readWaits.delete(id);
+        resolve(null);
+      }
+    });
   }
   llmStop(id: string) {
     return this.post({ t: 'llm.stop', id });
@@ -215,6 +244,12 @@ export class BridgeClient implements AI {
         case 'tool.call':
           for (const l of this.llmListeners) l(message);
           return;
+        case 'conversation': {
+          const done = this.readWaits.get(message.id);
+          this.readWaits.delete(message.id);
+          done?.(message.lines);
+          return;
+        }
         case 'error':
           if (message.ref)
             for (const l of this.llmListeners)

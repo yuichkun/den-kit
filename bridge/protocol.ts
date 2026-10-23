@@ -2,10 +2,8 @@
 // behind a local bridge (desktop/ and dev/). The request and event types are the
 // AI interface's (src/host/ai.ts); this file adds the wire messages. Dependency-free
 // and erasable-only, so the Node bridge (type stripping) and the page share it.
-import type { AIStatus, LlmEvent, LlmRole, ToolOutput } from '../src/host/ai.ts';
+import type { AIStatus, ConversationLine, LlmEvent, ToolOutput } from '../src/host/ai.ts';
 import {
-  LLM_ROLES,
-  MAX_FORK_TEXT,
   MAX_INSTRUCTIONS,
   MAX_LLM_IMAGES,
   MAX_LLM_TEXT,
@@ -16,26 +14,18 @@ import {
 export type {
   AIStatus,
   CodexStatus,
+  ConversationLine,
   LlmError,
   LlmEvent,
   LlmQuestion,
-  LlmRole,
   TokenUsage,
   ToolOutput,
 } from '../src/host/ai.ts';
-export {
-  LLM_ROLES,
-  MAX_FORK_TEXT,
-  MAX_INSTRUCTIONS,
-  MAX_LLM_IMAGES,
-  MAX_LLM_TEXT,
-  MAX_TOOL_IMAGE,
-  MAX_TOOL_TEXT,
-};
+export { MAX_INSTRUCTIONS, MAX_LLM_IMAGES, MAX_LLM_TEXT, MAX_TOOL_IMAGE, MAX_TOOL_TEXT };
 /** The bridge's status message. */
 export type BridgeStatus = AIStatus;
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const WS_PATH = '/__kit/ws';
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
@@ -54,23 +44,30 @@ export type ClientMessage =
   | { t: 'status.get'; id: string }
   | { t: 'telemetry'; record: Record<string, unknown> }
   /**
-   * Start an LLM turn; `thread` continues an earlier conversation, `instructions` is used for a new one.
-   * `role` picks the tools (default solo). `images` are data: URLs that come with the text. `fork`: a member
-   * that starts from a copy of the lead's conversation; when Codex cannot copy it, the new conversation
-   * starts with `fallback` (den-kit's account of that conversation) before the text.
+   * Start an LLM turn; `thread` goes on with an earlier conversation (the runtime keeps it), `instructions`
+   * are used for a new one. `context` is den-kit's notes about the moment, sent before the person's
+   * `text`; `images` are data: URLs that come with it.
    */
   | {
       t: 'llm.start';
       id: string;
       text: string;
+      context?: string;
       thread?: string;
       instructions: string;
-      role?: LlmRole;
       images?: string[];
-      fork?: { thread: string; fallback: string };
     }
+  /** Read what was said in a conversation (answered with `conversation`). */
+  | { t: 'llm.conversation'; id: string; thread: string }
   /** Add `text` (and pictures) to the running turn of request `target` (answered with `steered` or a failed `done`). */
-  | { t: 'llm.steer'; id: string; target: string; text: string; images?: string[] }
+  | {
+      t: 'llm.steer';
+      id: string;
+      target: string;
+      text: string;
+      context?: string;
+      images?: string[];
+    }
   | { t: 'llm.stop'; id: string }
   | { t: 'llm.answer'; id: string; question: string; answers: Record<string, string[]> }
   | { t: 'llm.forget'; thread: string }
@@ -82,9 +79,15 @@ export type ServerMessage =
   /** `running`: this tab's LLM requests the bridge still knows (after a reconnect, others were lost). */
   | { t: 'welcome'; protocol: number; bridge: string; status: BridgeStatus; running?: string[] }
   | { t: 'status'; id?: string; status: BridgeStatus }
-  | { t: 'llm.event'; id: string; event: LlmEvent }
-  /** Run a kit_* tool for request `id` and answer with `tool.result` (the same callId may arrive again after a reconnect). */
-  | { t: 'tool.call'; id: string; callId: string; tool: string; args: unknown }
+  /** `agent`: the sub-agent the event is about (none: the request's own AI). */
+  | { t: 'llm.event'; id: string; event: LlmEvent; agent?: string }
+  /**
+   * Run a kit_* tool for request `id` and answer with `tool.result` (the same callId may arrive again after a
+   * reconnect). `agent`: the sub-agent that called it (none: the request's own AI).
+   */
+  | { t: 'tool.call'; id: string; callId: string; tool: string; args: unknown; agent?: string }
+  /** A conversation's lines (null: it could not be read). */
+  | { t: 'conversation'; id: string; lines: ConversationLine[] | null }
   | { t: 'error'; message: string; ref?: string };
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -102,6 +105,10 @@ function images(value: unknown): string[] | undefined | null {
     ? (value as string[])
     : null;
 }
+
+/** den-kit's notes that come with a request: absent, or text up to MAX_LLM_TEXT characters. */
+const context = (value: unknown) =>
+  value === undefined || (typeof value === 'string' && value.length <= MAX_LLM_TEXT);
 
 /** Shape check for messages from the browser (the bridge never trusts the socket). */
 export function parseClientMessage(raw: string): ClientMessage | { error: string } {
@@ -137,38 +144,26 @@ export function parseClientMessage(raw: string): ClientMessage | { error: string
         return { error: 'bad llm.start' };
       if (!data.text.trim() || data.text.length > MAX_LLM_TEXT)
         return { error: `llm.start text must be 1–${MAX_LLM_TEXT} characters` };
+      if (!context(data.context)) return { error: 'bad llm.start context' };
       if (data.instructions.length > MAX_INSTRUCTIONS)
         return { error: 'llm.start instructions are too long' };
-      if (data.role !== undefined && !LLM_ROLES.includes(data.role as LlmRole))
-        return { error: 'bad llm.start role' };
       const pictures = images(data.images);
       if (pictures === null)
         return { error: `llm.start images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
-      let fork: { thread: string; fallback: string } | undefined;
-      if (data.fork !== undefined) {
-        const f = data.fork;
-        if (
-          !isObject(f) ||
-          !isId(f.thread) ||
-          typeof f.fallback !== 'string' ||
-          f.fallback.length > MAX_FORK_TEXT
-        )
-          return { error: 'bad llm.start fork' };
-        if (data.role !== 'member')
-          return { error: "only a member starts from a copy of the lead's conversation" };
-        fork = { thread: f.thread, fallback: f.fallback };
-      }
       return {
         t: 'llm.start',
         id: data.id,
         text: data.text,
         thread: data.thread as string | undefined,
         instructions: data.instructions,
-        ...(data.role ? { role: data.role as LlmRole } : {}),
+        ...(data.context ? { context: data.context as string } : {}),
         ...(pictures?.length ? { images: pictures } : {}),
-        ...(fork ? { fork } : {}),
       };
     }
+    case 'llm.conversation':
+      return isId(data.id) && isId(data.thread)
+        ? { t: 'llm.conversation', id: data.id, thread: data.thread }
+        : { error: 'bad llm.conversation' };
     case 'llm.steer': {
       if (
         !isId(data.id) ||
@@ -181,11 +176,13 @@ export function parseClientMessage(raw: string): ClientMessage | { error: string
       const pictures = images(data.images);
       if (pictures === null)
         return { error: `llm.steer images must be up to ${MAX_LLM_IMAGES} data:image/ URLs` };
+      if (!context(data.context)) return { error: 'bad llm.steer context' };
       return {
         t: 'llm.steer',
         id: data.id,
         target: data.target,
         text: data.text,
+        ...(data.context ? { context: data.context as string } : {}),
         ...(pictures?.length ? { images: pictures } : {}),
       };
     }

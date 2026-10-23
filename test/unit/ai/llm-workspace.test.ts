@@ -9,9 +9,9 @@ import { applyIntents, type Intent } from '../../../src/work/ops.ts';
 import { clone, type PatchDocument } from '../../../src/work/schema.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import {
+  CLAIM_TOOL,
   KIT_TOOLS,
   KIT_TOOL_NAMES,
-  LEAD_TOOLS,
   developerInstructions,
 } from '../../../src/ai/llm-spec.ts';
 import type { RenderRequest } from '../../../src/sound/compile/protocol.ts';
@@ -79,12 +79,13 @@ describe('tool specs', () => {
       expect(text).toContain(name);
     expect(text).toMatch(/Never ask the user to choose/);
     expect(text).toMatch(/lands on the live patch at once/);
-    // Every tool den-kit runs: everyone's and the lead's (U8).
-    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length + LEAD_TOOLS.length);
-    for (const t of LEAD_TOOLS) {
-      expect(t.inputSchema.type).toBe('object');
-      expect(KIT_TOOL_NAMES.has(t.name)).toBe(true);
-    }
+    // Every tool den-kit runs, the same for every agent: sub-agents claim their scope with one more.
+    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length + 1);
+    expect(CLAIM_TOOL.inputSchema.type).toBe('object');
+    expect(KIT_TOOL_NAMES.has('kit_claim_scope')).toBe(true);
+    for (const gone of ['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member'])
+      expect(KIT_TOOL_NAMES.has(gone)).toBe(false);
+    expect(text).toMatch(/kit_claim_scope/);
     expect(KIT_TOOL_NAMES.has('kit_ask')).toBe(false);
   });
 });
