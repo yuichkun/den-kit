@@ -12,11 +12,11 @@
 // like in the patch, so ⌘Z undoes it.
 import { useTouches } from './touches.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { Intent } from '../core/ops.ts';
-import { THEMES } from '../core/schema.ts';
-import { CONTROL_OF } from '../core/skins.ts';
-import { stackOrder, withGroups } from '../core/ui.ts';
-import { pluginSpec } from '../plugin/build.ts';
+import type { Intent } from '../work/ops.ts';
+import { THEMES } from '../work/schema.ts';
+import { CONTROL_OF } from '../work/skins.ts';
+import { stackOrder, withGroups } from '../work/ui.ts';
+import { pluginSpec } from '../screen/build.ts';
 import {
   align,
   distribute,
@@ -26,14 +26,14 @@ import {
   resizeBy,
   type Align,
   type Handle,
-} from '../plugin/edit.ts';
-import { insertIntents } from '../plugin/inserts.ts';
-import type { PluginIssue } from '../plugin/checks.ts';
-import type { PluginItem, PluginSpec, Rect } from '../plugin/spec.ts';
-import PluginWindow from '../plugin/PluginWindow.vue';
+} from '../screen/edit.ts';
+import { insertIntents } from '../screen/inserts.ts';
+import type { PluginIssue } from '../screen/checks.ts';
+import type { PluginItem, PluginSpec, Rect } from '../screen/spec.ts';
+import PluginWindow from '../screen/PluginWindow.vue';
 import InsertMenu from './plugin/InsertMenu.vue';
-import { starterPart, withTemplate } from '../pod/template.ts';
-import { partPath } from '../core/project.ts';
+import { starterPart, withTemplate } from '../workspace/template.ts';
+import { partPath } from '../work/project.ts';
 import InputSelect from './InputSelect.vue';
 import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';

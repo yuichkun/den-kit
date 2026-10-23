@@ -3,8 +3,8 @@
 // Every LLM request carries one short line of it, so "this", "here" and "what
 // I see" mean the same to the AI as to the person; with screen sharing on, the
 // AI can also see it as a picture (kit_look as "seen").
-import type { Catalog } from '../core/catalog.ts';
-import type { PatchDocument } from '../core/schema.ts';
+import type { Catalog } from '../work/catalog.ts';
+import type { PatchDocument } from '../work/schema.ts';
 
 export type SeenView = 'patch' | 'plugin' | 'code' | 'project';
 export interface Seeing {

@@ -3,7 +3,7 @@
 // graph with handles, oscillator/LFO waveforms, filter response, drive curve,
 // delay taps, compressor curve. They follow the current knob values.
 import { computed } from 'vue';
-import type { PatchNode } from '../core/schema.ts';
+import type { PatchNode } from '../work/schema.ts';
 
 const props = withDefaults(
   defineProps<{ node: PatchNode; color: string; width?: number; height?: number }>(),

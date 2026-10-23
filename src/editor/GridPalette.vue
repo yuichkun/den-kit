@@ -3,9 +3,9 @@
 // tiles on the right. Click a tile to add it at the view centre or drag it onto
 // the canvas; the search field filters across all categories.
 import { computed, ref } from 'vue';
-import type { NodeDef } from '../core/catalog.ts';
-import { partUses } from '../core/parts.ts';
-import { latest } from '../core/library.ts';
+import type { NodeDef } from '../work/catalog.ts';
+import { partUses } from '../work/parts.ts';
+import { latest } from '../work/library.ts';
 import { useSession } from './context.ts';
 import { titleColor, portColor } from './grid-style.ts';
 

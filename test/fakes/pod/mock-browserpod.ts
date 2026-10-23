@@ -1,6 +1,6 @@
 // FOR TESTS ONLY: an object with BrowserPod's API (the @leaningtech/browserpod
 // 3.4.0 typings) that does its work with this machine's processes and files, so
-// den-kit's BrowserPod adapter (src/pod/browserpod.ts) runs its real code without
+// den-kit's BrowserPod adapter (desktop/page/browserpod.ts) runs its real code without
 // an API key. It follows what BrowserPod's documentation says, taking the
 // harder reading where the documentation is silent:
 // - run() resolves when the program exits, with an opaque Process and no exit status;

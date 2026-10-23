@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { pluginSpec } from '../../../src/plugin/build.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { pluginSpec } from '../../../src/screen/build.ts';
 
 const knob = (
   id: string,

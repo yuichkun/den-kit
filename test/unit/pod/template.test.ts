@@ -1,11 +1,11 @@
 import ts from 'typescript';
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import { checkProjectPath } from '../../../src/core/project.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { pluginSpec } from '../../../src/plugin/build.ts';
-import { controlsSource, starterPart, templateFiles } from '../../../src/pod/template.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import { checkProjectPath } from '../../../src/work/project.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { pluginSpec } from '../../../src/screen/build.ts';
+import { controlsSource, starterPart, templateFiles } from '../../../src/workspace/template.ts';
 
 const syntaxErrors = (text: string) =>
   ts.transpileModule(text, {

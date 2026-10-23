@@ -5,34 +5,34 @@
 // part's face, and the other uses on the plugin follow. Faces are checked,
 // saved with the patch and carried by My parts.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
-import { checkFace, defaultFace, describeFace, faceGroup } from '../../../src/core/face.ts';
-import { checkBundle, extractBundle } from '../../../src/core/library.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
+import { checkFace, defaultFace, describeFace, faceGroup } from '../../../src/work/face.ts';
+import { checkBundle, extractBundle } from '../../../src/work/library.ts';
 import {
   applyIntents,
   applyResolvedOps,
   invertAll,
   OpError,
   type Intent,
-} from '../../../src/core/ops.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import type { PartFace, PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { UiCheckError } from '../../../src/core/ui.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { describePatch } from '../../../src/core/describe.ts';
+} from '../../../src/work/ops.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import type { PartFace, PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { UiCheckError } from '../../../src/work/ui.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { describePatch } from '../../../src/ai/describe.ts';
 import {
   FaceError,
   faceFromPlugin,
   faceIntents,
   faceOnPlugin,
   screenFace,
-} from '../../../src/plugin/faces.ts';
+} from '../../../src/screen/faces.ts';
 import { KitSession } from '../../../src/editor/session.ts';
-import { stackOrder } from '../../../src/core/ui.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
-import { SHOWCASE_ASSETS } from '../../../src/showcase/assets.ts';
+import { stackOrder } from '../../../src/work/ui.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
+import { SHOWCASE_ASSETS } from '../../../src/screen/showcase/assets.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown): Error => {

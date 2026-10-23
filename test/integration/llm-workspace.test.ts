@@ -5,15 +5,15 @@
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { compile } from '@unworklet/core';
 import { renderOffline } from '@unworklet/offline';
-import { catalog } from '../../src/blocks/index.ts';
-import { starter } from '../../src/core/starters.ts';
-import { evaluate, EvaluationError } from '../../src/compile/evaluate.ts';
-import { analyse, testSignal } from '../../src/core/analysis.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { starter } from '../../src/work/starters.ts';
+import { evaluate, EvaluationError } from '../../src/sound/compile/evaluate.ts';
+import { analyse, testSignal } from '../../src/sound/analysis.ts';
 import { LlmWorkspace } from '../../src/ai/llm-workspace.ts';
-import { applyIntents } from '../../src/core/ops.ts';
-import type { PatchDocument } from '../../src/core/schema.ts';
-import { attributeError } from '../../src/compile/compile-errors.ts';
-import { compileInputs } from '../../src/compile/compile-client.ts';
+import { applyIntents } from '../../src/work/ops.ts';
+import type { PatchDocument } from '../../src/work/schema.ts';
+import { attributeError } from '../../src/sound/compile/compile-errors.ts';
+import { compileInputs } from '../../src/sound/compile/compile-client.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;

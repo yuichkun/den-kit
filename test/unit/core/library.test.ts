@@ -4,8 +4,8 @@
 // carried in files. Broken bundles and files are refused or repaired with a
 // reason, never half-placed.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
 import {
   bundleHash,
   checkBundle,
@@ -23,7 +23,7 @@ import {
   serializeLibrary,
   type Library,
   type PartBundle,
-} from '../../../src/core/library.ts';
+} from '../../../src/work/library.ts';
 import {
   applyIntents,
   applyResolvedOps,
@@ -31,11 +31,11 @@ import {
   OpError,
   type Intent,
   type ResolvedOp,
-} from '../../../src/core/ops.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { clone, emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
+} from '../../../src/work/ops.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { clone, emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown): OpError => {

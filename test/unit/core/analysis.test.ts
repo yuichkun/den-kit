@@ -8,7 +8,7 @@ import {
   pngDataUrl,
   spectrogramPng,
   testSignal,
-} from '../../../src/core/analysis.ts';
+} from '../../../src/sound/analysis.ts';
 
 const SR = 48000;
 const sine = (hz: number, seconds: number, amp = 0.5, env?: (t: number) => number) =>

@@ -10,7 +10,7 @@
 //
 // Trust model: a connection must come from the Vite page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
-// is closed with a code that says why (see CLOSE in src/ai/protocol.ts).
+// is closed with a code that says why (see CLOSE in bridge/protocol.ts).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -23,7 +23,7 @@ import {
   type BridgeStatus,
   type ClientMessage,
   type ServerMessage,
-} from '../src/ai/protocol.ts';
+} from './protocol.ts';
 import { Telemetry } from './telemetry.ts';
 import type { CodexClient, TurnSink } from './codex/client.ts';
 

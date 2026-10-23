@@ -1,11 +1,11 @@
 // Modules the LLM adds without a position land in free space next to what they
 // connect to, never on top of another module.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import { moduleBox, placeNewNodes } from '../../../src/core/layout.ts';
-import type { PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import { moduleBox, placeNewNodes } from '../../../src/work/layout.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
 
 function rects(doc: PatchDocument) {
   const inputs = (id: string) =>

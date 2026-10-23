@@ -2,10 +2,10 @@
 // only one that validates and compiles lands (as one step); a failing edit
 // lands nothing and says why. What the tools report, and what lands.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { clone, type PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { clone, type PatchDocument } from '../../../src/work/schema.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import {
   KIT_TOOLS,
@@ -13,9 +13,9 @@ import {
   LEAD_TOOLS,
   developerInstructions,
 } from '../../../src/ai/llm-spec.ts';
-import type { RenderRequest } from '../../../src/compile/protocol.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
+import type { RenderRequest } from '../../../src/sound/compile/protocol.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
 
 function workspace(extra: Partial<WorkspaceDeps> = {}, doc = starter('bass', catalog)) {
   const renders: Array<Omit<RenderRequest, 'id' | 'kind'>> = [];

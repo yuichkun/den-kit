@@ -4,16 +4,16 @@
 // count recompiles; how a knob spreads (amount, kind, a copy's own value) is
 // played live, like turning a knob.
 import { computed } from 'vue';
-import type { PortDef } from '../core/catalog.ts';
-import { formatCpu } from '../core/cost.ts';
+import type { PortDef } from '../work/catalog.ts';
+import { formatCpu } from '../work/cost.ts';
 import {
   MAX_COUNT,
   SPREAD_KINDS,
   type PatchNode,
   type Spread,
   type SpreadKind,
-} from '../core/schema.ts';
-import { copiesOf, spreadable, spreadReach, spreadUnit, spreadValue } from '../core/stacks.ts';
+} from '../work/schema.ts';
+import { copiesOf, spreadable, spreadReach, spreadUnit, spreadValue } from '../work/stacks.ts';
 import { useSession } from './context.ts';
 
 const props = defineProps<{ node: PatchNode }>();
@@ -67,7 +67,7 @@ function setKind(p: PortDef, kind: SpreadKind | 'same') {
     return;
   }
   const old = spreadOf(p);
-  const next: Spread = { ...(old ?? {}), kind };
+  const next: Spread = { ...old, kind };
   if ((kind === 'range' || kind === 'random') && !next.amount)
     next.amount = p.scale === 'log' ? 0.5 : spreadReach(p) / 8;
   if (kind === 'each' && !next.values?.length)
@@ -123,7 +123,7 @@ function drawBars(p: PortDef, e: PointerEvent) {
       Math.max(0, Math.floor(((m.clientX - r.left) / r.width) * count.value)),
     );
     current[k] = fromHeight(p, 1 - (m.clientY - r.top) / r.height);
-    setSpread(p, { ...(spreadOf(p) ?? {}), kind: 'each', values: [...current] }, gesture);
+    setSpread(p, { ...spreadOf(p), kind: 'each', values: [...current] }, gesture);
   };
   paint(e);
   const up = () => {

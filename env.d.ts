@@ -16,7 +16,7 @@ declare module 'virtual:kit-pod' {
   export default pod;
 }
 declare module 'virtual:kit-types' {
-  const snapshot: import('./src/compile/type-project.ts').TypeFiles;
+  const snapshot: import('./src/sound/compile/type-project.ts').TypeFiles;
   export default snapshot;
 }
 declare module '*.vue' {

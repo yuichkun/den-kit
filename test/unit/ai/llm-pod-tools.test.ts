@@ -2,14 +2,14 @@
 // stand-in: what they report, what lands in the work (one step of the request),
 // and what they say when there is no pod.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
 import { LlmWorkspace, type PodAccess, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOL_NAMES, developerInstructions, toolDeadlineMs } from '../../../src/ai/llm-spec.ts';
 import { describePlugin, uiReference } from '../../../src/ai/plugin-tools.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
-import type { PartReport } from '../../../src/pod/pod-session.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
+import type { PartReport } from '../../../src/workspace/pod-session.ts';
 
 /** A pod whose files are a map; commands are scripted by the test. */
 function fakePod(

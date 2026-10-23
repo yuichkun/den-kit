@@ -2,12 +2,20 @@
 // browser sends (with the start options: role, pictures, fork) and plays what
 // Codex would send back (events, tool calls) for any request id.
 import { shallowRef } from 'vue';
-import type { LlmInbound, LlmStartOptions } from '../../src/ai/bridge-client.ts';
-import type { BridgeStatus, LlmEvent, ToolOutput, TokenUsage } from '../../src/ai/protocol.ts';
+import type {
+  AIStatus,
+  LlmEvent,
+  LlmInbound,
+  LlmStartOptions,
+  ToolOutput,
+  TokenUsage,
+} from '../../src/host/ai.ts';
+import { developerWording } from '../../dev/ai-wording.ts';
 
 export class FakeLlmTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({
+  readonly wording = developerWording;
+  readonly status = shallowRef<AIStatus>({
     codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' },
   });
   sent: Array<Record<string, unknown>> = [];

@@ -117,6 +117,7 @@ export async function openKit(
     /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean;
     /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean;
     viewport?: { width: number; height: number };
+    /** The page to open: the development host (default) or another host's page, such as desktop.html. */ path?: string;
   } = {},
 ): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
@@ -159,7 +160,7 @@ export async function openKit(
   const query = options.startScreen
     ? (options.query ?? '')
     : `${options.query ? `${options.query}&` : '?'}noStart`;
-  await page.goto(h.url + query);
+  await page.goto(h.url + (options.path ?? '') + query);
   await page.waitForFunction(
     () => (window as unknown as { __kit?: unknown }).__kit !== undefined,
     null,

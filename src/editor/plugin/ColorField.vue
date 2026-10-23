@@ -3,7 +3,7 @@
 // swatch opens the system picker; the text takes anything valid; × goes back to
 // the default. Changes go out as you pick (`live`) and when done.
 import { computed, ref, watch } from 'vue';
-import { COLOR_TOKENS, isColor } from '../../core/ui.ts';
+import { COLOR_TOKENS, isColor } from '../../work/ui.ts';
 
 const props = defineProps<{ value?: string; placeholder?: string; clearable?: boolean }>();
 const emit = defineEmits<{ (e: 'update', value: string | null, done: boolean): void }>();
@@ -19,7 +19,7 @@ const valid = computed(() => !text.value || isColor(text.value));
 const hex = computed(() => {
   const v = props.value ?? '';
   if (/^#[0-9a-f]{6}$/i.test(v)) return v;
-  if (/^#[0-9a-f]{3}$/i.test(v)) return `#${[...v.slice(1)].map(c => c + c).join('')}`;
+  if (/^#[0-9a-f]{3}$/i.test(v)) return `#${Array.from(v.slice(1), c => c + c).join('')}`;
   if (/^#[0-9a-f]{8}$/i.test(v)) return v.slice(0, 7);
   return '#888888';
 });

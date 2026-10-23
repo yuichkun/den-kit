@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { isParamInput, type ConfigDef, type PortDef } from '../core/catalog.ts';
-import type { ConfigValue } from '../core/schema.ts';
-import { RANGE_UNITS, membersOf, partInterface, usesOf } from '../core/parts.ts';
-import type { PartParam } from '../core/schema.ts';
-import { describeDiff } from '../core/library.ts';
-import { describeFace } from '../core/face.ts';
-import { faceOnPlugin } from '../plugin/faces.ts';
+import { isParamInput, type ConfigDef, type PortDef } from '../work/catalog.ts';
+import type { ConfigValue } from '../work/schema.ts';
+import { RANGE_UNITS, membersOf, partInterface, usesOf } from '../work/parts.ts';
+import type { PartParam } from '../work/schema.ts';
+import { describeDiff } from '../work/library.ts';
+import { describeFace } from '../work/face.ts';
+import { faceOnPlugin } from '../screen/faces.ts';
 import { useSession } from './context.ts';
-import { ControlError, controlFor } from '../plugin/controls.ts';
+import { ControlError, controlFor } from '../screen/controls.ts';
 import ValueField from './ValueField.vue';
 import InputSelect from './InputSelect.vue';
 import StackSection from './StackSection.vue';
-import { stackable } from '../core/stacks.ts';
+import { stackable } from '../work/stacks.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -198,7 +198,7 @@ function setRange(p: PartParam, key: 'min' | 'max' | 'unit', e: Event) {
     raw = (e.target as HTMLInputElement | HTMLSelectElement).value;
   if (!now || !shown.value) return;
   const next = {
-    ...(p.range ?? {}),
+    ...p.range,
     min: now.min,
     max: now.max,
     unit: now.unit,

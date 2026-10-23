@@ -4,9 +4,9 @@
 // knobs spread recompiles. The estimated load follows the count.
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession } from '../../../src/editor/session.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import { emptyDocument } from '../../../src/core/schema.ts';
-import { catalog } from '../../../src/blocks/index.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import { emptyDocument } from '../../../src/work/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
 
 /** Noise ×4 → band-pass ×4 (cutoff spread ±1 octave) → Out. */
 function makeSession() {

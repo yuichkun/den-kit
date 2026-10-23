@@ -72,7 +72,7 @@ describe('the U5 works', () => {
     // The knob reaches every copy through its spread: sixteen copies, each moved by its own amount (Rain and Pitch spread at random).
     const spreads: number[] = await kit(page, k =>
       Object.entries(k.generated.value.values)
-        .filter(([name]) => /\$spread_scale$/.test(name))
+        .filter(([name]) => name.endsWith('$spread_scale'))
         .map(([, v]) => v),
     );
     assert.equal(spreads.length, 32, JSON.stringify(spreads));

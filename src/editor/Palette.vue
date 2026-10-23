@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
-import type { NodeDef } from '../core/catalog.ts';
-import { partUses } from '../core/parts.ts';
+import type { NodeDef } from '../work/catalog.ts';
+import { partUses } from '../work/parts.ts';
 import { useSession } from './context.ts';
 
 const emit = defineEmits<{ (e: 'pick', type: string): void; (e: 'close'): void }>();

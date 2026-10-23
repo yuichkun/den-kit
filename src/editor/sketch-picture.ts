@@ -3,7 +3,7 @@
 // the patch as the person sees it (a shared screen) or drawn plainly (modules as
 // named boxes, cables as lines). Alone, without numbers: a picture to lay under
 // the plugin and build on.
-import { MAX_TOOL_IMAGE } from '../ai/protocol.ts';
+import { MAX_TOOL_IMAGE } from '../host/ai.ts';
 import { markBox, type Box, type Mark, type Point, type Target } from '../ai/sketch.ts';
 
 /** Where the view's coordinates land on the picture: picture = (view − origin) × k. */

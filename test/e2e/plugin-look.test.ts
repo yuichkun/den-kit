@@ -20,7 +20,7 @@ interface Seen {
 const look = (page: Page, picture = false): Promise<Seen> =>
   page.evaluate(async p => {
     const r = await (window as any).__kit.look({ picture: p });
-    return { ...r, png: r.png ? [...r.png.slice(0, 24)] : [] };
+    return { ...r, png: r.png ? Array.from(r.png.slice(0, 24)) : [] };
   }, picture);
 
 let h: Harness;

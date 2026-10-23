@@ -3,20 +3,20 @@
 // only an edit that passes lands on the live patch, at once, as one step of the
 // request. A failing edit never lands; its problems go back to the model. The
 // controller (src/ai/llm.ts) makes the steps of one request one undo step.
-import type { Catalog, PortDef } from '../core/catalog.ts';
-import { generate, type Generated } from '../core/codegen.ts';
-import { describePatch } from '../core/describe.ts';
-import { formatIssue, type Issue } from '../core/issues.ts';
-import { applyIntents, OpError, type Intent } from '../core/ops.ts';
-import { PHRASES, phraseEvents, type Phrase } from '../core/phrases.ts';
-import type { PatchDocument, PortSpec } from '../core/schema.ts';
-import { validate } from '../core/validate.ts';
-import { latest, type Library } from '../core/library.ts';
-import { placeNewNodes } from '../core/layout.ts';
-import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
-import type { RenderRequest } from '../compile/protocol.ts';
-import { compileInputs } from '../compile/compile-client.ts';
-import type { Rendered } from '../compile/render-client.ts';
+import type { Catalog, PortDef } from '../work/catalog.ts';
+import { generate, type Generated } from '../sound/codegen.ts';
+import { describePatch } from './describe.ts';
+import { formatIssue, type Issue } from '../work/issues.ts';
+import { applyIntents, OpError, type Intent } from '../work/ops.ts';
+import { PHRASES, phraseEvents, type Phrase } from '../sound/phrases.ts';
+import type { PatchDocument, PortSpec } from '../work/schema.ts';
+import { validate } from '../work/validate.ts';
+import { latest, type Library } from '../work/library.ts';
+import { placeNewNodes } from '../work/layout.ts';
+import { pngDataUrl, type TestSignal } from '../sound/analysis.ts';
+import type { RenderRequest } from '../sound/compile/protocol.ts';
+import { compileInputs } from '../sound/compile/compile-client.ts';
+import type { Rendered } from '../sound/compile/render-client.ts';
 import {
   describePlugin,
   describeUiOp,
@@ -24,36 +24,21 @@ import {
   screenChanged,
   uiReference,
 } from './plugin-tools.ts';
-import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
-import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
-import type { LookResult } from '../plugin/look.ts';
+import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
+import { checkPlugin, formatPluginIssue } from '../screen/checks.ts';
+import type { LookResult } from '../screen/look.ts';
 
-import type { LlmRole, ToolOutput } from './protocol.ts';
+import type { LlmRole, ToolOutput } from '../host/ai.ts';
 import { reportOf, type MemberReport } from './members.ts';
-import type { PodRunResult } from '../pod/host.ts';
-import type { PartReport } from '../pod/pod-session.ts';
-import { projectPath } from '../pod/host.ts';
+import type { PodRunResult } from '../host/workspace.ts';
+import type { PartReport, PodAccess } from '../workspace/pod-session.ts';
+
+export type { PodAccess };
+import { projectPath } from '../workspace/pod-io.ts';
 
 export type { ToolOutput };
 
 /** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
-export interface PodAccess {
-  /** Why it cannot be used and what fixes that; null when it can. */
-  unavailable(): { reason: string; fix?: string } | null;
-  /** Started and in step with the work (the first call boots it: up to a few minutes on a fresh pod). */
-  ensure(): Promise<void>;
-  bash(command: string, timeoutMs: number): Promise<PodRunResult>;
-  readFile(path: string): Promise<string | null>;
-  writeFile(path: string, text: string): Promise<void>;
-  /** The project's files that differ from the work (null: deleted), and what was left out. */
-  collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }>;
-  /** The project's folder in the pod. */
-  projectDir(): string;
-  /** The code parts on the plugin as they reported (element id → report). */
-  parts(): Record<string, PartReport>;
-  status(): { state: string; message: string; portal: string | null };
-}
-
 export interface WorkspaceDeps {
   catalog: Catalog;
   /** Compile a generated program; resolves with problems instead of throwing. */
@@ -670,7 +655,7 @@ export class LlmWorkspace {
     if (seen.picture) {
       const p = seen.picture;
       this.steps.push(`looked at what you see (${view ?? seen.looking})`);
-      const from = p.source === 'shell' ? 'the desktop app' : 'their shared tab';
+      const from = p.source === 'shell' ? "den-kit's window" : 'their shared tab';
       return {
         success: true,
         text: `What the person sees now (${view ?? seen.looking}, ${p.width}×${p.height}, from ${from}). ${seen.text}${this.deps.images ? ' The picture is attached.' : ' Your model does not take pictures, so there is none.'}`,

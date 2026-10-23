@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
-import { POD } from '../plugin/code-frames.ts';
+import { POD } from '../screen/code-frames.ts';
 import { KitSession, MY_PARTS_KEY } from './session.ts';
-import { MAX_FILE_BYTES } from '../core/persistence.ts';
-import { COST_LIMITS, formatCpu } from '../core/cost.ts';
+import { MAX_FILE_BYTES } from '../work/persistence.ts';
+import { COST_LIMITS, formatCpu } from '../work/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
@@ -17,8 +17,7 @@ import StartOverlay from './StartOverlay.vue';
 import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
-import DesktopSettings from './DesktopSettings.vue';
-import { desktop } from '../desktop/api.ts';
+import Settings from './Settings.vue';
 
 const props = defineProps<{
   session: KitSession;
@@ -52,8 +51,11 @@ watch(
   },
 );
 const starting = ref(!!props.firstRun);
-const isDesktop = !!desktop();
+// What the host lets the person manage here: the AI account and model, and updates.
+const account = session.host?.ai?.account ?? null;
+const lifecycle = session.host?.lifecycle ?? null;
 const settingsOpen = ref(false);
+const stopHost: Array<() => void> = [];
 const openSettings = () => {
   settingsOpen.value = true;
 };
@@ -61,17 +63,17 @@ const openSettings = () => {
 const updateReady = ref<string | null>(null);
 async function refreshUpdate() {
   try {
-    const update = (await desktop()!.info()).update;
+    const update = (await lifecycle!.info()).update;
     updateReady.value = update?.state === 'ready' ? update.version : null;
   } catch {
     /* the next update event or Settings shows the state */
   }
 }
-// Desktop account/settings changes restart the native server and invalidate its conversation ids.
+// Account and settings changes restart the agent runtime and invalidate its conversation ids.
 watch(
   () => session.bridge?.status.value?.codex.state,
   state => {
-    if (isDesktop && state === 'starting' && !session.llm?.running) session.llm?.reset();
+    if (account && state === 'starting' && !session.llm?.running) session.llm?.reset();
   },
 );
 
@@ -291,8 +293,8 @@ watch(
 );
 onMounted(() => {
   window.addEventListener('den-kit:open-settings', openSettings);
-  if (isDesktop) {
-    window.addEventListener('den-kit:update', refreshUpdate);
+  if (lifecycle) {
+    stopHost.push(lifecycle.onUpdate(refreshUpdate), lifecycle.onShowSettings(openSettings));
     void refreshUpdate();
   }
   window.addEventListener('storage', storageChanged);
@@ -310,7 +312,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('den-kit:open-settings', openSettings);
-  window.removeEventListener('den-kit:update', refreshUpdate);
+  for (const stop of stopHost.splice(0)) stop();
   window.removeEventListener('storage', storageChanged);
   window.removeEventListener('keydown', keys);
   window.removeEventListener('pointerdown', closeMenu, true);
@@ -419,7 +421,7 @@ async function importPatch(e: Event) {
       <span class="spacer" />
       <slot name="toolbar" />
       <button
-        v-if="isDesktop && updateReady"
+        v-if="lifecycle && updateReady"
         class="update-ready"
         data-testid="desktop-update-ready"
         :title="`den-kit ${updateReady} is ready to install`"
@@ -428,7 +430,7 @@ async function importPatch(e: Event) {
         Update ready
       </button>
       <button
-        v-if="isDesktop"
+        v-if="account"
         data-testid="desktop-settings-open"
         title="Settings (⌘,)"
         @click="settingsOpen = true"
@@ -526,7 +528,12 @@ async function importPatch(e: Event) {
       :id="editing"
       @close="editing = null"
     />
-    <DesktopSettings v-if="settingsOpen" @close="settingsOpen = false" />
+    <Settings
+      v-if="settingsOpen && account"
+      :account="account"
+      :lifecycle="lifecycle"
+      @close="settingsOpen = false"
+    />
     <CanvasEditor
       v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]"
       :id="editingCanvas"

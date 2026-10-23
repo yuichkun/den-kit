@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents, applyResolvedOps, invertAll, OpError } from '../../../src/core/ops.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents, applyResolvedOps, invertAll, OpError } from '../../../src/work/ops.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
 import {
   checkProjectPath,
   partNames,
   PROJECT_LIMITS,
   readProject,
-} from '../../../src/core/project.ts';
-import type { Issue } from '../../../src/core/issues.ts';
-import { starter } from '../../../src/core/starters.ts';
+} from '../../../src/work/project.ts';
+import type { Issue } from '../../../src/work/issues.ts';
+import { starter } from '../../../src/work/starters.ts';
 
 const failure = (fn: () => unknown) => {
   try {

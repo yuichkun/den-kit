@@ -9,7 +9,7 @@ import {
   type LlmEvent,
   type ServerMessage,
   type ToolOutput,
-} from '../../src/ai/protocol.ts';
+} from '../../bridge/protocol.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
 import type { CodexClientOptions } from '../../bridge/codex/client.ts';

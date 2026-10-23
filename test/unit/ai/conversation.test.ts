@@ -10,10 +10,10 @@ import {
   savedLine,
 } from '../../../src/ai/conversation.ts';
 import { KitSession, type StorageLike } from '../../../src/editor/session.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import { starter } from '../../../src/core/starters.ts';
-import type { Transaction } from '../../../src/core/history.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import { starter } from '../../../src/work/starters.ts';
+import type { Transaction } from '../../../src/work/history.ts';
 import { FakeLlmTransport } from '../../helpers/fake-llm-transport.ts';
 
 class MemoryStorage implements StorageLike {

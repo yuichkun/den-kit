@@ -23,11 +23,11 @@ import {
 } from '@denaudio/den/instrument';
 import { delayFx } from '@denaudio/den/delay-fx';
 import { chorusSettings, rhythmicDelaySettings } from '@denaudio/den/delay-settings';
-import { catalog } from '../../src/blocks/index.ts';
-import { generate } from '../../src/core/codegen.ts';
-import { starter } from '../../src/core/starters.ts';
-import { PHRASES, phraseEvents } from '../../src/core/phrases.ts';
-import { evaluate } from '../../src/compile/evaluate.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { starter } from '../../src/work/starters.ts';
+import { PHRASES, phraseEvents } from '../../src/sound/phrases.ts';
+import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;

@@ -4,21 +4,21 @@
 // AI's steps all use it), kept in files and My parts, and can be changed or
 // dropped later.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { describePatch } from '../../../src/core/describe.ts';
-import { faceOf } from '../../../src/core/face.ts';
-import { bundleHash, checkBundle, extractBundle } from '../../../src/core/library.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { describePatch } from '../../../src/ai/describe.ts';
+import { faceOf } from '../../../src/work/face.ts';
+import { bundleHash, checkBundle, extractBundle } from '../../../src/work/library.ts';
 import {
   applyIntents,
   applyResolvedOps,
   invertAll,
   OpError,
   type Intent,
-} from '../../../src/core/ops.ts';
-import { partInterface } from '../../../src/core/parts.ts';
-import { parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { faceIntents } from '../../../src/plugin/faces.ts';
+} from '../../../src/work/ops.ts';
+import { partInterface } from '../../../src/work/parts.ts';
+import { parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { faceIntents } from '../../../src/screen/faces.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown): Error => {

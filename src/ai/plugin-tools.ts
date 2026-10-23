@@ -3,13 +3,13 @@
 // canvases, the bundled pictures), and the shorthands it may use in kit_apply_ops
 // (addControl; bundled pictures by id). Pure functions over the patch; the
 // workspace (llm-workspace.ts) calls them.
-import type { Catalog } from '../core/catalog.ts';
-import type { Transaction } from '../core/history.ts';
-import { OpError, applyIntents, type Intent } from '../core/ops.ts';
-import { FaceError, faceIntents, screenPartIntents } from '../plugin/faces.ts';
-import type { PatchDocument, XY } from '../core/schema.ts';
-import { bundleHash, latest, type Library } from '../core/library.ts';
-import { bundleIds } from '../core/part-ops.ts';
+import type { Catalog } from '../work/catalog.ts';
+import type { Transaction } from '../work/history.ts';
+import { OpError, applyIntents, type Intent } from '../work/ops.ts';
+import { FaceError, faceIntents, screenPartIntents } from '../screen/faces.ts';
+import type { PatchDocument, XY } from '../work/schema.ts';
+import { bundleHash, latest, type Library } from '../work/library.ts';
+import { bundleIds } from '../work/part-ops.ts';
 import {
   CONTROL_KINDS,
   CONTROL_OF,
@@ -17,8 +17,8 @@ import {
   SKINS,
   type ControlKind,
   type Skin,
-} from '../core/skins.ts';
-import { THEME_TOKENS } from '../core/themes.ts';
+} from '../work/skins.ts';
+import { THEME_TOKENS } from '../work/themes.ts';
 import {
   COLOR_TOKENS,
   ELEMENT_FIELDS,
@@ -35,13 +35,13 @@ import {
   type Look,
   type TokenName,
   type UiElement,
-} from '../core/ui.ts';
-import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
-import { WORKS, findWork, lookIntents } from '../showcase/index.ts';
-import { ControlError, controlFor, type ControlType } from '../plugin/controls.ts';
-import { formatValue } from '../plugin/format.ts';
-import { CANVAS_CURSORS } from '../plugin/canvas-api.ts';
-import { partNames } from '../core/project.ts';
+} from '../work/ui.ts';
+import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
+import { WORKS, findWork, lookIntents } from '../screen/showcase/index.ts';
+import { ControlError, controlFor, type ControlType } from '../screen/controls.ts';
+import { formatValue } from '../screen/format.ts';
+import { CANVAS_CURSORS } from '../screen/canvas-api.ts';
+import { partNames } from '../work/project.ts';
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length} chars)` : s);
 const rectText = (r: { x: number; y: number; w: number; h: number }) =>

@@ -1,5 +1,5 @@
 // FOR TESTS ONLY: stands in for BrowserPod (which needs an API key the cloud
-// tests do not have). The page talks to it through src/pod/fake-host.ts over a
+// tests do not have). The page talks to it through dev/fake-pod.ts over a
 // WebSocket; commands run in this machine's bash, in a temporary home, and a
 // server they start is reported as a "portal" (its local address). Commands run
 // with the test machine's own tools, so it checks den-kit's side of the pod

@@ -462,7 +462,8 @@ try {
       const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
         .__kit;
       const pod = k.pod!;
-      const current = (pod as unknown as { dev: import('../src/pod/host.ts').PodProcess }).dev;
+      const current = (pod as unknown as { dev: import('../src/host/workspace.ts').PodProcess })
+        .dev;
       if (!current.running)
         throw new Error('The recovery check requires a running isolated preview.');
       const host = await pod.ensure();

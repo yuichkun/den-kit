@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { aiFailure, aiUnavailable } from '../../../src/ai/user-errors.ts';
+import { aiFailure, aiUnavailable } from '../../../desktop/page/ai-wording.ts';
 
 describe('installed-app AI recovery', () => {
   it.each(['connection-timeout', 'response-timeout'])(

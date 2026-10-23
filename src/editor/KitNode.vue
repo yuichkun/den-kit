@@ -5,12 +5,12 @@
 // Unconnected note-bound inputs show a pre-cord icon (implicit connection).
 import { computed, ref } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import type { PortDef } from '../core/catalog.ts';
-import type { PatchNode } from '../core/schema.ts';
-import { membersOf, usesOf } from '../core/parts.ts';
-import { formatCpu } from '../core/cost.ts';
-import { copiesOf } from '../core/stacks.ts';
-import type { Issue } from '../core/issues.ts';
+import type { PortDef } from '../work/catalog.ts';
+import type { PatchNode } from '../work/schema.ts';
+import { membersOf, usesOf } from '../work/parts.ts';
+import { formatCpu } from '../work/cost.ts';
+import { copiesOf } from '../work/stacks.ts';
+import type { Issue } from '../work/issues.ts';
 import { useSession } from './context.ts';
 import {
   formatValue,
@@ -20,7 +20,7 @@ import {
   visibleInputs,
   SIGNAL,
 } from './grid-style.ts';
-import { hasViz as vizFor, moduleBox } from '../core/layout.ts';
+import { hasViz as vizFor, moduleBox } from '../work/layout.ts';
 import GridKnob from './GridKnob.vue';
 import ModuleViz from './ModuleViz.vue';
 

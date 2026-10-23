@@ -5,9 +5,9 @@
 // their output), and the pod check (what working in the pod feels like, measured).
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useSession } from './context.ts';
-import { GENERATED_FILES, checkProjectPath } from '../core/project.ts';
-import { templateFiles, withTemplate } from '../pod/template.ts';
-import { PodCheck, secs } from '../pod/pod-check.ts';
+import { GENERATED_FILES, checkProjectPath } from '../work/project.ts';
+import { templateFiles, withTemplate } from '../workspace/template.ts';
+import { PodCheck, secs } from '../workspace/pod-check.ts';
 import CodeArea from './CodeArea.vue';
 import { highlight, languageFor } from './highlight.ts';
 

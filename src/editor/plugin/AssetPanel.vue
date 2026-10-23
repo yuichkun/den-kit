@@ -10,8 +10,8 @@ import {
   isImageAsset,
   type AssetMeta,
   type WidgetStyle,
-} from '../../core/ui.ts';
-import { placePicture } from '../../plugin/edit.ts';
+} from '../../work/ui.ts';
+import { placePicture } from '../../screen/edit.ts';
 import { useSession } from '../context.ts';
 
 const session = useSession();
@@ -76,7 +76,7 @@ const underlay = (a: AssetMeta) =>
   });
 function source(key: 'title' | 'author' | 'url' | 'license', value: string) {
   if (!asset.value) return;
-  const next = { ...(asset.value.source ?? {}), [key]: value || undefined };
+  const next = { ...asset.value.source, [key]: value || undefined };
   for (const k of Object.keys(next) as Array<keyof typeof next>) if (!next[k]) delete next[k];
   commit(
     [

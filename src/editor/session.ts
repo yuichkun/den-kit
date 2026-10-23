@@ -2,9 +2,9 @@
 // compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
 // through commit() with an author, so humans and AI edit the same way.
 import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
-import { catalog } from '../blocks/index.ts';
-import { currentValues, generate, type Generated } from '../core/codegen.ts';
-import { History, type Author, type Transaction } from '../core/history.ts';
+import { catalog } from '../sound/blocks/index.ts';
+import { currentValues, generate, type Generated } from '../sound/codegen.ts';
+import { History, type Author, type Transaction } from '../work/history.ts';
 import {
   applyIntents,
   isStructural,
@@ -12,17 +12,17 @@ import {
   replaceOps,
   type Intent,
   type ResolvedOp,
-} from '../core/ops.ts';
-import { emptyDocument, randomId, type PatchDocument, type XY } from '../core/schema.ts';
-import { faceGroup } from '../core/face.ts';
-import { usesOf } from '../core/parts.ts';
+} from '../work/ops.ts';
+import { emptyDocument, randomId, type PatchDocument, type XY } from '../work/schema.ts';
+import { faceGroup } from '../work/face.ts';
+import { usesOf } from '../work/parts.ts';
 import {
   FaceError,
   faceFromPlugin,
   faceIntents,
   faceOnPlugin,
   screenPartIntents,
-} from '../plugin/faces.ts';
+} from '../screen/faces.ts';
 import {
   bundleHash,
   diffBundles,
@@ -40,25 +40,27 @@ import {
   type Library,
   type MyPart,
   type MyPartVersion,
-} from '../core/library.ts';
-import { validate } from '../core/validate.ts';
-import type { Issue } from '../core/issues.ts';
-import { starter, type StarterId } from '../core/starters.ts';
-import { lookIntents, type Work } from '../showcase/index.ts';
-import { CompileClient, CompileFailure, compileInputs } from '../compile/compile-client.ts';
-import type { Artifact } from '../compile/protocol.ts';
-import { AudioEngine, type EngineState, type TestSignal } from '../engine/audio-engine.ts';
+} from '../work/library.ts';
+import { validate } from '../work/validate.ts';
+import type { Issue } from '../work/issues.ts';
+import { starter, type StarterId } from '../work/starters.ts';
+import { lookIntents, type Work } from '../screen/showcase/index.ts';
+import { CompileClient, CompileFailure, compileInputs } from '../sound/compile/compile-client.ts';
+import type { Artifact } from '../sound/compile/protocol.ts';
+import { AudioEngine, type EngineState, type TestSignal } from '../sound/audio-engine.ts';
 import {
   makeSaveRecord,
   readSaveRecord,
   parseDocument,
   serializeDocument,
-} from '../core/persistence.ts';
-import CompilerWorker from '../compile/compiler.worker.ts?worker';
-import { AssetStore } from '../plugin/asset-store.ts';
-import { lookAt, type LookResult } from '../plugin/look.ts';
-import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
-import type { BridgeClient } from '../ai/bridge-client.ts';
+} from '../work/persistence.ts';
+import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
+import { AssetStore } from '../work/asset-store.ts';
+import { lookAt, type LookResult } from '../screen/look.ts';
+import { pluginSpec } from '../screen/build.ts';
+import { assetFontFamily, isFontAsset, type AssetMeta } from '../work/ui.ts';
+import type { Host } from '../host/index.ts';
+import type { AI } from '../host/ai.ts';
 import type { AiRequests } from '../ai/requests.ts';
 import type { LlmController } from '../ai/llm.ts';
 import type { Seeing } from '../ai/seeing.ts';
@@ -66,7 +68,7 @@ import { MARK_COLORS, type Box, type Mark, type SketchView } from '../ai/sketch.
 /** What drawing on a view does: a mark kind, or rubbing marks out. */
 export type InkTool = Mark['kind'] | 'eraser';
 import { ScreenShare } from './screen-share.ts';
-import type { PodSession } from '../pod/pod-session.ts';
+import type { PodSession } from '../workspace/pod-session.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast {
@@ -146,8 +148,10 @@ export class KitSession {
   ]);
   readonly engine: AudioEngine;
   readonly compiler: CompileClient;
-  /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
-  bridge: BridgeClient | null = null;
+  /** The host's AI; null when the editor runs without one (tests). */
+  bridge: AI | null = null;
+  /** What the host provides (src/host); null in unit tests. */
+  readonly host: Host | null;
   /** The LLM request history; null when not wired (unit tests). */
   requests: AiRequests | null = null;
   /** The LLM path (Codex through the bridge); null when not wired. */
@@ -161,7 +165,7 @@ export class KitSession {
   /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches (U8c). */
   patchBoxes: (() => Record<string, Box>) | null = null;
   /** Pictures of den-kit as the person sees it, once they let the AI see the screen (U8b). */
-  readonly screen = markRaw(new ScreenShare());
+  readonly screen: ScreenShare;
   /** The person's rough sketch over each view (U8c): marks for the AI, not part of the work and not in the undo history. */
   readonly sketch = shallowRef<Record<SketchView, Mark[]>>({ plugin: [], patch: [] });
   /** Drawing on the view: the tool in hand (null: not drawing). */
@@ -196,8 +200,11 @@ export class KitSession {
       compileTimeoutMs?: number;
       rotateAfter?: number;
       assets?: AssetStore;
+      host?: Host | null;
     } = {},
   ) {
+    this.host = options.host ?? null;
+    this.screen = markRaw(new ScreenShare(this.host?.screenCapture ?? null));
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
     this.assets = markRaw(options.assets ?? new AssetStore());
     this.engine = markRaw(
@@ -744,7 +751,7 @@ export class KitSession {
 
   /** What the person is looking at now. */
   seeingNow(): Seeing {
-    return { ...this.seeing.value, ...(this.viewDetails?.() ?? {}) };
+    return { ...this.seeing.value, ...this.viewDetails?.() };
   }
 
   /** Where a view is on the page (CSS pixels): the plugin, the patch, the whole working area, or the window. */
@@ -769,6 +776,11 @@ export class KitSession {
       right = Math.min(window.innerWidth, r.right),
       bottom = Math.min(window.innerHeight, r.bottom);
     return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
+  }
+
+  /** The controls a code part can read and move (the workspace writes them into the pod). */
+  controls(doc: PatchDocument) {
+    return pluginSpec(doc, catalog, { probes: [] }).controls;
   }
 
   /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */

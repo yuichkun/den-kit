@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
 import {
   applyIntents,
   applyResolvedOps,
   invertAll,
   OpError,
   type Intent,
-} from '../../../src/core/ops.ts';
-import { emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
+} from '../../../src/work/ops.ts';
+import { emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown) => {

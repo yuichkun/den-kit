@@ -1,6 +1,6 @@
 // One saved conversation per opened patch. The prompt history survives reloads,
 // and the LLM receives prior requests and the person's hand edits as context.
-import type { Transaction } from '../core/history.ts';
+import type { Transaction } from '../work/history.ts';
 import type { Outcome, OutcomeStatus, RouteKind } from './requests.ts';
 import { sketchSummary } from './sketch.ts';
 

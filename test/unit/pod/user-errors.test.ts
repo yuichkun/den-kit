@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { desktopProjectError } from '../../../src/pod/user-errors.ts';
+import { desktopProjectError } from '../../../desktop/page/project-errors.ts';
 
 afterEach(() => vi.restoreAllMocks());
 

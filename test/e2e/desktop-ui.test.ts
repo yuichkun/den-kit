@@ -2,7 +2,7 @@
 // No Electron instance, external account, or BrowserPod service is used here.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { DesktopInfo } from '../../src/desktop/api.ts';
+import type { DesktopInfo } from '../../desktop/page/api.ts';
 import { openKit, startAudio, startHarness, type Harness } from './harness.ts';
 
 const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
@@ -77,6 +77,7 @@ describe('desktop interface', () => {
 
   it('shows sign-in states honestly, keeps connection plumbing out of settings, and offers no voice input', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       start: false,
       initScript: nativeAPI(h.bridge!.token, info()),
     });
@@ -176,6 +177,7 @@ describe('desktop interface', () => {
 
   it('saves chosen model and effort without resetting an existing conversation setting', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok', plan: 'plus', model: 'GPT-6.1-Sol' }, chatGPTSignedIn: true }),
@@ -218,6 +220,7 @@ describe('desktop interface', () => {
 
   it('does not call a ready transport a signed-in ChatGPT account or offer account actions for it', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok', plan: 'plus' }, chatGPTSignedIn: false }),
@@ -245,6 +248,7 @@ describe('desktop interface', () => {
 
   it('reconnects a failed AI connection without signing out or starting authentication again', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({
@@ -274,6 +278,7 @@ describe('desktop interface', () => {
 
   it('prevents settings changes during an AI request and enables them after it ends', async () => {
     const { page } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok' }, aiBusy: true })),
     });
     try {
@@ -298,7 +303,10 @@ describe('desktop interface', () => {
   });
 
   it('routes a sign-in-required request to actionable desktop settings without terminal instructions', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       await page.waitForFunction(
         () =>
@@ -336,7 +344,10 @@ describe('desktop interface', () => {
   });
 
   it('shares the app window only after the eye is enabled and discards a capture stopped in flight', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       const requestsBefore = h.codex!.sent('turn/start').length;
       const sharing = () =>
@@ -435,6 +446,7 @@ describe('desktop interface', () => {
 
   it('shows update progress, offers a restart only for a staged update and never during an AI request', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok' }, update: { state: 'idle' } }),
@@ -523,6 +535,7 @@ describe('desktop interface', () => {
 
   it('asks for the Applications folder instead of offering update checks that cannot install', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(h.bridge!.token, info({ update: { state: 'move' } })),
     });
     try {
@@ -541,7 +554,10 @@ describe('desktop interface', () => {
   });
 
   it('offers reopening instead of a retry after a live preview startup timeout', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       await page.evaluate(() => {
         const pod = (window as any).__kit.pod;

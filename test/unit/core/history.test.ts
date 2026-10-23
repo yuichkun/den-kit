@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { History, type Author } from '../../../src/core/history.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { starter } from '../../../src/core/starters.ts';
-import type { PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { History, type Author } from '../../../src/work/history.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { starter } from '../../../src/work/starters.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
 
 const human: Author = { kind: 'human' };
 function commit(

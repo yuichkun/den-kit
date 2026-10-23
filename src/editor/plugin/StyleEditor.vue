@@ -7,7 +7,7 @@ import {
   type ElementStyle,
   type Fill,
   type Shadow,
-} from '../../core/ui.ts';
+} from '../../work/ui.ts';
 import ColorField from './ColorField.vue';
 import FillList from './FillList.vue';
 import NumberField from './NumberField.vue';

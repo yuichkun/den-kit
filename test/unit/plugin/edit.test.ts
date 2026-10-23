@@ -7,7 +7,7 @@ import {
   nudge,
   placePicture,
   resizeBy,
-} from '../../../src/plugin/edit.ts';
+} from '../../../src/screen/edit.ts';
 
 const frame = { x: 0, y: 0, w: 400, h: 300 };
 const r = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });

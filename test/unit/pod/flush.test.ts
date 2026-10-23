@@ -1,10 +1,11 @@
 import { shallowRef } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import type { KitSession } from '../../../src/editor/session.ts';
-import type { PodHost, PodRunResult, Portal } from '../../../src/pod/host.ts';
-import { DEV_PORT, PodSession } from '../../../src/pod/pod-session.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
+import { pluginSpec } from '../../../src/screen/build.ts';
+import type { PodHost, PodRunResult, Portal } from '../../../src/host/workspace.ts';
+import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
 
 const success = (): PodRunResult => ({ exitCode: 0, output: '', timedOut: false, ms: 1 });
 const pods: PodSession[] = [];
@@ -17,7 +18,10 @@ afterEach(() => {
 });
 
 function harness(sync: () => Promise<PodRunResult> = async () => success()) {
-  const session = { doc: shallowRef(starter('bass', catalog)), catalog } as unknown as KitSession;
+  const session = {
+    doc: shallowRef(starter('bass', catalog)),
+    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
+  } as unknown as WorkspaceSession;
   const files = new Map<string, string>();
   let portal: ((p: Portal) => void) | null = null;
   let finishPreview: (() => void) | null = null;

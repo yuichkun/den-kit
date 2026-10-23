@@ -2,7 +2,7 @@
 // Compact drag-to-change value for an unconnected input (an AudioParam).
 // Horizontal drag changes it (shift = fine), double-click to type.
 import { computed, ref } from 'vue';
-import type { PortDef } from '../core/catalog.ts';
+import type { PortDef } from '../work/catalog.ts';
 import { useSession } from './context.ts';
 
 const props = defineProps<{ node: string; port: PortDef; value: number | boolean | undefined }>();

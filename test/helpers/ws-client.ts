@@ -1,6 +1,6 @@
 // Tiny WebSocket test client for the bridge: queued messages and the close code.
 import { WebSocket } from 'ws';
-import type { ServerMessage } from '../../src/ai/protocol.ts';
+import type { ServerMessage } from '../../bridge/protocol.ts';
 
 export interface TestSocket {
   ws: WebSocket;

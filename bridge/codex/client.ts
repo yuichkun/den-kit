@@ -19,7 +19,7 @@ import type {
   LlmRole,
   TokenUsage,
   ToolOutput,
-} from '../../src/ai/protocol.ts';
+} from '../protocol.ts';
 import { toolDeadlineMs, toolsFor, type ToolSpec } from '../../src/ai/llm-spec.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { RpcClosed, RpcError, RpcPeer, RpcTimeout } from './rpc.ts';

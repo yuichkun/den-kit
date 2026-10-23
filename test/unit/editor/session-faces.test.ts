@@ -5,16 +5,16 @@
 // control stays a face.
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
-import { faceGroup } from '../../../src/core/face.ts';
-import { libraryAssets, parseLibrary, serializeLibrary } from '../../../src/core/library.ts';
-import { parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { faceOnPlugin } from '../../../src/plugin/faces.ts';
-import { AssetStore } from '../../../src/plugin/asset-store.ts';
-import { SHOWCASE_ASSETS } from '../../../src/showcase/assets.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
+import { faceGroup } from '../../../src/work/face.ts';
+import { libraryAssets, parseLibrary, serializeLibrary } from '../../../src/work/library.ts';
+import { parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { faceOnPlugin } from '../../../src/screen/faces.ts';
+import { AssetStore } from '../../../src/work/asset-store.ts';
+import { SHOWCASE_ASSETS } from '../../../src/screen/showcase/assets.ts';
 
 function memoryStorage(): StorageLike {
   const data = new Map<string, string>();

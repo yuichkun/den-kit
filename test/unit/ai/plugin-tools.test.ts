@@ -2,11 +2,11 @@
 // topic, and the shorthands kit_apply_ops accepts (addControl, bundled pictures
 // by id), which become ordinary intents.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, OpError, type Intent } from '../../../src/core/ops.ts';
-import type { Transaction } from '../../../src/core/history.ts';
-import type { PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents, OpError, type Intent } from '../../../src/work/ops.ts';
+import type { Transaction } from '../../../src/work/history.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
 import {
   describePlugin,
   expandOps,
@@ -14,8 +14,8 @@ import {
   uiReference,
   UI_TOPICS,
 } from '../../../src/ai/plugin-tools.ts';
-import { intersects } from '../../../src/plugin/edit.ts';
-import { findWork } from '../../../src/showcase/index.ts';
+import { intersects } from '../../../src/screen/edit.ts';
+import { findWork } from '../../../src/screen/showcase/index.ts';
 
 describe('kit_get_plugin', () => {
   it('describes a work: size, look, everything back to front with exact fields, what each control drives', () => {
@@ -179,8 +179,8 @@ describe('kit_apply_ops shorthands', () => {
 
 describe('the design brief, hand edits, ready looks, pictures', () => {
   it('the brief is part of the patch: set, cleared, undone, saved and loaded', async () => {
-    const { serializeDocument, parseDocument } = await import('../../../src/core/persistence.ts');
-    const { invertAll, applyResolvedOps } = await import('../../../src/core/ops.ts');
+    const { serializeDocument, parseDocument } = await import('../../../src/work/persistence.ts');
+    const { invertAll, applyResolvedOps } = await import('../../../src/work/ops.ts');
     const doc = starter('bass', catalog);
     const r = applyIntents(
       doc,
@@ -280,7 +280,7 @@ describe('the design brief, hand edits, ready looks, pictures', () => {
   });
 
   it('palette: the main colours of a picture, largest first', async () => {
-    const { palette } = await import('../../../src/plugin/picture.ts');
+    const { palette } = await import('../../../src/screen/picture.ts');
     const data = new Uint8ClampedArray(100 * 4);
     for (let i = 0; i < 100; i++) data.set(i < 70 ? [200, 40, 40, 255] : [20, 20, 160, 255], i * 4);
     const p = palette(data, 2);

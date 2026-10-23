@@ -3,9 +3,9 @@ import {
   CompileClient,
   CompileFailure,
   type WorkerLike,
-} from '../../../src/compile/compile-client.ts';
-import type { Generated } from '../../../src/core/codegen.ts';
-import type { CompileRequest } from '../../../src/compile/protocol.ts';
+} from '../../../src/sound/compile/compile-client.ts';
+import type { Generated } from '../../../src/sound/codegen.ts';
+import type { CompileRequest } from '../../../src/sound/compile/protocol.ts';
 
 class FakeWorker implements WorkerLike {
   onmessage: WorkerLike['onmessage'] = null;

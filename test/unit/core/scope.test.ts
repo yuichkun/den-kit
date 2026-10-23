@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { describePatch } from '../../../src/core/describe.ts';
-import { parseDocument } from '../../../src/core/persistence.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { describePatch } from '../../../src/ai/describe.ts';
+import { parseDocument } from '../../../src/work/persistence.ts';
 
 const build = (...intents: Intent[]) => applyIntents(emptyDocument('t', 't'), intents, catalog).doc;
 const node = (id: string, type: string, extra: object = {}): Intent => ({

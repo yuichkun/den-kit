@@ -3,12 +3,12 @@
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { compile } from '@unworklet/core';
-import { catalog } from '../../src/blocks/index.ts';
-import { generate } from '../../src/core/codegen.ts';
-import { applyIntents, type Intent } from '../../src/core/ops.ts';
-import { emptyDocument } from '../../src/core/schema.ts';
-import { CODEBOX_TEMPLATE } from '../../src/core/codebox.ts';
-import { evaluate } from '../../src/compile/evaluate.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { applyIntents, type Intent } from '../../src/work/ops.ts';
+import { emptyDocument } from '../../src/work/schema.ts';
+import { CODEBOX_TEMPLATE } from '../../src/work/codebox-template.ts';
+import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -252,7 +252,7 @@ describe('runtime semantics', () => {
     expect(line - g.codeboxes.box1! + 1).toBe(3);
   });
   it('compile timing stays in the seconds range for the starters', async () => {
-    const { starter, STARTERS } = await import('../../src/core/starters.ts');
+    const { starter, STARTERS } = await import('../../src/work/starters.ts');
     for (const id of STARTERS) {
       const g = generate(starter(id, catalog), catalog);
       const t0 = performance.now();

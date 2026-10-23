@@ -2,10 +2,10 @@
 // while members work, and the seam (the controls and their cables) nobody but
 // the lead removes or rewires. Edits are written the way the LLM sends them.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import type { PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
 import { expandOps } from '../../../src/ai/plugin-tools.ts';
 import {
   changes,

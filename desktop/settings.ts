@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DesktopSettings } from '../src/desktop/api.ts';
+import type { DesktopSettings } from './page/api.ts';
 
 export const DEFAULT_SETTINGS: DesktopSettings = { model: '', effort: '', fork: false };
 export function validatedSettings(value: unknown): DesktopSettings {

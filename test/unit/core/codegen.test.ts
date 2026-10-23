@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
-import { inlineCodebox } from '../../../src/core/codebox.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
+import { inlineCodebox } from '../../../src/sound/codebox.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
 
 const build = (...intents: Intent[]) => applyIntents(emptyDocument('t', 't'), intents, catalog).doc;
 const node = (id: string, type: string, extra: object = {}): Intent => ({

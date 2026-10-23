@@ -1,10 +1,10 @@
 // The screen checks: the ten showcase works pass; a screen with each kind of
 // mistake gets the matching problem, worded so the next edit can fix it.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { WORKS } from '../../../src/showcase/index.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { WORKS } from '../../../src/screen/showcase/index.ts';
 import {
   checkPlugin,
   contrastIssues,
@@ -13,7 +13,7 @@ import {
   textOverlaps,
   visualRect,
   type TextBox,
-} from '../../../src/plugin/checks.ts';
+} from '../../../src/screen/checks.ts';
 
 describe('structural checks', () => {
   for (const w of WORKS)

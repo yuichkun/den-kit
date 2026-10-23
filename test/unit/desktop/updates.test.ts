@@ -5,7 +5,7 @@ import {
   UPDATE_DOWNLOAD_FAILED,
   type AppUpdaterLike,
 } from '../../../desktop/updates.ts';
-import type { UpdateStatus } from '../../../src/desktop/api.ts';
+import type { UpdateStatus } from '../../../desktop/page/api.ts';
 
 function fakes() {
   const handlers = new Map<string, (value?: unknown) => void>();

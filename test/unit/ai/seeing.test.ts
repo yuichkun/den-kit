@@ -2,8 +2,8 @@
 // crop of a shared tab's frame to one view, and kit_look as "seen" with and
 // without a shared screen.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
 import { cropRect, noteName, seeingText } from '../../../src/ai/seeing.ts';
 import {
   LlmWorkspace,
@@ -166,7 +166,7 @@ describe('kit_look as "seen"', () => {
     );
     const r = await w.call('kit_look', { as: 'seen' });
     expect(r.text).toMatch(
-      /from the desktop app\)\. .* Your model does not take pictures, so there is none\.$/,
+      /from den-kit's window\)\. .* Your model does not take pictures, so there is none\.$/,
     );
     expect(r.imageDataUrl).toBeUndefined();
   });

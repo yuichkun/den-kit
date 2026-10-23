@@ -1,4 +1,4 @@
-// den-kit's BrowserPod adapter (src/pod/browserpod.ts) running its real code
+// den-kit's BrowserPod adapter (desktop/page/browserpod.ts) running its real code
 // against a stand-in with BrowserPod's API (test/fakes/pod/mock-browserpod.ts),
 // which follows BrowserPod's documented behaviour and takes the harder reading
 // where the documentation is silent: run() resolves at exit with no status (a
@@ -13,8 +13,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import type { BrowserPod } from '@leaningtech/browserpod';
-import { catalog } from '../../src/blocks/index.ts';
-import { starter } from '../../src/core/starters.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import {
   BrowserPodHost,
@@ -23,9 +23,9 @@ import {
   parseEnv,
   plainBytes,
   resetBrowserPodForTest,
-} from '../../src/pod/browserpod.ts';
-import { PodSession } from '../../src/pod/pod-session.ts';
-import { starterPart } from '../../src/pod/template.ts';
+} from '../../desktop/page/browserpod.ts';
+import { PodSession } from '../../src/workspace/pod-session.ts';
+import { starterPart } from '../../src/workspace/template.ts';
 import { MockBrowserPod, resizableBuffer } from '../fakes/pod/mock-browserpod.ts';
 
 const resizable = (buffer: ArrayBufferLike) =>
@@ -211,6 +211,7 @@ describe('the pod session through the BrowserPod adapter', () => {
     const kit = {
       catalog,
       doc: shallowRef(starter('bass', catalog)),
+      controls: () => ({}),
       commit: () => ({ ok: true, ops: [], created: [] }),
     } as unknown as KitSession;
     pod = new PodSession(kit, {

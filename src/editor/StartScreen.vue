@@ -6,18 +6,18 @@
 // showcase (arrows) and, the Subway way, the look it should wear (Tab to the
 // looks, arrows, Enter). Sounds without a screen are at the bottom.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { STARTERS, partStarter, type StarterId } from '../core/starters.ts';
-import { emptyDocument, type PatchDocument } from '../core/schema.ts';
-import { generate } from '../core/codegen.ts';
-import { pluginSpec } from '../plugin/build.ts';
-import PluginWindow from '../plugin/PluginWindow.vue';
-import { WORKS, type Work } from '../showcase/index.ts';
+import { STARTERS, partStarter, type StarterId } from '../work/starters.ts';
+import { emptyDocument, type PatchDocument } from '../work/schema.ts';
+import { generate } from '../sound/codegen.ts';
+import { pluginSpec } from '../screen/build.ts';
+import PluginWindow from '../screen/PluginWindow.vue';
+import { WORKS, type Work } from '../screen/showcase/index.ts';
 import { useSession } from './context.ts';
-import { desktop } from '../desktop/api.ts';
 
 const emit = defineEmits<{ (e: 'close', asked: boolean): void; (e: 'settings'): void }>();
-const isDesktop = !!desktop();
 const session = useSession();
+// Settings open from here when the host lets the person manage the AI account in den-kit.
+const hasSettings = !!session.host?.ai?.account;
 const SOUNDS: Record<StarterId, string> = {
   bass: 'Bass',
   percussion: 'Percussion',
@@ -182,7 +182,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
         <span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit
       </div>
       <button
-        v-if="isDesktop"
+        v-if="hasSettings"
         class="start-settings"
         data-testid="start-settings"
         @click="emit('settings')"

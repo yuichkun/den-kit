@@ -2,8 +2,8 @@
 // "Add to the plugin": type to filter, arrows and Enter to pick, Esc to close.
 // Pictures list the patch's assets.
 import { computed, nextTick, onMounted, ref } from 'vue';
-import { INSERTABLES } from '../../plugin/inserts.ts';
-import { isImageAsset } from '../../core/ui.ts';
+import { INSERTABLES } from '../../screen/inserts.ts';
+import { isImageAsset } from '../../work/ui.ts';
 import { useSession } from '../context.ts';
 
 const emit = defineEmits<{ (e: 'pick', key: string, asset?: string): void; (e: 'close'): void }>();

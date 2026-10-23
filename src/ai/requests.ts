@@ -1,8 +1,8 @@
 // The prompt and its saved conversation. Every new request goes to the LLM;
 // there is no local phrase interpreter or separate classification service.
 import { shallowRef, watch } from 'vue';
-import type { KitSession } from '../editor/session.ts';
-import { randomId } from '../core/schema.ts';
+import type { AiSession } from './session.ts';
+import { randomId } from '../work/schema.ts';
 import type { Attachment } from './attachments.ts';
 import type { SentSketch } from './sketch.ts';
 import { SAVED_LINES, readSavedLines, savedLine } from './conversation.ts';
@@ -63,10 +63,10 @@ export class AiRequests {
   readonly outcome = shallowRef<Outcome | null>(null);
   readonly history = shallowRef<Outcome[]>([]);
   readonly earlier = shallowRef<Outcome[]>([]);
-  readonly session: KitSession;
+  readonly session: AiSession;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(session: KitSession) {
+  constructor(session: AiSession) {
     this.session = session;
     const saved = session.loadConversation();
     if (saved && saved.id === session.conversation.value)

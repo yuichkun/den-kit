@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ScreenShare } from '../../../src/editor/screen-share.ts';
+import { windowCapture } from '../../../desktop/page/window-capture.ts';
 
 const rect = { x: 1.4, y: 2.6, width: 160, height: 100 };
 afterEach(() => vi.unstubAllGlobals());
 
 function native(capturePage = vi.fn(async () => 'data:image/png;base64,picture')) {
-  vi.stubGlobal('denKitShell', { capturePage });
-  return { share: new ScreenShare(), capturePage };
+  return { share: new ScreenShare(windowCapture(capturePage)), capturePage };
 }
 
 function imageConversion(convertToBlob = async () => new Blob(['image'])) {
@@ -31,7 +31,7 @@ function imageConversion(convertToBlob = async () => new Blob(['image'])) {
   return close;
 }
 
-describe('native screen sharing', () => {
+describe('screen sharing of the app window', () => {
   it('starts off and does not capture before the person enables sharing', async () => {
     const { share, capturePage } = native();
     expect(share.state.value).toBe('off');
@@ -41,8 +41,6 @@ describe('native screen sharing', () => {
   });
 
   it('captures only after explicit sharing and stops without leaving a source', async () => {
-    const getDisplayMedia = vi.fn();
-    vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia } });
     const close = imageConversion();
     const { share, capturePage } = native();
     expect(await share.start()).toBe(true);
@@ -52,7 +50,6 @@ describe('native screen sharing', () => {
     expect(picture).toMatchObject({ source: 'shell', mime: 'image/jpeg', width: 160, height: 100 });
     expect(picture.data).toEqual(new TextEncoder().encode('image'));
     expect(capturePage).toHaveBeenCalledExactlyOnceWith({ x: 1, y: 3, width: 160, height: 100 });
-    expect(getDisplayMedia).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
     share.stop();
     expect(share.state.value).toBe('off');
@@ -109,18 +106,25 @@ describe('native screen sharing', () => {
   });
 });
 
-it('preserves injected browser pictures used by screen-sharing tests', async () => {
-  vi.stubGlobal('denKitShell', undefined);
-  vi.stubGlobal('navigator', undefined);
-  const share = new ScreenShare();
-  const picture = {
-    data: new Uint8Array([1]),
-    mime: 'image/png' as const,
-    width: 160,
-    height: 100,
-    source: 'tab' as const,
-  };
-  share.stub = vi.fn(async () => picture);
-  expect(share.source).toBe('tab');
-  expect(await share.picture(rect)).toBe(picture);
+describe('without a host that takes pictures', () => {
+  it('says sharing is not possible and never starts', async () => {
+    const share = new ScreenShare(null);
+    expect(share.state.value).toBe('unsupported');
+    expect(await share.start()).toBe(false);
+    expect(share.source).toBeNull();
+  });
+
+  it('still takes injected pictures (tests)', async () => {
+    const share = new ScreenShare(null);
+    const picture = {
+      data: new Uint8Array([1]),
+      mime: 'image/png' as const,
+      width: 160,
+      height: 100,
+      source: 'tab' as const,
+    };
+    share.stub = vi.fn(async () => picture);
+    expect(share.source).toBe('tab');
+    expect(await share.picture(rect)).toBe(picture);
+  });
 });

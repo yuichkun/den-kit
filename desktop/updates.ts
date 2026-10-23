@@ -1,4 +1,4 @@
-import type { UpdateStatus } from '../src/desktop/api.ts';
+import type { UpdateStatus } from './page/api.ts';
 
 /** The part of electron-updater's AppUpdater that den-kit uses. */
 export interface AppUpdaterLike {

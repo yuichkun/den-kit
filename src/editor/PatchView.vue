@@ -15,10 +15,10 @@ import {
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
-import { createsCycle } from '../core/scope.ts';
-import type { Intent } from '../core/ops.ts';
-import { expandedId } from '../core/parts.ts';
-import { copiesOf } from '../core/stacks.ts';
+import { createsCycle } from '../work/scope.ts';
+import type { Intent } from '../work/ops.ts';
+import { expandedId } from '../work/parts.ts';
+import { copiesOf } from '../work/stacks.ts';
 import { useSession } from './context.ts';
 import KitNode from './KitNode.vue';
 import KitEdge from './KitEdge.vue';

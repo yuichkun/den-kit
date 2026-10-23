@@ -3,9 +3,9 @@
 // summed ×1/√N into one), spreads knob values, gives random modules their own
 // seeds, and keeps knobs that are the same in every copy one AudioParam.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { currentValues, generate } from '../../../src/core/codegen.ts';
-import { describePatch } from '../../../src/core/describe.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { currentValues, generate } from '../../../src/sound/codegen.ts';
+import { describePatch } from '../../../src/ai/describe.ts';
 import {
   applyIntents,
   applyResolvedOps,
@@ -14,10 +14,10 @@ import {
   OpError,
   type Intent,
   type ResolvedOp,
-} from '../../../src/core/ops.ts';
-import { expandedId, flatten, MAX_EXPANDED } from '../../../src/core/parts.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { emptyDocument, MAX_COUNT, type PatchDocument } from '../../../src/core/schema.ts';
+} from '../../../src/work/ops.ts';
+import { expandedId, flatten, MAX_EXPANDED } from '../../../src/work/parts.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { emptyDocument, MAX_COUNT, type PatchDocument } from '../../../src/work/schema.ts';
 import {
   checkSpread,
   describeSpread,
@@ -25,8 +25,8 @@ import {
   random01,
   spreadValue,
   stackable,
-} from '../../../src/core/stacks.ts';
-import { validate } from '../../../src/core/validate.ts';
+} from '../../../src/work/stacks.ts';
+import { validate } from '../../../src/work/validate.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown): OpError => {

@@ -11,7 +11,7 @@ import {
   projectPath,
   readExit,
   runnerLine,
-} from '../../../src/pod/host.ts';
+} from '../../../src/workspace/pod-io.ts';
 
 describe('pod: terminal output', () => {
   it('drops colours, cursor codes and titles, and keeps what a progress line last said', () => {

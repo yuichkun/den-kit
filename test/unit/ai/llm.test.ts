@@ -6,17 +6,18 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
-import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
-import type { BridgeStatus, LlmEvent, ToolOutput } from '../../../src/ai/protocol.ts';
+import type { AIStatus, LlmEvent, LlmInbound, ToolOutput } from '../../../src/host/ai.ts';
+import { developerWording } from '../../../dev/ai-wording.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { clone } from '../../../src/core/schema.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { clone } from '../../../src/work/schema.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
 import { testSession } from '../../helpers/test-session.ts';
 
 class FakeTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({
+  readonly wording = developerWording;
+  readonly status = shallowRef<AIStatus>({
     codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' },
   });
   sent: Array<Record<string, unknown>> = [];

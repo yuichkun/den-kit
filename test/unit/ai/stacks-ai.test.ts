@@ -2,12 +2,12 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
 
 describe('the LLM and copies', () => {
   it('the tools and the rules teach copies; the block list leaves out what expansion makes', async () => {

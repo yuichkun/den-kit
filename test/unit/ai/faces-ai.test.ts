@@ -4,13 +4,13 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { faceGroup } from '../../../src/core/face.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { faceGroup } from '../../../src/work/face.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
 
 function workspace() {
   const state = {

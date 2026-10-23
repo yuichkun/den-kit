@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
 import {
   applyIntents,
   applyResolvedOps,
@@ -7,19 +7,19 @@ import {
   OpError,
   replaceOps,
   type Intent,
-} from '../../../src/core/ops.ts';
-import { History } from '../../../src/core/history.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { PATCH_VERSION, emptyDocument, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
+} from '../../../src/work/ops.ts';
+import { History } from '../../../src/work/history.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { PATCH_VERSION, emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
 import {
   isColor,
   sanitizeCss,
   stackOrder,
   withGroups,
   type AssetMeta,
-} from '../../../src/core/ui.ts';
-import { CONTROL_KINDS, DEFAULT_SKIN, SKINS, skinDef } from '../../../src/core/skins.ts';
+} from '../../../src/work/ui.ts';
+import { CONTROL_KINDS, DEFAULT_SKIN, SKINS, skinDef } from '../../../src/work/skins.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown) => {

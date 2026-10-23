@@ -7,7 +7,7 @@ import {
   writeControl,
   type CanvasFrame,
   type PendingWrites,
-} from '../../../src/plugin/canvas-api.ts';
+} from '../../../src/screen/canvas-api.ts';
 
 const frame = (): Pick<CanvasFrame, 'values' | 'norms' | 'ranges'> => ({
   values: { cut: 1000, mix: 0.5, on: false, pad: { x: 0.5, y: 0.5 } },

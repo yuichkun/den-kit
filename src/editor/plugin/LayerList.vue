@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Everything on the plugin, front first: click to select (Shift adds), hide and lock decorations.
 import { computed } from 'vue';
-import { CONTROL_OF } from '../../core/skins.ts';
-import { groupOf, stackOrder } from '../../core/ui.ts';
+import { CONTROL_OF } from '../../work/skins.ts';
+import { groupOf, stackOrder } from '../../work/ui.ts';
 import { useSession } from '../context.ts';
 
 const session = useSession();

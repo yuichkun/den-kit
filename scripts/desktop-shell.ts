@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import type { DesktopInfo } from '../src/desktop/api.ts';
+import type { DesktopInfo } from '../desktop/page/api.ts';
 
 /**
  * Waits until the desktop shell reports a matching state. Playwright's waitForFunction does not await an async

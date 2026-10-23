@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAPI, DesktopRuntime } from '../src/desktop/api.ts';
+import type { DesktopAPI, DesktopRuntime } from './page/api.ts';
 
 // Only the app's top-level page receives the API; code-part iframes receive no Node/IPC powers.
 const originArgument = process.argv
@@ -25,7 +25,7 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
   ipcRenderer.on('den-kit:open-settings', () =>
-    window.dispatchEvent(new Event('den-kit:open-settings')),
+    window.dispatchEvent(new Event('den-kit:show-settings')),
   );
   // The page reads the new state through info(); event details do not cross the isolated world.
   ipcRenderer.on('den-kit:update', () => window.dispatchEvent(new Event('den-kit:update')));

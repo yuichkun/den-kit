@@ -3,9 +3,9 @@
 // own). Cables between copied modules come along, so do groups copied whole and
 // lamps or readouts pointing at a copied control; pasted things shift a little
 // so they do not hide the originals.
-import type { Intent } from '../core/ops.ts';
-import { nextNodeId, type PatchDocument, type PatchNode } from '../core/schema.ts';
-import type { UiElement } from '../core/ui.ts';
+import type { Intent } from '../work/ops.ts';
+import { nextNodeId, type PatchDocument, type PatchNode } from '../work/schema.ts';
+import type { UiElement } from '../work/ui.ts';
 import type { KitSession } from './session.ts';
 
 let clipboard: {

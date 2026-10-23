@@ -17,14 +17,14 @@ import { join, resolve } from 'node:path';
 import { CodexClient } from '../bridge/codex/client.ts';
 import { CODEX_VERSION } from '../bridge/codex/protocol.ts';
 import { createBridge, type Bridge } from '../bridge/server.ts';
-import type { DesktopInfo, DesktopSettings } from '../src/desktop/api.ts';
-import type { PageRect } from '../src/editor/screen-share.ts';
+import type { DesktopInfo, DesktopSettings } from './page/api.ts';
+import type { PageRect } from '../src/host/index.ts';
 import { APP_ORIGIN, APP_PORT, rendererServer } from './renderer-server.ts';
 import { readSettings, validatedSettings, writeSettings } from './settings.ts';
 import { allowedPermission } from './permissions.ts';
 import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
-import { signInPending } from '../src/desktop/presentation.ts';
+import { signInPending } from '../src/editor/settings-presentation.ts';
 
 interface OperatorConfig {
   browserPodKey?: string;
@@ -148,8 +148,8 @@ function setupUpdates(): DesktopUpdates {
 async function shutdown() {
   let podFlushError: unknown;
   if (window && !window.isDestroyed()) {
-    await window.webContents.executeJavaScript('window.__kit?.saveNow()').catch(() => undefined);
-    await window.webContents.executeJavaScript('window.__kit?.pod?.flush()').catch(error => {
+    // The page saves the work and flushes the pod (desktop/page/main.ts).
+    await window.webContents.executeJavaScript('window.__denKitBeforeQuit?.()').catch(error => {
       podFlushError = error;
     });
     await window.webContents.session.flushStorageData();

@@ -536,7 +536,7 @@ describe('without a pod (no BrowserPod key)', () => {
       await page.click('[data-testid=view-project]');
       assert.match(
         await page.locator('[data-testid=pod-fix]').innerText(),
-        /BROWSERPOD_API_KEY=.*\.env.*restart `npm run dev`/s,
+        /BROWSERPOD_API_KEY=.*\.env.*restart `vp run dev`/s,
       );
       assert.equal((await waitCompiled(page)).status, 'ok');
       assert.deepEqual(errors, []);

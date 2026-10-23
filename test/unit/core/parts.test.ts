@@ -2,10 +2,10 @@
 // list (inside: part id); validation and code generation expand every use into
 // ordinary nodes and say what they find in terms of the patch as drawn.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { currentValues, generate } from '../../../src/core/codegen.ts';
-import { describePatch } from '../../../src/core/describe.ts';
-import { History } from '../../../src/core/history.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { currentValues, generate } from '../../../src/sound/codegen.ts';
+import { describePatch } from '../../../src/ai/describe.ts';
+import { History } from '../../../src/work/history.ts';
 import {
   applyIntents,
   applyResolvedOps,
@@ -14,12 +14,12 @@ import {
   OpError,
   type Intent,
   type ResolvedOp,
-} from '../../../src/core/ops.ts';
-import { flatten, MAX_EXPANDED, partIdFor, usesOf } from '../../../src/core/parts.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { PATCH_VERSION, type PatchDocument } from '../../../src/core/schema.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
+} from '../../../src/work/ops.ts';
+import { flatten, MAX_EXPANDED, partIdFor, usesOf } from '../../../src/work/parts.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { PATCH_VERSION, type PatchDocument } from '../../../src/work/schema.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown): OpError => {

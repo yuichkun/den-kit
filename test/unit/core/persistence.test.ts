@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
 import {
   documentHash,
   makeSaveRecord,
@@ -7,8 +7,8 @@ import {
   readSaveRecord,
   serializeDocument,
   MAX_FILE_BYTES,
-} from '../../../src/core/persistence.ts';
-import { STARTERS, starter } from '../../../src/core/starters.ts';
+} from '../../../src/work/persistence.ts';
+import { STARTERS, starter } from '../../../src/work/starters.ts';
 
 describe('persistence', () => {
   it('F8 export → import is identical for every starter', () => {

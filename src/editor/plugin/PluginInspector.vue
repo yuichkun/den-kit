@@ -4,15 +4,15 @@
 // theme, colours and fonts, background, default skins, CSS, reference picture);
 // then the assets and the layers.
 import { computed, ref, watch } from 'vue';
-import { THEMES, type PanelRect } from '../../core/schema.ts';
+import { THEMES, type PanelRect } from '../../work/schema.ts';
 import {
   CONTROL_KINDS,
   CONTROL_OF,
   DEFAULT_SKIN,
   type ControlKind,
   type Skin,
-} from '../../core/skins.ts';
-import { THEME_TOKENS } from '../../core/themes.ts';
+} from '../../work/skins.ts';
+import { THEME_TOKENS } from '../../work/themes.ts';
 import {
   COLOR_TOKENS,
   FONT_TOKENS,
@@ -26,9 +26,9 @@ import {
   type TextStyle,
   type UiElement,
   type WidgetStyle,
-} from '../../core/ui.ts';
-import type { Intent } from '../../core/ops.ts';
-import { partNames, partPath } from '../../core/project.ts';
+} from '../../work/ui.ts';
+import type { Intent } from '../../work/ops.ts';
+import { partNames, partPath } from '../../work/project.ts';
 import { useSession } from '../context.ts';
 import AssetPanel from './AssetPanel.vue';
 import ColorField from './ColorField.vue';
@@ -139,7 +139,7 @@ const setEl = (set: Record<string, unknown>, label = 'Change', key?: string) => 
 };
 function setWidget(patch: Partial<Record<keyof WidgetStyle, unknown>>, key?: string) {
   if (!node.value) return;
-  const next = { ...(node.value.style ?? {}) } as Record<string, unknown>;
+  const next = { ...node.value.style } as Record<string, unknown>;
   for (const [k, v] of Object.entries(patch)) {
     if (
       v === null ||
@@ -162,7 +162,7 @@ function setWidget(patch: Partial<Record<keyof WidgetStyle, unknown>>, key?: str
   );
 }
 const widgetToken = (token: string, color: string | null, done: boolean) => {
-  const tokens = { ...(node.value?.style?.tokens ?? {}) } as Record<string, string>;
+  const tokens = { ...node.value?.style?.tokens } as Record<string, string>;
   if (color) tokens[token] = color;
   else delete tokens[token];
   setWidget({ tokens }, done ? undefined : `wt-${token}`);

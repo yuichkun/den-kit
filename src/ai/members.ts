@@ -3,10 +3,10 @@
 // words, the recent conversation, what they attached or sketched, the state of
 // the member's scope, the names everyone keeps), and how members' reports read
 // to the lead. Pure functions: src/ai/llm.ts runs the team.
-import type { Catalog } from '../core/catalog.ts';
-import { describePatch } from '../core/describe.ts';
-import type { PatchDocument } from '../core/schema.ts';
-import type { TokenUsage } from './protocol.ts';
+import type { Catalog } from '../work/catalog.ts';
+import { describePatch } from './describe.ts';
+import type { PatchDocument } from '../work/schema.ts';
+import type { TokenUsage } from '../host/ai.ts';
 import { describePlugin } from './plugin-tools.ts';
 import { describeScope, parseScope, type Scope, type Seam } from './scope.ts';
 

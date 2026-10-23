@@ -1,11 +1,12 @@
-import { shallowRef } from 'vue';
+import { shallowRef, type Ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import type { KitSession } from '../../../src/editor/session.ts';
-import type { PodHost, PodProcess, Portal } from '../../../src/pod/host.ts';
-import { DEV_PORT, PodSession } from '../../../src/pod/pod-session.ts';
-import { templateFiles } from '../../../src/pod/template.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
+import { pluginSpec } from '../../../src/screen/build.ts';
+import type { PodHost, PodProcess, Portal } from '../../../src/host/workspace.ts';
+import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
+import { templateFiles } from '../../../src/workspace/template.ts';
 
 class PreviewProcess implements PodProcess {
   readonly name = 'dev';
@@ -33,7 +34,10 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
   doc.project = {
     files: { ...templateFiles(), 'src/parts/mine.ts': 'export default { mount() {} };' },
   };
-  const session = { doc: shallowRef(doc), catalog } as unknown as KitSession;
+  const session = {
+    doc: shallowRef(doc),
+    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
+  } as unknown as WorkspaceSession;
   const files = new Map<string, string>([
     ['/home/test/work/node_modules/preserved-package/index.js', 'installed package kept'],
   ]);
@@ -207,7 +211,7 @@ describe('explicit project preview retry', () => {
     const originalPackage = JSON.parse(h.session.doc.value.project!.files['package.json']!);
     const changePackage = (name: string) => {
       const doc = h.session.doc.value;
-      h.session.doc.value = {
+      (h.session.doc as Ref<PatchDocument>).value = {
         ...doc,
         project: {
           files: {

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
 import { Telemetry } from '../../bridge/telemetry.ts';
-import { CLOSE, PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../src/ai/protocol.ts';
+import { CLOSE, PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../bridge/protocol.ts';
 import { connect, type TestSocket } from '../helpers/ws-client.ts';
 
 const ORIGIN = 'http://127.0.0.1:5180';

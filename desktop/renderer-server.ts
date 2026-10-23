@@ -47,7 +47,7 @@ export function rendererServer(root: string) {
         res.writeHead(400).end();
         return;
       }
-      const file = resolve(base, `.${name === '/' ? '/index.html' : name}`);
+      const file = resolve(base, `.${name === '/' ? '/desktop.html' : name}`);
       if (!file.startsWith(base + sep)) {
         res.writeHead(403).end();
         return;

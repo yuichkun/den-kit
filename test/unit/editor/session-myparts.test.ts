@@ -4,9 +4,9 @@
 // loses nothing in the patch.
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { extractBundle, bundleHash, latest } from '../../../src/core/library.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { extractBundle, bundleHash, latest } from '../../../src/work/library.ts';
 
 function memoryStorage(): StorageLike & { data: Map<string, string>; full: boolean } {
   const data = new Map<string, string>();

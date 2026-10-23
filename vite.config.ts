@@ -49,7 +49,7 @@ function typeFiles() {
     'utf8',
   );
   for (const entry of readdirSync(join(core, 'dist')))
-    if (/\.d\.mts$/.test(entry))
+    if (entry.endsWith('.d.mts'))
       files[`/project/node_modules/@unworklet/core/dist/${entry}`] = readFileSync(
         join(core, 'dist', entry),
         'utf8',
@@ -98,8 +98,8 @@ function kitVirtual(): Plugin {
 }
 
 const alias = [
-  // See src/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
-  { find: /^wavefile$/, replacement: join(kit, 'src/compile/wavefile-default.ts') },
+  // See src/sound/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
+  { find: /^wavefile$/, replacement: join(kit, 'src/sound/compile/wavefile-default.ts') },
 ];
 
 const ISOLATION = {
@@ -145,7 +145,13 @@ export default defineConfig({
     rolldownOptions: { transform: { target: 'es2022' } },
   },
   preview: { headers: ISOLATION },
-  build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
+  build: {
+    target: 'es2022',
+    chunkSizeWarningLimit: 20000,
+    reportCompressedSize: false,
+    // The desktop app's page; index.html is the development host, served by `vp run dev` only.
+    rolldownOptions: { input: { desktop: join(kit, 'desktop.html') } },
+  },
   test: {
     projects: [
       {

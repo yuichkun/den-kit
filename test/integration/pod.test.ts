@@ -4,20 +4,21 @@
 // and the document staying the record (changes read back, undo written in).
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
-import { catalog } from '../../src/blocks/index.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
 import {
   applyIntents,
   applyResolvedOps,
   invertAll,
   type Intent,
   type ResolvedOp,
-} from '../../src/core/ops.ts';
-import type { PatchDocument } from '../../src/core/schema.ts';
-import { starter } from '../../src/core/starters.ts';
+} from '../../src/work/ops.ts';
+import type { PatchDocument } from '../../src/work/schema.ts';
+import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
-import { connectFakePod } from '../../src/pod/fake-host.ts';
-import { PodSession } from '../../src/pod/pod-session.ts';
-import { starterPart, withTemplate } from '../../src/pod/template.ts';
+import { connectFakePod } from '../../dev/fake-pod.ts';
+import { PodSession } from '../../src/workspace/pod-session.ts';
+import { pluginSpec } from '../../src/screen/build.ts';
+import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 
 /** Just what the pod session uses of the editor's session: the document and commit. */
@@ -27,6 +28,7 @@ function session(start: PatchDocument) {
   const s = {
     catalog,
     doc,
+    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
     commit(intents: Intent[]) {
       try {
         const r = applyIntents(doc.value, intents, catalog);

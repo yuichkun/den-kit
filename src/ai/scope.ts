@@ -7,9 +7,9 @@
 // change what they hold. The controls and their cables that existed when the
 // members started are the seam: members keep them (they place, style and set
 // them, but do not remove or rewire them).
-import type { Catalog } from '../core/catalog.ts';
-import type { PatchDocument, PatchNode } from '../core/schema.ts';
-import type { Rect } from '../core/ui.ts';
+import type { Catalog } from '../work/catalog.ts';
+import type { PatchDocument, PatchNode } from '../work/schema.ts';
+import type { Rect } from '../work/ui.ts';
 
 export interface Scope {
   sound?: 'all' | { parts?: string[]; nodes?: string[] };

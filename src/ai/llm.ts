@@ -24,25 +24,25 @@
 // its turn while members work, den-kit gives it another turn with their reports
 // once they finish. Esc stops everyone; a lane's × stops one member.
 import { reactive, ref, shallowRef, watch } from 'vue';
-import type { KitSession } from '../editor/session.ts';
-import { randomId } from '../core/schema.ts';
-import type { Intent } from '../core/ops.ts';
+import type { AiSession } from './session.ts';
+import { randomId } from '../work/schema.ts';
+import type { Intent } from '../work/ops.ts';
 import {
   CompileClient,
   CompileFailure,
   compileInputs,
   type WorkerLike,
-} from '../compile/compile-client.ts';
-import { RenderClient, type RenderWorkerLike } from '../compile/render-client.ts';
-import type { BridgeClient, LlmInbound } from './bridge-client.ts';
+} from '../sound/compile/compile-client.ts';
+import { RenderClient, type RenderWorkerLike } from '../sound/compile/render-client.ts';
+import type { AI, LlmInbound } from '../host/ai.ts';
 import type { AgentLane, AiRequests, Outcome } from './requests.ts';
 import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type Team, type WorkspaceDeps } from './llm-workspace.ts';
 import { handEdits } from './plugin-tools.ts';
 import { describeAttachments, type Attachment } from './attachments.ts';
 import { RECAP_LINES, handEditsSince, lineForAi } from './conversation.ts';
-import { viewPicture } from '../plugin/picture.ts';
-import { SHOWCASE_ASSETS } from '../showcase/assets.ts';
+import { viewPicture } from '../screen/picture.ts';
+import { SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
 import {
   changes,
   describeScope,
@@ -78,16 +78,14 @@ import {
   type LlmRole,
   type TokenUsage,
   type ToolOutput,
-} from './protocol.ts';
+} from '../host/ai.ts';
 import { seeingText } from './seeing.ts';
-import { desktop } from '../desktop/api.ts';
-import { aiFailure, aiUnavailable } from './user-errors.ts';
 import { markNumber, type SentSketch, type SketchPart } from './sketch.ts';
 import type { Scope } from './scope.ts';
-import CompilerWorker from '../compile/compiler.worker.ts?worker';
+import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
 
 export type LlmTransport = Pick<
-  BridgeClient,
+  AI,
   | 'llmStart'
   | 'llmSteer'
   | 'llmStop'
@@ -99,6 +97,7 @@ export type LlmTransport = Pick<
   | 'status'
   | 'codexReady'
   | 'online'
+  | 'wording'
 >;
 
 export interface LlmOptions {
@@ -315,14 +314,14 @@ export class LlmController {
   /** Each AI checks its edits on its own compiler (the lead's is kept between requests). */
   private compilers = new Map<string, CompileClient>();
   private renderer: RenderClient | null = null;
-  readonly session: KitSession;
+  readonly session: AiSession;
   private readonly requests: AiRequests;
   private readonly bridge: LlmTransport;
   private readonly options: LlmOptions;
   private readonly stopWatching: Array<() => void> = [];
 
   constructor(
-    session: KitSession,
+    session: AiSession,
     requests: AiRequests,
     bridge: LlmTransport,
     options: LlmOptions = {},
@@ -392,14 +391,7 @@ export class LlmController {
 
   /** Why the LLM cannot take a request right now. */
   reason(): string {
-    if (desktop()) return aiUnavailable(this.bridge.online, this.bridge.status.value?.codex.state);
-    if (!this.bridge.online) return 'The LLM is not available: the AI bridge is not connected.';
-    const c = this.bridge.status.value?.codex;
-    if (!c || c.state === 'off') return `The LLM is off${c?.detail ? `: ${c.detail}` : '.'}`;
-    if (c.state === 'login')
-      return `The LLM is not available: Codex is not signed in. ${c.fix ?? 'Run `npm run codex:login`.'}`;
-    if (c.state === 'starting') return 'The LLM is still starting; try again in a moment.';
-    return `The LLM is not available: ${c.detail ?? 'Codex reported an error'}.${c.fix ? ` ${c.fix}` : ''}`;
+    return this.bridge.wording.unavailable(this.bridge.online, this.bridge.status.value?.codex);
   }
 
   /** Send a request with its attachments. Always returns its history line. */
@@ -1296,7 +1288,7 @@ export class LlmController {
     const turn = this.turn;
     if (m.t === 'error') {
       const agent = turn?.byKey.get(m.ref);
-      const message = desktop() ? aiFailure({ message: m.message }) : m.message;
+      const message = this.bridge.wording.failure({ message: m.message }).message;
       if (turn && agent === turn.lead) this.update(turn, { note: message });
       else if (turn && agent) this.step(turn, agent, message);
       return;
@@ -1426,30 +1418,19 @@ export class LlmController {
         return;
       case 'activity':
         if (event.what === 'thinking') this.activity(turn, agent, 'thinking…');
-        else if (desktop()) {
-          if (event.what === 'blocked') this.step(turn, agent, 'Skipped an unsupported AI action.');
-        } else
-          this.step(
-            turn,
-            agent,
-            event.what === 'blocked'
-              ? `blocked ${event.detail ?? 'a request'} (den-kit allows only its own tools)`
-              : `${event.what}${event.detail ? `: ${event.detail}` : ''}`,
-          );
+        else {
+          const said = this.bridge.wording.activity(event.what, event.detail);
+          if (said) this.step(turn, agent, said);
+        }
         return;
       case 'retrying':
-        this.activity(
-          turn,
-          agent,
-          desktop()
-            ? 'Connection lost. Retrying ChatGPT…'
-            : `reconnecting to the model… (${event.message})`,
-        );
+        this.activity(turn, agent, this.bridge.wording.retrying(event.message));
         return;
       case 'question':
         // Nobody is asked to choose: an empty answer, and Codex decides itself.
         this.bridge.llmAnswer(agent.key, event.question, {});
-        if (!desktop()) this.step(turn, agent, 'skipped a question (it decides itself)');
+        if (this.bridge.wording.skippedQuestion)
+          this.step(turn, agent, this.bridge.wording.skippedQuestion);
         return;
       case 'usage':
         agent.usage = event.total;
@@ -1570,26 +1551,20 @@ export class LlmController {
         status: 'stopped',
         ms,
         label: landed ? label : undefined,
-        message:
-          turn.stopNote ??
-          (desktop()
-            ? 'Stopped.'
-            : done.error?.message
-              ? `Stopped: ${done.error.message}`
-              : 'Stopped.'),
+        message: turn.stopNote ?? this.bridge.wording.stopped(done.error),
         note: landed ? KEPT : 'Nothing was changed.',
       });
-    else
+    else {
+      const failure = this.bridge.wording.failure(done.error);
       this.close(turn, {
         status: 'failed',
         ms,
         label: landed ? label : undefined,
-        message: desktop()
-          ? aiFailure(done.error)
-          : (done.error?.message ?? 'The LLM request failed.'),
-        fix: desktop() ? undefined : done.error?.fix,
+        message: failure.message,
+        fix: failure.fix,
         note: landed ? KEPT : undefined,
       });
+    }
     this.next();
   }
 
@@ -1663,9 +1638,8 @@ export class LlmController {
       message:
         m.ws.report?.summary ??
         (m.status === 'failed'
-          ? desktop()
-            ? aiFailure({ message: m.error ?? '' })
-            : m.error
+          ? this.bridge.wording.failure(m.error === undefined ? undefined : { message: m.error })
+              .message
           : undefined),
     }));
     this.update(turn, { agents });
@@ -1694,7 +1668,7 @@ function describeSteps(steps: string[]): string {
       !/^(read|looked|listened|skipped|you added|started|members:|checking|the lead added)/.test(
         s,
       ) &&
-      !/not applied$/.test(s) &&
+      !s.endsWith('not applied') &&
       !/ (finished|stopped|failed|stopped by you) \(\d/.test(s),
   );
   return edits.length ? edits.slice(-2).join(' · ').replace(/ ✓/g, '').slice(0, 120) : 'LLM edit';

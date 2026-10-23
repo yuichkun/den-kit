@@ -12,8 +12,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { AgentLane, AiRequests, Outcome } from '../ai/requests.ts';
 import { attachmentsOf, type Attachment } from '../ai/attachments.ts';
 import type { LlmController } from '../ai/llm.ts';
-import { desktop } from '../desktop/api.ts';
 import AiStatus from './AiStatus.vue';
+import { useSession } from './context.ts';
 import { offerEnter } from './keys.ts';
 import { sketchSummary, type SketchView } from '../ai/sketch.ts';
 import { takeSketch } from './sketch-send.ts';
@@ -31,7 +31,8 @@ const emit = defineEmits<{
 }>();
 const requests = props.requests;
 const llm = props.llm ?? null;
-const isDesktop = !!desktop();
+// The host says whether to show what developers need (token counts, the runtime's terms).
+const technical = requests.session.bridge?.wording.technical ?? true;
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
 const list = ref<HTMLElement | null>(null);
@@ -40,7 +41,7 @@ const turns = computed(() => requests.history.value);
 const latestId = computed(() => turns.value.at(-1)?.id);
 const showEarlier = ref(false);
 // ---- attachments: the selection, minus what was left out for this request ----
-const session = requests.session;
+const session = useSession();
 const leftOut = ref<string[]>([]);
 watch(
   () => [session.selection.value, session.edgeSelection.value],
@@ -80,15 +81,7 @@ const KIND_ICON: Record<Attachment['kind'], string> = {
 const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
 const screenTitle = computed(() =>
-  screen.state.value === 'unsupported'
-    ? screen.message.value
-    : isDesktop
-      ? screenOn.value
-        ? 'AI can see the den-kit window. Click to stop sharing.'
-        : 'Let AI see the den-kit window.'
-      : screenOn.value
-        ? 'The AI can see this tab as you see it when it looks (click to stop sharing)'
-        : 'Let the AI see the screen as you see it (the browser asks to share this tab)',
+  screen.state.value === 'unsupported' ? screen.message.value : screen.title(),
 );
 async function toggleScreen() {
   if (screenOn.value) screen.stop();
@@ -231,17 +224,17 @@ const meta = (o: Outcome) =>
   o.status === 'working'
     ? ''
     : [
-        isDesktop ? '' : via(o),
+        technical ? via(o) : '',
         fmt(elapsed(o)),
         o.agents?.length
-          ? `${o.agents.length} ${isDesktop ? 'task' : 'member'}${o.agents.length === 1 ? '' : 's'}`
+          ? `${o.agents.length} ${technical ? 'member' : 'task'}${o.agents.length === 1 ? '' : 's'}`
           : '',
-        !isDesktop && o.tokens ? tokensShort(o.tokens) : '',
+        technical && o.tokens ? tokensShort(o.tokens) : '',
       ]
         .filter(Boolean)
         .join(' · ');
 const routeTitle = (o: Outcome) =>
-  isDesktop
+  !technical
     ? 'Request duration'
     : o.route === 'llm'
       ? 'Answered by the LLM (Codex)'
@@ -437,7 +430,7 @@ defineExpose({ focus });
               <option value="off">One task at a time</option>
             </select></label
           >
-          <label v-if="!isDesktop" title="Choose how much context each delegated task receives."
+          <label v-if="technical" title="Choose how much context each delegated task receives."
             ><span>Task context</span
             ><select v-model="llm.settings.memberContext" data-testid="ai-member-context">
               <option value="lead">what the lead chooses</option>
@@ -572,7 +565,7 @@ defineExpose({ focus });
                   <span class="grow" />
                   <span class="lane-meta"
                     >{{ fmt(laneElapsed(o, a))
-                    }}{{ !isDesktop && a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span
+                    }}{{ technical && a.tokens ? ` · ${tokensShort(a.tokens)}` : '' }}</span
                   >
                   <button
                     v-if="a.status === 'working' && o.live"
