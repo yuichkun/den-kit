@@ -88,15 +88,10 @@ describe('the AI sees what the person sees', () => {
         /^picture: What the person sees now \(plugin, \d+×\d+, from their shared tab\)\. The person is looking at the plugin, playing it at \d+% of its design size; they let you see their screen/,
       );
       const reply = h
-        .codex!.replies()
-        .filter(r => /What the person sees now/.test(JSON.stringify(r)))
+        .codex!.mcpCalls()
+        .filter(c => /What the person sees now/.test(c.text))
         .at(-1)!;
-      const items = (reply.result as { contentItems: Array<{ type: string; imageUrl?: string }> })
-        .contentItems;
-      assert.deepEqual(
-        items.map(i => i.type),
-        ['inputText', 'inputImage'],
-      );
+      assert.deepEqual(reply.types, ['text', 'image']);
       // In the patch view the line says what is in sight.
       await page.click('[data-testid=view-patch]');
       await page.waitForSelector('[data-testid=patch-view] .vue-flow__node');

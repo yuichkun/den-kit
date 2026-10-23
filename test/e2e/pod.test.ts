@@ -129,10 +129,10 @@ describe('the pod: a free environment for the AI', () => {
         { kind: 'code', part: 'meter' },
       );
       // What the model got back: the guide, real tool output with exit statuses, the look with the part drawn.
-      const replies = JSON.stringify(h.codex!.replies());
-      assert.match(replies, /## Code parts/);
-      assert.match(replies, /\[exit 0/);
-      assert.doesNotMatch(replies, /code part meter1[^"]*fails/);
+      const replies = h.codex!.mcpCalls().map(c => c.text);
+      assert.ok(replies.some(r => /## Code parts/.test(r)));
+      assert.ok(replies.some(r => /\[exit 0/.test(r)));
+      assert.ok(!replies.some(r => /code part meter1[^"]*fails/.test(r)));
       // The pod's git has the request as a commit.
       await page.waitForFunction(() => (window as any).__kit.pod.log.value.length > 0);
       const gitLog = await kit(
@@ -411,9 +411,9 @@ export default part({ mount(root, kit) {
       assert.equal(line.status, 'applied', JSON.stringify(line));
       assert.equal(line.label, 'Fixed the broken part', JSON.stringify(line));
       const looks = h
-        .codex!.replies()
-        .filter(r => /Looked at the plugin/.test(JSON.stringify(r)))
-        .map(r => JSON.stringify(r));
+        .codex!.mcpCalls()
+        .filter(c => /Looked at the plugin/.test(c.text))
+        .map(c => c.text);
       assert.match(
         looks.at(-2)!,
         /The code part oops1 fails: mount: Error: oops: the canvas is missing/,

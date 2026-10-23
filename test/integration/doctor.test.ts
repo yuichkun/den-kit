@@ -92,6 +92,9 @@ describe('doctor', () => {
     expect(line(out, 'Codex isolation')).toMatch(/^PASS\s+Codex isolation\s+no instruction files/);
     expect(line(out, 'Codex live request')).toMatch(/^PASS.*kit_ping round trip · reply “pong”/);
     // What den-kit needs beyond one request.
+    expect(line(out, 'Codex sub-agents')).toMatch(
+      /^PASS.*a sub-agent called den-kit's tool from its own conversation/,
+    );
     expect(line(out, 'Codex two requests')).toMatch(
       /^PASS.*two requests at once: one finished in [\d.]+ s while the other's tool call was held/,
     );

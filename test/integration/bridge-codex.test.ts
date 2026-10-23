@@ -1,6 +1,7 @@
 // The LLM path end to end below the browser: a WebSocket tab ↔ the bridge ↔
-// CodexClient ↔ the fake app-server process. Tool calls are answered here with
-// canned results; the browser's real tools are covered in llm-workspace and e2e.
+// CodexClient ↔ the fake app-server process, which calls den-kit's tools through
+// the bridge's MCP server. Tool calls are answered here with canned results; the
+// browser's real tools are covered in llm-workspace and e2e.
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
 import {
@@ -31,6 +32,13 @@ async function setup(
   } = {},
 ) {
   const fake = fakeCodex(options);
+  // Where the bridge's MCP server is, as Codex is told (tests call it directly too).
+  let mcp: { url: string; token: string } | null = null;
+  const useMcp = fake.client.useMcp.bind(fake.client);
+  fake.client.useMcp = m => {
+    mcp = m;
+    useMcp(m);
+  };
   const bridge = await createBridge({
     origins: [ORIGIN],
     codex: fake.client,
@@ -41,8 +49,24 @@ async function setup(
     await fake.cleanup();
   });
   if (options.start !== false) await fake.client.start();
-  return { fake, bridge };
+  return { fake, bridge, mcp: () => mcp! };
 }
+/** A request to the bridge's MCP server, as Codex makes one. */
+const mcpPost = (
+  at: { url: string; token: string },
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {},
+) =>
+  fetch(at.url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      authorization: `Bearer ${at.token}`,
+      ...headers,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', ...body }),
+  });
 async function tab(bridge: Bridge, name = 'tab-a'): Promise<TestSocket> {
   const s = await connect(`ws://127.0.0.1:${bridge.port}${WS_PATH}`, ORIGIN);
   s.send({ t: 'hello', protocol: PROTOCOL_VERSION, token: bridge.token, tab: name });
@@ -70,6 +94,8 @@ const canned: Answer = call =>
       },
       kit_finish: { success: true, text: 'OK.' },
       kit_write_codebox: { success: true, text: 'Code saved. Compiled OK in 0.2 s.' },
+      kit_claim_scope: { success: true, text: 'Your scope: the sound.' },
+      kit_look: { success: true, text: 'Nothing serious.' },
     } as Record<string, ToolOutput>
   )[call.tool] ?? { success: false, text: 'unknown' };
 
@@ -81,21 +107,29 @@ async function collect(
   options: { timeoutMs?: number; until?: (e: LlmEvent) => boolean } = {},
 ) {
   const events: LlmEvent[] = [];
-  const calls: Array<{ tool: string; args: unknown; callId: string }> = [];
+  const calls: Array<{ tool: string; args: unknown; callId: string; agent?: string }> = [];
+  /** Events about a sub-agent, with its id. */
+  const agents: Array<{ agent: string; event: LlmEvent }> = [];
   const end = Date.now() + (options.timeoutMs ?? 10000);
   for (;;) {
     const m = (await s.next(Math.max(1, end - Date.now()))) as ServerMessage;
     if (process.env.DEBUG_COLLECT) console.log(id, JSON.stringify(m).slice(0, 160));
     if (m.t === 'tool.call' && m.id === id) {
-      calls.push({ tool: m.tool, args: m.args, callId: m.callId });
+      calls.push({
+        tool: m.tool,
+        args: m.args,
+        callId: m.callId,
+        ...(m.agent ? { agent: m.agent } : {}),
+      });
       const out = answer({ tool: m.tool, args: m.args, callId: m.callId });
       if (out) s.send({ t: 'tool.result', id, callId: m.callId, output: out });
       continue;
     }
     if (m.t !== 'llm.event' || m.id !== id) continue;
-    events.push(m.event);
+    if (m.agent) agents.push({ agent: m.agent, event: m.event });
+    else events.push(m.event);
     if (m.event.kind === 'done' || m.event.kind === 'steered' || options.until?.(m.event))
-      return { events, calls };
+      return { events, calls, agents };
   }
 }
 const start = (s: TestSocket, id: string, text: string, thread?: string) =>
@@ -254,7 +288,7 @@ describe('Codex start-up and status', () => {
 
 describe('a turn', () => {
   it('starts an isolated thread, relays tool calls and results, streams the reply and ends once', async () => {
-    const { bridge, fake } = await setup();
+    const { bridge, fake, mcp: setupMcp } = await setup();
     const s = await tab(bridge);
     start(s, 'r1', 'wobble the cutoff');
     const { events, calls } = await collect(s, 'r1');
@@ -283,15 +317,32 @@ describe('a turn', () => {
       sandbox: 'read-only',
       approvalPolicy: 'never',
       developerInstructions: 'You edit a synth patch.',
-      config: { web_search: 'disabled' },
+      config: {
+        web_search: 'live',
+        agents: { max_concurrent_threads_per_session: 4 },
+        mcp_servers: {
+          'den-kit': {
+            url: setupMcp().url,
+            bearer_token_env_var: 'DEN_KIT_MCP_TOKEN',
+            required: true,
+            default_tools_approval_mode: 'approve',
+          },
+        },
+      },
     });
+    expect(thread).not.toHaveProperty('dynamicTools');
     expect((thread.config as { features: Record<string, boolean> }).features).toMatchObject({
-      multi_agent: false,
+      multi_agent: true,
       apps: false,
       shell_tool: false,
       plugins: false,
+      computer_use: false,
+      browser_use: false,
+      memories: false,
+      view_image: false,
     });
-    expect((thread.dynamicTools as Array<{ name: string }>).map(t => t.name)).toEqual([
+    // den-kit's tools come from its MCP server, to which Codex connected with the token.
+    expect(fake.mcpSessions()[0]!.tools).toEqual([
       'kit_get_patch',
       'kit_list_blocks',
       'kit_describe_block',
@@ -310,10 +361,7 @@ describe('a turn', () => {
     ]);
     expect(String(thread.cwd)).toContain('work');
     // The spectrogram went back as an image because the model accepts images.
-    const listen = fake.replies().find(r => JSON.stringify(r).includes('Peak'))!;
-    expect(
-      (listen.result as { contentItems: Array<{ type: string }> }).contentItems.map(c => c.type),
-    ).toEqual(['inputText', 'inputImage']);
+    expect(fake.mcpCalls().find(c => c.tool === 'kit_listen')!.types).toEqual(['text', 'image']);
     noViolations(fake);
   });
 
@@ -341,7 +389,7 @@ describe('a turn', () => {
       sandbox: 'read-only',
       approvalPolicy: 'never',
       developerInstructions: 'You edit a synth patch.',
-      config: { web_search: 'disabled' },
+      config: { web_search: 'live', mcp_servers: { 'den-kit': { required: true } } },
     });
     // A conversation the runtime does not have: a new one starts, and says so.
     start(b, 'r4', 'explain', 'no-such-conversation');
@@ -500,15 +548,47 @@ describe('a turn', () => {
     noViolations(fake);
   });
 
-  it('a tool the model invents is refused without reaching the tab', async () => {
-    const { bridge } = await setup();
+  it('a tool den-kit does not have, or a call from a conversation den-kit does not know, is refused without reaching the tab', async () => {
+    const { bridge, mcp } = await setup();
     const s = await tab(bridge);
-    start(s, 'r1', 'unknown tool please');
-    const { events, calls } = await collect(s, 'r1');
-    expect(calls).toEqual([]);
-    expect(events.find(e => e.kind === 'message')).toMatchObject({
-      text: expect.stringMatching(/^refused: Unknown tool "kit_rm_rf"/),
+    start(s, 'r1', 'slow please');
+    const first = await collect(s, 'r1', canned, { until: e => e.kind === 'activity' });
+    const thread = (first.events.find(e => e.kind === 'thread') as { thread: string }).thread;
+    const call = async (name: string, threadId: string) =>
+      (await (
+        await mcpPost(mcp(), {
+          id: 1,
+          method: 'tools/call',
+          params: { name, arguments: {}, _meta: { threadId } },
+        })
+      ).json()) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect((await call('kit_rm_rf', thread)).result).toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringMatching(/^Unknown tool "kit_rm_rf"/) }],
     });
+    expect((await call('kit_listen', 'someone-else')).result).toMatchObject({
+      isError: true,
+      content: [{ text: 'This request is over; the tool was not run.' }],
+    });
+    s.send({ t: 'llm.stop', id: 'r1' });
+    const rest = await collect(s, 'r1');
+    // The request's own calls reached the tab; neither of these did.
+    expect([...first.calls, ...rest.calls].map(c => c.tool)).toEqual(['kit_get_patch']);
+  });
+
+  it("den-kit's MCP server answers only Codex: the token, no browser, POST", async () => {
+    const { mcp } = await setup();
+    const list = { id: 1, method: 'tools/list' };
+    expect((await mcpPost({ ...mcp(), token: 'wrong' }, list)).status).toBe(401);
+    expect((await mcpPost(mcp(), list, { origin: 'http://127.0.0.1:5180' })).status).toBe(403);
+    expect(
+      (await fetch(mcp().url, { headers: { authorization: `Bearer ${mcp().token}` } })).status,
+    ).toBe(405);
+    const ok = await mcpPost(mcp(), list);
+    expect(ok.status).toBe(200);
+    expect(
+      ((await ok.json()) as { result: { tools: unknown[] } }).result.tools.length,
+    ).toBeGreaterThan(10);
   });
 
   it('a tab that never answers a tool call: the call fails after the deadline and the turn stops', async () => {
@@ -520,8 +600,7 @@ describe('a turn', () => {
       status: 'interrupted',
       error: { message: expect.stringMatching(/did not answer a tool call/) },
     });
-    const reply = fake.replies().find(r => JSON.stringify(r).includes('did not answer in time'));
-    expect(reply).toBeDefined();
+    await until(() => fake.mcpCalls().some(c => c.text.includes('did not answer in time')));
     noViolations(fake);
   });
 
@@ -649,6 +728,62 @@ describe('pictures, token counts and effort', () => {
     start(s, 'e1', 'explain');
     await collect(s, 'e1');
     expect(fake.sent('turn/start')[0]!.params).not.toHaveProperty('effort');
+  });
+});
+
+describe("the runtime's sub-agents", () => {
+  const isAgent = (e: LlmEvent, state: 'started' | 'ended') =>
+    e.kind === 'agent' && e.state === state;
+  it("a sub-agent's tool calls carry its id; the tab hears when each starts and ends, and what it says", async () => {
+    const { bridge, fake } = await setup();
+    const s = await tab(bridge);
+    start(s, 'team', 'make an acid team');
+    const { events, calls, agents } = await collect(s, 'team');
+    expect(doneOf(events)!.status).toBe('completed');
+    const started = agents.filter(a => isAgent(a.event, 'started'));
+    expect(started.map(a => (a.event as { name: string }).name).sort()).toEqual([
+      'screen',
+      'sound',
+    ]);
+    const ids = started.map(a => a.agent).sort();
+    // A sub-agent's calls carry its own id (its conversation's); the request's own AI's carry none.
+    expect(
+      calls
+        .filter(c => c.tool === 'kit_claim_scope')
+        .map(c => c.agent)
+        .sort(),
+    ).toEqual(ids);
+    expect(calls.filter(c => c.tool === 'kit_finish').map(c => c.agent)).toEqual([undefined]);
+    expect(
+      agents
+        .filter(a => isAgent(a.event, 'ended'))
+        .map(a => (a.event as { status: string }).status),
+    ).toEqual(['completed', 'completed']);
+    expect(
+      agents.some(
+        a => a.event.kind === 'message' && a.event.text === 'Neon screen.' && ids.includes(a.agent),
+      ),
+    ).toBe(true);
+    // Each sub-agent opened its own MCP session with den-kit's server.
+    expect(fake.mcpSessions().map(m => m.thread)).toEqual(expect.arrayContaining(ids));
+    noViolations(fake);
+  });
+
+  it('Esc stops the request and each of its sub-agents: interrupting one conversation does not stop the others', async () => {
+    const { bridge, fake } = await setup();
+    const s = await tab(bridge);
+    start(s, 'slow', 'a team that waits');
+    let seen = 0;
+    await collect(s, 'slow', canned, { until: e => isAgent(e, 'started') && ++seen === 2 });
+    s.send({ t: 'llm.stop', id: 'slow' });
+    const { events } = await collect(s, 'slow');
+    expect(doneOf(events)!.status).toBe('interrupted');
+    await until(() => fake.sent('turn/interrupt').length === 3);
+    expect(
+      new Set(fake.sent('turn/interrupt').map(m => (m.params as { threadId: string }).threadId))
+        .size,
+    ).toBe(3);
+    noViolations(fake);
   });
 });
 

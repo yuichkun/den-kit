@@ -433,7 +433,8 @@ export class LlmController {
       turn.agents.set(id, agent);
       this.step(turn, turn.lead, `started ${agent.name}`);
       this.syncLanes(turn);
-    } else if (name && agent.name !== name) {
+    } else if (name && agent.name !== name && !agent.holding) {
+      // The runtime's name for it, unless it named itself when it claimed its scope.
       agent.name = name;
       this.syncLanes(turn);
     }
@@ -868,7 +869,7 @@ export class LlmController {
   /** What the runtime says about a sub-agent. */
   private agentEvent(turn: Turn, id: string, event: LlmEvent) {
     if (event.kind === 'agent') {
-      const agent = this.subAgent(turn, id, event.name);
+      const agent = this.subAgent(turn, id, event.state === 'started' ? event.name : undefined);
       if (event.state === 'ended') this.agentEnded(turn, agent, event.status ?? 'completed');
       return;
     }

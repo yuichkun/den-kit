@@ -11,7 +11,11 @@
 // Trust model: a connection must come from the Vite page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
 // is closed with a code that says why (see CLOSE in bridge/protocol.ts).
+//
+// The agent runtime reaches den-kit's tools through the MCP server at /mcp
+// (bridge/mcp.ts), with its own per-launch token.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -26,6 +30,7 @@ import {
 } from './protocol.ts';
 import { Telemetry } from './telemetry.ts';
 import type { CodexClient, TurnSink } from './codex/client.ts';
+import { MCP_PATH, mcpHandler } from './mcp.ts';
 
 export const BRIDGE_VERSION = 'den-kit-bridge/1';
 export const TOKEN_PATH = '/__kit/token';
@@ -46,6 +51,8 @@ export interface BridgeOptions {
   log?: (line: string) => void;
   /** Packaged desktop app: serve its built renderer from the same loopback origin. */
   handleHttp?: (req: IncomingMessage, res: ServerResponse) => void;
+  /** WebSocket upgrades the host serves itself (the desktop sandbox); true when it took the request. */
+  handleUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
 }
 
 interface Tab {
@@ -187,6 +194,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
           callId: call.callId,
           tool: call.tool,
           args: call.args,
+          ...(call.agent ? { agent: call.agent } : {}),
         });
     }
   }
@@ -203,7 +211,16 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
     });
   const originAllowed = (origin: string | undefined) => !!origin && origins.has(origin);
 
-  // HTTP: only the token endpoint (same-origin pages may re-read the token after a bridge restart).
+  const mcp = codex
+    ? mcpHandler({
+        token: randomBytes(32).toString('hex'),
+        tools: () => codex.tools(),
+        call: (thread, tool, args) => codex.mcpCall(thread, tool, args),
+        version: BRIDGE_VERSION,
+      })
+    : null;
+
+  // HTTP: the token endpoint (same-origin pages may re-read the token after a bridge restart) and MCP.
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === TOKEN_PATH) {
@@ -222,6 +239,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         .end(JSON.stringify({ token, protocol: PROTOCOL_VERSION }));
       return;
     }
+    if (mcp && isLoopbackHost(req.headers.host) && mcp.handle(req, res)) return;
     if (options.handleHttp) {
       options.handleHttp(req, res);
       return;
@@ -231,6 +249,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    if (options.handleUpgrade?.(req, socket, head)) return;
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (url.pathname !== WS_PATH || !isLoopbackHost(req.headers.host)) {
       socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -433,6 +452,8 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
+  // Codex starts after this (the bridge's owner starts it), with the server's address and token.
+  if (mcp) codex?.useMcp({ url: `http://127.0.0.1:${port}${MCP_PATH}`, token: mcp.token });
 
   return {
     port,

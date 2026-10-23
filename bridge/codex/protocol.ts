@@ -212,12 +212,15 @@ export type ThreadItem =
       durationMs: number | null;
     }
   | { type: string; id: string; [key: string]: unknown };
-/** Item types a den-kit turn may produce; anything else (commandExecution, mcpToolCall, webSearch, …) is reported. */
+/** Item types a den-kit turn may produce; anything else (commandExecution, fileChange, imageView, …) is reported. */
 export const EXPECTED_ITEMS = new Set([
   'userMessage',
   'agentMessage',
   'reasoning',
-  'dynamicToolCall',
+  'mcpToolCall',
+  'subAgentActivity',
+  'collabAgentToolCall',
+  'webSearch',
   'plan',
   'contextCompaction',
 ]);

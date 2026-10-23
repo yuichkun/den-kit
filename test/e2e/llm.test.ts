@@ -105,14 +105,10 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
       );
       assert.equal((await waitCompiled(page)).status, 'ok');
       // The render ran in the browser worker: real metrics and a PNG went back to the model.
-      const listen = h.codex!.replies().find(r => JSON.stringify(r).includes('peak'))!;
-      const items = (listen.result as { contentItems: Array<{ type: string; imageUrl?: string }> })
-        .contentItems;
-      assert.deepEqual(
-        items.map(i => i.type),
-        ['inputText', 'inputImage'],
-      );
-      assert.match(items[1]!.imageUrl!, /^data:image\/png;base64,iVBORw0KGgo/);
+      const listen = h.codex!.mcpCalls().find(c => c.text.includes('peak'))!;
+      assert.deepEqual(listen.types, ['text', 'image']);
+      assert.equal(listen.images[0]!.mimeType, 'image/png');
+      assert.match(listen.images[0]!.prefix, /^iVBORw0KGgo/);
       // ⌘Z takes the whole LLM edit back.
       await page.locator('[data-testid=ai-input]').blur();
       await page.keyboard.press('Control+z');
@@ -137,10 +133,10 @@ describe('LLM path (fake Codex, real tools in the browser)', () => {
       const line = await settled(page, 'write a bitcrusher in a codebox');
       assert.equal(line.route, 'llm');
       assert.equal(line.status, 'applied', JSON.stringify(line));
-      const broken = h.codex!.replies().find(r => JSON.stringify(r).includes('would not compile'));
+      const broken = h.codex!.mcpCalls().find(c => c.text.includes('would not compile'));
       assert.ok(broken, 'the compile error went back to the model');
-      assert.match(JSON.stringify(broken), /crush1/);
-      assert.match(JSON.stringify(broken), /Nothing was applied/);
+      assert.match(broken.text, /crush1/);
+      assert.match(broken.text, /Nothing was applied/);
       assert.match(await kit(page, k => k.doc.value.nodes.crush1.code), /floor\(\)/);
       assert.equal((await waitCompiled(page)).status, 'ok');
       await kit(page, k => k.noteOn(45, 100));

@@ -318,6 +318,21 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // npm run doctor -- --deep: a sub-agent calls den-kit's tool from its own conversation.
+    name: 'doctor-subagent',
+    match: /den-kit sub-agent check/i,
+    async run(t) {
+      await t.think();
+      void t.spawn('ping', async a => {
+        const r = await a.call('kit_ping', {});
+        await a.say(r.text.includes('pong') ? 'pong' : 'no pong');
+      });
+      await t.waitAgents();
+      t.usage(1200, 8, 900);
+      await t.say('pong');
+    },
+  },
+  {
     name: 'wobble',
     match: /wobble/i,
     async run(t) {
@@ -881,6 +896,122 @@ const scenarios: Scenario[] = [
       await t.say(`pictures: ${t.images.length}`);
       const more = await t.waitForSteer(3000);
       await t.say(`after "${more ?? ''}": pictures ${t.images.length}`);
+    },
+  },
+  // Sub-agents: the request's AI lands the controls both sides share, starts a sound sub-agent and a screen
+  // sub-agent that work at once, each in the scope it claims (an edit outside it is refused), waits for them,
+  // looks once and finishes.
+  {
+    name: 'team',
+    match: /acid team/i,
+    async run(t) {
+      await t.think();
+      await t.call('kit_get_patch', {});
+      const seam = await t.call('kit_apply_ops', {
+        ops: [
+          {
+            op: 'addControl',
+            for: { node: 'cut1', port: 'hz' },
+            label: 'Cutoff',
+            panel: { x: 40, y: 120, w: 96, h: 110 },
+          },
+          {
+            op: 'addControl',
+            for: { node: 'filter1', port: 'resonance' },
+            label: 'Resonance',
+            panel: { x: 160, y: 120, w: 96, h: 110 },
+          },
+        ],
+      });
+      if (!seam.success) {
+        await t.say(`seam failed: ${seam.text.slice(0, 200)}`);
+        return { status: 'failed', message: 'scenario: seam failed', info: 'other' };
+      }
+      const reports: string[] = [];
+      void t.spawn('sound', async a => {
+        await a.think();
+        const claim = await a.call('kit_claim_scope', { scope: { sound: 'all' }, name: 'Sound' });
+        if (!claim.success) {
+          reports.push(`sound: claim refused (${claim.text.slice(0, 120)})`);
+          return;
+        }
+        await a.sleep(300); // long enough for the person to see both lanes working
+        await a.call('kit_apply_ops', {
+          ops: [
+            { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
+            { op: 'addNode', node: { id: 'lfo2', type: 'den.lfo', values: { rate: 4 } } },
+            {
+              op: 'connect',
+              from: { node: 'lfo2', port: 'out' },
+              to: { node: 'cut1', port: 'octaves' },
+              replace: true,
+            },
+          ],
+        });
+        const wrong = await a.call('kit_apply_ops', {
+          ops: [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }],
+        });
+        await a.call('kit_listen', { phrase: 'bass', seconds: 1 });
+        a.usage(8000, 600, 6000);
+        reports.push(
+          wrong.success ? 'sound: an edit outside my scope was not refused' : 'sound: done',
+        );
+        await a.say('Squelchy bass: lfo2 wobbles cut1.');
+      });
+      void t.spawn('screen', async a => {
+        await a.think();
+        const claim = await a.call('kit_claim_scope', { scope: { screen: 'all' }, name: 'Screen' });
+        if (!claim.success) {
+          reports.push(`screen: claim refused (${claim.text.slice(0, 120)})`);
+          return;
+        }
+        await a.call('kit_apply_ops', {
+          ops: [
+            {
+              op: 'setLook',
+              look: { tokens: { bg: '#000000', fg: '#39ff14', accent: '#39ff14' } },
+            },
+            {
+              op: 'addElement',
+              element: {
+                kind: 'text',
+                text: 'ACID',
+                rect: { x: 40, y: 24, w: 300, h: 56 },
+                textStyle: { font: 'orbitron', size: 40, color: 'accent' },
+              },
+            },
+          ],
+        });
+        await a.sleep(400);
+        await a.call('kit_look', {});
+        a.usage(3000, 300);
+        reports.push('screen: done');
+        await a.say('Neon screen.');
+      });
+      t.usage(6000, 400, 2000);
+      await t.waitAgents();
+      await t.call('kit_look', {});
+      await t.call('kit_finish', {
+        summary:
+          reports.length === 2 && reports.every(r => r.endsWith(': done'))
+            ? 'Built an acid bass and a neon screen'
+            : `sub-agents: ${reports.join('; ')}`,
+      });
+      await t.say('Done.');
+    },
+  },
+  {
+    // Esc while sub-agents work: each has to be stopped on its own thread.
+    name: 'team-waits',
+    match: /team that waits/i,
+    async run(t) {
+      void t.spawn('one', async a => {
+        for (let i = 0; i < 200 && !a.interrupted; i++) await a.sleep(20);
+      });
+      void t.spawn('two', async a => {
+        for (let i = 0; i < 200 && !a.interrupted; i++) await a.sleep(20);
+      });
+      for (let i = 0; i < 200 && !t.interrupted; i++) await t.sleep(20);
     },
   },
   {
