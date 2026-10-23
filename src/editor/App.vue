@@ -26,8 +26,8 @@ const props = defineProps<{
 }>();
 const session = props.session;
 provide(SESSION, session);
-// Code parts on any plugin drawn in the editor come from the work's pod.
-provide(POD, session.pod);
+// Code parts on any plugin drawn in the editor come from the work's pod (through the host's sandbox when it has one).
+provide(POD, session.codeParts?.source ?? session.pod);
 const view = ref<'patch' | 'plugin' | 'code' | 'project'>('patch');
 /** A file of the screen project to open in the Project view. */
 const projectFile = ref<string | null>(null);
@@ -70,14 +70,6 @@ async function refreshUpdate() {
     /* the next update event or Settings shows the state */
   }
 }
-// Account and settings changes restart the agent runtime and invalidate its conversation ids.
-watch(
-  () => session.bridge?.status.value?.codex.state,
-  state => {
-    if (account && state === 'starting' && !session.llm?.running) session.llm?.reset();
-  },
-);
-
 // ---- the AI panel: a column on the right, never over the canvas ---------------------
 const stored = (key: string) => {
   try {

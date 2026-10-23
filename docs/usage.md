@@ -87,6 +87,13 @@ A code part is part of the plugin screen written in code, in the web project tha
 Project workspace keeps for each work. The [code-part guide](../pod-template/AGENTS.md)
 and the [API definitions](../pod-template/src/kit/index.ts) describe how to write one.
 
+A code part runs in a frame at the work's own address. It reaches nothing else unless
+you allow it: a work lists the addresses its code parts need, each with a reason (the
+AI can add to the list), and **Network and devices for code parts** in the Project tab
+allows them, and the microphone, camera and MIDI, for that work on this computer. What
+you allow is not saved in the work, so a work you receive asks again. A code part makes
+no sound until you click it.
+
 ## Known limitations
 
 - BrowserPod needs recent WebAssembly features.

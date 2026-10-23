@@ -66,7 +66,13 @@ import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
 import { AssetStore } from '../work/asset-store.ts';
 import { readWorkFile, writeWorkFile } from '../work/work-file.ts';
 import { lookAt, type LookResult } from '../screen/look.ts';
-import { assetFontFamily, isFontAsset, type AssetMeta, assetsOf } from '../work/ui.ts';
+import {
+  assetFontFamily,
+  isFontAsset,
+  MAX_ASSET_BYTES,
+  type AssetMeta,
+  assetsOf,
+} from '../work/ui.ts';
 import type { Host } from '../host/index.ts';
 import type { AI } from '../host/ai.ts';
 import type { AiRequests } from '../ai/requests.ts';
@@ -78,6 +84,7 @@ export type InkTool = Mark['kind'] | 'eraser';
 import { ScreenShare } from './screen-share.ts';
 import { WorkLock } from './work-lock.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
+import type { CodeParts } from './code-parts.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast {
@@ -167,6 +174,8 @@ export class KitSession {
   llm: LlmController | null = null;
   /** The pod (BrowserPod): the screen project's workbench for the AI and the person; null when not wired (unit tests). */
   pod: PodSession | null = null;
+  /** Where the code parts run and what the person allowed them; null when not wired (unit tests). */
+  codeParts: CodeParts | null = null;
   /** What the person is looking at (U8b): the view and the plugin's mode (the editor keeps it up to date). */
   readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
   /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
@@ -799,7 +808,7 @@ export class KitSession {
       analyser: probe =>
         probe >= 0 ? (this.engine.probeAnalysers[probe] ?? null) : this.engine.outAnalyser,
       picture: options.picture,
-      pod: this.pod,
+      pod: this.codeParts?.source ?? this.pod,
     });
   }
 
@@ -1131,6 +1140,22 @@ export class KitSession {
     }
     await this.syncAssets();
     return assetsOf(this.doc.value.files)[meta.id] ?? meta;
+  }
+
+  /**
+   * A file from a public URL, fetched by the host and kept as an asset would be when dropped (its type and size
+   * checked); not yet in the work (the caller adds it). Throws with the reason it cannot.
+   */
+  async importFromUrl(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }> {
+    const fetcher = this.host?.fetch;
+    if (!fetcher) throw new Error('den-kit cannot fetch files here.');
+    const got = await fetcher.get(url, MAX_ASSET_BYTES);
+    const fromUrl = decodeURIComponent(new URL(got.url).pathname.split('/').at(-1) ?? '');
+    const file = new File([got.bytes as BlobPart], name || fromUrl || 'imported', {
+      type: got.type,
+    });
+    const asset = await this.assets.add(file, path => !!this.doc.value.files[path]);
+    return { asset, url: got.url };
   }
 
   // ---- Persistence --------------------------------------------------------------

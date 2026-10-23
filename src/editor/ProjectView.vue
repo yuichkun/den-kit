@@ -10,6 +10,7 @@ import { kitFiles } from '../screen/kit-files.ts';
 import { templateFiles, withTemplate } from '../workspace/template.ts';
 import { PodCheck, secs } from '../workspace/pod-check.ts';
 import CodeArea from './CodeArea.vue';
+import NetworkPanel from './NetworkPanel.vue';
 import { highlight, languageFor } from './highlight.ts';
 
 const props = defineProps<{
@@ -201,7 +202,7 @@ function start() {
 }
 async function runCheck() {
   if (!pod) return;
-  await check.run(pod);
+  await check.run(pod, () => session.codeParts?.source.portal.value ?? null);
   const text = check.summary(pod.kind);
   pod.note(text.split('\n')[0]!);
   session.bridge?.telemetry({
@@ -328,6 +329,7 @@ export function podCheck(): PodCheck {
         />
       </div>
     </div>
+    <NetworkPanel />
     <details class="diagnostics" data-testid="project-diagnostics">
       <summary>Diagnostics</summary>
       <div class="diagnostic-body">

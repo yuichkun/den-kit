@@ -58,6 +58,13 @@ The Project tab shows startup progress and provides a terminal, source editor,
 and checks. First startup includes package installation and requires network
 access. BrowserPod also supplies the AI's project environment.
 
+Code parts load from each work's own address on the AI bridge's port
+(`http://<work id>.localhost:5181`), which passes their requests through to the
+project's dev server and sets the same response rules as the desktop app. A
+browser cannot apply the desktop app's window rules (the proxy that refuses
+connections, WebRTC without UDP, no DNS prefetching) or add its secret header, so
+the development server's sandbox answers any local request.
+
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `vp run build` excludes
 it from the web renderer.
@@ -108,7 +115,9 @@ vp run test
 `vp check` checks formatting and lint; `vp check --fix` fixes what it can.
 `vp run typecheck` checks types with vue-tsc, and `vp run build` runs it first.
 Run suites separately with `vp run test:unit`, `vp run test:integration`, and
-`vp run test:e2e`. Browser tests need Chromium; `CHROMIUM_PATH` can select an
+`vp run test:e2e`. `vp run test:desktop` checks the works' sandbox in Electron
+(what a code part can reach, its frame, WebRTC, DNS prefetching and devices); CI
+runs it on macOS. Browser tests need Chromium; `CHROMIUM_PATH` can select an
 existing installation. Automated regression tests use model and pod substitutes
 rather than paid AI or BrowserPod services. Pod tests execute local commands
 and may download npm dependencies.

@@ -29,7 +29,9 @@ const props = defineProps<{
   devices?: readonly string[];
 }>();
 /** The frame's permission policy: the allowed devices for its own origin, nothing else. */
-const allow = computed(() => (props.devices ?? []).map(d => `${d} 'src'`).join('; '));
+const allow = computed(() =>
+  (props.devices ?? pod?.devices?.value ?? []).map(d => `${d} 'src'`).join('; '),
+);
 const emit = defineEmits<{
   (e: 'set', id: string, values: Record<string, number | boolean>, gesture: string): void;
 }>();
@@ -224,6 +226,12 @@ function onMessage(e: MessageEvent) {
     case 'asset': {
       const req = m.req,
         id = String(m.id ?? '');
+      // Served from the part's own origin, so ordinary loaders work with it; otherwise its bytes.
+      const own = pod?.fileUrl?.(id);
+      if (own) {
+        post({ type: 'asset', req, url: own });
+        return;
+      }
       const url = props.url(id);
       if (!url) {
         post({ type: 'asset', req, bytes: null });

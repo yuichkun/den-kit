@@ -48,10 +48,37 @@ export interface Account {
   signOut(): Promise<void>;
 }
 
-/** An origin for one work, apart from den-kit's, that serves its code parts under the sandbox's rules. */
+/** What a work's code parts may use, as the person allowed it for that work (kept in the host's settings, never in the work). */
+export interface Allowed {
+  /** Origins they may connect to (https://api.example.com). */
+  origins: string[];
+  /** Devices they may use. */
+  devices: Device[];
+}
+export type Device = 'microphone' | 'camera' | 'midi';
+
+/**
+ * An origin for each work, apart from den-kit's, that serves its code parts and the files they read, keeps their
+ * frames from navigating away, and lets through only the origins and devices the person allowed for the work.
+ */
 export interface Sandbox {
-  /** The URL a code part's frame loads, and the `allow` attribute for the devices the person allowed for the work. */
-  frame(workId: string, part: string): { url: string; allow: string };
+  /** Serve a work: its code parts from `devServer` (the workspace's, while it runs), its files by path. */
+  open(
+    work: string,
+    settings: Allowed & {
+      devServer: string | null;
+      files: Record<string, { hash: string; type: string }>;
+    },
+  ): void;
+  close(work: string): void;
+  /** The work's own origin, where its frames load from. */
+  origin(work: string): string;
+  /** Where a work's file is served under its origin, or null when this host serves none. */
+  fileUrl(work: string, path: string): string | null;
+  /** A work's code part tried to reach something it may not. */
+  onRefused(
+    listener: (refusal: { work: string; blocked: string; directive: string }) => void,
+  ): () => void;
 }
 
 export interface Fetch {

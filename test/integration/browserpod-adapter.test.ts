@@ -28,6 +28,7 @@ import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart } from '../../src/workspace/template.ts';
 import { MockBrowserPod, resizableBuffer } from '../fakes/pod/mock-browserpod.ts';
 import { kitFiles } from '../../src/screen/kit-files.ts';
+import { throughSandbox } from '../helpers/sandboxed.ts';
 
 const resizable = (buffer: ArrayBufferLike) =>
   (buffer as { resizable?: boolean }).resizable === true;
@@ -241,15 +242,13 @@ describe('the pod session through the BrowserPod adapter', () => {
     await pod.writeFile('src/parts/meter.ts', starterPart('meter'));
     const { files } = await pod.collect();
     expect(files['src/parts/meter.ts']).toBe(starterPart('meter'));
-    const page = await fetch(`${pod.portal.value}?part=meter`);
-    expect(page.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
+    const page = await throughSandbox(pod.portal.value!, '/?part=meter');
+    expect(page.headers['cross-origin-embedder-policy']).toBe('require-corp');
     expect((await fetch(`${pod.portal.value}src/parts/meter.ts`)).status).toBe(200);
   }, 240_000);
   it("the dev server starts with src/parts made and looks for new folders (BrowserPod's file watching does not see folders made later)", async () => {
     const dev = mock.runs.find(r => r.args.some(a => a.endsWith('/.den-kit/run/dev.sh')));
-    expect(dev?.env).toEqual(
-      expect.arrayContaining(['KIT_WATCH_NEW_FOLDERS=1', 'KIT_HMR_CLIENT_PORT=443', 'PORT=5173']),
-    );
+    expect(dev?.env).toEqual(expect.arrayContaining(['KIT_WATCH_NEW_FOLDERS=1', 'PORT=5173']));
     const { readFileSync } = await import('node:fs');
     expect(
       readFileSync(

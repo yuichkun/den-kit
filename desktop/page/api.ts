@@ -35,7 +35,35 @@ export interface DesktopAPI {
   checkForUpdates(): Promise<DesktopInfo>;
   /** Saves the work, then quits and installs the downloaded update. */
   installUpdate(): Promise<void>;
+  /** The host's storage in the app's data folder (desktop/storage.ts). */
+  storage(request: StorageRequest): Promise<unknown>;
+  /** A file from a public URL (desktop/fetch.ts). */
+  fetch(url: string, maxBytes: number): Promise<{ bytes: Uint8Array; type: string; url: string }>;
+  /** Open or close a work's sandbox origin (desktop/sandbox.ts). */
+  sandbox(request: SandboxRequest): Promise<void>;
+  /** A work's code part tried to reach something it may not. */
+  onSandboxRefused(
+    listener: (refusal: { work: string; blocked: string; directive: string }) => void,
+  ): () => void;
 }
+export type StorageRequest =
+  | { op: 'read' | 'remove'; key: string }
+  | { op: 'write'; key: string; value: string }
+  | { op: 'keys'; prefix: string }
+  | { op: 'readContent'; hash: string }
+  | { op: 'writeContent'; hash: string; bytes: Uint8Array };
+export type SandboxRequest =
+  | {
+      op: 'open';
+      work: string;
+      settings: {
+        portal: string | null;
+        origins: string[];
+        devices: string[];
+        files: Record<string, { hash: string; type: string }>;
+      };
+    }
+  | { op: 'close'; work: string };
 
 declare global {
   interface Window {

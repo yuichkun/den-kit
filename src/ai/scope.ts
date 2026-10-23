@@ -247,7 +247,7 @@ export type Change =
   /** The stacking order moved: `ids` explains it, or `alt` does (moving A in front of B is also moving B behind A). */
   | { kind: 'order'; ids: string[]; alt?: string[] }
   | { kind: 'group'; id: string; members: string[] }
-  | { kind: 'ui'; field: 'look' | 'brief' | 'underlay' | 'size' | 'theme' }
+  | { kind: 'ui'; field: 'look' | 'brief' | 'underlay' | 'size' | 'theme' | 'network' }
   | { kind: 'assets'; ids: string[] }
   | { kind: 'project'; paths: string[] }
   | { kind: 'name' };
@@ -381,6 +381,7 @@ export function changes(before: PatchDocument, after: PatchDocument, catalog: Ca
   }
   if (!same(before.ui.look, after.ui.look)) out.push({ kind: 'ui', field: 'look' });
   if (!same(before.ui.brief, after.ui.brief)) out.push({ kind: 'ui', field: 'brief' });
+  if (!same(before.ui.network, after.ui.network)) out.push({ kind: 'ui', field: 'network' });
   if (!same(before.ui.underlay, after.ui.underlay)) out.push({ kind: 'ui', field: 'underlay' });
   if (before.panel.width !== after.panel.width || before.panel.height !== after.panel.height)
     out.push({ kind: 'ui', field: 'size' });
@@ -545,6 +546,8 @@ function refusal(change: Change, c: Ctx, catalog: Catalog): string | null {
         : null;
     }
     case 'ui':
+      // The origins the code parts need go with the screen project as well as with the whole screen.
+      if (change.field === 'network' && scope.project) return null;
       return scope.screen === 'all'
         ? null
         : `the ${change.field === 'size' ? 'plugin size' : change.field} belongs to the whole screen`;
@@ -642,7 +645,7 @@ function claimed(change: Change, c: Ctx, catalog: Catalog): boolean {
         change.members.some(id => screenHolds(c, id, [rectOf(c.after, id), rectOf(c.before, id)]))
       );
     case 'ui':
-      return scope.screen === 'all';
+      return scope.screen === 'all' || (change.field === 'network' && !!scope.project);
     case 'project':
       return !!scope.project;
     default:

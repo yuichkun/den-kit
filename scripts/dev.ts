@@ -9,6 +9,7 @@ import { loadEnvFile, maskSecret } from '../bridge/env.ts';
 import { createBridge } from '../bridge/server.ts';
 import { Telemetry } from '../bridge/telemetry.ts';
 import { CodexClient } from '../bridge/codex/client.ts';
+import { SandboxServer } from '../desktop/sandbox.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 loadEnvFile(join(root, '.env'));
@@ -16,6 +17,14 @@ const port = Number(process.env.KIT_PORT ?? 5180);
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
 
 const telemetry = new Telemetry(join(root, '.logs'));
+/** The development host's sandbox: a browser cannot add the secret header, and its contents stay in the page. */
+const devSandbox = () =>
+  new SandboxServer({
+    port: 0,
+    requireSecret: false,
+    content: () => null,
+    refused: () => undefined,
+  });
 // The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
 const codex =
   process.env.KIT_CODEX === 'off'
@@ -36,6 +45,9 @@ try {
     origins: [`http://127.0.0.1:${port}`],
     telemetry,
     codex,
+    // The works' code parts load from the bridge's port under each work's own host name.
+    sandbox: devSandbox(),
+    sandboxControl: true,
     log: line => console.log(`  [bridge] ${line}`),
   });
 } catch (error) {

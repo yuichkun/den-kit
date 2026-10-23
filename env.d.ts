@@ -8,7 +8,7 @@ declare module 'virtual:kit-runtime' {
   export default runtime;
 }
 declare module 'virtual:kit-bridge' {
-  const bridge: { token: string | null };
+  const bridge: { token: string | null; port: number };
   export default bridge;
 }
 declare module 'virtual:kit-pod' {

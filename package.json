@@ -15,6 +15,7 @@
     "test:unit": "vp test run --project unit",
     "test:integration": "vp test run --project integration",
     "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.ts",
+    "test:desktop": "node --test --test-concurrency=1 test/desktop/*.test.ts",
     "build": "vp run typecheck && vp build",
     "desktop:build": "vp run build && node scripts/build-desktop.ts",
     "desktop:run": "node scripts/run-desktop.ts",

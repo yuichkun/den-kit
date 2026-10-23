@@ -69,6 +69,7 @@ import { CONTROL_OF, type ControlKind } from './skins.ts';
 import {
   ELEMENT_FIELDS,
   LIMITS,
+  networkOrigin,
   UiCheckError,
   assetFile,
   assetUses,
@@ -159,6 +160,8 @@ export type Intent =
   | { op: 'setUnderlay'; underlay: Underlay | null }
   /** The design brief (null or empty removes it). */
   | { op: 'setBrief'; brief: string | null }
+  /** The origins the code parts need, each with a reason (an empty list removes them). */
+  | { op: 'setNetwork'; network: Array<{ origin: string; reason: string }> }
   /** Write files of the screen's web project (text; null deletes one). Paths are relative to the project. */
   | { op: 'setProjectFiles'; files: Record<string, string | null> }
   // ---- parts ----
@@ -230,7 +233,7 @@ type Field =
   | 'iface'
   | 'count'
   | 'spread';
-type UiField = 'look' | 'order' | 'groups' | 'underlay' | 'brief';
+type UiField = 'look' | 'order' | 'groups' | 'underlay' | 'brief' | 'network';
 export interface Size {
   width: number;
   height: number;
@@ -1246,11 +1249,37 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       draft.apply({ op: 'setUi', field: 'brief', from: draft.doc.ui.brief, to });
       return;
     }
+    case 'setNetwork': {
+      if (!Array.isArray(intent.network))
+        fail('bad-intent', 'network is a list of {origin, reason}.');
+      if (intent.network.length > LIMITS.network)
+        fail('too-large', `A work lists at most ${LIMITS.network} origins.`);
+      const seen = new Set<string>();
+      const list = intent.network.map(n => {
+        const origin = networkOrigin(String((n as { origin?: unknown })?.origin ?? ''));
+        const reason = String((n as { reason?: unknown })?.reason ?? '').trim();
+        if (!origin)
+          fail(
+            'bad-intent',
+            `"${String((n as { origin?: unknown })?.origin)}" is not an origin: https://host or wss://host, with a port if it needs one, nothing after it.`,
+          );
+        if (!reason) fail('bad-intent', `Say why the code parts need ${origin}.`);
+        if (reason.length > LIMITS.reason)
+          fail('too-large', `A reason is limited to ${LIMITS.reason} characters.`);
+        if (seen.has(origin)) fail('bad-intent', `${origin} is listed twice.`);
+        seen.add(origin);
+        return { origin, reason };
+      });
+      const to = list.length ? list : undefined;
+      if (JSON.stringify(to) === JSON.stringify(draft.doc.ui.network)) return;
+      draft.apply({ op: 'setUi', field: 'network', from: draft.doc.ui.network, to });
+      return;
+    }
     default:
       fail(
         'bad-intent',
         `Unknown op "${(intent as { op?: unknown }).op}".`,
-        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
+        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
       );
   }
 }
@@ -1485,7 +1514,7 @@ export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp
       from: { width: prev.panel.width, height: prev.panel.height },
       to: { width: next.panel.width, height: next.panel.height },
     });
-  for (const field of ['look', 'order', 'groups', 'underlay', 'brief'] as const)
+  for (const field of ['look', 'order', 'groups', 'underlay', 'brief', 'network'] as const)
     if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field]))
       ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
   return ops;

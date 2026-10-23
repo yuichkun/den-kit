@@ -4,7 +4,7 @@
 // request. A failing edit never lands; its problems go back to the model. The
 // controller (src/ai/llm.ts) makes the steps of one request one undo step.
 import { textFiles } from '../work/files.ts';
-import { assetsOf } from '../work/ui.ts';
+import { assetsOf, type AssetMeta } from '../work/ui.ts';
 import type { Catalog, PortDef } from '../work/catalog.ts';
 import { generate, type Generated } from '../sound/codegen.ts';
 import { describePatch } from './describe.ts';
@@ -83,6 +83,8 @@ export interface WorkspaceDeps {
   working?(): string[];
   /** A picture of what the person sees now (U8b): their view, or the one asked for; or why there is none. */
   seen?(view?: 'plugin' | 'patch' | 'window'): Promise<SeenResult>;
+  /** A file from a public URL, kept as an asset would be but not yet in the work (absent: den-kit cannot fetch here). */
+  importFile?(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }>;
 }
 export interface SeenResult {
   /** What the person is looking at, in words. */
@@ -211,6 +213,8 @@ export class LlmWorkspace {
           };
         case 'kit_view_picture':
           return await this.viewPicture(String(a.id ?? ''));
+        case 'kit_import_asset':
+          return await this.importAsset(a);
         case 'kit_bash':
           return await this.bash(
             typeof a.command === 'string' ? a.command : '',
@@ -457,6 +461,49 @@ export class LlmWorkspace {
       [...intents, ...moves],
       what,
       `${ops.length} edit${ops.length === 1 ? '' : 's'}${trial.created.length ? ` (new ids: ${trial.created.join(', ')})` : ''}${notes}`,
+    );
+  }
+
+  /** A file from a public URL into the work's assets, as one edit of this request. */
+  private async importAsset(a: Record<string, unknown>): Promise<ToolOutput> {
+    if (!this.deps.importFile)
+      return {
+        success: false,
+        text: 'den-kit cannot fetch files here. Ask the person to add the file (drop it on the plugin).',
+      };
+    let got;
+    try {
+      got = await this.deps.importFile(
+        String(a.url ?? ''),
+        typeof a.name === 'string' ? a.name : undefined,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        text: `Not imported: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    const text = (key: string) => (typeof a[key] === 'string' && a[key] ? { [key]: a[key] } : {});
+    const asset: AssetMeta = {
+      ...got.asset,
+      source: { url: got.url, ...text('title'), ...text('author'), ...text('license') },
+    };
+    const before = this.deps.read();
+    const intents: Intent[] = [{ op: 'addAsset', asset }];
+    let trial;
+    try {
+      trial = applyIntents(before, intents, this.deps.catalog);
+    } catch (error) {
+      if (error instanceof OpError)
+        return { success: false, text: `Not imported: ${error.message}` };
+      throw error;
+    }
+    return this.landChecked(
+      before,
+      trial.doc,
+      intents,
+      `imported ${asset.id}`,
+      `${asset.id} (${asset.mime}, ${asset.bytes} bytes)`,
     );
   }
 

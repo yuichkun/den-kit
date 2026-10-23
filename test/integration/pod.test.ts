@@ -23,6 +23,7 @@ import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 import { kitFiles } from '../../src/screen/kit-files.ts';
+import { throughSandbox } from '../helpers/sandboxed.ts';
 
 /** Just what the pod session uses of the editor's session: the document and commit. */
 function session(start: PatchDocument) {
@@ -157,12 +158,19 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect((await pod.collect()).files).toEqual({});
   }, 60_000);
 
-  it('the dev server serves a part page that den-kit may embed (cross-origin isolated page)', async () => {
-    const res = await fetch(`${pod.portal.value}?part=meter&el=e1&host=http://127.0.0.1:5180`);
+  it("the dev server serves a part page that den-kit may embed (cross-origin isolated page), with the sandbox's rules", async () => {
+    const res = await throughSandbox(
+      pod.portal.value!,
+      '/?part=meter&el=e1&host=http://127.0.0.1:5180',
+    );
     expect(res.status).toBe(200);
-    expect(res.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
-    expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
-    expect(await res.text()).toContain('/src/main.ts');
+    expect(res.headers['cross-origin-embedder-policy']).toBe('require-corp');
+    expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(res.headers['content-security-policy']).toContain("connect-src 'self';");
+    expect(res.text).toContain('/src/main.ts');
+    // The rules come from den-kit, not from the work's own files.
+    const direct = await fetch(`${pod.portal.value}?part=meter`);
+    expect(direct.headers.get('cross-origin-embedder-policy')).toBeNull();
     const part = await fetch(`${pod.portal.value}src/parts/meter.ts`);
     expect(part.status).toBe(200);
     expect(await part.text()).toContain('kit.frame');

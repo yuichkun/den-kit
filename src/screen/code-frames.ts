@@ -27,6 +27,10 @@ export interface CodePartSource {
   readonly message: Readonly<Ref<string>>;
   /** Bumped when the parts' files changed and their pages reload. */
   readonly reloads: Readonly<Ref<number>>;
+  /** The devices the person allowed the parts (permission policy names: microphone, camera, midi). */
+  readonly devices?: Readonly<Ref<readonly string[]>>;
+  /** A file of the work (assets/…) served from the parts' own origin, or null where it is not. */
+  fileUrl?(path: string): string | null;
   /** Start it (code parts on the plugin need it). */
   ensure(): Promise<unknown>;
   report(element: string, patch: Partial<CodePartReport> & { log?: string }): void;

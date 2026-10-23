@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 // den-kit runs this dev server inside the pod and shows its pages (the code
-// parts) on the plugin. The page reaches it through a forwarded address
-// (KIT_HMR_CLIENT_PORT: the port the browser sees), and den-kit's page is
-// cross-origin isolated, so every response says it may be embedded there.
+// parts) on the plugin. den-kit's sandbox serves them from the work's own origin
+// and passes requests and the live-reload WebSocket through to this server; the
+// sandbox sets the rules for those pages in its own responses.
 export default defineConfig({
   plugins: [watchNewFolders()],
   server: {
@@ -13,16 +13,7 @@ export default defineConfig({
     port: Number(process.env.PORT ?? 5173),
     strictPort: true,
     allowedHosts: true,
-    hmr: {
-      overlay: false,
-      ...(process.env.KIT_HMR_CLIENT_PORT
-        ? { clientPort: Number(process.env.KIT_HMR_CLIENT_PORT) }
-        : {}),
-    },
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Resource-Policy': 'cross-origin',
-    },
+    hmr: { overlay: false },
   },
   build: { target: 'es2022' },
 });

@@ -115,6 +115,10 @@ export function describePlugin(
       ? `Design brief (keep to it; change it with setBrief only when the direction changes):\n${doc.ui.brief}`
       : 'No design brief yet: before you design the screen, write one with {"op":"setBrief","brief":"…"} (the idea, palette, type and layout in 2–4 short lines).',
   );
+  if (doc.ui.network?.length)
+    lines.push(
+      `Origins the code parts need (the person allows each one; until then it is unreachable): ${doc.ui.network.map(n => `${n.origin} (${n.reason})`).join('; ')}.`,
+    );
   if (options.handEdits?.length)
     lines.push(
       `Changed by the person's own hand (keep these unless the request is about them): ${options.handEdits.join('; ')}.`,

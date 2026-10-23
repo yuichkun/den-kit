@@ -10,6 +10,7 @@ import { defineWidgets } from '../screen/widgets/widgets.ts';
 import App from './App.vue';
 import { KitSession } from './session.ts';
 import { kitFiles } from '../screen/kit-files.ts';
+import { CodeParts } from './code-parts.ts';
 import '@fontsource/lato/400.css';
 import '@fontsource/lato/700.css';
 import '../screen/fonts.ts';
@@ -45,6 +46,7 @@ export function startEditor(host: Host, options: EditorOptions): KitSession {
     session.llm = new LlmController(session, session.requests, host.ai);
   }
   session.pod = new PodSession(session, host.workspace, kitFiles());
+  session.codeParts = new CodeParts(session, session.pod, host);
   host.lifecycle?.beforeQuit(async () => {
     session.saveNow();
     await session.pod?.flush();

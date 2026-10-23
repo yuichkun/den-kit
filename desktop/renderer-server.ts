@@ -66,6 +66,8 @@ export function rendererServer(root: string) {
         'content-length': size,
         'cross-origin-opener-policy': 'same-origin',
         'cross-origin-embedder-policy': 'require-corp',
+        // Frames come only from the works' sandbox origins (desktop/sandbox.ts).
+        'content-security-policy': `frame-src http://*.localhost:${APP_PORT}`,
         'x-content-type-options': 'nosniff',
         'cache-control': 'no-cache',
       });

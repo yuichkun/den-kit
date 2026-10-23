@@ -10,6 +10,7 @@ import { BridgeClient } from '../desktop/page/bridge-client.ts';
 import { browserStorage } from '../desktop/page/storage.ts';
 import { developerWording } from './ai-wording.ts';
 import { tabCapture } from './tab-capture.ts';
+import { devSandbox } from './sandbox.ts';
 
 // A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
 if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator)
@@ -48,7 +49,8 @@ const host: Host = {
   ai: new BridgeClient({ token: bridgeConfig.token, wording: developerWording }),
   account: null,
   workspace,
-  sandbox: null,
+  // Code parts load from each work's own origin on the bridge (none without a bridge).
+  sandbox: bridgeConfig.token ? devSandbox(bridgeConfig.token, bridgeConfig.port) : null,
   fetch: null,
   screenCapture: tabCapture(),
   consent: null,

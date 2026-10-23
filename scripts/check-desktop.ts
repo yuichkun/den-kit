@@ -85,6 +85,37 @@ const launch = () =>
     },
     timeout: 60000,
   });
+/** Send a request in the page and wait for it to end; its line in the history. */
+async function askAI(page: import('playwright').Page, request: string, timeout: number) {
+  const id = await page.evaluate(
+    text =>
+      (
+        window as unknown as { __kit: import('../src/editor/session.ts').KitSession }
+      ).__kit.requests!.run(text).id,
+    request,
+  );
+  await page.waitForFunction(
+    id => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+        .__kit;
+      return k.requests!.history.value.some(
+        o => o.id === id && !o.live && !['thinking', 'working'].includes(o.status),
+      );
+    },
+    id,
+    { timeout },
+  );
+  return page.evaluate(id => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    const o = k.requests!.history.value.find(o => o.id === id)!;
+    return {
+      status: o.status,
+      reply: o.reply,
+      agents: o.agents?.map(a => ({ name: a.name, status: a.status, scope: a.scope })),
+      ms: o.ms,
+    };
+  }, id);
+}
 let app = await launch().catch(error => {
   rmSync(join(profile, 'codex/auth.json'), { force: true });
   throw error;
@@ -396,6 +427,40 @@ try {
       before,
     );
     console.log(JSON.stringify({ aiUndo: 'passed' }));
+    // Sub-agents, asked for: two work at once, each in its scope; one undo takes the request back.
+    const shape = () =>
+      page.evaluate(() => {
+        const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+          .__kit;
+        return JSON.stringify({
+          nodes: Object.keys(k.doc.value.nodes).sort(),
+          elements: Object.keys(k.doc.value.ui.elements).sort(),
+        });
+      });
+    const beforeTeam = await shape();
+    const team = await askAI(
+      page,
+      'Use two sub-agents that work at the same time: one adds a slow LFO that moves the filter cutoff (the sound only), the other adds a title text "AGENTS" at the top of the plugin screen (the screen only). Wait for both, then finish.',
+      600000,
+    );
+    console.log(JSON.stringify({ aiSubAgents: team }));
+    assert.equal(team.status, 'applied', JSON.stringify(team));
+    assert.ok(
+      (team.agents ?? []).filter(a => a.status === 'done').length >= 2,
+      'two sub-agents worked and finished',
+    );
+    await page.evaluate(() =>
+      (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.undo(),
+    );
+    assert.equal(await shape(), beforeTeam, 'one undo takes the whole request back');
+    // A URL pasted into a request: the AI reads it (web search on Codex's side).
+    const url = await askAI(
+      page,
+      'What is the title of the page at https://example.com ? Answer with the title only, and change nothing.',
+      180000,
+    );
+    console.log(JSON.stringify({ aiUrl: url }));
+    assert.match(url.reply ?? '', /Example Domain/i);
   }
   if (real && !quick) {
     await page.keyboard.press('Escape');
@@ -754,13 +819,25 @@ try {
     );
   });
   assert.ok(asset);
-  // den-kit keeps only which conversation is the work's (the runtime keeps what was said).
-  const saved = await page.evaluate(async () => {
+  // den-kit keeps only which conversation is the work's (the runtime keeps what was said). With the
+  // real AI it is the conversation of the requests above; otherwise one is set here.
+  const realConversation = real && !skipAI;
+  const conversation = await page.evaluate(
+    async seed => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+        .__kit;
+      if (seed) k.keepConversation(seed);
+      const thread = k.conversation.value;
+      const key = `den-kit:conversation:${k.doc.value.id}`;
+      while ((await k.host!.storage.read(key)) !== thread)
+        await new Promise(r => setTimeout(r, 20));
+      return thread;
+    },
+    realConversation ? null : 'native-close-check',
+  );
+  assert.ok(conversation, 'the work has a conversation');
+  const saved = await page.evaluate(() => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
-    k.keepConversation('native-close-check');
-    const key = `den-kit:conversation:${k.doc.value.id}`;
-    while ((await k.host!.storage.read(key)) !== 'native-close-check')
-      await new Promise(r => setTimeout(r, 20));
     k.doc.value = { ...k.doc.value, name: 'Electron persistence check' };
     return k.doc.value.id;
   });
@@ -794,7 +871,25 @@ try {
   assert.equal(restored.settings.effort, 'low');
   assert.equal(restored.doc.name, 'Electron persistence check');
   assert.equal(restored.doc.id, saved);
-  assert.equal(restored.conversation, 'native-close-check');
+  assert.equal(restored.conversation, conversation);
+  if (realConversation) {
+    // After the restart the conversation goes on: what was said shows, and the AI remembers it.
+    await reopened.waitForFunction(
+      () =>
+        (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit
+          .requests!.earlier.value.length > 0,
+      null,
+      { timeout: 120000 },
+    );
+    await waitForShell(reopened, info => info.codex.state === 'ok');
+    const followUp = await askAI(
+      reopened,
+      'Earlier in this conversation you added a title text to the plugin. What did it say? Answer with that text only, and change nothing.',
+      180000,
+    );
+    console.log(JSON.stringify({ aiResumed: followUp }));
+    assert.match(followUp.reply ?? '', /AGENTS/);
+  }
   assert.ok(restored.doc.files[asset.id]);
   assert.ok(
     await reopened.evaluate(async id => {

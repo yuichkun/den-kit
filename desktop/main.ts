@@ -21,7 +21,11 @@ import type { DesktopInfo, DesktopSettings } from './page/api.ts';
 import type { PageRect } from '../src/host/index.ts';
 import { APP_ORIGIN, APP_PORT, rendererServer } from './renderer-server.ts';
 import { readSettings, validatedSettings, writeSettings } from './settings.ts';
-import { allowedPermission } from './permissions.ts';
+import { allowedPermission, workPermission } from './permissions.ts';
+import { FileStorage } from './storage.ts';
+import { FetchRefused, fetchPublic } from './fetch.ts';
+import { SandboxServer, type SandboxWork } from './sandbox.ts';
+import { applyWindowRules, AUTOPLAY_POLICY, beforeReady } from './window-rules.ts';
 import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
 import { signInPending } from '../src/editor/settings-presentation.ts';
@@ -31,6 +35,8 @@ interface OperatorConfig {
 }
 let window: BrowserWindow | null = null;
 let bridge: Bridge | null = null;
+let storage: FileStorage;
+let sandbox: SandboxServer;
 let codex: CodexClient;
 let settings: DesktopSettings;
 let operator: OperatorConfig = {};
@@ -40,6 +46,9 @@ let shutdownComplete = false;
 
 // One stable application identity and storage root for development, installed versions and updates.
 app.setName('den-kit');
+beforeReady(app);
+/** The hosts den-kit's own page connects to (BrowserPod); everything else goes through the sandbox's rules. */
+const DIRECT_HOSTS = ['browserpod.io', '*.browserpod.io', 'browserportal.io', '*.browserportal.io'];
 // Explicit local override for isolated acceptance checks, including packaged builds.
 if (process.env.KIT_DESKTOP_USER_DATA)
   app.setPath('userData', resolve(process.env.KIT_DESKTOP_USER_DATA));
@@ -218,12 +227,21 @@ async function start() {
     effort: settings.effort || undefined,
     loginInstruction: 'Open Settings and choose Sign in with ChatGPT.',
   });
+  storage = new FileStorage(join(data, 'storage'));
+  sandbox = new SandboxServer({
+    port: APP_PORT,
+    content: hash => storage.readContent(hash),
+    refused: (work, report) =>
+      window?.webContents.send('den-kit:sandbox-refused', { work, ...report }),
+  });
+  const renderer = rendererServer(join(root, 'renderer'));
   bridge = await createBridge({
     port: APP_PORT,
     origins: [APP_ORIGIN],
     codex,
-    // Serve the production renderer, not Vite. The loopback bridge is local to this machine.
-    handleHttp: rendererServer(join(root, 'renderer')),
+    // Serve the production renderer, not Vite, and each open work's sandbox origin. The loopback bridge is local to this machine.
+    handleHttp: renderer,
+    sandbox,
   });
 
   ipcMain.on('den-kit:runtime', event => {
@@ -240,6 +258,55 @@ async function start() {
       return action(arg);
     });
   handle('den-kit:info', () => info());
+  handle('den-kit:storage', value => {
+    const r = value as {
+      op: string;
+      key?: string;
+      value?: string;
+      prefix?: string;
+      hash?: string;
+      bytes?: Uint8Array;
+    };
+    switch (r?.op) {
+      case 'read':
+        return storage.read(String(r.key));
+      case 'write':
+        return storage.write(String(r.key), String(r.value));
+      case 'remove':
+        return storage.remove(String(r.key));
+      case 'keys':
+        return storage.keys(String(r.prefix ?? ''));
+      case 'readContent':
+        return storage.readContent(String(r.hash));
+      case 'writeContent':
+        if (!(r.bytes instanceof Uint8Array)) throw new Error('Contents are bytes.');
+        return storage.writeContent(String(r.hash), r.bytes);
+      default:
+        throw new Error('Unknown storage operation.');
+    }
+  });
+  handle('den-kit:fetch', async value => {
+    const r = value as { url?: unknown; maxBytes?: unknown };
+    if (typeof r?.url !== 'string' || typeof r.maxBytes !== 'number' || !(r.maxBytes > 0))
+      throw new Error('Invalid fetch.');
+    try {
+      return await fetchPublic(r.url, r.maxBytes);
+    } catch (error) {
+      // The page shows the reason; anything else is a network problem.
+      throw new Error(
+        error instanceof FetchRefused
+          ? error.message
+          : `The file could not be fetched (${error instanceof Error ? error.message : String(error)}).`,
+      );
+    }
+  });
+  handle('den-kit:sandbox', value => {
+    const r = value as { op: string; work?: string; settings?: SandboxWork };
+    if (r?.op === 'open' && typeof r.work === 'string' && r.settings)
+      sandbox.open(r.work, r.settings);
+    else if (r?.op === 'close' && typeof r.work === 'string') sandbox.close(r.work);
+    else throw new Error('Unknown sandbox operation.');
+  });
   handle('den-kit:settings', async value => {
     const next = validatedSettings(value);
     if (next.model && !codex.models.some(m => m.id === next.model || m.model === next.model))
@@ -307,16 +374,12 @@ async function start() {
   });
 
   const ses = session.defaultSession;
-  ses.setPermissionCheckHandler(
-    (wc, name, origin, details) =>
-      wc === window?.webContents && allowedPermission(origin, name, details.isMainFrame),
-  );
-  ses.setPermissionRequestHandler((wc, name, callback, details) =>
-    callback(
-      wc === window?.webContents &&
-        allowedPermission(details.requestingUrl, name, details.isMainFrame),
-    ),
-  );
+  // den-kit's page gets its devices; a work's frame only what the person allowed for that work.
+  const permitted = (url: string, name: string, mainFrame: boolean, media: string[]) => {
+    if (allowedPermission(url, name, mainFrame)) return true;
+    const work = mainFrame ? null : sandbox.workOf(url);
+    return !!work && workPermission(sandbox.devices(work), name, media);
+  };
   ses.on('will-download', (_event, item, wc) => {
     if (wc !== window?.webContents) {
       item.cancel();
@@ -345,9 +408,19 @@ async function start() {
       webSecurity: true,
       nodeIntegrationInSubFrames: false,
       nodeIntegrationInWorker: false,
+      autoplayPolicy: AUTOPLAY_POLICY,
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // The sandbox's rules for what its headers cannot cover (desktop/window-rules.ts).
+  await applyWindowRules({
+    session: ses,
+    contents: window.webContents,
+    sandbox,
+    appOrigin: APP_ORIGIN,
+    direct: DIRECT_HOSTS,
+    permitted,
+  });
   window.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== APP_ORIGIN) event.preventDefault();
   });

@@ -643,11 +643,9 @@ export class PodSession {
     this.set('starting', 'Starting the project preview…');
     this.portal.value = null;
     const env: Record<string, string> = { PORT: String(DEV_PORT) };
-    // BrowserPod forwards the server through an https portal: the page's live-reload socket goes to port 443 there.
-    // Its file watching does not see folders made after the server started: src/parts is made before it starts,
-    // and the template's vite.config.ts looks for other new folders (KIT_WATCH_NEW_FOLDERS).
-    if (host.kind === 'browserpod')
-      Object.assign(env, { KIT_HMR_CLIENT_PORT: '443', KIT_WATCH_NEW_FOLDERS: '1' });
+    // BrowserPod's file watching does not see folders made after the server started: src/parts is made before it
+    // starts, and the template's vite.config.ts looks for other new folders (KIT_WATCH_NEW_FOLDERS).
+    if (host.kind === 'browserpod') env.KIT_WATCH_NEW_FOLDERS = '1';
     this.devOutput.value = '';
     const entry = this.begin('den-kit', 'npm run dev');
     const dev = host.start('dev', 'mkdir -p src/parts && npm run dev', {

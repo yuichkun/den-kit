@@ -9,6 +9,7 @@ import type { OpError } from '../work/op-error.ts';
 import type { Intent, ResolvedOp } from '../work/ops.ts';
 import type { Library } from '../work/library.ts';
 import type { PatchDocument } from '../work/schema.ts';
+import type { AssetMeta } from '../work/ui.ts';
 import type { CompileClient } from '../sound/compile/compile-client.ts';
 import type { LookResult } from '../screen/look.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
@@ -60,4 +61,6 @@ export interface AiSession {
   readonly conversation: Ref<string | null>;
   /** Keep which conversation is the open work's (null: none, the next request starts one). */
   keepConversation(thread: string | null): void;
+  /** A file from a public URL, kept and checked as an asset but not yet in the work; throws with the reason it cannot. */
+  importFromUrl(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }>;
 }

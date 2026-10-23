@@ -31,6 +31,7 @@ import { partInterface, readParamRange } from './parts.ts';
 import { readFiles } from './files.ts';
 import {
   LIMITS,
+  networkOrigin,
   assetsOf,
   checkElement,
   checkLook,
@@ -678,6 +679,20 @@ function readUi(
   }
   if (typeof raw.brief === 'string' && raw.brief.trim())
     ui.brief = raw.brief.trim().slice(0, LIMITS.brief);
+  if (Array.isArray(raw.network)) {
+    const network = raw.network
+      .filter(isObject)
+      .map(n => ({
+        origin: networkOrigin(String(n.origin ?? '')),
+        reason: String(n.reason ?? '')
+          .trim()
+          .slice(0, LIMITS.reason),
+      }))
+      .filter((n): n is { origin: string; reason: string } => !!n.origin && !!n.reason)
+      .filter((n, i, all) => all.findIndex(m => m.origin === n.origin) === i)
+      .slice(0, LIMITS.network);
+    if (network.length) ui.network = network;
+  }
 }
 
 /** Autosave record with a checksum, so a torn or corrupted write is detected on load. */

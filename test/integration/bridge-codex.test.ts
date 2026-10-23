@@ -352,6 +352,7 @@ describe('a turn', () => {
       'kit_get_plugin',
       'kit_ui_reference',
       'kit_view_picture',
+      'kit_import_asset',
       'kit_look',
       'kit_bash',
       'kit_read_file',

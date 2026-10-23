@@ -1,7 +1,10 @@
-// The Storage interface (src/host) in the page: records in localStorage and the
-// contents of work files in IndexedDB, both kept in the window's own profile on
-// disk. Without IndexedDB (a private window) contents stay in memory.
+// The Storage interface (src/host) in the page. In a browser (the dev host):
+// records in localStorage and the contents of work files in IndexedDB, both kept
+// in the window's own profile on disk; without IndexedDB (a private window)
+// contents stay in memory. In the desktop app: the main process's files in the
+// app's data folder (desktop/storage.ts).
 import type { Storage } from '../../src/host/index.ts';
+import type { DesktopAPI } from './api.ts';
 
 const DB = 'den-kit-contents',
   STORE = 'contents';
@@ -63,5 +66,19 @@ export function browserStorage(
       memory.set(hash, bytes);
       await run('readwrite', s => s.put(new Blob([bytes as BlobPart]), hash));
     },
+  };
+}
+
+/** The host's storage in the desktop app: the main process keeps it in the app's data folder. */
+export function desktopStorage(shell: Pick<DesktopAPI, 'storage'>): Storage {
+  return {
+    read: async key => (await shell.storage({ op: 'read', key })) as string | null,
+    write: async (key, value) => void (await shell.storage({ op: 'write', key, value })),
+    remove: async key => void (await shell.storage({ op: 'remove', key })),
+    keys: async prefix => (await shell.storage({ op: 'keys', prefix })) as string[],
+    readContent: async hash =>
+      (await shell.storage({ op: 'readContent', hash })) as Uint8Array | null,
+    writeContent: async (hash, bytes) =>
+      void (await shell.storage({ op: 'writeContent', hash, bytes })),
   };
 }

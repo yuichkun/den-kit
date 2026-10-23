@@ -443,6 +443,58 @@ describe('LlmWorkspace', () => {
     ).toBeUndefined();
   });
 
+  it('a file from a URL becomes an asset of the work as one edit of the request, with where it came from', async () => {
+    const hash = `sha256-${'a'.repeat(64)}`;
+    const { ws, state, landed } = workspace({
+      importFile: async (url, name) => {
+        if (url.includes('private')) throw new Error('only public addresses can be fetched');
+        return {
+          asset: {
+            id: `assets/${name ?? 'rain.wav'}`,
+            name: name ?? 'rain.wav',
+            mime: 'audio/wav',
+            bytes: 1200,
+            hash,
+          },
+          url: `${url}?final`,
+        };
+      },
+    });
+    const r = await ws.call('kit_import_asset', {
+      url: 'https://sounds.example/rain.wav',
+      license: 'CC0',
+      author: 'A. Person',
+    });
+    expect(r.success).toBe(true);
+    expect(landed.at(-1)!.intents).toEqual([
+      {
+        op: 'addAsset',
+        asset: expect.objectContaining({
+          id: 'assets/rain.wav',
+          source: {
+            url: 'https://sounds.example/rain.wav?final',
+            author: 'A. Person',
+            license: 'CC0',
+          },
+        }),
+      },
+    ]);
+    expect(assetsOf(state.live.files)['assets/rain.wav']).toMatchObject({
+      mime: 'audio/wav',
+      hash,
+    });
+    const refused = await ws.call('kit_import_asset', { url: 'http://private.example/x.wav' });
+    expect(refused).toMatchObject({
+      success: false,
+      text: 'Not imported: only public addresses can be fetched',
+    });
+    // A host that cannot fetch: the AI is told to ask the person.
+    expect(
+      (await workspace().ws.call('kit_import_asset', { url: 'https://sounds.example/rain.wav' }))
+        .text,
+    ).toMatch(/cannot fetch files here/);
+  });
+
   it('one edit that adds decorations, controls and a group lands with the same ids it was tried with', async () => {
     const { ws, state } = workspace();
     const r = await ws.call('kit_apply_ops', {

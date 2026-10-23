@@ -52,6 +52,23 @@ function nativeAPI(token: string, initial: DesktopInfo): string {
         return structuredClone(fixture.info);
       },
       installUpdate: async () => { fixture.calls.push('installUpdate'); },
+      // The app's storage, its works' sandbox origins and files from URLs, kept in the page here.
+      storage: (() => {
+        const records = new Map(), contents = new Map();
+        return async r => {
+          switch (r.op) {
+            case 'read': return records.get(r.key) ?? null;
+            case 'write': records.set(r.key, r.value); return;
+            case 'remove': records.delete(r.key); return;
+            case 'keys': return [...records.keys()].filter(k => k.startsWith(r.prefix));
+            case 'readContent': return contents.get(r.hash) ?? null;
+            case 'writeContent': contents.set(r.hash, r.bytes); return;
+          }
+        };
+      })(),
+      sandbox: async r => { (fixture.sandbox ??= []).push(r.op); },
+      onSandboxRefused: () => () => {},
+      fetch: async () => { throw new Error('No network in this test.'); },
       capturePage: async rect => {
         fixture.captures.push(structuredClone(rect));
         const canvas = document.createElement('canvas');

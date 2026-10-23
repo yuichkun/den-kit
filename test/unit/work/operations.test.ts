@@ -211,6 +211,20 @@ const CASES: Record<Intent['op'], Case> = {
     ok: () => [{ op: 'setBrief', brief: 'A dark bass with one big knob.' }],
     bad: () => [{ op: 'setBrief', brief: 'x'.repeat(100_000) }],
   },
+  setNetwork: {
+    ok: () => [
+      {
+        op: 'setNetwork',
+        network: [{ origin: 'https://api.example.com', reason: 'Live weather for the display' }],
+      },
+    ],
+    bad: () => [
+      {
+        op: 'setNetwork',
+        network: [{ origin: 'http://api.example.com/path', reason: 'not an https origin' }],
+      },
+    ],
+  },
   setProjectFiles: {
     ok: () => [{ op: 'setProjectFiles', files: { 'src/parts/meter.ts': 'export default 1;\n' } }],
     bad: () => [{ op: 'setProjectFiles', files: { 'node_modules/x.js': 'x' } }],

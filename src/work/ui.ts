@@ -417,6 +417,27 @@ export interface PluginUi {
   underlay?: Underlay;
   /** The design brief: the idea, palette, type and layout in a few lines, written by the person or the AI, kept to on later edits. */
   brief?: string;
+  /**
+   * The origins the code parts need, each with a reason. The person allows them for the work on their computer
+   * (the host keeps that, never the work); until then the code parts cannot reach them.
+   */
+  network?: NetworkNeed[];
+}
+export interface NetworkNeed {
+  /** https://host[:port] or wss://host[:port]. */
+  origin: string;
+  reason: string;
+}
+/** An origin code parts may connect to: https or wss, a host and maybe a port, nothing more; null otherwise. */
+export function networkOrigin(text: string): string | null {
+  try {
+    const u = new URL(text.trim());
+    if (!['https:', 'wss:'].includes(u.protocol) || u.username || u.password) return null;
+    if (u.pathname !== '/' || u.search || u.hash) return null;
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
 }
 export const emptyUi = (): PluginUi => ({
   look: { tokens: {}, skins: {} },
@@ -436,6 +457,8 @@ export const LIMITS = {
   shadows: 6,
   props: 32,
   brief: 2000,
+  network: 20,
+  reason: 200,
 } as const;
 
 // ---- checks ---------------------------------------------------------------------------------

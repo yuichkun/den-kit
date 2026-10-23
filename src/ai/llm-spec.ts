@@ -89,7 +89,7 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"setLook","look":{"tokens":{"accent":"#ff7a59"},"background":[{"kind":"image","asset":"assets/den-kit/wood.jpg","fit":"cover"}],"skins":{"knob":{"name":"ring"}}}}  (merges)',
       '  {"op":"addElement","element":{"kind":"text","text":"ACID","rect":{"x":24,"y":16,"w":300,"h":48},"textStyle":{"font":"oswald","size":40,"color":"fg"}}} · {"op":"updateElement","id":"text1","set":{"text":"ACID 303"}} · {"op":"removeElement","id":"text1"}',
       '  {"op":"arrange","ids":["shape1"],"to":"back"} · {"op":"group","ids":["text1","shape1"]} · {"op":"setPanelSize","width":720,"height":440}',
-      '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief)',
+      '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief) · {"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"Live weather for the sky display"}]}  (the origins the code parts need; the person allows them, until then they are unreachable)',
       '  {"op":"addElement","element":{"kind":"code","part":"reels","rect":{"x":0,"y":0,"w":720,"h":200},"props":{"speed":1.5}}}  (a code part: src/parts/reels.ts of the screen project, written with kit_write_file or kit_bash; kit_ui_reference "code")',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
     ].join('\n'),
@@ -133,6 +133,7 @@ export const KIT_TOOLS: ToolSpec[] = [
                   'addAsset',
                   'wearLook',
                   'setBrief',
+                  'setNetwork',
                   'makePart',
                   'unpackPart',
                   'detachPart',
@@ -287,6 +288,26 @@ export const KIT_TOOLS: ToolSpec[] = [
       type: 'object',
       properties: { id: { type: 'string' } },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'kit_import_asset',
+    description:
+      'Bring a file from a public URL into the work as an asset (assets/<name>): a picture, font, sound, video or data the work needs. den-kit fetches it (public addresses only, up to 100 MB) and checks that it is what its name says; then use it like any asset. Give its source and licence when you know them. It is one edit of this request.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        name: {
+          type: 'string',
+          description: 'File name with its extension (default: from the URL).',
+        },
+        title: { type: 'string' },
+        author: { type: 'string' },
+        license: { type: 'string' },
+      },
+      required: ['url'],
       additionalProperties: false,
     },
   },

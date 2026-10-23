@@ -326,14 +326,6 @@ export class LlmController {
     return true;
   }
 
-  /** Start a new conversation for this work (the next request begins it). */
-  reset() {
-    const thread = this.session.conversation.value;
-    if (thread) this.bridge.llmForget(thread);
-    this.session.keepConversation(null);
-    this.lastStarted.delete(this.session.doc.value.id);
-  }
-
   dispose() {
     for (const stop of this.stopWatching) stop();
     for (const c of this.compilers.values()) c.dispose();
@@ -632,6 +624,7 @@ export class LlmController {
           };
         }
       },
+      importFile: (url, name) => this.session.importFromUrl(url, name),
       ...this.options.deps,
     };
   }

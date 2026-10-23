@@ -22,6 +22,15 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     openUsage: () => ipcRenderer.invoke('den-kit:usage'),
     checkForUpdates: () => ipcRenderer.invoke('den-kit:check-updates'),
     installUpdate: () => ipcRenderer.invoke('den-kit:install-update'),
+    storage: request => ipcRenderer.invoke('den-kit:storage', request),
+    fetch: (url, maxBytes) => ipcRenderer.invoke('den-kit:fetch', { url, maxBytes }),
+    sandbox: request => ipcRenderer.invoke('den-kit:sandbox', request),
+    onSandboxRefused: listener => {
+      const handler = (_event: unknown, refusal: Parameters<typeof listener>[0]) =>
+        listener(refusal);
+      ipcRenderer.on('den-kit:sandbox-refused', handler);
+      return () => ipcRenderer.off('den-kit:sandbox-refused', handler);
+    },
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
   ipcRenderer.on('den-kit:open-settings', () =>

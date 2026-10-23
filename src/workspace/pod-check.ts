@@ -46,7 +46,8 @@ export class PodCheck {
   }
 
   /** Run every step (a failed one does not stop the rest, unless the pod did not start). */
-  async run(pod: PodSession): Promise<CheckStep[]> {
+  /** `frames`: where code parts' frames load from (the host's sandbox), when not straight from the dev server. */
+  async run(pod: PodSession, frames?: () => string | null): Promise<CheckStep[]> {
     if (this.running.value) return this.steps.value;
     this.running.value = true;
     this.steps.value = STEPS.map(s => ({ ...s, state: 'waiting' }));
@@ -123,7 +124,7 @@ export class PodCheck {
           return `${n} changed file(s) · last commit: ${last ?? '—'}`;
         },
       );
-      await this.partSteps(pod);
+      await this.partSteps(pod, frames);
     } finally {
       this.totalMs.value = Math.round(performance.now() - started);
       this.at.value = Date.now();
@@ -169,8 +170,8 @@ export class PodCheck {
   }
 
   /** Load a scratch part from the dev server in a hidden frame, then change it and wait for the change to show. */
-  private async partSteps(pod: PodSession) {
-    const portal = pod.portal.value;
+  private async partSteps(pod: PodSession, frames?: () => string | null) {
+    const portal = frames ? frames() : pod.portal.value;
     if (!portal) {
       this.set('part', { state: 'failed', detail: 'The dev server has no address.' });
       this.set('edit', { state: 'skipped' });

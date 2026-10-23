@@ -88,7 +88,7 @@ function kitVirtual(): Plugin {
       if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
       // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
       if (id === '\0virtual:kit-bridge')
-        return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null })};`;
+        return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null, port: bridgePort })};`;
       // The pod (BrowserPod) boots in the page, so its key goes to the page (.env, read by scripts/dev.ts) — only
       // from the dev server: a build never carries it. KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in).
       if (id === '\0virtual:kit-pod')
@@ -125,6 +125,7 @@ export default defineConfig({
     proxy: {
       '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
       '/__kit/token': { target: `http://127.0.0.1:${bridgePort}` },
+      '/__kit/sandbox': { target: `http://127.0.0.1:${bridgePort}` },
     },
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
