@@ -1,4 +1,5 @@
 // K6–K8 editor flows driven through the real UI (mouse and keyboard).
+import { writeZip } from '../../src/work/zip.ts';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -292,21 +293,37 @@ describe('patch editor', () => {
 
   it('K8 import refuses broken files with a reason; export → import round-trips; code view highlights the selection', async () => {
     const { page } = await fresh();
+    const newer = writeZip([
+      {
+        path: 'work.json',
+        data: new TextEncoder().encode('{"format":"den-kit/work","version":99}'),
+      },
+    ]);
     await page.setInputFiles('[data-testid=import-file]', {
-      name: 'bad.denkit.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{"schema":"den-kit/patch","version":99}'),
+      name: 'bad.denkit',
+      mimeType: 'application/zip',
+      buffer: Buffer.from(newer),
     });
     await page.waitForFunction(() =>
       (window as any).__kit.toasts.value.some((t: { text: string }) =>
         /newer den-kit/.test(t.text),
       ),
     );
-    const exported = await kit(page, k => k.exportText());
+    await page.setInputFiles('[data-testid=import-file]', {
+      name: 'old.denkit.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{"schema":"den-kit/patch","version":4}'),
+    });
+    await page.waitForFunction(() =>
+      (window as any).__kit.toasts.value.some((t: { text: string }) =>
+        /not a den-kit work file/.test(t.text),
+      ),
+    );
+    const exported: number[] = await kit(page, async k => Array.from(await k.exportWork()));
     await kit(page, k => k.loadStarter('chorus'));
     await page.setInputFiles('[data-testid=import-file]', {
-      name: 'bass.denkit.json',
-      mimeType: 'application/json',
+      name: 'bass.denkit',
+      mimeType: 'application/zip',
       buffer: Buffer.from(exported),
     });
     await page.waitForFunction(() => (window as any).__kit.doc.value.name === 'Bass');

@@ -1,13 +1,14 @@
-// den-kit patch document. The browser owns one of these; every change goes
-// through typed, author-attributed ops (ops.ts) so humans, the fast AI path and
-// the LLM path all edit the same way. Pure data: no DOM, no Vue, no unworklet.
-import type { ScreenProject } from './project.ts';
+// The work's document: its name, the patch, the parameters it exposes, the
+// plugin screen and the work's files. Every change goes through typed,
+// author-attributed ops (ops.ts) so people and the AI edit the same way. Pure
+// data: no DOM, no Vue, no unworklet.
 import type { PortDef } from './catalog.ts';
-import { emptyUi, type AssetMeta, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
+import type { WorkFile } from './files.ts';
+import { emptyUi, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
-/** 3: parts (definitions used in several places). 2: the plugin's own screen (look, decorations, order, groups) and assets. 1 and 2 still load. */
-export const PATCH_VERSION = 4;
+/** 5: the work's files in one tree (sources and assets). Older documents are not read. */
+export const PATCH_VERSION = 5;
 
 export type NodeId = string;
 export type EdgeId = string;
@@ -170,12 +171,10 @@ export interface PatchDocument {
   panel: { width: number; height: number; theme: ThemeId };
   /** The plugin's screen beyond the widget nodes. */
   ui: PluginUi;
-  /** Pictures and fonts the plugin uses (bytes live in the browser's asset store or ship with den-kit). */
-  assets: Record<string, AssetMeta>;
   /** Part definitions used in this patch, by id. */
   parts: Record<string, PartDef>;
-  /** The screen's web project (sources only), when the work has one (format v4). */
-  project?: ScreenProject;
+  /** The work's files, by path: a web project (package.json, src/) and the assets (assets/). */
+  files: Record<string, WorkFile>;
 }
 
 export const NODE_ID_PATTERN = /^[a-z][a-zA-Z0-9]{0,31}$/;
@@ -194,8 +193,8 @@ export function emptyDocument(name = 'Untitled', id = randomId('patch')): PatchD
     edges: {},
     panel: { width: 640, height: 360, theme: 'graphite' },
     ui: emptyUi(),
-    assets: {},
     parts: {},
+    files: {},
   };
 }
 

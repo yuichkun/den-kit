@@ -84,7 +84,7 @@ describe('A7 voice scope', () => {
   it('imported documents with cycles, duplicate drivers and duplicate singletons are reported', () => {
     const raw = {
       schema: 'den-kit/patch',
-      version: 1,
+      version: 5,
       name: 'x',
       nodes: {
         a: { id: 'a', type: 'kit.add' },

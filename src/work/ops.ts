@@ -56,13 +56,15 @@ import {
   type XY,
 } from './schema.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
-import { PROJECT_LIMITS, byteLength, checkProjectPath, projectBytes } from './project.ts';
+import { WORK_LIMITS, checkPath, isTextPath, totalBytes, type WorkFile } from './files.ts';
 import { CONTROL_OF, type ControlKind } from './skins.ts';
 import {
   ELEMENT_FIELDS,
   LIMITS,
   UiCheckError,
+  assetFile,
   assetUses,
+  assetsOf,
   checkAsset,
   checkElement,
   checkLook,
@@ -245,12 +247,11 @@ export type ResolvedOp =
   | { op: 'removeElement'; element: UiElement }
   | { op: 'setElement'; id: string; field: string; from: unknown; to: unknown }
   | { op: 'setUi'; field: UiField; from: unknown; to: unknown }
-  | { op: 'addAsset'; asset: AssetMeta }
-  | { op: 'removeAsset'; asset: AssetMeta }
   | { op: 'addPart'; part: PartDef }
   | { op: 'removePart'; part: PartDef }
   | { op: 'setPart'; id: string; from: PartDef; to: PartDef }
-  | { op: 'setFile'; path: string; from: string | undefined; to: string | undefined };
+  /** A file of the work added (from undefined), replaced or removed (to undefined). */
+  | { op: 'setFile'; path: string; from: WorkFile | undefined; to: WorkFile | undefined };
 
 export { OpError } from './op-error.ts';
 
@@ -344,7 +345,7 @@ class Draft {
   }
 }
 
-/** A document whose records can be written without touching `base` (look, order, groups, underlay and assets are replaced whole, never mutated). */
+/** A document whose records can be written without touching `base` (look, order, groups and underlay are replaced whole, never mutated). */
 function shallowCopy(base: PatchDocument): PatchDocument {
   return {
     ...base,
@@ -352,8 +353,8 @@ function shallowCopy(base: PatchDocument): PatchDocument {
     edges: { ...base.edges },
     panel: { ...base.panel },
     ui: { ...base.ui, elements: { ...base.ui.elements } },
-    assets: { ...base.assets },
     parts: { ...base.parts },
+    files: { ...base.files },
   };
 }
 
@@ -427,12 +428,6 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
       else ui[op.field] = clone(op.to);
       break;
     }
-    case 'addAsset':
-      doc.assets[op.asset.id] = clone(op.asset);
-      break;
-    case 'removeAsset':
-      delete doc.assets[op.asset.id];
-      break;
     case 'addPart':
       doc.parts[op.part.id] = clone(op.part);
       break;
@@ -443,12 +438,11 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
       doc.parts[op.id] = clone(op.to);
       break;
     case 'setFile': {
-      // A new files record every time: the base document is never written.
-      const files = { ...doc.project?.files };
+      // A new files record every time: views of it (assetsOf) are kept per record.
+      const files = { ...doc.files };
       if (op.to === undefined) delete files[op.path];
-      else files[op.path] = op.to;
-      if (Object.keys(files).length) doc.project = { files };
-      else delete doc.project;
+      else files[op.path] = clone(op.to);
+      doc.files = files;
       break;
     }
   }
@@ -482,10 +476,6 @@ export function invert(op: ResolvedOp): ResolvedOp {
       return { ...op, from: op.to, to: op.from };
     case 'setUi':
       return { ...op, from: op.to, to: op.from };
-    case 'addAsset':
-      return { op: 'removeAsset', asset: op.asset };
-    case 'removeAsset':
-      return { op: 'addAsset', asset: op.asset };
     case 'addPart':
       return { op: 'removePart', part: op.part };
     case 'removePart':
@@ -910,10 +900,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     case 'setName': {
-      const name =
-        String(intent.name ?? '')
-          .trim()
-          .slice(0, 80) || 'Untitled';
+      if (typeof intent.name !== 'string') fail('bad-value', 'A name is text.');
+      const name = intent.name.trim().slice(0, 80) || 'Untitled';
       if (name !== draft.doc.name)
         draft.apply({ op: 'setDoc', field: 'name', from: draft.doc.name, to: name });
       return;
@@ -1052,35 +1040,55 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     }
     case 'addAsset': {
       const asset = checkAsset(intent.asset);
-      const old = draft.doc.assets[asset.id];
+      const old = draft.doc.files[asset.id];
+      const file = assetFile(asset);
       if (old) {
-        if (JSON.stringify(old) === JSON.stringify(asset)) return;
+        if (JSON.stringify(old) === JSON.stringify(file)) return;
         fail(
           'duplicate-id',
-          `Asset "${asset.id}" already exists.`,
-          'Use updateAsset to change its name or source.',
+          `There is already a file at ${asset.id}.`,
+          'Give the asset another name, or remove the old one first.',
         );
       }
-      draft.apply({ op: 'addAsset', asset });
+      checkWorkSize(draft, asset.id, file);
+      draft.apply({ op: 'setFile', path: asset.id, from: undefined, to: file });
       return;
     }
     case 'updateAsset': {
-      const old = draft.doc.assets[intent.id];
+      const old = assetsOf(draft.doc.files)[intent.id];
       if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
       const next: Record<string, unknown> = { ...old! };
-      if (intent.set?.name !== undefined) next.name = intent.set.name;
       if (intent.set?.source !== undefined) {
         if (intent.set.source === null) delete next.source;
         else next.source = intent.set.source;
       }
+      if (intent.set?.name !== undefined) {
+        const name = String(intent.set.name)
+          .trim()
+          .replace(/[^A-Za-z0-9_.@+ -]/g, '-');
+        next.id = [...intent.id.split('/').slice(0, -1), name].join('/');
+      }
       const asset = checkAsset(next);
-      if (JSON.stringify(asset) === JSON.stringify(old)) return;
-      draft.apply({ op: 'removeAsset', asset: old! });
-      draft.apply({ op: 'addAsset', asset });
+      const file = assetFile(asset);
+      if (asset.id === old!.id && JSON.stringify(file) === JSON.stringify(draft.doc.files[old!.id]))
+        return;
+      if (asset.id !== old!.id) {
+        if (draft.doc.files[asset.id])
+          fail('duplicate-id', `There is already a file at ${asset.id}.`, 'Choose another name.');
+        draft.apply({
+          op: 'setFile',
+          path: old!.id,
+          from: draft.doc.files[old!.id],
+          to: undefined,
+        });
+        draft.apply({ op: 'setFile', path: asset.id, from: undefined, to: file });
+        moveAssetRefs(draft, old!.id, asset.id);
+      } else
+        draft.apply({ op: 'setFile', path: asset.id, from: draft.doc.files[asset.id], to: file });
       return;
     }
     case 'removeAsset': {
-      const old = draft.doc.assets[intent.id];
+      const old = assetsOf(draft.doc.files)[intent.id];
       if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
       const uses = [
         ...(assetUses(
@@ -1098,7 +1106,12 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
           `Asset "${intent.id}" is used by ${[...new Set(uses)].join(', ')}.`,
           'Remove or change those first.',
         );
-      draft.apply({ op: 'removeAsset', asset: old! });
+      draft.apply({
+        op: 'setFile',
+        path: intent.id,
+        from: draft.doc.files[intent.id],
+        to: undefined,
+      });
       return;
     }
     case 'setUnderlay': {
@@ -1107,7 +1120,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
         const u = intent.underlay;
         if (!u || typeof u !== 'object')
           fail('bad-intent', 'underlay is {asset, opacity, visible} or null.');
-        const asset = draft.doc.assets[u.asset];
+        const asset = assetsOf(draft.doc.files)[u.asset];
         if (!asset) fail('unknown-asset', `No asset "${u.asset}".`);
         if (!asset!.mime.startsWith('image/'))
           fail('bad-asset', `Asset "${u.asset}" is not a picture.`);
@@ -1168,31 +1181,31 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'setProjectFiles': {
       if (!intent.files || typeof intent.files !== 'object' || Array.isArray(intent.files))
         fail('bad-intent', 'files maps paths to text (null deletes a file).');
-      const current = draft.doc.project?.files ?? {};
-      const next: Record<string, string> = { ...current };
+      const current = draft.doc.files;
+      const next: Record<string, WorkFile> = { ...current };
       for (const [path, text] of Object.entries(intent.files)) {
-        const bad = checkProjectPath(path);
+        const bad = checkPath(path);
         if (bad) fail('bad-file', bad);
         if (text !== null && typeof text !== 'string')
           fail('bad-file', `${path}: a file is text (or null to delete it).`);
         if (text === null) delete next[path];
         else {
-          if (byteLength(text) > PROJECT_LIMITS.fileBytes)
-            fail('too-large', `${path} is larger than ${PROJECT_LIMITS.fileBytes / 1024} KB.`);
-          next[path] = text;
+          if (!isTextPath(path))
+            fail('bad-file', `${path} is not a text file; add it as an asset instead.`);
+          if (byteLength(text) > WORK_LIMITS.textBytes)
+            fail('too-large', `${path} is larger than ${WORK_LIMITS.textBytes / 1024 / 1024} MB.`);
+          next[path] = { text };
         }
       }
-      if (Object.keys(next).length > PROJECT_LIMITS.files)
-        fail('too-large', `The screen project is limited to ${PROJECT_LIMITS.files} files.`);
-      if (projectBytes(next) > PROJECT_LIMITS.totalBytes)
-        fail(
-          'too-large',
-          `The screen project is limited to ${PROJECT_LIMITS.totalBytes / 1024 / 1024} MB of sources.`,
-        );
+      if (Object.keys(next).length > WORK_LIMITS.files)
+        fail('too-large', `A work holds at most ${WORK_LIMITS.files} files.`);
+      if (totalBytes(next) > WORK_LIMITS.workBytes)
+        fail('too-large', `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`);
       for (const path of Object.keys(intent.files).sort()) {
         const from = current[path],
           to = next[path];
-        if (from !== to) draft.apply({ op: 'setFile', path, from, to });
+        if (JSON.stringify(from) !== JSON.stringify(to))
+          draft.apply({ op: 'setFile', path, from, to });
       }
       return;
     }
@@ -1272,7 +1285,7 @@ function checkContext(draft: Draft): CheckContext {
   const widgets: Record<string, true> = {};
   for (const n of Object.values(draft.doc.nodes))
     if (draft.catalog.find(n.type)?.kind === 'widget') widgets[n.id] = true;
-  return { assets: draft.doc.assets, nodes: widgets };
+  return { assets: assetsOf(draft.doc.files), nodes: widgets };
 }
 /** Widget nodes on the plugin, in patch order. */
 function placedWidgets(draft: Draft): string[] {
@@ -1423,8 +1436,15 @@ export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp
     ...Object.values(prev.edges).map(edge => ({ op: 'removeEdge' as const, edge })),
     ...Object.values(prev.nodes).map(node => ({ op: 'removeNode' as const, node })),
     ...Object.values(prev.ui.elements).map(element => ({ op: 'removeElement' as const, element })),
-    ...Object.values(prev.assets).map(asset => ({ op: 'removeAsset' as const, asset })),
-    ...Object.values(next.assets).map(asset => ({ op: 'addAsset' as const, asset })),
+    ...[...new Set([...Object.keys(prev.files), ...Object.keys(next.files)])]
+      .sort()
+      .filter(path => JSON.stringify(prev.files[path]) !== JSON.stringify(next.files[path]))
+      .map(path => ({
+        op: 'setFile' as const,
+        path,
+        from: prev.files[path],
+        to: next.files[path],
+      })),
     ...Object.values(next.nodes).map(node => ({ op: 'addNode' as const, node })),
     ...Object.values(next.edges).map(edge => ({ op: 'addEdge' as const, edge })),
     ...Object.values(next.ui.elements).map(element => ({ op: 'addElement' as const, element })),
@@ -1509,4 +1529,48 @@ function defaultStem(type: string): string {
     musicalLfo: 'mlfo',
   };
   return short[name] ?? name;
+}
+
+const byteLength = (text: string) => new TextEncoder().encode(text).length;
+
+/** A work's files stay within the size limits (see files.ts). */
+function checkWorkSize(draft: Draft, path: string, file: WorkFile) {
+  const next = { ...draft.doc.files, [path]: file };
+  if (Object.keys(next).length > WORK_LIMITS.files)
+    fail('too-large', `A work holds at most ${WORK_LIMITS.files} files.`);
+  if (totalBytes(next) > WORK_LIMITS.workBytes)
+    fail('too-large', `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`);
+}
+
+/** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay and part faces. */
+function moveAssetRefs(draft: Draft, from: string, to: string) {
+  const move = (value: unknown): unknown => {
+    const text = JSON.stringify(value ?? null);
+    const next = text
+      .split(JSON.stringify(from))
+      .join(JSON.stringify(to))
+      .split(`asset:${from}`)
+      .join(`asset:${to}`);
+    return next === text ? value : JSON.parse(next);
+  };
+  for (const field of ['look', 'underlay'] as const) {
+    const before = draft.doc.ui[field];
+    const after = move(before);
+    if (after !== before) draft.apply({ op: 'setUi', field, from: before, to: after });
+  }
+  for (const el of Object.values(draft.doc.ui.elements))
+    for (const [field, before] of Object.entries(el)) {
+      const after = move(before);
+      if (after !== before)
+        draft.apply({ op: 'setElement', id: el.id, field, from: before, to: after });
+    }
+  for (const node of Object.values(draft.doc.nodes)) {
+    const after = move(node.style);
+    if (after !== node.style)
+      draft.apply({ op: 'setField', node: node.id, field: 'style', from: node.style, to: after });
+  }
+  for (const part of Object.values(draft.doc.parts)) {
+    const after = move(part) as PartDef;
+    if (after !== part) draft.apply({ op: 'setPart', id: part.id, from: part, to: after });
+  }
 }

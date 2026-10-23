@@ -7,6 +7,8 @@
 // change what they hold. The controls and their cables that existed when the
 // members started are the seam: members keep them (they place, style and set
 // them, but do not remove or rewire them).
+import { textFiles } from '../work/files.ts';
+import { assetsOf } from '../work/ui.ts';
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument, PatchNode } from '../work/schema.ts';
 import type { Rect } from '../work/ui.ts';
@@ -382,21 +384,14 @@ export function changes(before: PatchDocument, after: PatchDocument, catalog: Ca
   if (before.panel.width !== after.panel.width || before.panel.height !== after.panel.height)
     out.push({ kind: 'ui', field: 'size' });
   if (before.panel.theme !== after.panel.theme) out.push({ kind: 'ui', field: 'theme' });
-  const assets = Object.keys(after.assets)
-    .filter(id => !same(before.assets[id], after.assets[id]))
-    .concat(Object.keys(before.assets).filter(id => !after.assets[id]));
+  const assets = Object.keys(assetsOf(after.files))
+    .filter(id => !same(assetsOf(before.files)[id], assetsOf(after.files)[id]))
+    .concat(Object.keys(assetsOf(before.files)).filter(id => !assetsOf(after.files)[id]));
   if (assets.length) out.push({ kind: 'assets', ids: assets });
-  const fa = before.project?.files ?? {},
-    fb = after.project?.files ?? {};
+  const fa = textFiles(before.files),
+    fb = textFiles(after.files);
   const paths = [...new Set([...Object.keys(fa), ...Object.keys(fb)])].filter(p => fa[p] !== fb[p]);
-  if (
-    paths.length ||
-    !same(
-      before.project ? Object.keys(before.project).sort() : null,
-      after.project ? Object.keys(after.project).sort() : null,
-    )
-  )
-    out.push({ kind: 'project', paths });
+  if (paths.length) out.push({ kind: 'project', paths });
   if (before.name !== after.name) out.push({ kind: 'name' });
   return out;
 }

@@ -126,8 +126,8 @@ export function lofi(catalog: Catalog) {
       wire('mixl1.out', 'out1.left'),
       wire('mixr1.out', 'out1.right'),
       // ---- the plugin: a scrapbook page ----
-      asset('sc-paper'),
-      asset('sc-cassette'),
+      asset('assets/den-kit/paper.jpg'),
+      asset('assets/den-kit/cassette.jpg'),
       {
         op: 'setLook',
         look: {
@@ -145,7 +145,7 @@ export function lofi(catalog: Catalog) {
             valueFont: 'kalam',
           },
           background: [
-            { kind: 'image', asset: 'sc-paper', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/paper.jpg', fit: 'cover' },
             { kind: 'color', color: '#f6e7c1', blend: 'multiply', opacity: 0.35 },
           ],
           skins: { slider: { name: 'fader' } },
@@ -176,7 +176,7 @@ export function lofi(catalog: Catalog) {
       el({
         kind: 'image',
         name: 'Cassette photo',
-        asset: 'sc-cassette',
+        asset: 'assets/den-kit/cassette.jpg',
         fit: 'cover',
         rect: r(344, 34, 262, 174),
         style: {

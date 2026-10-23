@@ -1,6 +1,7 @@
 // The LLM's tools run against the live patch: an edit is tried on a copy, and
 // only one that validates and compiles lands (as one step); a failing edit
 // lands nothing and says why. What the tools report, and what lands.
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
@@ -322,7 +323,9 @@ describe('LlmWorkspace', () => {
           op: 'setLook',
           look: {
             tokens: { accent: '#39ff14' },
-            background: [{ kind: 'image', asset: 'sc-brushed-metal', fit: 'tile', size: 256 }],
+            background: [
+              { kind: 'image', asset: 'assets/den-kit/brushed-metal.jpg', fit: 'tile', size: 256 },
+            ],
           },
         },
         {
@@ -344,7 +347,7 @@ describe('LlmWorkspace', () => {
     expect(look.success).toBe(true);
     expect(look.text).toMatch(/The sound is unchanged/);
     expect(compiles).toHaveLength(1);
-    expect(state.live.assets['sc-brushed-metal']).toBeDefined();
+    expect(assetsOf(state.live.files)['assets/den-kit/brushed-metal.jpg']).toBeDefined();
     expect(state.live.ui.elements.text1).toMatchObject({ kind: 'text', text: 'ACID' });
     expect(landed.at(-1)!.label).toMatch(/look: tokens, background, \+ text “ACID”, style knob1/);
     expect((await ws.call('kit_get_plugin', {})).text).toMatch(
@@ -358,7 +361,7 @@ describe('LlmWorkspace', () => {
       ops: [
         {
           op: 'setLook',
-          look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'cover' }] },
+          look: { background: [{ kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' }] },
         },
         {
           op: 'addElement',
@@ -422,12 +425,12 @@ describe('LlmWorkspace', () => {
     };
     const { ws } = workspace({
       images: true,
-      viewPicture: async id => (id === 'sc-wood' ? seen : null),
+      viewPicture: async id => (id === 'assets/den-kit/wood.jpg' ? seen : null),
     });
-    const r = await ws.call('kit_view_picture', { id: 'sc-wood' });
+    const r = await ws.call('kit_view_picture', { id: 'assets/den-kit/wood.jpg' });
     expect(r.success).toBe(true);
     expect(r.text).toMatch(
-      /^Picture sc-wood Warm mid-brown wood grain.*: 1024×1024\. Main colours: #5a3a22 \(60%\), #8a5a32 \(40%\)\. The picture is attached\./,
+      /^Picture assets\/den-kit\/wood\.jpg Warm mid-brown wood grain.*: 1024×1024\. Main colours: #5a3a22 \(60%\), #8a5a32 \(40%\)\. The picture is attached\./,
     );
     expect(r.imageDataUrl).toMatch(/^data:image\/png;base64,/);
     const missing = await ws.call('kit_view_picture', { id: 'my-photo' });
@@ -435,7 +438,7 @@ describe('LlmWorkspace', () => {
     expect(missing.text).toMatch(/No picture "my-photo"\. This patch has no pictures\./);
     const plain = workspace({ images: false, viewPicture: async () => seen });
     expect(
-      (await plain.ws.call('kit_view_picture', { id: 'sc-wood' })).imageDataUrl,
+      (await plain.ws.call('kit_view_picture', { id: 'assets/den-kit/wood.jpg' })).imageDataUrl,
     ).toBeUndefined();
   });
 

@@ -4,7 +4,7 @@
 import type { Catalog } from '../../work/catalog.ts';
 import type { Intent } from '../../work/ops.ts';
 import type { PatchDocument } from '../../work/schema.ts';
-import { assetUses, type WidgetStyle } from '../../work/ui.ts';
+import { assetUses, type WidgetStyle, assetsOf } from '../../work/ui.ts';
 import { acid } from './acid.ts';
 import { duck } from './duck.ts';
 import { fuzz } from './fuzz.ts';
@@ -147,7 +147,9 @@ export function lookIntents(doc: PatchDocument, source: PatchDocument): Intent[]
     { ...source.ui, elements: {}, underlay: undefined },
     [] as Array<[string, WidgetStyle | undefined]>,
   );
-  const assets = [...used.keys()].map(id => source.assets[id]).filter(a => a && !doc.assets[a.id]);
+  const assets = [...used.keys()]
+    .map(id => assetsOf(source.files)[id])
+    .filter(a => a && !assetsOf(doc.files)[a.id]);
   return [
     ...assets.map(asset => ({ op: 'addAsset' as const, asset: asset! })),
     { op: 'setTheme', theme: source.panel.theme },

@@ -2,6 +2,7 @@
 // validates, compiles and renders finite, audible, unclipped audio; its custom
 // parts load and draw a frame; its look can be put on another work. And each
 // does what its controls say (measured on the rendered sound, not assumed).
+import { assetsOf } from '../../src/work/ui.ts';
 import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
@@ -202,7 +203,7 @@ describe('showcase works', () => {
     const acid = WORKS.find(w => w.id === 'acid')!.build(catalog);
     const pad = WORKS.find(w => w.id === 'pad')!.build(catalog);
     const r = applyIntents(acid, lookIntents(acid, pad), catalog);
-    expect(Object.keys(r.doc.assets)).toContain('sc-sunset');
+    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/sunset-sky.jpg');
   });
 });
 
@@ -275,7 +276,7 @@ describe('every work is a finished first version', () => {
 
     it(`${w.id}: its pictures exist as described, with a licence den can ship`, () => {
       const doc = w.build(catalog);
-      for (const a of Object.values(doc.assets)) {
+      for (const a of Object.values(assetsOf(doc.files))) {
         expect(a.url, a.id).toMatch(/^\/showcase\/[a-z-]+\.(jpg|svg)$/);
         const file = `public${a.url}`;
         expect(statSync(file).size, `${a.id} bytes`).toBe(a.bytes);

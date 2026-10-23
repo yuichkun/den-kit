@@ -2,8 +2,6 @@ import { shallowRef } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
-import type { PatchDocument } from '../../../src/work/schema.ts';
-import { pluginSpec } from '../../../src/screen/build.ts';
 import type { PodHost, PodRunResult, Portal } from '../../../src/host/workspace.ts';
 import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
 
@@ -19,8 +17,8 @@ afterEach(() => {
 
 function harness(sync: () => Promise<PodRunResult> = async () => success()) {
   const session = {
+    catalog,
     doc: shallowRef(starter('bass', catalog)),
-    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
   } as unknown as WorkspaceSession;
   const files = new Map<string, string>();
   let portal: ((p: Portal) => void) | null = null;

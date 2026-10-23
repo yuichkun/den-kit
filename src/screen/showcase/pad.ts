@@ -102,7 +102,7 @@ export function pad(catalog: Catalog) {
       wire('room1.left', 'out1.left'),
       wire('room1.right', 'out1.right'),
       // ---- the plugin: a sunset ----
-      asset('sc-sunset'),
+      asset('assets/den-kit/sunset-sky.jpg'),
       {
         op: 'setLook',
         look: {
@@ -120,7 +120,7 @@ export function pad(catalog: Catalog) {
             valueFont: 'lato',
           },
           background: [
-            { kind: 'image', asset: 'sc-sunset', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/sunset-sky.jpg', fit: 'cover' },
             {
               kind: 'linear',
               angle: 180,

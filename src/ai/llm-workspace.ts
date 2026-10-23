@@ -3,6 +3,8 @@
 // only an edit that passes lands on the live patch, at once, as one step of the
 // request. A failing edit never lands; its problems go back to the model. The
 // controller (src/ai/llm.ts) makes the steps of one request one undo step.
+import { textFiles } from '../work/files.ts';
+import { assetsOf } from '../work/ui.ts';
 import type { Catalog, PortDef } from '../work/catalog.ts';
 import { generate, type Generated } from '../sound/codegen.ts';
 import { describePatch } from './describe.ts';
@@ -30,8 +32,7 @@ import type { LookResult } from '../screen/look.ts';
 
 import type { LlmRole, ToolOutput } from '../host/ai.ts';
 import { reportOf, type MemberReport } from './members.ts';
-import type { PodRunResult } from '../host/workspace.ts';
-import type { PartReport, PodAccess } from '../workspace/pod-session.ts';
+import type { PodAccess } from '../workspace/pod-session.ts';
 
 export type { PodAccess };
 import { projectPath } from '../workspace/pod-io.ts';
@@ -39,6 +40,9 @@ import { projectPath } from '../workspace/pod-io.ts';
 export type { ToolOutput };
 
 /** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
+/** Tools that show the AI the work as it is now. */
+const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_look']);
+
 export interface WorkspaceDeps {
   catalog: Catalog;
   /** Compile a generated program; resolves with problems instead of throwing. */
@@ -51,8 +55,15 @@ export interface WorkspaceDeps {
   images: boolean;
   /** The live patch as it is now. */
   read(): PatchDocument;
-  /** Put checked edits on the live patch as one step of this request. */
-  land(intents: Intent[], label: string): { ok: true } | { ok: false; message: string };
+  /**
+   * Put checked edits on the live patch as one step of this request. `seen` is the
+   * revision this AI last read: what someone else changed after it is not overwritten.
+   */
+  land(
+    intents: Intent[],
+    label: string,
+    seen: number,
+  ): { ok: true } | { ok: false; message: string };
   /** Draw the plugin and look it over (and take a picture when `picture`). */
   look(doc: PatchDocument, picture: boolean): Promise<LookResult>;
   /** A picture asset, made small enough to send, with its main colours (null: no such picture, or it cannot be read). */
@@ -143,12 +154,17 @@ export class LlmWorkspace {
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
+  /** The revision of the work this AI last read (its request, or a tool that reads the work). */
+  private seen: number;
+
   constructor(deps: WorkspaceDeps) {
     this.deps = deps;
+    this.seen = deps.read().revision;
   }
 
   async call(tool: string, args: unknown): Promise<ToolOutput> {
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+    if (READS.has(tool)) this.seen = this.deps.read().revision;
     try {
       switch (tool) {
         case 'kit_get_patch':
@@ -582,7 +598,7 @@ export class LlmWorkspace {
         );
       report = `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`;
     }
-    const landed = this.deps.land(intents, step);
+    const landed = this.deps.land(intents, step, this.seen);
     if (!landed.ok) {
       this.steps.push(`${step} — not applied`);
       return {
@@ -602,9 +618,9 @@ export class LlmWorkspace {
   // ---- looking ---------------------------------------------------------------------------
   private async viewPicture(id: string): Promise<ToolOutput> {
     const doc = this.deps.read();
-    const asset = doc.assets[id] ?? SHOWCASE_ASSETS[id];
+    const asset = assetsOf(doc.files)[id] ?? SHOWCASE_ASSETS[id];
     if (!asset || !asset.mime.startsWith('image/')) {
-      const pictures = Object.values(doc.assets)
+      const pictures = Object.values(assetsOf(doc.files))
         .filter(a => a.mime.startsWith('image/'))
         .map(a => a.id);
       return {
@@ -714,8 +730,8 @@ export class LlmWorkspace {
     const paths = Object.keys(files).sort();
     const lines: string[] = [];
     if (paths.length) {
-      const before = this.deps.read().project?.files ?? {};
-      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what);
+      const before = textFiles(this.deps.read().files);
+      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what, this.seen);
       const list = paths.map(
         p => `${p} (${files[p] === null ? 'deleted' : p in before ? 'changed' : 'new'})`,
       );

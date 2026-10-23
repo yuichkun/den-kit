@@ -15,7 +15,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Intent } from '../work/ops.ts';
 import { THEMES } from '../work/schema.ts';
 import { CONTROL_OF } from '../work/skins.ts';
-import { stackOrder, withGroups } from '../work/ui.ts';
+import { stackOrder, withGroups, assetsOf } from '../work/ui.ts';
 import { pluginSpec } from '../screen/build.ts';
 import {
   align,
@@ -33,7 +33,7 @@ import type { PluginItem, PluginSpec, Rect } from '../screen/spec.ts';
 import PluginWindow from '../screen/PluginWindow.vue';
 import InsertMenu from './plugin/InsertMenu.vue';
 import { starterPart, withTemplate } from '../workspace/template.ts';
-import { partPath } from '../work/project.ts';
+import { partPath } from '../work/files.ts';
 import InputSelect from './InputSelect.vue';
 import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
@@ -317,7 +317,7 @@ function openMenu(at: { x: number; y: number }, clientX?: number, clientY?: numb
 function insert(key: string, asset?: string) {
   const at = menu.value?.at ?? { x: W.value / 2, y: H.value / 2 };
   menu.value = null;
-  const meta = asset ? doc.value.assets[asset] : undefined;
+  const meta = asset ? assetsOf(doc.value.files)[asset] : undefined;
   const bind = [...selected.value].find(id => {
     const t = doc.value.nodes[id]?.type;
     return t === 'ui.knob' || t === 'ui.slider' || t === 'ui.toggle';
@@ -326,7 +326,7 @@ function insert(key: string, asset?: string) {
     insertIntents(key, at, doc.value, {
       asset: meta,
       bind,
-      codeFiles: name => withTemplate(doc.value.project, { [partPath(name)]: starterPart(name) }),
+      codeFiles: name => withTemplate(doc.value.files, { [partPath(name)]: starterPart(name) }),
     }),
     `Add ${key}`,
   );

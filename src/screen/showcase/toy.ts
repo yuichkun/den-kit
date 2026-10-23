@@ -90,7 +90,7 @@ export function toy(catalog: Catalog) {
       wire('room1.left', 'out1.left'),
       wire('room1.right', 'out1.right'),
       // ---- the plugin: big pads, drawn decorations ----
-      asset('sc-sketch-pads'),
+      asset('assets/den-kit/sketch-pads.svg'),
       {
         op: 'setLook',
         look: {
@@ -121,7 +121,10 @@ export function toy(catalog: Catalog) {
           skins: { knob: { name: 'dot' } },
         },
       },
-      { op: 'setUnderlay', underlay: { asset: 'sc-sketch-pads', opacity: 0.35, visible: false } },
+      {
+        op: 'setUnderlay',
+        underlay: { asset: 'assets/den-kit/sketch-pads.svg', opacity: 0.35, visible: false },
+      },
       el({
         kind: 'shape',
         shape: 'ellipse',

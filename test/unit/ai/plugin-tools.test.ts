@@ -1,6 +1,7 @@
 // The plugin screen for the LLM: what kit_get_plugin tells it, the reference by
 // topic, and the shorthands kit_apply_ops accepts (addControl, bundled pictures
 // by id), which become ordinary intents.
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
@@ -23,7 +24,9 @@ describe('kit_get_plugin', () => {
     const text = describePlugin(doc, catalog);
     expect(text).toContain('720×440 px');
     expect(text).toMatch(/Look tokens: bg #05040d, fg #e9e6ff, accent #8f7bff/);
-    expect(text).toMatch(/Look background \(bottom first\): picture sc-starfield cover \| radial/);
+    expect(text).toMatch(
+      /Look background \(bottom first\): picture assets\/den-kit\/starfield\.jpg cover \| radial/,
+    );
     expect(text).toContain('knob ring (look: thickness 3, round true)');
     // Back to front: the part (the sky) first, the knobs last.
     const order = ['"id":"canvas1"', '"text":"NEBULA"', '"id":"ktime"', '"id":"ksky"'].map(s =>
@@ -37,7 +40,9 @@ describe('kit_get_plugin', () => {
       /"value":"420 ms","range":"80\.0 ms … 1\.40 s \(log\)","drives":\["→ echo1\.timeSeconds"\]/,
     );
     expect(text).toContain('whole code: kit_get_plugin {\\"canvas\\":\\"canvas1\\"}');
-    expect(text).toMatch(/Assets in this patch: sc-starfield \(picture 1600×1067: Night sky/);
+    expect(text).toMatch(
+      /Assets in this patch: assets\/den-kit\/starfield\.jpg \(picture 1600×1067: Night sky/,
+    );
     // One part's whole code on request.
     expect(describePlugin(doc, catalog, { canvas: 'canvas1' })).toContain('f.state.grains');
     expect(() => describePlugin(doc, catalog, { canvas: 'nope' })).toThrow(/Canvases: canvas1/);
@@ -86,7 +91,9 @@ describe('kit_ui_reference', () => {
     expect(knobs).not.toContain('footswitch');
     expect(uiReference('skins')).toContain('footswitch');
     expect(uiReference('canvas')).toMatch(/f\.setNorm\(id, 0\.\.1\)/);
-    expect(uiReference('pictures')).toMatch(/sc-wood: Warm mid-brown wood grain/);
+    expect(uiReference('pictures')).toMatch(
+      /assets\/den-kit\/wood\.jpg: Warm mid-brown wood grain/,
+    );
     expect(uiReference('fonts')).toContain('orbitron');
   });
 });
@@ -151,13 +158,16 @@ describe('kit_apply_ops shorthands', () => {
   it('bundled pictures by id: added to the patch once, before the edit that uses them', () => {
     const doc = starter('bass', catalog);
     const { intents, origin } = expandOps(doc, catalog, [
-      { op: 'setLook', look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'cover' }] } },
-      { op: 'addAsset', asset: { id: 'sc-brass' } },
+      {
+        op: 'setLook',
+        look: { background: [{ kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' }] },
+      },
+      { op: 'addAsset', asset: { id: 'assets/den-kit/brass.jpg' } },
       {
         op: 'addElement',
         element: {
           kind: 'image',
-          asset: 'sc-wood',
+          asset: 'assets/den-kit/wood.jpg',
           fit: 'cover',
           rect: { x: 0, y: 0, w: 10, h: 10 },
         },
@@ -166,12 +176,18 @@ describe('kit_apply_ops shorthands', () => {
     expect(intents.map(i => i.op)).toEqual(['addAsset', 'setLook', 'addAsset', 'addElement']);
     expect(origin).toEqual([0, 0, 1, 2]);
     const after = applyIntents(doc, intents, catalog).doc;
-    expect(Object.keys(after.assets).sort()).toEqual(['sc-brass', 'sc-wood']);
-    expect(after.assets['sc-wood']!.url).toBe('/showcase/wood.jpg');
+    expect(Object.keys(assetsOf(after.files)).sort()).toEqual([
+      'assets/den-kit/brass.jpg',
+      'assets/den-kit/wood.jpg',
+    ]);
+    expect(assetsOf(after.files)['assets/den-kit/wood.jpg']!.url).toBe('/showcase/wood.jpg');
     // Already in the patch: nothing added again.
     expect(
       expandOps(after, catalog, [
-        { op: 'setLook', look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'tile' }] } },
+        {
+          op: 'setLook',
+          look: { background: [{ kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'tile' }] },
+        },
       ]).intents.map(i => i.op),
     ).toEqual(['setLook']);
   });

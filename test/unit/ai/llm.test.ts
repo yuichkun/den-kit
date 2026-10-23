@@ -201,7 +201,7 @@ describe('a request', () => {
     expect(line(o.id).undone).toBe(true);
   });
 
-  it('an edit by the user in between stays their own: the request undoes in two parts around it', async () => {
+  it('an edit by the user in between stays their own step; one undo takes the whole request back', async () => {
     const before = snapshot();
     const undoSteps = session.history.size;
     const o = llm.run('wobble and open it');
@@ -212,13 +212,36 @@ describe('a request', () => {
     });
     t.done(o.id);
     expect(line(o.id).status).toBe('applied');
-    expect(session.history.size).toBe(undoSteps + 3);
-    session.undo(); // the LLM's second part
+    expect(session.history.size).toBe(undoSteps + 2);
+    session.undo(); // the whole request, both parts
     expect(session.doc.value.nodes.cut1!.values.hz).not.toBe(900);
+    expect(session.doc.value.nodes.lfo2).toBeUndefined();
     expect(session.doc.value.nodes.filter1!.values.resonance).toBe(2);
-    session.undo();
-    session.undo();
+    session.undo(); // the user's own edit
     expect(snapshot()).toBe(before);
+  });
+
+  it('an AI edit on something the person changed after the AI read the work fails and says what changed', async () => {
+    const o = llm.run('open the resonance');
+    session.commit([{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]); // the user, meanwhile
+    const refused = await t.call(o.id, 'c1', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 6 }],
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.text).toMatch(/module filter1 \(resonance\) was changed by the person/);
+    expect(session.doc.value.nodes.filter1!.values.resonance).toBe(2);
+    // What the person did not touch, the AI may still change.
+    const other = await t.call(o.id, 'c2', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 900 }],
+    });
+    expect(other.success).toBe(true);
+    // Once it has read the work again, it decides with the change in sight.
+    await t.call(o.id, 'c3', 'kit_get_patch', {});
+    const again = await t.call(o.id, 'c4', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 6 }],
+    });
+    expect(again.success).toBe(true);
+    t.done(o.id);
   });
 
   it('a reply without changes shows the words; a follow-up continues the conversation', async () => {

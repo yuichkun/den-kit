@@ -3,7 +3,7 @@
 // looks through the session's own tools, and keeps one conversation per work.
 import type { ComputedRef, Ref, ShallowRef } from 'vue';
 import type { Catalog } from '../work/catalog.ts';
-import type { Author, History, Transaction } from '../work/history.ts';
+import type { CommitOptions, History, Transaction } from '../work/history.ts';
 import type { OpError } from '../work/op-error.ts';
 import type { Intent, ResolvedOp } from '../work/ops.ts';
 import type { Library } from '../work/library.ts';
@@ -17,15 +17,7 @@ import type { Seeing } from './seeing.ts';
 import type { LlmController } from './llm.ts';
 import type { AiRequests } from './requests.ts';
 
-export interface CommitOptions {
-  author?: Author;
-  label?: string;
-  gesture?: string;
-  /** Steps of one request that undo together (see History). */
-  group?: string;
-  /** Refuse when the document moved on (AI answers computed on an older revision). */
-  expectRevision?: number;
-}
+export type { CommitOptions };
 export type CommitResult =
   | { ok: true; ops: ResolvedOp[]; created: string[] }
   | { ok: false; error: OpError };

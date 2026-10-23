@@ -13,8 +13,12 @@ import type { Author } from '../work/history.ts';
 import type { OpError } from '../work/op-error.ts';
 import type { Intent } from '../work/ops.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { GENERATED_FILES, PROJECT_LIMITS, byteLength, checkProjectPath } from '../work/project.ts';
-import { controlsSource, templateFiles, type KitControl } from './template.ts';
+import { GENERATED_FILES, WORK_LIMITS, checkPath, textFiles } from '../work/files.ts';
+
+const byteLength = (text: string) => new TextEncoder().encode(text).length;
+import { controlsSource, templateFiles } from './template.ts';
+import { parameters } from '../work/parameters.ts';
+import type { Catalog } from '../work/catalog.ts';
 import { CHECK_FILE } from './pod-check.ts';
 import type { PodFactory, PodHost, PodProcess, PodRunResult } from '../host/workspace.ts';
 import { PodUnavailable, keepEnd } from './pod-io.ts';
@@ -26,8 +30,8 @@ export interface WorkspaceSession {
     intents: Intent[],
     options?: { author?: Author; label?: string },
   ): { ok: true } | { ok: false; error: OpError };
-  /** The controls a code part can read and move (written into the pod as src/kit/controls.ts). */
-  controls(doc: PatchDocument): Readonly<Record<string, KitControl>>;
+  /** What the work's blocks and controls are (its parameters go into the pod as src/kit/controls.ts). */
+  readonly catalog: Catalog;
 }
 
 /** The pod as an AI's tools use it. */
@@ -324,8 +328,9 @@ export class PodSession {
   /** The document's files (or the template, while the work has no project) plus den-kit's generated ones. */
   wanted(): Map<string, string> {
     const doc = this.session.doc.value;
-    const files = new Map(Object.entries(doc.project?.files ?? templateFiles()));
-    files.set('src/kit/controls.ts', controlsSource(this.session.controls(doc)));
+    const own = textFiles(doc.files);
+    const files = new Map(Object.entries(Object.keys(own).length ? own : templateFiles()));
+    files.set('src/kit/controls.ts', controlsSource(parameters(doc, this.session.catalog)));
     return files;
   }
 
@@ -342,7 +347,7 @@ export class PodSession {
       const stale = listed.output
         .split('\n')
         .map(l => l.trim().replace(/^\.\//, ''))
-        .filter(p => p && !wanted.has(p) && !checkProjectPath(p));
+        .filter(p => p && !wanted.has(p) && !p.startsWith('assets/') && !checkPath(p));
       if (stale.length)
         await host.run(`rm -f -- ${stale.map(q).join(' ')}`, {
           cwd: this.projectDir,
@@ -382,15 +387,15 @@ export class PodSession {
     if (!host) return { files: {}, skipped: [] };
     return this.enqueue(async () => {
       const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
-      const current = this.session.doc.value.project?.files ?? {};
-      // While the work has no project, the pod holds the template: it all becomes the work's.
-      const base = this.session.doc.value.project ? current : {};
+      // While the work has no sources, the pod holds the template: it all becomes the work's.
+      const base = textFiles(this.session.doc.value.files);
       const files: Record<string, string | null> = {};
       const skipped: string[] = [];
       const seen = new Set<string>();
       for (const line of listed.output.split('\n')) {
         const path = line.trim().replace(/^\.\//, '');
-        if (!path || seen.has(path) || path === CHECK_FILE) continue;
+        // Assets are the work's own files; commands do not change them (yet).
+        if (!path || seen.has(path) || path === CHECK_FILE || path.startsWith('assets/')) continue;
         if (GENERATED_FILES.has(path)) {
           const text = await host.readFile(`${this.projectDir}/${path}`);
           if (text !== null && text !== this.controlsText) {
@@ -401,7 +406,7 @@ export class PodSession {
           }
           continue;
         }
-        const bad = checkProjectPath(path);
+        const bad = checkPath(path);
         if (bad) {
           skipped.push(`${path} (${bad})`);
           continue;
@@ -414,8 +419,8 @@ export class PodSession {
           );
           continue;
         }
-        if (byteLength(text) > PROJECT_LIMITS.fileBytes) {
-          skipped.push(`${path} (over ${PROJECT_LIMITS.fileBytes / 1024} KB)`);
+        if (byteLength(text) > WORK_LIMITS.textBytes) {
+          skipped.push(`${path} (over ${WORK_LIMITS.textBytes / 1024 / 1024} MB)`);
           continue;
         }
         seen.add(path);

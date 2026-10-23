@@ -12,7 +12,7 @@ export function musicbox(catalog: Catalog) {
   const knob = {
     skin: {
       name: 'image',
-      params: { cap: 'sc-brass-knob', size: 0.86, label: 'bottom', value: 'none' },
+      params: { cap: 'assets/den-kit/brass-knob.svg', size: 0.86, label: 'bottom', value: 'none' },
     },
     textStyle: {
       font: 'cinzel',
@@ -84,10 +84,10 @@ export function musicbox(catalog: Catalog) {
       wire('box1.left', 'out1.left'),
       wire('box1.right', 'out1.right'),
       // ---- the plugin: a wooden box with a brass plate ----
-      asset('sc-wood'),
-      asset('sc-brass'),
-      asset('sc-brass-knob'),
-      asset('sc-screw'),
+      asset('assets/den-kit/wood.jpg'),
+      asset('assets/den-kit/brass.jpg'),
+      asset('assets/den-kit/brass-knob.svg'),
+      asset('assets/den-kit/screw.svg'),
       {
         op: 'setLook',
         look: {
@@ -105,7 +105,7 @@ export function musicbox(catalog: Catalog) {
             valueFont: 'cinzel',
           },
           background: [
-            { kind: 'image', asset: 'sc-wood', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' },
             {
               kind: 'radial',
               x: 0.5,
@@ -116,7 +116,7 @@ export function musicbox(catalog: Catalog) {
               ],
             },
           ],
-          skins: { knob: { name: 'image', params: { cap: 'sc-brass-knob' } } },
+          skins: { knob: { name: 'image', params: { cap: 'assets/den-kit/brass-knob.svg' } } },
         },
       },
       el({
@@ -143,7 +143,7 @@ export function musicbox(catalog: Catalog) {
         style: {
           radius: 10,
           fill: [
-            { kind: 'image', asset: 'sc-brass', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/brass.jpg', fit: 'cover' },
             {
               kind: 'linear',
               angle: 100,
@@ -171,7 +171,7 @@ export function musicbox(catalog: Catalog) {
         el({
           kind: 'image',
           name: `Screw ${i + 1}`,
-          asset: 'sc-screw',
+          asset: 'assets/den-kit/screw.svg',
           fit: 'contain',
           rect: r(x!, y!, 18, 18),
           style: { rotate: 20 + i * 41 },

@@ -267,7 +267,9 @@ describe('using a part in several places', () => {
       current = r.doc;
     }
     expect(history.size).toBe(1);
-    same(history.undo(current)!.doc, doc);
+    const undone = history.undo(current);
+    if (!undone || 'error' in undone) throw new Error('undo failed');
+    same(undone.doc, doc);
   });
   it('the last use going takes the part and its insides with it; undo brings everything back', () => {
     const doc = toned().doc;
@@ -842,9 +844,8 @@ describe('saving and loading parts', () => {
       ok: true,
     });
   });
-  it('version 2 files (no parts) still load', () => {
+  it('a document without parts loads with none', () => {
     const data = JSON.parse(serializeDocument(bass()));
-    data.version = 2;
     delete data.parts;
     const read = parseDocument(JSON.stringify(data), catalog);
     expect(read.ok && read.doc.parts).toEqual({});

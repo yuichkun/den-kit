@@ -7,6 +7,7 @@
 // on the plugin wired to a use's parameters and the decorations around them
 // become the part's face. Everything is intents, so it undoes in one step and
 // the AI does it the same way.
+import { assetsOf } from '../work/ui.ts';
 import type { Catalog } from '../work/catalog.ts';
 import { CONTROL_SIZE, faceAssetUses, faceGroup, faceOf, wordsOnly } from '../work/face.ts';
 import type { Intent, NewElement, NewNode } from '../work/ops.ts';
@@ -128,7 +129,7 @@ export function faceIntents(
   // Pictures and fonts: den-kit's own come in with the face; one this patch does not have leaves out what uses it.
   const lacking = new Map<string, string>();
   for (const [asset, where] of faceAssetUses(face)) {
-    if (doc.assets[asset]) continue;
+    if (assetsOf(doc.files)[asset]) continue;
     if (SHOWCASE_ASSETS[asset]) {
       intents.push({ op: 'addAsset', asset: SHOWCASE_ASSETS[asset]! });
       continue;
@@ -358,8 +359,8 @@ export function screenPartIntents(
     .map(n => n.pos.y);
   const assets = Object.fromEntries(
     [...faceAssetUses(made.face).keys()]
-      .filter(id => doc.assets[id])
-      .map(id => [id, doc.assets[id]!]),
+      .filter(id => assetsOf(doc.files)[id])
+      .map(id => [id, assetsOf(doc.files)[id]!]),
   );
   const intents: Intent[] = [
     {

@@ -8,9 +8,9 @@
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument } from '../work/schema.ts';
 import { CONTROL_OF } from '../work/skins.ts';
-import { assetUses, stackOrder, type Fill, type UiElement } from '../work/ui.ts';
+import { assetUses, stackOrder, type Fill, type UiElement, assetsOf } from '../work/ui.ts';
 import { intersects } from './edit.ts';
-import { partNames } from '../work/project.ts';
+import { partNames, textFiles } from '../work/files.ts';
 import type { Rect } from './spec.ts';
 
 export interface PluginIssue {
@@ -219,7 +219,7 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
 
   // Controls that drive nothing, or that nobody can tell apart.
   // A control a canvas or a code part reads or moves is in use (its id appears in their code).
-  const partSources = Object.entries(doc.project?.files ?? {})
+  const partSources = Object.entries(textFiles(doc.files))
     .filter(([path]) => path.startsWith('src/'))
     .map(([, text]) => text);
   const canvasCode = [
@@ -275,7 +275,7 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
   }
 
   // Code parts whose file the project does not have.
-  const parts = new Set(partNames(doc.project));
+  const parts = new Set(partNames(doc.files));
   for (const el of elements)
     if (el.kind === 'code' && !parts.has(el.part))
       out.push({
@@ -291,7 +291,7 @@ export function checkPlugin(doc: PatchDocument, catalog: Catalog): PluginIssue[]
     widgets.map(n => [n.id, n.style]),
   );
   for (const [asset, where] of uses)
-    if (!doc.assets[asset])
+    if (!assetsOf(doc.files)[asset])
       out.push({
         code: 'missing-asset',
         ids: where.filter(x => doc.ui.elements[x] || doc.nodes[x]),

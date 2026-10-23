@@ -349,7 +349,9 @@ describe('sketching for the AI', () => {
       assert.equal(await page.locator('[data-testid=ink-bar]').count(), 0);
       const underlay = await kit(page, k => ({
         u: k.doc.value.ui.underlay,
-        name: k.doc.value.assets[k.doc.value.ui.underlay?.asset]?.name,
+        name:
+          k.doc.value.files[k.doc.value.ui.underlay?.asset] &&
+          k.doc.value.ui.underlay?.asset.split('/').at(-1),
       }));
       assert.deepEqual(
         [underlay.u.visible, underlay.u.opacity, underlay.name],

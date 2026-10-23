@@ -62,9 +62,10 @@ These shortcuts apply outside text inputs. The table uses macOS key names.
 
 ## Saving and backups
 
-Works and assets autosave locally. Use the **Patch** menu to export a
-`.denkit.json` file or import an existing work. Export files for portable backups;
-browser storage is tied to the browser profile and local origin.
+Works and assets autosave locally. Use the **Patch** menu to export a work file
+(`.denkit`) or import one. A work file carries the work and the contents of its
+files, so it opens on another computer; use it for backups. A file may hold at
+most 100 MB and a work's files 500 MB together.
 
 The macOS app stores its data in
 `~/Library/Application Support/den-kit/`. Its local server uses port `5247`;
@@ -83,6 +84,6 @@ and the [API definitions](../pod-template/src/kit/index.ts) describe how to writ
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
   dynamic `import()` can still load and execute remote JavaScript. Imported
   works and AI-generated Canvas code can therefore make network requests.
-- Works can be exported as editable JSON, but not as standalone DAW plugins or
+- Works export as work files, but not as standalone DAW plugins or
   self-contained web instruments. `vp run build` builds the den-kit renderer,
   not a distributable instrument.

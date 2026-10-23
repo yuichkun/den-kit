@@ -211,7 +211,6 @@ describe('the pod session through the BrowserPod adapter', () => {
     const kit = {
       catalog,
       doc: shallowRef(starter('bass', catalog)),
-      controls: () => ({}),
       commit: () => ({ ok: true, ops: [], created: [] }),
     } as unknown as KitSession;
     pod = new PodSession(kit, {

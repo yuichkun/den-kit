@@ -3,6 +3,7 @@
 // words, the recent conversation, what they attached or sketched, the state of
 // the member's scope, the names everyone keeps), and how members' reports read
 // to the lead. Pure functions: src/ai/llm.ts runs the team.
+import { textFiles } from '../work/files.ts';
 import type { Catalog } from '../work/catalog.ts';
 import { describePatch } from './describe.ts';
 import type { PatchDocument } from '../work/schema.ts';
@@ -139,7 +140,7 @@ export function scopeState(doc: PatchDocument, catalog: Catalog, scope: Scope): 
     );
   if (scope.screen) out.push(`The plugin screen now:\n${clip(describePlugin(doc, catalog), 9000)}`);
   if (scope.project) {
-    const files = Object.keys(doc.project?.files ?? {}).sort();
+    const files = Object.keys(textFiles(doc.files)).sort();
     out.push(
       files.length
         ? `The screen project's files: ${files.slice(0, 60).join(', ')}${files.length > 60 ? ` and ${files.length - 60} more` : ''}. Read its AGENTS.md before writing code parts.`

@@ -6,7 +6,15 @@
 // loads it, the plugin renderer draws it. Every value that reaches CSS passes a
 // check here first (colours, numbers, asset references), so a patch file or an
 // AI edit cannot smuggle anything into the page.
-import { PART_NAME } from './project.ts';
+import {
+  HASH,
+  PART_NAME,
+  WORK_LIMITS,
+  isContent,
+  type ContentFile,
+  type FileSource,
+  type WorkFile,
+} from './files.ts';
 import {
   CONTROL_KINDS,
   SKINS,
@@ -165,7 +173,7 @@ export function fontStack(font: string | undefined): string {
   if (FONTS[font]) return FONTS[font]!.stack;
   return `"${assetFontFamily(font)}", system-ui, sans-serif`;
 }
-export const assetFontFamily = (assetId: string) => `dk-asset-${assetId}`;
+export const assetFontFamily = (path: string) => `dk-asset-${path.replace(/[^A-Za-z0-9-]/g, '_')}`;
 
 // ---- assets -----------------------------------------------------------------------------
 export const IMAGE_MIMES = [
@@ -176,25 +184,65 @@ export const IMAGE_MIMES = [
   'image/svg+xml',
 ] as const;
 export const FONT_MIMES = ['font/woff2', 'font/woff', 'font/ttf', 'font/otf'] as const;
-export const ASSET_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
-export const MAX_ASSET_BYTES = 8 * 1024 * 1024;
-export interface AssetSource {
-  title?: string;
-  author?: string;
-  url?: string;
-  license?: string;
-}
+/** An asset is referred to by its path in the work's files: `assets/` and plain names. */
+export const ASSET_PATH =
+  /^assets\/[A-Za-z0-9_@.][A-Za-z0-9_.@+ -]*(?:\/[A-Za-z0-9_@.][A-Za-z0-9_.@+ -]*)*$/;
+export const isAssetPath = (v: unknown): v is string =>
+  typeof v === 'string' && ASSET_PATH.test(v) && !v.split('/').includes('..') && v.length <= 200;
+export const MAX_ASSET_BYTES = WORK_LIMITS.fileBytes;
+export type AssetSource = FileSource;
+/** An asset as den-kit's screens and tools see it: a file under `assets/` with what it is. */
 export interface AssetMeta {
+  /** Its path in the work's files. */
   id: string;
+  /** Its file name. */
   name: string;
+  /** Its media type. */
   mime: string;
   bytes: number;
   width?: number;
   height?: number;
-  /** Bundled with den-kit (served at this path); user assets live in the browser's store under their id. */
+  /** The SHA-256 of its contents (absent for files shipped with den-kit). */
+  hash?: string;
+  /** Shipped with den-kit (served at this path). */
   url?: string;
-  /** Where it came from and under which licence (shown in the asset panel, kept on export). */
+  /** Where it came from and under which licence. */
   source?: AssetSource;
+}
+const ASSET_VIEWS = new WeakMap<object, Record<string, AssetMeta>>();
+/** The work's assets (its files under `assets/`), by path. */
+export function assetsOf(files: Readonly<Record<string, WorkFile>>): Record<string, AssetMeta> {
+  const known = ASSET_VIEWS.get(files);
+  if (known) return known;
+  const out: Record<string, AssetMeta> = {};
+  for (const [path, file] of Object.entries(files)) {
+    if (!path.startsWith('assets/') || !isContent(file)) continue;
+    out[path] = {
+      id: path,
+      name: path.split('/').at(-1)!,
+      mime: file.type,
+      bytes: file.bytes,
+      ...(file.width ? { width: file.width } : {}),
+      ...(file.height ? { height: file.height } : {}),
+      ...(file.hash ? { hash: file.hash } : {}),
+      ...(file.url ? { url: file.url } : {}),
+      ...(file.source ? { source: file.source } : {}),
+    };
+  }
+  ASSET_VIEWS.set(files, out);
+  return out;
+}
+/** The file an asset is in the work's files. */
+export function assetFile(asset: AssetMeta): ContentFile {
+  return {
+    ...(asset.hash ? { hash: asset.hash } : {}),
+    bytes: asset.bytes,
+    type: asset.mime,
+    ...(asset.width ? { width: asset.width } : {}),
+    ...(asset.height ? { height: asset.height } : {}),
+    ...(asset.url ? { url: asset.url } : {}),
+    ...(asset.source ? { source: asset.source } : {}),
+  } as ContentFile;
 }
 export const isImageAsset = (a: AssetMeta | undefined) =>
   !!a && (IMAGE_MIMES as readonly string[]).includes(a.mime);
@@ -350,7 +398,7 @@ export interface Look {
   background?: Fill[];
   /** Default skin per control kind. */
   skins: Partial<Record<ControlKind, Skin>>;
-  /** Plugin-wide CSS, scoped to the plugin. Only url(asset:ID) may load anything. */
+  /** Plugin-wide CSS, scoped to the plugin. Only url(asset:PATH) may load anything. */
   css?: string;
 }
 export interface Underlay {
@@ -447,8 +495,7 @@ function checkAssetRef(
   what: string,
   kind: 'image' | 'font' = 'image',
 ): string {
-  if (typeof v !== 'string' || !ASSET_ID_PATTERN.test(v))
-    bad('bad-asset', `${what} must be an asset id.`);
+  if (!isAssetPath(v)) bad('bad-asset', `${what} must be the path of an asset (assets/…).`);
   const asset = ctx.assets[v as string];
   if (!asset) {
     if (ctx.lenient) {
@@ -470,12 +517,11 @@ function checkAssetRef(
 export function checkFont(v: unknown, ctx: CheckContext, what = 'font'): string {
   if (typeof v === 'string' && ((FONT_TOKENS as readonly string[]).includes(v) || FONTS[v]))
     return v;
-  if (typeof v === 'string' && ASSET_ID_PATTERN.test(v) && (ctx.assets[v] || ctx.lenient))
-    return checkAssetRef(v, ctx, what, 'font');
+  if (isAssetPath(v) && (ctx.assets[v] || ctx.lenient)) return checkAssetRef(v, ctx, what, 'font');
   return bad(
     'bad-font',
     `${what} ${JSON.stringify(v)} is not a font.`,
-    `Fonts: ${Object.keys(FONTS).join(', ')}, a font token (${FONT_TOKENS.join(', ')}) or a font asset id.`,
+    `Fonts: ${Object.keys(FONTS).join(', ')}, a font token (${FONT_TOKENS.join(', ')}) or the path of a font asset.`,
   );
 }
 function checkStops(v: unknown): Stop[] {
@@ -916,20 +962,26 @@ export const ELEMENT_FIELDS = (kind: ElementKind) => [
 ];
 
 export function checkAsset(v: unknown): AssetMeta {
-  if (!isObj(v)) bad('bad-asset', 'An asset is {id, name, mime, bytes}.');
+  if (!isObj(v)) bad('bad-asset', 'An asset is {id (its path, assets/…), mime, bytes, hash}.');
   const a = v as Record<string, unknown>;
-  if (typeof a.id !== 'string' || !ASSET_ID_PATTERN.test(a.id))
-    bad('bad-asset', `Asset id ${JSON.stringify(a.id)} must match ${ASSET_ID_PATTERN}.`);
-  const mime = oneOf(a.mime, [...IMAGE_MIMES, ...FONT_MIMES], 'asset type');
+  if (!isAssetPath(a.id))
+    bad('bad-asset', `Asset path ${JSON.stringify(a.id)} must be plain names under assets/.`);
+  if (typeof a.mime !== 'string' || !/^[a-z]+\/[a-z0-9.+-]+$/.test(a.mime))
+    bad('bad-asset', 'An asset has a media type, such as image/png.');
   const bytes = num(a.bytes, 0, MAX_ASSET_BYTES, 'asset size');
   if ((a.bytes as number) > MAX_ASSET_BYTES)
-    bad('too-large', `Assets are limited to ${MAX_ASSET_BYTES / 1024 / 1024} MB.`);
+    bad('too-large', `An asset may hold at most ${MAX_ASSET_BYTES / 1024 / 1024} MB.`);
   const out: AssetMeta = {
     id: a.id as string,
-    name: str(a.name ?? a.id, 120, 'asset name'),
-    mime,
+    name: (a.id as string).split('/').at(-1)!,
+    mime: a.mime as string,
     bytes: Math.round(bytes),
   };
+  if (a.hash !== undefined) {
+    if (typeof a.hash !== 'string' || !HASH.test(a.hash))
+      bad('bad-asset', 'An asset hash is sha256- and 64 hex digits.');
+    out.hash = a.hash;
+  }
   if (a.width !== undefined) out.width = Math.round(num(a.width, 1, 20000, 'width'));
   if (a.height !== undefined) out.height = Math.round(num(a.height, 1, 20000, 'height'));
   if (a.url !== undefined) {
@@ -939,6 +991,8 @@ export function checkAsset(v: unknown): AssetMeta {
       bad('bad-asset', 'An asset url must be a path inside den-kit (e.g. /showcase/wood.jpg).');
     out.url = url;
   }
+  if (!out.hash && !out.url)
+    bad('bad-asset', 'An asset needs its contents (a hash) or a den-kit url.');
   if (a.source !== undefined) {
     if (!isObj(a.source)) bad('bad-asset', 'source is {title, author, url, license}.');
     const s = a.source as Record<string, unknown>,
@@ -999,7 +1053,7 @@ export function assetUses(
         add(s.params[p.id] as string, where);
   };
   const text = (t: TextStyle | undefined, where: string) => {
-    if (t?.font && ASSET_ID_PATTERN.test(t.font) && !FONTS[t.font]) add(t.font, where);
+    if (t?.font && isAssetPath(t.font)) add(t.font, where);
   };
   fills(ui.look.background, 'background');
   for (const [control, s] of Object.entries(ui.look.skins))
@@ -1008,9 +1062,7 @@ export function assetUses(
     const f = ui.look.tokens[key];
     if (f && !FONTS[f]) add(f, `${key} token`);
   }
-  for (const m of (ui.look.css ?? '').matchAll(
-    /url\(\s*['"]?asset:([a-z][a-z0-9-]{1,47})['"]?\s*\)/g,
-  ))
+  for (const m of (ui.look.css ?? '').matchAll(/url\(\s*['"]?asset:(assets\/[^'")\s]+)['"]?\s*\)/g))
     add(m[1], 'css');
   for (const el of Object.values(ui.elements)) {
     fills(el.style?.fill, el.id);
@@ -1033,7 +1085,7 @@ function controlOfId(style: WidgetStyle): ControlKind | undefined {
 
 /**
  * Plugin CSS, made safe to put in the page: comments and @import dropped, every
- * url() except url(asset:ID) (resolved through `resolve`) replaced by none, and
+ * url() except url(asset:PATH) (resolved through `resolve`) replaced by none, and
  * nothing that could close the style element.
  */
 export function sanitizeCss(css: string, resolve: (asset: string) => string | null): string {
@@ -1041,8 +1093,8 @@ export function sanitizeCss(css: string, resolve: (asset: string) => string | nu
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/@import[^;]*;?/gi, '')
     .replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, (_m, _q, target: string) => {
-      const asset = /^asset:([a-z][a-z0-9-]{1,47})$/.exec(target.trim());
-      const url = asset ? resolve(asset[1]!) : null;
+      const asset = /^asset:(.+)$/.exec(target.trim());
+      const url = asset && isAssetPath(asset[1]) ? resolve(asset[1]) : null;
       return url ? `url("${url.replace(/["\\\n]/g, '')}")` : 'none';
     })
     .replace(/<\/?style/gi, '')

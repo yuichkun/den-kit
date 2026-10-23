@@ -683,7 +683,7 @@ try {
           part: Object.values(k.doc.value.ui.elements).find(
             e => e.kind === 'code' && e.part === 'electron-check',
           ),
-          file: !!k.doc.value.project?.files['src/parts/electron-check.ts'],
+          file: !!k.doc.value.files['src/parts/electron-check.ts'],
           checks: k
             .pod!.log.value.filter(l => l.who === 'ai' && l.exitCode === 0)
             .map(l => l.command),
@@ -796,12 +796,21 @@ try {
       o => o.id === 'native-close-check' && o.reply === 'Saved without waiting for the debounce.',
     ),
   );
-  assert.ok(restored.doc.assets[asset.id]);
+  assert.ok(restored.doc.files[asset.id]);
   assert.ok(
     await reopened.evaluate(async id => {
       const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
         .__kit;
-      return (await k.assets.dataUrl(k.doc.value.assets[id]!))?.startsWith('data:image/svg+xml');
+      const file = k.doc.value.files[id] as { hash?: string; bytes: number; type: string };
+      return (
+        await k.assets.dataUrl({
+          id,
+          name: id,
+          mime: file.type,
+          bytes: file.bytes,
+          hash: file.hash,
+        })
+      )?.startsWith('data:image/svg+xml');
     }, asset.id),
   );
   if (real && !quick) {

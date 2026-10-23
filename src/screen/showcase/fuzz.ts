@@ -56,8 +56,8 @@ export function fuzz(catalog: Catalog) {
       wire('level1.out', 'bypass1.b'),
       wire('bypass1.out', 'out1.left'),
       // ---- the plugin: a painted stompbox ----
-      asset('sc-screw'),
-      asset('sc-sketch-pedal'),
+      asset('assets/den-kit/screw.svg'),
+      asset('assets/den-kit/sketch-pedal.svg'),
       {
         op: 'setLook',
         look: {
@@ -87,7 +87,10 @@ export function fuzz(catalog: Catalog) {
           ],
         },
       },
-      { op: 'setUnderlay', underlay: { asset: 'sc-sketch-pedal', opacity: 0.4, visible: false } },
+      {
+        op: 'setUnderlay',
+        underlay: { asset: 'assets/den-kit/sketch-pedal.svg', opacity: 0.4, visible: false },
+      },
       el({
         kind: 'shape',
         shape: 'rect',
@@ -132,7 +135,7 @@ export function fuzz(catalog: Catalog) {
         el({
           kind: 'image',
           name: `Screw ${i + 1}`,
-          asset: 'sc-screw',
+          asset: 'assets/den-kit/screw.svg',
           fit: 'contain',
           rect: r(x!, y!, 18, 18),
           style: { rotate: i * 37 },

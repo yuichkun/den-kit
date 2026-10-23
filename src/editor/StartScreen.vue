@@ -5,6 +5,7 @@
 // keyboard: type what you want and press Enter, or pick a work from the
 // showcase (arrows) and, the Subway way, the look it should wear (Tab to the
 // looks, arrows, Enter). Sounds without a screen are at the bottom.
+import { assetsOf } from '../work/ui.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { STARTERS, partStarter, type StarterId } from '../work/starters.ts';
 import { emptyDocument, type PatchDocument } from '../work/schema.ts';
@@ -38,7 +39,7 @@ const built = computed(() =>
   WORKS.map(w => {
     const doc: PatchDocument = w.build(session.catalog);
     const urls = Object.fromEntries(
-      Object.values(doc.assets)
+      Object.values(assetsOf(doc.files))
         .filter(a => a.url)
         .map(a => [a.id, a.url!.startsWith('/') ? a.url! : `/${a.url}`]),
     );

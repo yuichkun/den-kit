@@ -10,15 +10,18 @@ import {
   isImageAsset,
   type AssetMeta,
   type WidgetStyle,
+  assetsOf,
 } from '../../work/ui.ts';
 import { placePicture } from '../../screen/edit.ts';
 import { useSession } from '../context.ts';
 
 const session = useSession();
 const doc = computed(() => session.doc.value);
-const assets = computed(() => Object.values(doc.value.assets));
+const assets = computed(() => Object.values(assetsOf(doc.value.files)));
 const current = ref<string | null>(null);
-const asset = computed(() => (current.value ? doc.value.assets[current.value] : undefined));
+const asset = computed(() =>
+  current.value ? assetsOf(doc.value.files)[current.value] : undefined,
+);
 const uses = computed(() =>
   assetUses(
     doc.value.ui,

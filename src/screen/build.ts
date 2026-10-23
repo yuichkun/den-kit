@@ -14,6 +14,7 @@ import {
   tokenVar,
   type ColorToken,
   type FontToken,
+  assetsOf,
 } from '../work/ui.ts';
 import {
   WIDGET_TYPES,
@@ -124,6 +125,6 @@ export function pluginSpec(doc: PatchDocument, catalog: Catalog, generated: Prob
     controls,
     groups: doc.ui.groups,
     underlay: doc.ui.underlay,
-    assets: doc.assets,
+    assets: assetsOf(doc.files),
   };
 }

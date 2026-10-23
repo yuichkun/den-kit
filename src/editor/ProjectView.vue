@@ -5,7 +5,7 @@
 // their output), and the pod check (what working in the pod feels like, measured).
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useSession } from './context.ts';
-import { GENERATED_FILES, checkProjectPath } from '../work/project.ts';
+import { GENERATED_FILES, checkPath, textFiles } from '../work/files.ts';
 import { templateFiles, withTemplate } from '../workspace/template.ts';
 import { PodCheck, secs } from '../workspace/pod-check.ts';
 import CodeArea from './CodeArea.vue';
@@ -17,7 +17,10 @@ const props = defineProps<{
 const session = useSession();
 const pod = session.pod;
 const check = podCheck();
-const project = computed(() => session.doc.value.project);
+const project = computed(() => {
+  const files = textFiles(session.doc.value.files);
+  return Object.keys(files).length ? { files } : undefined;
+});
 /** The files: the work's (or the template's, while it has none) and the one den-kit makes. */
 const files = computed(() => {
   const own = project.value?.files ?? templateFiles();
@@ -62,7 +65,7 @@ function keep() {
     [
       {
         op: 'setProjectFiles',
-        files: withTemplate(project.value, { [current.value]: draft.value }),
+        files: withTemplate(session.doc.value.files, { [current.value]: draft.value }),
       },
     ],
     { label: `Edit ${current.value}` },
@@ -72,7 +75,7 @@ function keep() {
 const newPath = ref('');
 function create() {
   const path = newPath.value.trim().replace(/^\.?\//, '');
-  const bad = checkProjectPath(path);
+  const bad = checkPath(path);
   if (bad) {
     session.toast('warn', bad);
     return;
@@ -82,7 +85,7 @@ function create() {
     return;
   }
   const r = session.commit(
-    [{ op: 'setProjectFiles', files: withTemplate(project.value, { [path]: '' }) }],
+    [{ op: 'setProjectFiles', files: withTemplate(session.doc.value.files, { [path]: '' }) }],
     { label: `New file ${path}` },
   );
   if (r.ok) {

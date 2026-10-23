@@ -23,6 +23,7 @@
 // show as lanes under the request, and report back (kit_wait). If the lead ends
 // its turn while members work, den-kit gives it another turn with their reports
 // once they finish. Esc stops everyone; a lane's × stops one member.
+import { assetsOf } from '../work/ui.ts';
 import { reactive, ref, shallowRef, watch } from 'vue';
 import type { AiSession } from './session.ts';
 import { randomId } from '../work/schema.ts';
@@ -747,7 +748,7 @@ export class LlmController {
       read: () => this.session.doc.value,
       myParts: () => this.session.myParts.value,
       role: agent.role,
-      land: (intents, label) => this.land(turn, agent, intents, label),
+      land: (intents, label, seen) => this.land(turn, agent, intents, label, seen),
       compile: async (generated, doc) => {
         try {
           const artifact = await this.compilerFor(agent).compile(
@@ -769,7 +770,7 @@ export class LlmController {
       render: request => this.checkRenderer().render(request),
       look: (doc, picture) => this.session.look({ doc, picture }),
       viewPicture: async id => {
-        const asset = this.session.doc.value.assets[id] ?? SHOWCASE_ASSETS[id];
+        const asset = assetsOf(this.session.doc.value.files)[id] ?? SHOWCASE_ASSETS[id];
         const url = this.session.assetUrls.value[id] ?? asset?.url;
         if (!url) return null;
         try {
@@ -824,6 +825,7 @@ export class LlmController {
     agent: Agent,
     intents: Intent[],
     label: string,
+    seen: number,
   ): { ok: true } | { ok: false; message: string } {
     if (this.turn !== turn || turn.stopping || agent.stopping || agent.status !== 'working')
       return { ok: false, message: 'This request was stopped.' };
@@ -834,6 +836,7 @@ export class LlmController {
       author: { kind: 'ai-llm', take: turn.id, trace: agent.id === 'lead' ? turn.id : agent.key },
       label: `AI: ${label}`,
       group: turn.id,
+      seen,
     });
     if (!r.ok)
       return {

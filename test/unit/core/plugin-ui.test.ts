@@ -1,3 +1,4 @@
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import {
@@ -32,15 +33,22 @@ const failure = (fn: () => unknown) => {
   throw new Error('expected OpError');
 };
 const wood: AssetMeta = {
-  id: 'wood',
+  id: 'assets/wood.jpg',
   name: 'wood.jpg',
   mime: 'image/jpeg',
+  hash: `sha256-${'a'.repeat(64)}`,
   bytes: 1000,
   width: 64,
   height: 64,
   source: { license: 'CC0' },
 };
-const font: AssetMeta = { id: 'myfont', name: 'my.woff2', mime: 'font/woff2', bytes: 1000 };
+const font: AssetMeta = {
+  id: 'assets/my.woff2',
+  name: 'my.woff2',
+  mime: 'font/woff2',
+  bytes: 1000,
+  hash: `sha256-${'b'.repeat(64)}`,
+};
 /** A patch with two knobs on the plugin, a toggle off it, and a picture. */
 const base = () =>
   apply(
@@ -79,7 +87,7 @@ describe('the plugin screen: decorations', () => {
           rect: { x: 0, y: 0, w: 300, h: 200 },
           style: {
             fill: [
-              { kind: 'image', asset: 'wood', fit: 'tile', size: 128 },
+              { kind: 'image', asset: 'assets/wood.jpg', fit: 'tile', size: 128 },
               {
                 kind: 'linear',
                 angle: 180,
@@ -114,7 +122,7 @@ describe('the plugin screen: decorations', () => {
         op: 'addElement',
         element: {
           kind: 'image',
-          asset: 'wood',
+          asset: 'assets/wood.jpg',
           fit: 'cover',
           rect: { x: 200, y: 10, w: 40, h: 40 },
         },
@@ -192,7 +200,7 @@ describe('the plugin screen: decorations', () => {
     expect(add({ kind: 'shape', style: { fill: [{ kind: 'color', color: 'url(x)' }] } }).code).toBe(
       'bad-color',
     );
-    expect(add({ kind: 'image', asset: 'nope', fit: 'cover' })).toMatchObject({
+    expect(add({ kind: 'image', asset: 'assets/nope.png', fit: 'cover' })).toMatchObject({
       code: 'unknown-asset',
       hint: expect.stringContaining('wood'),
     });
@@ -200,7 +208,9 @@ describe('the plugin screen: decorations', () => {
       code: 'bad-font',
       hint: expect.stringContaining('caveat'),
     });
-    expect(add({ kind: 'text', text: 'x', textStyle: { font: 'wood' } }).code).toBe('bad-asset'); // a picture is not a font
+    expect(add({ kind: 'text', text: 'x', textStyle: { font: 'assets/wood.jpg' } }).code).toBe(
+      'bad-asset',
+    ); // a picture is not a font
     expect(add({ kind: 'svg', svg: '<script>alert(1)</script>' }).code).toBe('bad-svg');
     expect(add({ kind: 'canvas', code: 'function draw() {}' }).code).toBe('bad-code');
     expect(add({ kind: 'led', bind: 'ghost' }).code).toBe('unknown-node');
@@ -409,14 +419,14 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       op: 'setLook',
       look: {
         tokens: { bg: null, fg: 'white' },
-        background: [{ kind: 'image', asset: 'wood', fit: 'cover' }],
+        background: [{ kind: 'image', asset: 'assets/wood.jpg', fit: 'cover' }],
         css: 'dk-knob::part(label){letter-spacing:.2em}',
       },
     }).doc;
     expect(doc.ui.look).toEqual({
       tokens: { accent: '#39ff14', valueFont: 'jetbrains-mono', fg: 'white' },
       skins: { knob: { name: 'ring', params: { thickness: 8 } } },
-      background: [{ kind: 'image', asset: 'wood', fit: 'cover' }],
+      background: [{ kind: 'image', asset: 'assets/wood.jpg', fit: 'cover' }],
       css: 'dk-knob::part(label){letter-spacing:.2em}',
     });
     expect(
@@ -438,7 +448,7 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       failure(() =>
         apply(doc, {
           op: 'setLook',
-          look: { skins: { knob: { name: 'image', params: { cap: 'nope' } } } },
+          look: { skins: { knob: { name: 'image', params: { cap: 'assets/nope.png' } } } },
         }),
       ).code,
     ).toBe('unknown-asset');
@@ -465,7 +475,9 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       d = r.doc;
     }
     expect(history.size).toBe(1);
-    expect(history.undo(d)!.doc.ui.look).toEqual(doc.ui.look);
+    const undone = history.undo(d);
+    if (!undone || 'error' in undone) throw new Error('undo failed');
+    expect(undone.doc.ui.look).toEqual(doc.ui.look);
   });
   it('widget styles: skin by control kind, colour tokens, a box and text; only on widgets', () => {
     const doc = base();
@@ -511,16 +523,22 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       failure(() =>
         apply(doc, {
           op: 'addAsset',
-          asset: { ...wood, id: 'x2', url: 'https://example.com/a.jpg' },
+          asset: { ...wood, id: 'assets/x2.jpg', url: 'https://example.com/a.jpg' },
         }),
       ).code,
     ).toBe('bad-asset');
     expect(
-      failure(() => apply(doc, { op: 'addAsset', asset: { ...wood, id: 'x3', mime: 'text/html' } }))
-        .code,
-    ).toBe('bad-value');
+      failure(() =>
+        apply(doc, { op: 'addAsset', asset: { ...wood, id: 'assets/x3', mime: 'html' } }),
+      ).code,
+    ).toBe('bad-asset');
     expect(
-      failure(() => apply(doc, { op: 'addAsset', asset: { ...wood, id: 'x4', bytes: 9e9 } })).code,
+      failure(() => apply(doc, { op: 'addAsset', asset: { ...wood, id: 'wood.jpg' } })).code,
+    ).toBe('bad-asset'); // an asset lives under assets/
+    expect(
+      failure(() =>
+        apply(doc, { op: 'addAsset', asset: { ...wood, id: 'assets/x4.jpg', bytes: 9e9 } }),
+      ).code,
     ).toBe('too-large');
     expect(apply(doc, { op: 'addAsset', asset: wood }).ops).toEqual([]); // the same asset again is nothing
     doc = apply(
@@ -528,31 +546,48 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       { op: 'addAsset', asset: font },
       {
         op: 'addElement',
-        element: { kind: 'image', asset: 'wood', fit: 'cover', rect: { x: 0, y: 0, w: 9, h: 9 } },
+        element: {
+          kind: 'image',
+          asset: 'assets/wood.jpg',
+          fit: 'cover',
+          rect: { x: 0, y: 0, w: 9, h: 9 },
+        },
       },
-      { op: 'setLook', look: { tokens: { font: 'myfont' } } },
+      { op: 'setLook', look: { tokens: { font: 'assets/my.woff2' } } },
     ).doc;
-    expect(failure(() => apply(doc, { op: 'removeAsset', id: 'wood' })).message).toContain(
-      'image1',
-    );
-    expect(failure(() => apply(doc, { op: 'removeAsset', id: 'myfont' })).message).toContain(
-      'font token',
-    );
+    expect(
+      failure(() => apply(doc, { op: 'removeAsset', id: 'assets/wood.jpg' })).message,
+    ).toContain('image1');
+    expect(
+      failure(() => apply(doc, { op: 'removeAsset', id: 'assets/my.woff2' })).message,
+    ).toContain('font token');
     const renamed = undoes(doc, {
       op: 'updateAsset',
-      id: 'wood',
+      id: 'assets/wood.jpg',
       set: { name: 'Oak', source: { title: 'Oak', license: 'CC0', url: 'https://ambientcg.com' } },
     }).doc;
-    expect(renamed.assets.wood).toMatchObject({ name: 'Oak', source: { license: 'CC0' } });
+    // Renaming moves the file, and everything that showed it follows.
+    expect(assetsOf(renamed.files)['assets/wood.jpg']).toBeUndefined();
+    expect(assetsOf(renamed.files)['assets/Oak']).toMatchObject({
+      name: 'Oak',
+      source: { license: 'CC0' },
+    });
+    expect(Object.values(renamed.ui.elements).find(e => e.kind === 'image')).toMatchObject({
+      asset: 'assets/Oak',
+    });
     const freed = apply(doc, { op: 'removeElement', id: 'image1' }).doc;
-    expect(undoes(freed, { op: 'removeAsset', id: 'wood' }).doc.assets.wood).toBeUndefined();
+    expect(
+      assetsOf(undoes(freed, { op: 'removeAsset', id: 'assets/wood.jpg' }).doc.files)[
+        'assets/wood.jpg'
+      ],
+    ).toBeUndefined();
   });
   it('the underlay is a picture asset with an opacity, shown only while editing', () => {
     const r = undoes(base(), {
       op: 'setUnderlay',
-      underlay: { asset: 'wood', opacity: 2, visible: true },
+      underlay: { asset: 'assets/wood.jpg', opacity: 2, visible: true },
     });
-    expect(r.doc.ui.underlay).toEqual({ asset: 'wood', opacity: 1, visible: true });
+    expect(r.doc.ui.underlay).toEqual({ asset: 'assets/wood.jpg', opacity: 1, visible: true });
     expect(
       failure(() =>
         apply(base(), {
@@ -586,7 +621,11 @@ describe('the plugin screen: saving and loading', () => {
           skins: { knob: { name: 'cap' } },
         },
       },
-      { op: 'setStyle', node: 'k2', style: { skin: { name: 'image', params: { cap: 'wood' } } } },
+      {
+        op: 'setStyle',
+        node: 'k2',
+        style: { skin: { name: 'image', params: { cap: 'assets/wood.jpg' } } },
+      },
       {
         op: 'addElement',
         element: { kind: 'text', text: 'den', rect: { x: 0, y: 0, w: 50, h: 20 } },
@@ -596,20 +635,23 @@ describe('the plugin screen: saving and loading', () => {
         element: { kind: 'led', bind: 'sw1', rect: { x: 0, y: 30, w: 10, h: 10 } },
       },
       { op: 'group', ids: ['text1', 'k1'] },
-      { op: 'setUnderlay', underlay: { asset: 'wood', opacity: 0.3, visible: false } },
+      { op: 'setUnderlay', underlay: { asset: 'assets/wood.jpg', opacity: 0.3, visible: false } },
       { op: 'setPanelSize', width: 420, height: 260 },
     ).doc;
-  it('export → import keeps everything, and exports can carry the asset bytes', () => {
+  it('export → import keeps everything; the record names file contents by hash only', () => {
     const doc = rich();
-    const parsed = parseDocument(
-      serializeDocument(doc, { assetData: { wood: 'data:image/jpeg;base64,AAAA' } }),
-      catalog,
-    );
+    const parsed = parseDocument(serializeDocument(doc), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
     expect(parsed.report).toEqual([]);
     expect(documentHash(parsed.doc)).toBe(documentHash(doc));
-    expect(parsed.assetData).toEqual({ wood: 'data:image/jpeg;base64,AAAA' });
-    expect(JSON.parse(serializeDocument(doc)).assets.wood.data).toBeUndefined(); // autosave and plain export keep only the description
+    expect(JSON.parse(serializeDocument(doc)).files['assets/wood.jpg']).toEqual({
+      hash: wood.hash,
+      bytes: 1000,
+      type: 'image/jpeg',
+      width: 64,
+      height: 64,
+      source: { license: 'CC0' },
+    });
   });
   it('a canvas was called a custom part (kind "part") before U5: such files load, and the old word still adds one', () => {
     const doc = apply(base(), {
@@ -646,11 +688,15 @@ describe('the plugin screen: saving and loading', () => {
     expect(r.created).toEqual(['canvas1']);
     expect(r.doc.ui.elements.canvas1!.kind).toBe('canvas');
   });
-  it('version 1 patches load with an empty plugin screen', () => {
+  it('documents of earlier previews are refused, not half-read', () => {
     const v1 = JSON.parse(serializeDocument(starter('bass', catalog)));
     delete v1.ui;
-    delete v1.assets;
     v1.version = 1;
+    expect(parseDocument(JSON.stringify(v1), catalog)).toMatchObject({ ok: false });
+  });
+  it('a document without a plugin screen loads with an empty one', () => {
+    const v1 = JSON.parse(serializeDocument(starter('bass', catalog)));
+    delete v1.ui;
     const parsed = parseDocument(JSON.stringify(v1), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
     expect(parsed.doc.version).toBe(PATCH_VERSION);
@@ -660,7 +706,7 @@ describe('the plugin screen: saving and loading', () => {
       order: [],
       groups: {},
     });
-    expect(parsed.doc.assets).toEqual({});
+    expect(assetsOf(parsed.doc.files)).toEqual({});
   });
   it('repairs what it can and reports the rest: bad elements, styles, assets, groups, data; missing pictures stay referenced', () => {
     const raw = JSON.parse(serializeDocument(rich()));
@@ -673,27 +719,23 @@ describe('the plugin screen: saving and loading', () => {
     raw.ui.elements.k1 = { kind: 'text', text: 'clash', rect: { x: 0, y: 0, w: 1, h: 1 } }; // a module's id
     raw.ui.elements.img9 = {
       kind: 'image',
-      asset: 'gone',
+      asset: 'assets/gone.png',
       fit: 'cover',
       rect: { x: 0, y: 0, w: 1, h: 1 },
     };
     raw.ui.groups.g9 = ['text1', 'ghost'];
     raw.ui.order.push('ghost');
     raw.nodes.k1.style = { skin: { name: 'nope' } };
-    raw.assets.evil = {
-      id: 'evil',
-      name: 'x',
-      mime: 'image/png',
+    raw.files['assets/evil.png'] = {
+      type: 'image/png',
       bytes: 1,
       url: 'https://evil.example/x.png',
     };
-    raw.assets.wood.data = 'data:image/png;base64,AAAA'; // claims to be a PNG
     const parsed = parseDocument(JSON.stringify(raw), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
     expect(parsed.report.map(i => i.code).sort()).toEqual(
       [
-        'dropped-asset',
-        'dropped-asset-data',
+        'dropped-file',
         'dropped-element',
         'dropped-element',
         'dropped-group',
@@ -705,7 +747,6 @@ describe('the plugin screen: saving and loading', () => {
     expect(parsed.doc.ui.order).not.toContain('ghost');
     expect(parsed.doc.ui.groups).toEqual({ group1: ['text1', 'k1'] });
     expect(parsed.doc.nodes.k1!.style).toBeUndefined();
-    expect(parsed.assetData).toEqual({});
   });
   it('replacing the whole document (loading) is one undoable step that restores the plugin screen', () => {
     const before = rich(),
@@ -737,8 +778,10 @@ describe('skins', () => {
 describe('plugin CSS', () => {
   it("drops imports and every url() except the patch's own assets, and cannot close the style element", () => {
     const css =
-      '@import url(https://x/y.css); .a{background:url(https://evil/p.png)} .b{background:url("asset:wood")} .c{background:url(asset:gone)}/* x */</style><script>';
-    const out = sanitizeCss(css, id => (id === 'wood' ? 'blob:http://localhost/123' : null));
+      '@import url(https://x/y.css); .a{background:url(https://evil/p.png)} .b{background:url("asset:assets/wood.jpg")} .c{background:url(asset:gone)}/* x */</style><script>';
+    const out = sanitizeCss(css, id =>
+      id === 'assets/wood.jpg' ? 'blob:http://localhost/123' : null,
+    );
     expect(out).not.toContain('@import');
     expect(out).not.toContain('evil');
     expect(out).toContain('url("blob:http://localhost/123")');
@@ -770,7 +813,12 @@ describe('random plugin edits always undo exactly', () => {
             { kind: 'shape', rect, style: { fill: [{ kind: 'color', color: pick(colors) }] } },
             { kind: 'text', text: 'x', rect, textStyle: { color: pick(colors) } },
             { kind: 'led', bind: pick(['sw1', 'k1', '@level', 'ghost']), rect },
-            { kind: 'image', asset: pick(['wood', 'nope']), fit: 'cover', rect },
+            {
+              kind: 'image',
+              asset: pick(['assets/wood.jpg', 'assets/nope.png']),
+              fit: 'cover',
+              rect,
+            },
           ]),
         }),
         () => ({ op: 'removeElement', id: pick(ids) }),

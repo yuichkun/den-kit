@@ -3,7 +3,8 @@
 // den-kit writes from the patch on every change: src/kit/controls.ts, the
 // controls a part can read and move, with their ranges, as code (so a wrong id
 // is a type error).
-import { GENERATED_FILES, type ScreenProject } from '../work/project.ts';
+import { GENERATED_FILES, textFiles, type WorkFile } from '../work/files.ts';
+import type { Parameter } from '../work/parameters.ts';
 
 const raw = import.meta.glob('/pod-template/**/*', {
   query: '?raw',
@@ -25,14 +26,14 @@ export function templateFiles(): Record<string, string> {
 }
 
 /**
- * Files to put in a work: while the work has no project yet, the template comes
+ * Files to put in a work: while the work has no sources yet, the template comes
  * with them (a part never arrives without the project that shows it).
  */
 export function withTemplate(
-  project: ScreenProject | undefined,
+  work: Readonly<Record<string, WorkFile>>,
   files: Record<string, string | null>,
 ): Record<string, string | null> {
-  return project ? files : { ...templateFiles(), ...files };
+  return Object.keys(textFiles(work)).length ? files : { ...templateFiles(), ...files };
 }
 
 /** A new code part's file (Insert ▸ Code part): something that moves, to start from. */
@@ -66,37 +67,20 @@ export default part({
 `;
 }
 
-/** A control as code parts see it: its kind and label, and the range of a knob or slider. */
-export interface KitControl {
-  id: string;
-  type: string;
-  label: string;
-  config: Record<string, string | number | boolean>;
-}
-
-const KIND: Partial<Record<string, string>> = {
-  'ui.knob': 'knob',
-  'ui.slider': 'slider',
-  'ui.toggle': 'switch',
-  'ui.button': 'button',
-  'ui.xy': 'xy',
-};
 const literal = (v: unknown) => JSON.stringify(v);
 
 /** src/kit/controls.ts for the patch's controls (knobs, sliders, switches, buttons, XY pads; on the plugin or not). */
-export function controlsSource(controls: Readonly<Record<string, KitControl>>): string {
+export function controlsSource(controls: Readonly<Record<string, Parameter>>): string {
   const lines: string[] = [];
   for (const c of Object.values(controls).sort((a, b) => a.id.localeCompare(b.id))) {
-    const kind = KIND[c.type];
-    if (!kind) continue;
-    const fields: string[] = [`kind: ${literal(kind)}`, `label: ${literal(c.label)}`];
-    if (kind === 'knob' || kind === 'slider') {
+    const fields: string[] = [`kind: ${literal(c.kind)}`, `label: ${literal(c.label)}`];
+    if (c.kind === 'knob' || c.kind === 'slider') {
       fields.push(
-        `min: ${Number(c.config.min ?? 0)}`,
-        `max: ${Number(c.config.max ?? 1)}`,
-        `scale: ${literal(c.config.scale === 'log' ? 'log' : 'linear')}`,
+        `min: ${Number(c.min ?? 0)}`,
+        `max: ${Number(c.max ?? 1)}`,
+        `scale: ${literal(c.scale === 'log' ? 'log' : 'linear')}`,
       );
-      if (c.config.unit) fields.push(`unit: ${literal(String(c.config.unit))}`);
+      if (c.unit) fields.push(`unit: ${literal(c.unit)}`);
     }
     lines.push(`  ${literal(c.id)}: { ${fields.join(', ')} },`);
   }

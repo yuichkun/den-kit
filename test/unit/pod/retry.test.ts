@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
 import type { PatchDocument } from '../../../src/work/schema.ts';
-import { pluginSpec } from '../../../src/screen/build.ts';
 import type { PodHost, PodProcess, Portal } from '../../../src/host/workspace.ts';
 import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
 import { templateFiles } from '../../../src/workspace/template.ts';
+import { textFiles } from '../../../src/work/files.ts';
 
 class PreviewProcess implements PodProcess {
   readonly name = 'dev';
@@ -31,12 +31,15 @@ class PreviewProcess implements PodProcess {
 
 function harness(initial: 'ready' | 'hang' = 'ready') {
   const doc = starter('bass', catalog);
-  doc.project = {
-    files: { ...templateFiles(), 'src/parts/mine.ts': 'export default { mount() {} };' },
-  };
+  doc.files = Object.fromEntries(
+    Object.entries({
+      ...templateFiles(),
+      'src/parts/mine.ts': 'export default { mount() {} };',
+    }).map(([path, text]) => [path, { text }]),
+  );
   const session = {
+    catalog,
     doc: shallowRef(doc),
-    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
   } as unknown as WorkspaceSession;
   const files = new Map<string, string>([
     ['/home/test/work/node_modules/preserved-package/index.js', 'installed package kept'],
@@ -208,16 +211,14 @@ describe('explicit project preview retry', () => {
     const h = harness();
     await boot(h);
     const preview = h.starts[0]!;
-    const originalPackage = JSON.parse(h.session.doc.value.project!.files['package.json']!);
+    const originalPackage = JSON.parse(textFiles(h.session.doc.value.files)['package.json']!);
     const changePackage = (name: string) => {
       const doc = h.session.doc.value;
       (h.session.doc as Ref<PatchDocument>).value = {
         ...doc,
-        project: {
-          files: {
-            ...doc.project!.files,
-            'package.json': JSON.stringify({ ...originalPackage, name }),
-          },
+        files: {
+          ...doc.files,
+          'package.json': { text: JSON.stringify({ ...originalPackage, name }) },
         },
       };
     };

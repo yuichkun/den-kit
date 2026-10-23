@@ -18,7 +18,7 @@ const snapshot = (page: Page) =>
       ui: k.doc.value.ui,
       nodes: Object.keys(k.doc.value.nodes).sort(),
       edges: Object.keys(k.doc.value.edges).sort(),
-      project: k.doc.value.project ?? null,
+      files: k.doc.value.files,
     }),
   );
 
@@ -115,14 +115,12 @@ describe('the pod: a free environment for the AI', () => {
       );
       // The work keeps the project (the template, the part); node_modules and dist stay in the pod.
       const doc = await kit(page, k => k.doc.value);
-      assert.match(doc.project.files['src/parts/meter.ts'], /kit\.norm\('knob1'\)/);
+      assert.match(doc.files['src/parts/meter.ts'].text, /kit\.norm\('knob1'\)/);
       assert.ok(
-        doc.project.files['package.json'] &&
-          doc.project.files['AGENTS.md'] &&
-          doc.project.files['src/kit/index.ts'],
+        doc.files['package.json'] && doc.files['AGENTS.md'] && doc.files['src/kit/index.ts'],
       );
       assert.ok(
-        !Object.keys(doc.project.files).some(
+        !Object.keys(doc.files).some(
           (p: string) => /^(node_modules|dist|\.git)\//.test(p) || p === 'src/kit/controls.ts',
         ),
       );
@@ -351,7 +349,7 @@ export default part({ mount(root, kit) {
       );
       assert.ok(id);
       assert.equal(
-        await kit(page, k => typeof k.doc.value.project.files['src/parts/wave.ts']),
+        await kit(page, k => typeof k.doc.value.files['src/parts/wave.ts']?.text),
         'string',
       );
       await page.waitForSelector(`[data-element=${id}] [data-code-state=ready]`, {
@@ -369,7 +367,7 @@ export default part({ mount(root, kit) {
       });
       assert.deepEqual(r, { exit: 0, output: '1', changed: ['src/parts/wave.ts'] });
       assert.match(
-        await kit(page, k => k.doc.value.project.files['src/parts/wave.ts']),
+        await kit(page, k => k.doc.value.files['src/parts/wave.ts'].text),
         /label: 'Color'/,
       );
       assert.equal(
@@ -384,7 +382,7 @@ export default part({ mount(root, kit) {
         k.undo();
         k.undo();
       });
-      assert.equal(await kit(page, k => k.doc.value.project ?? null), null);
+      assert.deepEqual(await kit(page, k => k.doc.value.files), {});
       assert.deepEqual(errors, []);
       await page.close();
     },
@@ -411,7 +409,7 @@ describe('the Project view', () => {
       await page.fill('[data-testid=pod-command]', 'echo hello > note.txt && cat note.txt');
       await page.press('[data-testid=pod-command]', 'Enter');
       await page.waitForFunction(
-        () => (window as any).__kit.doc.value.project?.files['note.txt'] === 'hello\n',
+        () => (window as any).__kit.doc.value.files['note.txt']?.text === 'hello\n',
         null,
         { timeout: 30000 },
       );
@@ -425,7 +423,7 @@ describe('the Project view', () => {
         output: 'hello',
       });
       assert.ok(
-        await kit(page, k => !!k.doc.value.project.files['package.json']),
+        await kit(page, k => !!k.doc.value.files['package.json']),
         "the template became the work's",
       );
       // Edit the file in den-kit: ⌘S keeps it in the work, and the pod gets it.
@@ -433,7 +431,7 @@ describe('the Project view', () => {
       await page.fill('[data-testid=file-text]', 'hello again\n');
       await page.press('[data-testid=file-text]', 'Control+s');
       await page.waitForFunction(
-        () => (window as any).__kit.doc.value.project.files['note.txt'] === 'hello again\n',
+        () => (window as any).__kit.doc.value.files['note.txt']?.text === 'hello again\n',
       );
       await waitForPodFile(page, 'note.txt', 'hello again\n', { interval: 300 });
       // Code is coloured by its kind of file (a text file is not).
@@ -478,7 +476,7 @@ describe('the Project view', () => {
       // The check changed nothing in the work (its scratch part stayed in the pod and is gone).
       assert.equal(
         await kit(page, k =>
-          Object.keys(k.doc.value.project.files).some((p: string) => p.includes('_den-kit-check')),
+          Object.keys(k.doc.value.files).some((p: string) => p.includes('_den-kit-check')),
         ),
         false,
       );

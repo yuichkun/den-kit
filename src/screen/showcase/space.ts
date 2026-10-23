@@ -97,7 +97,7 @@ export function space(catalog: Catalog) {
       wire('lvl1.out', 'out1.left'),
       wire('lvr1.out', 'out1.right'),
       // ---- the plugin: the night sky ----
-      asset('sc-starfield'),
+      asset('assets/den-kit/starfield.jpg'),
       {
         op: 'setLook',
         look: {
@@ -115,7 +115,7 @@ export function space(catalog: Catalog) {
             valueFont: 'orbitron',
           },
           background: [
-            { kind: 'image', asset: 'sc-starfield', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/starfield.jpg', fit: 'cover' },
             {
               kind: 'radial',
               x: 0.5,

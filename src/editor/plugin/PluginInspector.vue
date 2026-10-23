@@ -26,9 +26,10 @@ import {
   type TextStyle,
   type UiElement,
   type WidgetStyle,
+  assetsOf,
 } from '../../work/ui.ts';
 import type { Intent } from '../../work/ops.ts';
-import { partNames, partPath } from '../../work/project.ts';
+import { partNames, partPath } from '../../work/files.ts';
 import { useSession } from '../context.ts';
 import AssetPanel from './AssetPanel.vue';
 import ColorField from './ColorField.vue';
@@ -48,7 +49,7 @@ const emit = defineEmits<{
 const session = useSession();
 const doc = computed(() => session.doc.value);
 const look = computed(() => doc.value.ui.look);
-const assets = computed(() => doc.value.assets);
+const assets = computed(() => assetsOf(doc.value.files));
 const onPlugin = (id: string) =>
   !!doc.value.ui.elements[id] ||
   (!!doc.value.nodes[id]?.panel && !!CONTROL_OF[doc.value.nodes[id]!.type]);
@@ -213,7 +214,7 @@ type PropSpec =
   | { type: 'boolean'; default: boolean; label?: string }
   | { type: 'text' | 'color'; default: string; label?: string }
   | { type: 'select'; default: string; options: string[]; label?: string };
-const partList = computed(() => partNames(doc.value.project));
+const partList = computed(() => partNames(doc.value.files));
 const codeReport = computed(() =>
   element.value?.kind === 'code' ? session.pod?.parts.value[element.value.id] : undefined,
 );

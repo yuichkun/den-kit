@@ -3,7 +3,7 @@
 // Pictures list the patch's assets.
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { INSERTABLES } from '../../screen/inserts.ts';
-import { isImageAsset } from '../../work/ui.ts';
+import { isImageAsset, assetsOf } from '../../work/ui.ts';
 import { useSession } from '../context.ts';
 
 const emit = defineEmits<{ (e: 'pick', key: string, asset?: string): void; (e: 'close'): void }>();
@@ -13,7 +13,7 @@ const current = ref(0);
 const input = ref<HTMLInputElement | null>(null);
 const rows = computed(() => {
   const q = query.value.trim().toLowerCase();
-  const pictures = Object.values(session.doc.value.assets)
+  const pictures = Object.values(assetsOf(session.doc.value.files))
     .filter(isImageAsset)
     .map(a => ({ key: 'picture', asset: a.id, title: a.name, doc: 'Picture', group: 'Picture' }));
   const all = [

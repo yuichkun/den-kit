@@ -1,6 +1,7 @@
 // The AI's pod tools (kit_bash, kit_read_file, kit_write_file) against a pod
 // stand-in: what they report, what lands in the work (one step of the request),
 // and what they say when there is no pod.
+import { textFiles } from '../../../src/work/files.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
@@ -133,7 +134,7 @@ describe('pod tools', () => {
     expect(r1.text).toMatch(/Kept in the work: src\/parts\/meter\.ts \(new\)/);
     expect(landed).toHaveLength(1);
     expect(landed[0]!.intents[0]).toMatchObject({ op: 'setProjectFiles' });
-    expect(live.doc.project?.files['src/parts/meter.ts']).toBe('export default 1;\n');
+    expect(textFiles(live.doc.files)['src/parts/meter.ts']).toBe('export default 1;\n');
     expect(ws.projectTouched).toBe(true);
     const r2 = await ws.call('kit_bash', { command: 'npm run check' });
     expect(r2.text).toContain('error TS2322');
@@ -178,7 +179,7 @@ describe('pod tools', () => {
     });
     expect(r.success).toBe(true);
     expect(state.files['src/parts/dial.ts']).toBe('export default 2;\n');
-    expect(live.doc.project?.files['src/parts/dial.ts']).toBe('export default 2;\n');
+    expect(textFiles(live.doc.files)['src/parts/dial.ts']).toBe('export default 2;\n');
     expect(
       (await ws.call('kit_write_file', { path: 'src/kit/controls.ts', content: 'x' })).success,
     ).toBe(false);

@@ -76,8 +76,11 @@ export function neon(catalog: Catalog) {
       wire('levl1.out', 'out1.left'),
       wire('levr1.out', 'out1.right'),
       // ---- the plugin: neon (the sign photo it was drawn from is kept as the reference picture) ----
-      asset('sc-neon'),
-      { op: 'setUnderlay', underlay: { asset: 'sc-neon', opacity: 0.4, visible: false } },
+      asset('assets/den-kit/neon.jpg'),
+      {
+        op: 'setUnderlay',
+        underlay: { asset: 'assets/den-kit/neon.jpg', opacity: 0.4, visible: false },
+      },
       {
         op: 'setLook',
         look: {

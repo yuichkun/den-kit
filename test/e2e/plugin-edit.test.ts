@@ -160,8 +160,21 @@ describe('building the plugin screen by hand', () => {
         (e: any) => e.kind === 'image',
       ),
     );
-    const asset = await kit(page, k => Object.values<any>(k.doc.value.assets)[0]);
-    assert.match(asset.id, /^a[0-9a-f]{15}$/);
+    const asset = await kit(
+      page,
+      k =>
+        Object.entries<any>(k.doc.value.files)
+          .filter(([p]) => p.startsWith('assets/'))
+          .map(([id, f]) => ({
+            id,
+            name: id.split('/').at(-1),
+            mime: f.type,
+            width: f.width,
+            height: f.height,
+            source: f.source,
+          }))[0],
+    );
+    assert.equal(asset.id, 'assets/dot.png');
     assert.deepEqual(
       [asset.name, asset.mime, asset.width, asset.height],
       ['dot.png', 'image/png', 2, 2],
@@ -195,21 +208,51 @@ describe('building the plugin screen by hand', () => {
       { x: stage!.x + 40, y: stage!.y + 40 },
     );
     await page.waitForSelector('[data-testid=toast]:has-text("could not be read as a picture")');
-    assert.equal(await kit(page, k => Object.keys(k.doc.value.assets).length), 1);
+    assert.equal(
+      await kit(
+        page,
+        k =>
+          Object.entries<any>(k.doc.value.files)
+            .filter(([p]) => p.startsWith('assets/'))
+            .map(([id, f]) => ({
+              id,
+              name: id.split('/').at(-1),
+              mime: f.type,
+              width: f.width,
+              height: f.height,
+              source: f.source,
+            })).length,
+      ),
+      1,
+    );
     // The asset panel lists it; a licence can be noted.
-    await page.click(`[data-asset=${asset.id}]`);
+    await page.click(`[data-asset="${asset.id}"]`);
     await page.fill('[data-testid=asset-detail] [data-field=license]', 'Own work');
     await page.keyboard.press('Enter');
     assert.equal(
-      await kit(page, k => Object.values<any>(k.doc.value.assets)[0].source?.license),
+      await kit(
+        page,
+        k =>
+          Object.entries<any>(k.doc.value.files)
+            .filter(([p]) => p.startsWith('assets/'))
+            .map(([id, f]) => ({
+              id,
+              name: id.split('/').at(-1),
+              mime: f.type,
+              width: f.width,
+              height: f.height,
+              source: f.source,
+            }))[0].source?.license,
+      ),
       'Own work',
     );
-    // Export carries the bytes; a fresh page imports them back.
-    const text: string = await kit(page, k => k.exportWithAssets());
-    assert.match(JSON.parse(text).assets[asset.id].data, /^data:image\/png;base64,/);
+    // The work file carries the bytes; a fresh page (its own storage) imports them back.
+    const file: number[] = await kit(page, async k => Array.from(await k.exportWork()));
     const { page: other } = await openKit(h);
-    await kit(other, k => k.importText);
-    await other.evaluate(t => (window as any).__kit.importText(t), text);
+    assert.equal(
+      await other.evaluate(bytes => (window as any).__kit.importWork(new Uint8Array(bytes)), file),
+      true,
+    );
     await other.keyboard.press('Control+Alt+KeyE');
     await other.waitForFunction(
       () =>
@@ -569,7 +612,7 @@ describe('building the plugin screen by hand', () => {
     assert.equal(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ffb36b');
     assert.ok(
-      await kit(page, k => !!k.doc.value.assets['sc-sunset']),
+      await kit(page, k => !!k.doc.value.files['assets/den-kit/sunset-sky.jpg']),
       'the look brings its picture',
     );
     assert.ok(

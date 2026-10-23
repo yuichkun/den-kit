@@ -29,13 +29,16 @@ export interface Host {
   lifecycle: Lifecycle | null;
 }
 
-/** Text records by key. Keys are den-kit's own; values are what it wrote. */
+/** Text records by key (keys are den-kit's own), and the contents of work files by hash. */
 export interface Storage {
   read(key: string): Promise<string | null>;
   write(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
   /** The keys that start with `prefix`. */
   keys(prefix: string): Promise<string[]>;
+  /** Contents of a work's files, by their SHA-256 (sha256-…); null when not kept here. */
+  readContent(hash: string): Promise<Uint8Array | null>;
+  writeContent(hash: string, bytes: Uint8Array): Promise<void>;
 }
 
 export interface Account {

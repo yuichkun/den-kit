@@ -4,6 +4,7 @@
 // replaces it in place; controls and decorations on the plugin become the
 // part's face, and the other uses on the plugin follow. Faces are checked,
 // saved with the patch and carried by My parts.
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { generate } from '../../../src/sound/codegen.ts';
@@ -269,7 +270,9 @@ describe('checking a face', () => {
     const face = structuredClone(ok(doc));
     spoil(face);
     const e = failure(() =>
-      checkFace(face, doc.parts.tone!, catalog.inputs(doc.nodes.tone1!), { assets: doc.assets }),
+      checkFace(face, doc.parts.tone!, catalog.inputs(doc.nodes.tone1!), {
+        assets: assetsOf(doc.files),
+      }),
     );
     expect(e).toBeInstanceOf(UiCheckError);
     expect(e.message).toMatch(message);
@@ -455,7 +458,7 @@ describe("a screen part's face", () => {
   const decorated = () =>
     apply(
       starter('bass', catalog),
-      { op: 'addAsset', asset: SHOWCASE_ASSETS['sc-screw']! },
+      { op: 'addAsset', asset: SHOWCASE_ASSETS['assets/den-kit/screw.svg']! },
       {
         op: 'addNode',
         node: {
@@ -479,7 +482,7 @@ describe("a screen part's face", () => {
         element: {
           kind: 'image',
           id: 'screw1',
-          asset: 'sc-screw',
+          asset: 'assets/den-kit/screw.svg',
           rect: { x: 104, y: 54, w: 16, h: 16 },
         },
       },
@@ -562,11 +565,11 @@ describe("a screen part's face", () => {
 });
 
 describe("a face's pictures", () => {
-  const logo = 'a0123456789abcde';
+  const logo = 'assets/logo.png';
   const withPictures = () =>
     apply(
       toned(),
-      { op: 'addAsset', asset: SHOWCASE_ASSETS['sc-wood']! },
+      { op: 'addAsset', asset: SHOWCASE_ASSETS['assets/den-kit/wood.jpg']! },
       {
         op: 'addAsset',
         asset: {
@@ -576,6 +579,7 @@ describe("a face's pictures", () => {
           bytes: 1200,
           width: 64,
           height: 32,
+          hash: `sha256-${'c'.repeat(64)}`,
         },
       },
       {
@@ -591,7 +595,7 @@ describe("a face's pictures", () => {
             {
               id: 'wood',
               kind: 'image',
-              asset: 'sc-wood',
+              asset: 'assets/den-kit/wood.jpg',
               fit: 'cover',
               rect: { x: 0, y: 0, w: 240, h: 140 },
             },
@@ -620,12 +624,14 @@ describe("a face's pictures", () => {
   });
   it('a bundle carries them; placed in another patch they come in with the part (one undo), and its face shows them', () => {
     const bundle = extractBundle(withPictures(), 'tone');
-    expect(Object.keys(bundle.assets ?? {}).sort()).toEqual([logo, 'sc-wood'].sort());
+    expect(Object.keys(bundle.assets ?? {}).sort()).toEqual(
+      [logo, 'assets/den-kit/wood.jpg'].sort(),
+    );
     const checked = checkBundle(JSON.parse(JSON.stringify(bundle)), catalog);
     if (typeof checked === 'string') throw new Error(checked);
     const pad = starter('pad', catalog);
     const placed = apply(pad, { op: 'importPart', bundle: checked, node: 'tone9' });
-    expect(placed.doc.assets[logo]).toMatchObject({ name: 'logo.png' });
+    expect(assetsOf(placed.doc.files)[logo]).toMatchObject({ name: 'logo.png' });
     expect({ ...applyResolvedOps(placed.doc, invertAll(placed.ops)), revision: 0 }).toEqual({
       ...pad,
       revision: 0,
@@ -637,15 +643,15 @@ describe("a face's pictures", () => {
     expect(kinds.sort()).toEqual(['image', 'image', 'shape', 'ui.knob']);
     // A picture whose description cannot be read stays behind (said when the face is put on the plugin).
     const raw = JSON.parse(JSON.stringify(bundle));
-    raw.assets[logo].mime = 'application/x-nope';
+    raw.assets[logo].mime = 'not a media type';
     const lenient = checkBundle(raw, catalog);
     if (typeof lenient === 'string') throw new Error(lenient);
-    expect(Object.keys(lenient.assets ?? {})).toEqual(['sc-wood']);
+    expect(Object.keys(lenient.assets ?? {})).toEqual(['assets/den-kit/wood.jpg']);
   });
   it("putting a face whose pictures this patch lacks: den-kit's own come in, others leave out what uses them, with a note", () => {
     const raw = JSON.parse(serializeDocument(withPictures()));
-    delete raw.assets['sc-wood'];
-    delete raw.assets[logo];
+    delete raw.files['assets/den-kit/wood.jpg'];
+    delete raw.files[logo];
     const read = parseDocument(JSON.stringify(raw), catalog);
     if (!read.ok) throw new Error(read.error);
     expect(read.doc.parts.tone!.face!.elements).toHaveLength(3);
@@ -653,14 +659,14 @@ describe("a face's pictures", () => {
     const made = faceIntents(read.doc, catalog, 'tone1');
     expect(
       made.intents.filter(i => i.op === 'addAsset').map(i => i.op === 'addAsset' && i.asset.id),
-    ).toEqual(['sc-wood']);
+    ).toEqual(['assets/den-kit/wood.jpg']);
     const on = apply(read.doc, ...made.intents).doc;
     const kinds = faceOnPlugin(on, 'tone1').map(
       id => on.ui.elements[id]?.kind ?? on.nodes[id]!.type,
     );
     expect(kinds.sort()).toEqual(['image', 'ui.knob']);
     expect(made.notes.join(' ')).toMatch(
-      /picture of the face was left out: its picture \("a0123456789abcde"\) is not in this patch[\s\S]*decoration of the face was left out/,
+      /picture of the face was left out: its picture \("assets\/logo.png"\) is not in this patch[\s\S]*decoration of the face was left out/,
     );
   });
 });

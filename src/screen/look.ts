@@ -7,7 +7,7 @@
 import { createApp, h, nextTick, type App } from 'vue';
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { assetFontFamily, isFontAsset } from '../work/ui.ts';
+import { assetFontFamily, isFontAsset, assetsOf } from '../work/ui.ts';
 import { pluginSpec } from './build.ts';
 import { capture, pngBytes } from './capture.ts';
 import {
@@ -313,7 +313,7 @@ export async function lookAt(
     const W = doc.panel.width,
       H = doc.panel.height;
     const fontUrls = Object.fromEntries(
-      Object.values(doc.assets)
+      Object.values(assetsOf(doc.files))
         .filter(isFontAsset)
         .flatMap(a =>
           options.assetUrls[a.id] ? [[assetFontFamily(a.id), options.assetUrls[a.id]!]] : [],

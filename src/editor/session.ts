@@ -4,7 +4,14 @@
 import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
 import { currentValues, generate, type Generated } from '../sound/codegen.ts';
-import { History, type Author, type Transaction } from '../work/history.ts';
+import {
+  History,
+  commit as commitWork,
+  type Author,
+  type CommitOptions,
+  type Transaction,
+} from '../work/history.ts';
+import { describeKey } from '../work/changes.ts';
 import {
   applyIntents,
   isStructural,
@@ -56,9 +63,9 @@ import {
 } from '../work/persistence.ts';
 import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
 import { AssetStore } from '../work/asset-store.ts';
+import { readWorkFile, writeWorkFile } from '../work/work-file.ts';
 import { lookAt, type LookResult } from '../screen/look.ts';
-import { pluginSpec } from '../screen/build.ts';
-import { assetFontFamily, isFontAsset, type AssetMeta } from '../work/ui.ts';
+import { assetFontFamily, isFontAsset, type AssetMeta, assetsOf } from '../work/ui.ts';
 import type { Host } from '../host/index.ts';
 import type { AI } from '../host/ai.ts';
 import type { AiRequests } from '../ai/requests.ts';
@@ -206,7 +213,7 @@ export class KitSession {
     this.host = options.host ?? null;
     this.screen = markRaw(new ScreenShare(this.host?.screenCapture ?? null));
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
-    this.assets = markRaw(options.assets ?? new AssetStore());
+    this.assets = markRaw(options.assets ?? new AssetStore(this.host?.storage ?? null));
     this.engine = markRaw(
       options.engine ??
         new AudioEngine(
@@ -482,9 +489,9 @@ export class KitSession {
         message: 'My parts could not be saved: the browser storage is full.',
         report: read.report,
       };
-    const carried = Object.entries(read.assetData);
+    const carried = Object.values(read.assetData);
     if (carried.length)
-      void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(
+      void Promise.all(carried.map(data => this.assets.putDataUrl(data))).then(
         () => this.syncAssets(),
         () => this.toast('warn', 'Some pictures in that file could not be kept.'),
       );
@@ -778,11 +785,6 @@ export class KitSession {
     return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
   }
 
-  /** The controls a code part can read and move (the workspace writes them into the pod). */
-  controls(doc: PatchDocument) {
-    return pluginSpec(doc, catalog, { probes: [] }).controls;
-  }
-
   /** Look the plugin over (the screen checks) as it is drawn now; with `picture`, a PNG of it too. */
   look(options: { picture?: boolean; doc?: PatchDocument } = {}): Promise<LookResult> {
     return lookAt(options.doc ?? this.doc.value, catalog, {
@@ -795,62 +797,42 @@ export class KitSession {
     });
   }
 
-  /** Apply intents as one transaction. Returns the resolved ops, or the error. */
+  /** Apply intents as one transaction (work's commit()). Returns the resolved ops, or the error. */
   commit(
     intents: Intent[],
-    options: {
-      author?: Author;
-      label?: string;
-      gesture?: string;
-      /** Steps of one request that undo together (see History). */ group?: string;
-      /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number;
-    } = {},
+    options: CommitOptions = {},
   ): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
-    const before = this.doc.value;
-    if (options.expectRevision !== undefined && before.revision !== options.expectRevision)
-      return {
-        ok: false,
-        error: new OpError(
-          `The patch changed (revision ${before.revision}, expected ${options.expectRevision}).`,
-          0,
-          'stale',
-        ),
-      };
-    let result;
-    try {
-      result = applyIntents(before, intents, catalog);
-    } catch (error) {
-      if (error instanceof OpError) return { ok: false, error };
-      throw error;
-    }
-    if (!result.ops.length) return { ok: true, ops: [], created: result.created };
-    const tx: Transaction = {
-      id: randomId('tx'),
-      author: options.author ?? { kind: 'human' },
-      label: options.label ?? describeIntents(intents),
-      ops: result.ops,
-      at: Date.now(),
-      gesture: options.gesture,
-      group: options.group,
-      baseRevision: before.revision,
-    };
-    this.history.record(tx);
+    const r = commitWork(this.history, this.doc.value, intents, catalog, options);
+    if (!r.ok) return r;
+    if (!r.tx) return { ok: true, ops: [], created: r.created };
     this.historyVersion.value++;
-    this.doc.value = result.doc;
-    this.afterChange(result.ops.some(isStructural), result.ops);
-    for (const listener of this.listeners) listener(tx, result.doc);
-    return { ok: true, ops: result.ops, created: result.created };
+    this.doc.value = r.doc;
+    this.afterChange(r.ops.some(isStructural), r.ops);
+    for (const listener of this.listeners) listener(r.tx, r.doc);
+    return { ok: true, ops: r.ops, created: r.created };
   }
 
+  /** Undo the last step; what someone else changed after it stays (and is said in a toast). */
   undo() {
-    const r = this.history.undo(this.doc.value);
-    if (r) {
-      this.doc.value = r.doc;
-      this.historyVersion.value++;
-      this.afterChange(r.tx.ops.some(isStructural), r.tx.ops);
-      for (const l of this.historyListeners) l('undo', r.tx);
+    const r = this.history.undo(this.doc.value, {
+      check: doc =>
+        validate(doc, catalog).issues.some(i => i.code === 'dangling-edge') ? 'x' : null,
+    });
+    if (!r) return null;
+    if ('error' in r) {
+      this.toast('warn', r.error);
+      return null;
     }
-    return r?.tx ?? null;
+    this.doc.value = r.doc;
+    this.historyVersion.value++;
+    this.afterChange(r.tx.ops.some(isStructural), r.tx.ops);
+    if (r.kept.length)
+      this.toast(
+        'info',
+        `Undone, except what was changed after it: ${r.kept.map(k => describeKey(k.key)).join(', ')}.`,
+      );
+    for (const l of this.historyListeners) l('undo', r.tx);
+    return r.tx;
   }
   redo() {
     const r = this.history.redo(this.doc.value);
@@ -875,7 +857,8 @@ export class KitSession {
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
     this.scheduleSave();
     this.keepPathsValid();
-    if (!ops.length || ops.some(op => op.op === 'addAsset')) void this.syncAssets();
+    if (!ops.length || ops.some(op => op.op === 'setFile' && op.path.startsWith('assets/')))
+      void this.syncAssets();
     // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
     // A knob may stand for several AudioParams (each use of a part, each copy of a spread knob) or none (a use's parameter
     // sets it): the patch is expanded again and every AudioParam whose value moved is sent.
@@ -1075,7 +1058,7 @@ export class KitSession {
   /** Find a URL for every asset of the patch that has none yet; fonts get registered with the page. */
   async syncAssets() {
     const doc = this.doc.value;
-    const missing = Object.values(doc.assets).filter(a => !this.assetUrls.value[a.id]);
+    const missing = Object.values(assetsOf(doc.files)).filter(a => !this.assetUrls.value[a.id]);
     if (!missing.length) return;
     const found: Record<string, string> = {};
     for (const asset of missing) {
@@ -1104,12 +1087,12 @@ export class KitSession {
   async addAssetFile(file: Blob & { name?: string }): Promise<AssetMeta | null> {
     let meta: AssetMeta;
     try {
-      meta = await this.assets.add(file);
+      meta = await this.assets.add(file, path => !!this.doc.value.files[path]);
     } catch (error) {
       this.toast('warn', error instanceof Error ? error.message : String(error));
       return null;
     }
-    if (!this.doc.value.assets[meta.id]) {
+    if (!assetsOf(this.doc.value.files)[meta.id]) {
       const r = this.commit([{ op: 'addAsset', asset: meta }], { label: `Add ${meta.name}` });
       if (!r.ok) {
         this.toast('warn', r.error.message);
@@ -1117,7 +1100,7 @@ export class KitSession {
       }
     }
     await this.syncAssets();
-    return this.doc.value.assets[meta.id] ?? meta;
+    return assetsOf(this.doc.value.files)[meta.id] ?? meta;
   }
 
   // ---- Persistence --------------------------------------------------------------
@@ -1170,15 +1153,21 @@ export class KitSession {
   exportText() {
     return serializeDocument(this.doc.value);
   }
-  /** The patch with its pictures and fonts inside (a file that opens anywhere). */
-  async exportWithAssets(): Promise<string> {
-    const assetData: Record<string, string> = {};
-    for (const asset of Object.values(this.doc.value.assets)) {
-      const data = await this.assets.dataUrl(asset);
-      if (data) assetData[asset.id] = data;
-      else this.toast('warn', `"${asset.name}" is missing; the export only names it.`);
+  /** The work as a work file: its record and the contents of its files (a file that opens anywhere). */
+  async exportWork(): Promise<Uint8Array> {
+    return writeWorkFile(this.doc.value, hash => this.assets.bytes(hash));
+  }
+  /** Open a work file in place of this work (one undo step); false when it is refused. */
+  async importWork(bytes: Uint8Array): Promise<boolean> {
+    const read = await readWorkFile(bytes, catalog);
+    if (!read.ok) {
+      this.toast('error', `Import refused: ${read.error}`);
+      return false;
     }
-    return serializeDocument(this.doc.value, { assetData });
+    for (const data of read.contents.values()) await this.assets.put(data);
+    this.replace(read.doc, 'Import');
+    this.report(read.report);
+    return true;
   }
   importText(text: string): boolean {
     const parsed = parseDocument(text, catalog);
@@ -1186,17 +1175,14 @@ export class KitSession {
       this.toast('error', `Import refused: ${parsed.error}`);
       return false;
     }
-    const carried = Object.entries(parsed.assetData);
     this.replace(parsed.doc, 'Import');
-    if (carried.length)
-      void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(() =>
-        this.syncAssets(),
-      );
-    for (const issue of parsed.report.slice(0, 6))
-      this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
-    if (parsed.report.length > 6)
-      this.toast('warn', `…and ${parsed.report.length - 6} more repairs.`);
+    this.report(parsed.report);
     return true;
+  }
+  private report(report: readonly Issue[]) {
+    for (const issue of report.slice(0, 6))
+      this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
+    if (report.length > 6) this.toast('warn', `…and ${report.length - 6} more repairs.`);
   }
 
   // ---- Misc ------------------------------------------------------------------------
@@ -1219,37 +1205,6 @@ export class KitSession {
   touch() {
     triggerRef(this.doc);
   }
-}
-
-function describeIntents(intents: Intent[]): string {
-  if (intents.length === 1) {
-    const i = intents[0]!;
-    switch (i.op) {
-      case 'setValue':
-        return `Set ${i.node}.${i.port}`;
-      case 'connect':
-        return `Connect ${i.from.node} → ${i.to.node}`;
-      case 'addNode':
-        return `Add ${i.node.type.split('.').pop()}`;
-      case 'removeNode':
-        return `Delete ${i.id}`;
-      case 'makePart':
-        return 'Make a part';
-      case 'unpackPart':
-        return 'Unpack a part';
-      case 'detachPart':
-        return 'Own copy of a part';
-      case 'addParam':
-        return `Show ${i.node}.${i.port} on the part`;
-      case 'removeParam':
-        return `Hide ${i.id} from the part`;
-      case 'updatePart':
-        return i.name !== undefined ? 'Rename a part' : 'Describe a part';
-      default:
-        return i.op;
-    }
-  }
-  return `${intents.length} edits`;
 }
 
 function safeStorage(): StorageLike | null {

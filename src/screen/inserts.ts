@@ -3,7 +3,7 @@
 // intents, so inserting is one undoable step like any other edit.
 import type { Intent, NewElement } from '../work/ops.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { partNames } from '../work/project.ts';
+import { partNames } from '../work/files.ts';
 import type { Rect } from './spec.ts';
 
 export const CANVAS_TEMPLATE = `// A canvas: draw(ctx, f) runs every frame (in a worker).
@@ -184,7 +184,7 @@ export function insertIntents(
       return element({ kind: 'canvas', code: CANVAS_TEMPLATE });
     case 'code': {
       if (!options.codeFiles) return [];
-      const taken = new Set(partNames(doc.project));
+      const taken = new Set(partNames(doc.files));
       let name = 'wave';
       for (let i = 2; taken.has(name); i++) name = `wave-${i}`;
       return [

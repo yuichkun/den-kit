@@ -45,7 +45,7 @@ describe('persistence', () => {
     const parsed = parseDocument(
       JSON.stringify({
         schema: 'den-kit/patch',
-        version: 1,
+        version: 5,
         name: 'broken',
         nodes: {
           'bad id': {

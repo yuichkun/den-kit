@@ -1,6 +1,6 @@
-// `.denkit.json` import/export and autosave records. Loading never trusts the
-// file: unknown versions are refused, broken pieces are repaired or dropped and
-// every repair is reported, so nothing disappears silently.
+// The document as JSON (in a work file, see work-file.ts, and in saved records).
+// Loading never trusts the data: unknown versions are refused, broken pieces are
+// repaired or dropped and every repair is reported, so nothing disappears silently.
 import type { Catalog } from './catalog.ts';
 import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
@@ -28,11 +28,10 @@ import { CONTROL_OF } from './skins.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
 import { checkFace } from './face.ts';
 import { partInterface, readParamRange } from './parts.ts';
-import { readProject } from './project.ts';
+import { readFiles } from './files.ts';
 import {
   LIMITS,
-  MAX_ASSET_BYTES,
-  checkAsset,
+  assetsOf,
   checkElement,
   checkLook,
   checkWidgetStyle,
@@ -40,31 +39,19 @@ import {
   type CheckContext,
 } from './ui.ts';
 
-/** Exports carry their pictures and fonts inside, so they can be large. */
+/** A document as JSON (its files' contents are not in it, only their hashes). */
 export const MAX_FILE_BYTES = 40 * 1024 * 1024;
 
-/** `assetData`: the bytes of assets an exported file carried (data: URLs by asset id), for the browser's asset store. */
 export type ParseResult =
-  | { ok: true; doc: PatchDocument; report: Issue[]; assetData: Record<string, string> }
+  | { ok: true; doc: PatchDocument; report: Issue[] }
   | { ok: false; error: string };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** The patch as JSON. With `assetData` (data: URLs by asset id) the assets travel inside the file (export). */
-export function serializeDocument(
-  doc: PatchDocument,
-  options: { assetData?: Record<string, string> } = {},
-): string {
-  const assets = options.assetData
-    ? Object.fromEntries(
-        Object.entries(doc.assets).map(([id, a]) => [
-          id,
-          options.assetData![id] ? { ...a, data: options.assetData![id] } : a,
-        ]),
-      )
-    : doc.assets;
+/** The document as JSON. */
+export function serializeDocument(doc: PatchDocument): string {
   // A part's ports are worked out from its definition when the file is read.
   const nodes = Object.fromEntries(
     Object.entries(doc.nodes).map(([id, n]) => {
@@ -74,15 +61,9 @@ export function serializeDocument(
     }),
   );
   return (
-    JSON.stringify(
-      { ...doc, nodes, assets, schema: PATCH_SCHEMA, version: PATCH_VERSION },
-      null,
-      2,
-    ) + '\n'
+    JSON.stringify({ ...doc, nodes, schema: PATCH_SCHEMA, version: PATCH_VERSION }, null, 2) + '\n'
   );
 }
-
-const DATA_URL = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/;
 
 export function parseDocument(input: string | unknown, catalog: Catalog): ParseResult {
   let data: unknown = input;
@@ -110,8 +91,11 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
       ok: false,
       error: `This patch was made by a newer den-kit (version ${data.version}; this app reads up to ${PATCH_VERSION}).`,
     };
-  if ((data.version as number) < 1)
-    return { ok: false, error: `Unknown patch version ${data.version}.` };
+  if ((data.version as number) < PATCH_VERSION)
+    return {
+      ok: false,
+      error: `This work was made by an earlier preview of den-kit (version ${data.version}); this version cannot open it.`,
+    };
   const report: Issue[] = [];
   const doc: PatchDocument = {
     schema: PATCH_SCHEMA,
@@ -129,39 +113,11 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     edges: {},
     panel: { width: 640, height: 360, theme: 'graphite' },
     ui: emptyUi(),
-    assets: {},
     parts: {},
+    files: {},
   };
-  const assetData: Record<string, string> = {};
-  // Assets first: node styles and plugin elements refer to them.
-  if (isObject(data.assets))
-    for (const [key, raw] of Object.entries(data.assets)) {
-      try {
-        const asset = checkAsset(
-          isObject(raw)
-            ? Object.fromEntries(Object.entries(raw).filter(([k]) => k !== 'data'))
-            : raw,
-        );
-        if (asset.id !== key) throw new Error(`its id is "${asset.id}"`);
-        doc.assets[asset.id] = asset;
-        const data = isObject(raw) ? raw.data : undefined;
-        const bytes = typeof data === 'string' ? DATA_URL.exec(data) : null;
-        if (bytes && bytes[1] === asset.mime && bytes[2]!.length * 0.75 <= MAX_ASSET_BYTES * 1.01)
-          assetData[asset.id] = data as string;
-        else if (data !== undefined)
-          report.push({
-            severity: 'warning',
-            code: 'dropped-asset-data',
-            message: `Asset "${key}": the file's picture data was unreadable; it shows as missing until added again.`,
-          });
-      } catch (error) {
-        report.push({
-          severity: 'warning',
-          code: 'dropped-asset',
-          message: `Dropped asset "${key}": ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
-    }
+  // Files first: the plugin screen refers to assets by path.
+  doc.files = readFiles(data.files, report);
   if (isObject(data.panel)) {
     if (finite(data.panel.width) && data.panel.width >= 200)
       doc.panel.width = Math.min(4000, data.panel.width);
@@ -355,7 +311,7 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
     if (!def) continue;
     try {
       def.face = checkFace(raw, def, partInterface(doc, catalog, def).inputs, {
-        assets: doc.assets,
+        assets: assetsOf(doc.files),
         lenient: true,
         warn: message => report.push({ severity: 'warning', code: 'face-reference', message }),
       });
@@ -485,9 +441,7 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
       doc.panel.height = Math.min(4000, data.panel.height);
   }
   if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
-  const project = readProject(data.project, report);
-  if (project) doc.project = project;
-  if (!Object.keys(doc.parts).length) return { ok: true, doc, report, assetData };
+  if (!Object.keys(doc.parts).length) return { ok: true, doc, report };
   // Parts: inputs, outputs and parameters follow what is inside; parts nothing uses are dropped (as after any edit).
   try {
     const before = new Set(Object.keys(doc.parts));
@@ -499,7 +453,7 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
         code: 'dropped-part',
         message: `Dropped part(s) nothing uses: ${gone.join(', ')}.`,
       });
-    return { ok: true, doc: { ...synced, revision: doc.revision }, report, assetData };
+    return { ok: true, doc: { ...synced, revision: doc.revision }, report };
   } catch (error) {
     return {
       ok: false,
@@ -632,7 +586,7 @@ function lenient(doc: PatchDocument, report: Issue[], node?: string): CheckConte
   const widgets: Record<string, true> = {};
   for (const n of Object.values(doc.nodes)) if (CONTROL_OF[n.type]) widgets[n.id] = true;
   return {
-    assets: doc.assets,
+    assets: assetsOf(doc.files),
     nodes: widgets,
     lenient: true,
     warn: message => report.push({ severity: 'warning', code: 'missing-reference', node, message }),
@@ -712,7 +666,7 @@ function readUi(
   if (
     isObject(raw.underlay) &&
     typeof raw.underlay.asset === 'string' &&
-    doc.assets[raw.underlay.asset]
+    assetsOf(doc.files)[raw.underlay.asset]
   ) {
     ui.underlay = {
       asset: raw.underlay.asset,
@@ -755,9 +709,8 @@ export function documentHash(doc: PatchDocument): string {
       panel: doc.panel,
       name: doc.name,
       ui: doc.ui,
-      assets: doc.assets,
       parts: doc.parts,
-      project: doc.project ?? null,
+      files: doc.files,
     }),
   );
 }

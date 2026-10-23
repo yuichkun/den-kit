@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
-import { History, type Author } from '../../../src/work/history.ts';
+import { History, authorLabel, type Author } from '../../../src/work/history.ts';
 import { applyIntents, type Intent } from '../../../src/work/ops.ts';
 import { starter } from '../../../src/work/starters.ts';
 import type { PatchDocument } from '../../../src/work/schema.ts';
@@ -27,6 +27,12 @@ function commit(
   return r.doc;
 }
 
+function undoOk(h: History, doc: PatchDocument) {
+  const r = h.undo(doc);
+  if (!r || 'error' in r) throw new Error(r ? r.error : 'nothing to undo');
+  return r;
+}
+
 describe('history', () => {
   it('A12 a knob drag is one undo step', () => {
     const h = new History();
@@ -41,7 +47,7 @@ describe('history', () => {
         { gesture: 'g1', at: k * 5 },
       );
     expect(h.size).toBe(1);
-    doc = h.undo(doc)!.doc;
+    doc = undoOk(h, doc).doc;
     expect(doc.nodes.filter1!.values.resonance).toBe(start.nodes.filter1!.values.resonance);
   });
   it('does not merge across authors, structural edits or a long pause', () => {
@@ -87,7 +93,7 @@ describe('history', () => {
       ],
       { kind: 'ai-fast', handler: 'brighter' },
     );
-    const undone = h.undo(doc)!;
+    const undone = undoOk(h, doc);
     expect(undone.tx.author.kind).toBe('ai-fast');
     expect({ ...undone.doc, revision: 0 }).toEqual({ ...before, revision: 0 });
     expect(h.canRedo).toBe(true);
@@ -100,13 +106,13 @@ describe('history', () => {
     for (let k = 0; k < 5; k++)
       doc = commit(h, doc, [{ op: 'move', node: 'osc1', pos: { x: k, y: 0 } }]);
     expect(h.size).toBe(3);
-    const u = h.undo(doc)!;
+    const u = undoOk(h, doc);
     const r = h.redo(u.doc)!;
     expect(r.doc.nodes.osc1!.pos).toEqual({ x: 4, y: 0 });
     expect(h.redo(r.doc)).toBeNull();
     expect(new History().undo(doc)).toBeNull();
   });
-  it('the steps of one LLM request undo together, structural or not; an edit by someone else splits them', () => {
+  it('the steps of one LLM request undo together, structural or not; an edit by someone else in between is a step of its own', () => {
     const h = new History();
     const start = starter('bass', catalog);
     let doc = start;
@@ -130,7 +136,7 @@ describe('history', () => {
       { group: 'rq1', at: 60000 },
     );
     expect(h.size).toBe(1);
-    const once = h.undo(doc)!;
+    const once = undoOk(h, doc);
     expect({ ...once.doc, revision: 0 }).toEqual({ ...start, revision: 0 });
     doc = h.redo(once.doc)!.doc;
     doc = commit(h, doc, [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]);
@@ -145,6 +151,8 @@ describe('history', () => {
       { kind: 'ai-llm', take: 'rq2' },
       { group: 'rq2', at: 60002 },
     );
-    expect(h.size).toBe(4);
+    // The person's edit stays its own step; the request's later step joins the request, which moves on top.
+    expect(h.entries().map(e => authorLabel(e.author))).toEqual(['you', 'llm:rq1', 'llm:rq2']);
+    expect(h.entries()[1]!.ops.some(op => op.op === 'setValue' && op.node === 'lfo2')).toBe(true);
   });
 });

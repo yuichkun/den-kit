@@ -1,40 +1,15 @@
-// Pictures and fonts a plugin uses. The patch keeps their descriptions; the
-// bytes live here, in the browser's IndexedDB, keyed by asset id (a content
-// hash), so the autosave stays small and the same picture added twice is stored
-// once. Assets that ship with den-kit (the showcase) are plain URLs. Without
-// IndexedDB (private windows, tests) the bytes stay in memory for the session.
-import { FONT_MIMES, IMAGE_MIMES, MAX_ASSET_BYTES, type AssetMeta } from './ui.ts';
+// The contents of the work's files that are not text, by their SHA-256. The
+// record names a file's hash; the bytes live here, kept by the host's storage,
+// so a saved work stays small and the same file added twice is kept once.
+// Files shipped with den-kit are plain URLs. Without storage (tests) the bytes
+// stay in memory for the session.
+import { checkFile, sha256, typeOfPath } from './files.ts';
+import { MAX_ASSET_BYTES, type AssetMeta } from './ui.ts';
 
-const DB = 'den-kit-assets',
-  STORE = 'blobs';
-const BY_EXTENSION: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  svg: 'image/svg+xml',
-  woff2: 'font/woff2',
-  woff: 'font/woff',
-  ttf: 'font/ttf',
-  otf: 'font/otf',
-};
-
-/** The asset id for these bytes: "a" and 15 hex digits of their SHA-256. */
-export async function assetIdFor(bytes: ArrayBuffer): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return `a${[...digest]
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 15)}`;
-}
-
-/** The type of a dropped file, from its name when the browser does not say (fonts usually). */
-export function mimeOf(file: { name?: string; type?: string }): string | null {
-  const known = [...IMAGE_MIMES, ...FONT_MIMES] as readonly string[];
-  if (file.type && known.includes(file.type)) return file.type;
-  const ext = /\.([a-z0-9]+)$/i.exec(file.name ?? '')?.[1]?.toLowerCase();
-  return ext ? (BY_EXTENSION[ext] ?? null) : null;
+/** Where contents are kept: the host's storage. */
+export interface ContentStorage {
+  readContent(hash: string): Promise<Uint8Array | null>;
+  writeContent(hash: string, bytes: Uint8Array): Promise<void>;
 }
 
 async function imageSize(blob: Blob, mime: string): Promise<{ width?: number; height?: number }> {
@@ -59,122 +34,129 @@ async function imageSize(blob: Blob, mime: string): Promise<{ width?: number; he
   }
 }
 
+/** A file name the work can keep: plain characters, its extension kept. */
+export function assetName(name: string): string {
+  const clean = name
+    .trim()
+    .replace(/[^A-Za-z0-9_.@+ -]/g, '-')
+    .replace(/^[.\s-]+/, '')
+    .slice(-80);
+  return clean || 'file';
+}
+
+/** `assets/<name>`, numbered when that path is taken. */
+export function freeAssetPath(name: string, taken: (path: string) => boolean): string {
+  const clean = assetName(name);
+  const dot = clean.lastIndexOf('.');
+  const stem = dot > 0 ? clean.slice(0, dot) : clean,
+    ext = dot > 0 ? clean.slice(dot) : '';
+  for (let n = 1; ; n++) {
+    const path = `assets/${n === 1 ? clean : `${stem}-${n}${ext}`}`;
+    if (!taken(path)) return path;
+  }
+}
+
 export class AssetError extends Error {}
 
 export class AssetStore {
-  private db: Promise<IDBDatabase | null>;
-  private memory = new Map<string, Blob>();
+  private readonly storage: ContentStorage | null;
+  private memory = new Map<string, Uint8Array>();
   private urls = new Map<string, string>();
 
-  constructor(factory: IDBFactory | null = globalThis.indexedDB ?? null) {
-    this.db = !factory
-      ? Promise.resolve(null)
-      : new Promise(resolve => {
-          try {
-            const open = factory.open(DB, 1);
-            open.onupgradeneeded = () => {
-              open.result.createObjectStore(STORE);
-            };
-            open.onsuccess = () => resolve(open.result);
-            open.onerror = () => resolve(null);
-            open.onblocked = () => resolve(null);
-          } catch {
-            resolve(null);
-          }
-        });
+  constructor(storage: ContentStorage | null = null) {
+    this.storage = storage;
   }
 
-  private async tx<T>(
-    mode: IDBTransactionMode,
-    run: (store: IDBObjectStore) => IDBRequest<T>,
-  ): Promise<T | undefined> {
-    const db = await this.db;
-    if (!db) return undefined;
-    return new Promise(resolve => {
-      try {
-        const request = run(db.transaction(STORE, mode).objectStore(STORE));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(undefined);
-      } catch {
-        resolve(undefined);
-      }
-    });
-  }
-
-  /** Keep a file's bytes and describe it as an asset (refused: not a picture or font, too large). */
-  async add(file: Blob & { name?: string }): Promise<AssetMeta> {
-    const mime = mimeOf(file);
-    if (!mime)
-      throw new AssetError(
-        `"${file.name ?? 'file'}" is not a picture (PNG, JPEG, WebP, GIF, SVG) or a font (WOFF2, WOFF, TTF, OTF).`,
-      );
+  /**
+   * Keep a file's contents and describe it as an asset at a free path under
+   * `assets/` (refused: too large, or not what its name says).
+   */
+  async add(file: Blob & { name?: string }, taken: (path: string) => boolean): Promise<AssetMeta> {
     if (file.size > MAX_ASSET_BYTES)
       throw new AssetError(
         `"${file.name ?? 'file'}" is larger than ${MAX_ASSET_BYTES / 1024 / 1024} MB.`,
       );
-    const bytes = await file.arrayBuffer();
-    const id = await assetIdFor(bytes);
-    const blob = new Blob([bytes], { type: mime });
-    const size = mime.startsWith('image/') ? await imageSize(blob, mime) : {};
+    const path = freeAssetPath(file.name ?? 'file', taken);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const checked = await checkFile(path, bytes, sha256, { content: true });
+    if (!checked.ok) throw new AssetError(checked.reason);
+    const { type, as } = typeOfPath(path);
+    const size = as === 'image' ? await imageSize(new Blob([bytes], { type }), type) : {};
     // A picture the browser cannot decode would only ever show as a gap: say so instead of keeping it.
-    if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !size.width)
+    if (as === 'image' && type !== 'image/svg+xml' && !size.width)
       throw new AssetError(
         `"${file.name ?? 'file'}" could not be read as a picture (the file may be damaged).`,
       );
-    await this.put(id, blob);
-    const name = (file.name ?? id).slice(0, 120);
-    return { id, name, mime, bytes: bytes.byteLength, ...size };
+    const hash = await this.put(bytes);
+    return {
+      id: path,
+      name: path.split('/').at(-1)!,
+      mime: type,
+      bytes: bytes.length,
+      hash,
+      ...size,
+    };
   }
 
-  async put(id: string, blob: Blob) {
-    this.memory.set(id, blob);
-    await this.tx('readwrite', s => s.put(blob, id));
+  /** Keep contents; returns their hash. */
+  async put(bytes: Uint8Array): Promise<string> {
+    const hash = await sha256(bytes);
+    if (!this.memory.has(hash)) {
+      this.memory.set(hash, bytes);
+      await this.storage?.writeContent(hash, bytes);
+    }
+    return hash;
   }
 
-  /** Store the bytes an imported patch carried (data: URLs). */
-  async putDataUrl(id: string, dataUrl: string) {
-    const blob = await (await fetch(dataUrl)).blob();
-    await this.put(id, blob);
+  /** Keep the contents a file carried as a data: URL (My parts); returns their hash. */
+  async putDataUrl(dataUrl: string): Promise<string> {
+    return this.put(new Uint8Array(await (await fetch(dataUrl)).arrayBuffer()));
   }
 
-  async get(id: string): Promise<Blob | null> {
-    return (
-      this.memory.get(id) ??
-      (await this.tx<Blob>('readonly', s => s.get(id) as IDBRequest<Blob>)) ??
-      null
-    );
+  /** The contents with this hash, or null when they are not here. */
+  async bytes(hash: string): Promise<Uint8Array | null> {
+    const known = this.memory.get(hash);
+    if (known) return known;
+    const read = await this.storage?.readContent(hash);
+    if (read) this.memory.set(hash, read);
+    return read ?? null;
   }
 
-  /** A URL the page can show the asset with; null when its bytes are not here. */
+  /** The bytes of an asset: its stored contents, or the file den-kit ships. */
+  async read(meta: AssetMeta): Promise<Uint8Array | null> {
+    if (meta.hash) return this.bytes(meta.hash);
+    if (!meta.url) return null;
+    try {
+      const r = await fetch(meta.url);
+      return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** A URL the page can show the asset with; null when its contents are not here. */
   async url(meta: AssetMeta): Promise<string | null> {
     if (meta.url) return meta.url.startsWith('/') ? meta.url : `/${meta.url}`;
-    const known = this.urls.get(meta.id);
+    if (!meta.hash) return null;
+    const known = this.urls.get(meta.hash);
     if (known) return known;
-    const blob = await this.get(meta.id);
-    if (!blob) return null;
-    const url = URL.createObjectURL(blob);
-    this.urls.set(meta.id, url);
+    const bytes = await this.bytes(meta.hash);
+    if (!bytes) return null;
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: meta.mime }));
+    this.urls.set(meta.hash, url);
     return url;
   }
 
-  /** The asset as a data: URL (to carry it inside an exported patch). */
+  /** The asset as a data: URL (to carry it inside a My parts file). */
   async dataUrl(meta: AssetMeta): Promise<string | null> {
-    let blob: Blob | null;
-    if (meta.url) {
-      try {
-        const r = await fetch((await this.url(meta)) ?? '');
-        blob = r.ok ? await r.blob() : null;
-      } catch {
-        blob = null;
-      }
-    } else blob = await this.get(meta.id);
-    if (!blob) return null;
-    const typed = blob.type === meta.mime ? blob : new Blob([blob], { type: meta.mime });
+    const bytes = await this.read(meta);
+    if (!bytes) return null;
+    const blob = new Blob([bytes as BlobPart], { type: meta.mime });
     return new Promise(resolve => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => resolve(null);
-      reader.readAsDataURL(typed);
+      reader.readAsDataURL(blob);
     });
   }
 }

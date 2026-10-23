@@ -7,6 +7,7 @@ import { freeSpotNear } from './layout.ts';
 import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
 import { checkFace } from './face.ts';
+import { assetFile, assetsOf, checkAsset } from './ui.ts';
 import { checkBundle, type PartBundle } from './library.ts';
 import {
   RANGE_UNITS,
@@ -566,7 +567,7 @@ export function updatePart(
         intent.face,
         next,
         partInterface(draft.doc, draft.catalog, next).inputs,
-        { assets: draft.doc.assets },
+        { assets: assetsOf(draft.doc.files) },
       );
   }
   if (intent.from !== undefined) {
@@ -1039,10 +1040,20 @@ function addBundle(
   return def(bundle.part, ids.parts[bundle.part.id]!);
 }
 
-/** The pictures and fonts a bundle's faces use come into the patch (one already here is the same file: asset ids follow the bytes). */
+/** The pictures and fonts a bundle's faces use come into the work's files (one already there is the same file). */
 function addAssets(draft: PartDraft, bundle: PartBundle) {
-  for (const asset of Object.values(bundle.assets ?? {}).sort(byId))
-    if (!draft.doc.assets[asset.id]) draft.apply({ op: 'addAsset', asset: clone(asset) });
+  for (const asset of Object.values(bundle.assets ?? {}).sort(byId)) {
+    const file = assetFile(checkAsset(asset));
+    const here = draft.doc.files[asset.id];
+    if (here && JSON.stringify(here) === JSON.stringify(file)) continue;
+    if (here)
+      fail(
+        'duplicate-id',
+        `This work already has a different file at ${asset.id}.`,
+        'Rename that asset, then place the part again.',
+      );
+    draft.apply({ op: 'setFile', path: asset.id, from: undefined, to: file });
+  }
 }
 
 /** Place a part from My parts: its definition (and the parts inside it) come into the patch, with one use of it. */

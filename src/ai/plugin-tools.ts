@@ -35,13 +35,14 @@ import {
   type Look,
   type TokenName,
   type UiElement,
+  assetsOf,
 } from '../work/ui.ts';
 import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
 import { WORKS, findWork, lookIntents } from '../screen/showcase/index.ts';
 import { ControlError, controlFor, type ControlType } from '../screen/controls.ts';
 import { formatValue } from '../screen/format.ts';
 import { CANVAS_CURSORS } from '../screen/canvas-api.ts';
-import { partNames } from '../work/project.ts';
+import { partNames, textFiles } from '../work/files.ts';
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length} chars)` : s);
 const rectText = (r: { x: number; y: number; w: number; h: number }) =>
@@ -165,16 +166,17 @@ export function describePlugin(
       '',
       `Groups (move together): ${groups.map(([g, m]) => `${g} = [${m.join(', ')}]`).join('; ')}`,
     );
-  const assets = Object.values(doc.assets);
+  const assets = Object.values(assetsOf(doc.files));
   lines.push(
     '',
     `Assets in this patch: ${assets.length ? assets.map(a => `${a.id} (${isFontAsset(a) ? 'font' : 'picture'}${a.width ? ` ${a.width}×${a.height}` : ''}${PICTURE_DOC[a.id] ? `: ${PICTURE_DOC[a.id]}` : a.source?.title ? `: ${a.source.title}` : ''})`).join('; ') : 'none'}. Bundled pictures can be used by id (kit_ui_reference "pictures").`,
   );
-  const parts = partNames(doc.project);
+  const parts = partNames(doc.files);
+  const sources = Object.keys(textFiles(doc.files));
   lines.push(
     '',
-    doc.project
-      ? `Screen project (in the pod; kit_bash, kit_read_file, kit_write_file): ${Object.keys(doc.project.files).length} files; code parts it offers: ${parts.length ? parts.map(p => `${p} (src/parts/${p}.ts)`).join(', ') : 'none yet'}.`
+    sources.length
+      ? `Screen project (in the pod; kit_bash, kit_read_file, kit_write_file): ${sources.length} files; code parts it offers: ${parts.length ? parts.map(p => `${p} (src/parts/${p}.ts)`).join(', ') : 'none yet'}.`
       : "No screen project yet: your first kit_bash or kit_write_file starts one from den-kit's template (Vite + TypeScript; its AGENTS.md explains code parts).",
   );
   if (options.problems)
@@ -253,7 +255,7 @@ export function uiReference(
         ...[...COLOR_TOKENS, ...FONT_TOKENS].map(t => `  ${t}: ${TOKEN_DOC[t]}`),
         `background: a list of fills, bottom first (up to ${LIMITS.fills}):`,
         '  {"kind":"color","color":"#1b1d22"} · {"kind":"linear","angle":180,"stops":[{"color":"#000000","at":0},{"color":"#00000000","at":1}]} (angle: 180 = top to bottom)',
-        '  {"kind":"radial","x":0.5,"y":0.4,"stops":[...]} · {"kind":"image","asset":"sc-wood","fit":"cover"|"contain"|"stretch"|"tile","size":256}',
+        '  {"kind":"radial","x":0.5,"y":0.4,"stops":[...]} · {"kind":"image","asset":"assets/den-kit/wood.jpg","fit":"cover"|"contain"|"stretch"|"tile","size":256}',
         '  any fill: "opacity":0..1, "blend":"multiply"|"screen"|"overlay"|"soft-light"|…',
         'colours: a token name, #rgb/#rrggbb/#rrggbbaa, rgb()/hsl() or a CSS colour name.',
         `skins: the default skin per control kind, {"knob":{"name":"ring","params":{"thickness":4}}} (kit_ui_reference "skins").`,
@@ -390,7 +392,7 @@ export function expandOps(
     rects: { x: number; y: number; w: number; h: number }[] = [];
   const added = new Set<string>();
   const addAsset = (id: string, at: number) => {
-    if (doc.assets[id] || added.has(id) || !SHOWCASE_ASSETS[id]) return;
+    if (assetsOf(doc.files)[id] || added.has(id) || !SHOWCASE_ASSETS[id]) return;
     added.add(id);
     intents.push({ op: 'addAsset', asset: SHOWCASE_ASSETS[id]! });
     origin.push(at);

@@ -156,10 +156,10 @@ export function tapeecho(catalog: Catalog) {
       wire('outl1.out', 'out1.left'),
       wire('outr1.out', 'out1.right'),
       // ---- the plugin: brushed metal (the look's background) between wooden cheeks ----
-      asset('sc-brushed-metal'),
-      asset('sc-wood'),
-      asset('sc-screw'),
-      asset('sc-tape-machine'),
+      asset('assets/den-kit/brushed-metal.jpg'),
+      asset('assets/den-kit/wood.jpg'),
+      asset('assets/den-kit/screw.svg'),
+      asset('assets/den-kit/tape-machine.jpg'),
       {
         op: 'setLook',
         look: {
@@ -177,7 +177,7 @@ export function tapeecho(catalog: Catalog) {
             valueFont: 'michroma',
           },
           background: [
-            { kind: 'image', asset: 'sc-brushed-metal', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/brushed-metal.jpg', fit: 'cover' },
             {
               kind: 'linear',
               angle: 180,
@@ -194,7 +194,10 @@ export function tapeecho(catalog: Catalog) {
           },
         },
       },
-      { op: 'setUnderlay', underlay: { asset: 'sc-tape-machine', opacity: 0.35, visible: false } },
+      {
+        op: 'setUnderlay',
+        underlay: { asset: 'assets/den-kit/tape-machine.jpg', opacity: 0.35, visible: false },
+      },
       el({
         kind: 'shape',
         shape: 'rect',
@@ -203,7 +206,7 @@ export function tapeecho(catalog: Catalog) {
         locked: true,
         style: {
           fill: [
-            { kind: 'image', asset: 'sc-wood', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' },
             {
               kind: 'linear',
               angle: 90,
@@ -224,7 +227,7 @@ export function tapeecho(catalog: Catalog) {
         locked: true,
         style: {
           fill: [
-            { kind: 'image', asset: 'sc-wood', fit: 'cover' },
+            { kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' },
             {
               kind: 'linear',
               angle: 90,
@@ -246,7 +249,7 @@ export function tapeecho(catalog: Catalog) {
         el({
           kind: 'image',
           name: `Screw ${i + 1}`,
-          asset: 'sc-screw',
+          asset: 'assets/den-kit/screw.svg',
           fit: 'contain',
           rect: r(x!, y!, 16, 16),
           style: { rotate: 15 + i * 50 },

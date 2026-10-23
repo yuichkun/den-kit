@@ -2,6 +2,7 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
+import { textFiles } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/sound/blocks/index.ts';
@@ -17,7 +18,6 @@ import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import { connectFakePod } from '../../dev/fake-pod.ts';
 import { PodSession } from '../../src/workspace/pod-session.ts';
-import { pluginSpec } from '../../src/screen/build.ts';
 import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 
@@ -28,7 +28,6 @@ function session(start: PatchDocument) {
   const s = {
     catalog,
     doc,
-    controls: (d: PatchDocument) => pluginSpec(d, catalog, { probes: [] }).controls,
     commit(intents: Intent[]) {
       try {
         const r = applyIntents(doc.value, intents, catalog);
@@ -145,7 +144,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await pod.readFile('src/kit/controls.ts')).not.toContain('// mine');
     const r = kit.commit([{ op: 'setProjectFiles', files }]);
     expect(r.ok).toBe(true);
-    expect(kit.doc.value.project!.files['src/parts/meter.ts']).toBeDefined();
+    expect(textFiles(kit.doc.value.files)['src/parts/meter.ts']).toBeDefined();
     await pod.bash('rm logo.bin', { who: 'ai' });
     // Nothing changed since: nothing to land.
     expect((await pod.collect()).files).toEqual({});
@@ -168,11 +167,11 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await pod.readFile('src/parts/meter.ts')).toBeNull();
     expect(await pod.readFile('package.json')).toContain('den-kit-screen');
     // The work has no project again (the undo took it back): the template comes with the new part.
-    expect(kit.doc.value.project).toBeUndefined();
+    expect(textFiles(kit.doc.value.files)).toEqual({});
     kit.commit([
       {
         op: 'setProjectFiles',
-        files: withTemplate(kit.doc.value.project, { 'src/parts/dial.ts': starterPart('dial') }),
+        files: withTemplate(kit.doc.value.files, { 'src/parts/dial.ts': starterPart('dial') }),
       },
     ]);
     await settle(800);
@@ -184,7 +183,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
   }, 60_000);
 
   it('a changed package.json is installed; npm run build works (dist stays in the pod)', async () => {
-    const pkg = JSON.parse(kit.doc.value.project!.files['package.json']!);
+    const pkg = JSON.parse(textFiles(kit.doc.value.files)['package.json']!);
     pkg.dependencies = { ...pkg.dependencies, 'is-number': '7.0.0' };
     kit.commit([
       { op: 'setProjectFiles', files: { 'package.json': `${JSON.stringify(pkg, null, 2)}\n` } },

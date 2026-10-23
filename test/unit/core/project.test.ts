@@ -3,11 +3,12 @@ import { catalog } from '../../../src/sound/blocks/index.ts';
 import { applyIntents, applyResolvedOps, invertAll, OpError } from '../../../src/work/ops.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
 import {
-  checkProjectPath,
+  checkPath as checkProjectPath,
   partNames,
-  PROJECT_LIMITS,
-  readProject,
-} from '../../../src/work/project.ts';
+  readFiles,
+  textFiles,
+  WORK_LIMITS,
+} from '../../../src/work/files.ts';
 import type { Issue } from '../../../src/work/issues.ts';
 import { starter } from '../../../src/work/starters.ts';
 
@@ -27,55 +28,42 @@ describe('screen project: paths and reading', () => {
     expect(checkProjectPath('package.json')).toBeNull();
     expect(checkProjectPath('.gitignore')).toBeNull();
     expect(checkProjectPath('src/kit/controls.ts')).toContain('made by den-kit');
-    for (const bad of [
-      'node_modules/a.js',
-      '.git/HEAD',
-      'dist/x.js',
-      '../x',
-      'a/../b',
-      '/abs',
-      'a b',
-      '',
-    ])
+    for (const bad of ['node_modules/a.js', '.git/HEAD', 'dist/x.js', '../x', 'a/../b', '/abs', ''])
       expect(checkProjectPath(bad), bad).not.toBeNull();
   });
   it('lists the parts the project offers', () => {
     expect(
       partNames({
-        files: {
-          'src/parts/reels.ts': '',
-          'src/parts/big-meter.tsx': '',
-          'src/parts/Bad.ts': '',
-          'src/parts/x/y.ts': '',
-          'src/main.ts': '',
-        },
+        'src/parts/reels.ts': { text: '' },
+        'src/parts/big-meter.tsx': { text: '' },
+        'src/parts/Bad.ts': { text: '' },
+        'src/parts/x/y.ts': { text: '' },
+        'src/main.ts': { text: '' },
       }),
     ).toEqual(['big-meter', 'reels']);
-    expect(partNames(undefined)).toEqual([]);
+    expect(partNames({})).toEqual([]);
   });
   it('reading a file drops bad paths, non-text and oversized files with a reason', () => {
     const report: Issue[] = [];
-    const project = readProject(
+    const files = readFiles(
       {
-        files: {
-          'src/a.ts': 'ok',
-          'node_modules/x.js': 'no',
-          'src/b.ts': 3,
-          'big.txt': 'x'.repeat(PROJECT_LIMITS.fileBytes + 1),
-          'src/kit/controls.ts': 'gen',
-        },
+        'src/a.ts': { text: 'ok' },
+        'node_modules/x.js': { text: 'no' },
+        'src/b.ts': { text: 3 },
+        'big.txt': { text: 'x'.repeat(WORK_LIMITS.textBytes + 1) },
+        'src/kit/controls.ts': { text: 'gen' },
       },
       report,
     );
-    expect(project).toEqual({ files: { 'src/a.ts': 'ok' } });
+    expect(files).toEqual({ 'src/a.ts': { text: 'ok' } });
     expect(report.map(i => i.code)).toEqual([
       'dropped-file',
       'dropped-file',
       'dropped-file',
       'dropped-file',
     ]);
-    expect(readProject({ files: {} }, [])).toBeUndefined();
-    expect(readProject('junk', [])).toBeUndefined();
+    expect(readFiles({}, [])).toEqual({});
+    expect(readFiles('junk', [])).toEqual({});
   });
 });
 
@@ -88,19 +76,19 @@ describe('screen project: setProjectFiles', () => {
       [{ op: 'setProjectFiles', files: { 'src/parts/a.ts': 'A', 'package.json': '{}' } }],
       catalog,
     );
-    expect(r1.doc.project).toEqual({ files: { 'src/parts/a.ts': 'A', 'package.json': '{}' } });
-    expect(doc.project).toBeUndefined();
+    expect(textFiles(r1.doc.files)).toEqual({ 'src/parts/a.ts': 'A', 'package.json': '{}' });
+    expect(doc.files).toEqual({});
     const r2 = applyIntents(
       r1.doc,
       [{ op: 'setProjectFiles', files: { 'src/parts/a.ts': 'A2', 'package.json': null } }],
       catalog,
     );
-    expect(r2.doc.project).toEqual({ files: { 'src/parts/a.ts': 'A2' } });
+    expect(textFiles(r2.doc.files)).toEqual({ 'src/parts/a.ts': 'A2' });
     expect(r2.ops.map(o => o.op)).toEqual(['setFile', 'setFile']);
     const back = applyResolvedOps(r2.doc, invertAll(r2.ops));
-    expect(back.project).toEqual(r1.doc.project);
+    expect(back.files).toEqual(r1.doc.files);
     const empty = applyResolvedOps(r1.doc, invertAll(r1.ops));
-    expect(empty.project).toBeUndefined();
+    expect(empty.files).toEqual({});
     expect(documentHash(empty)).toBe(before);
   });
   it('the same text again changes nothing', () => {
@@ -146,13 +134,13 @@ describe('screen project: setProjectFiles', () => {
       failure(() =>
         applyIntents(
           doc,
-          [{ op: 'setProjectFiles', files: { 'a.ts': 'x'.repeat(PROJECT_LIMITS.fileBytes + 1) } }],
+          [{ op: 'setProjectFiles', files: { 'a.ts': 'x'.repeat(WORK_LIMITS.textBytes + 1) } }],
           catalog,
         ),
       ).code,
     ).toBe('too-large');
     const many = Object.fromEntries(
-      Array.from({ length: PROJECT_LIMITS.files + 1 }, (_, i) => [`f${i}.ts`, 'x']),
+      Array.from({ length: WORK_LIMITS.files + 1 }, (_, i) => [`f${i}.ts`, 'x']),
     );
     expect(
       failure(() => applyIntents(doc, [{ op: 'setProjectFiles', files: many }], catalog)).code,
@@ -166,7 +154,7 @@ describe('screen project: setProjectFiles', () => {
         ),
       ).code,
     ).toBe('bad-intent');
-    expect(doc.project).toBeUndefined();
+    expect(doc.files).toEqual({});
   });
   it('code elements name a part; a bad name is refused', () => {
     const doc = starter('bass', catalog);
@@ -204,7 +192,7 @@ describe('screen project: setProjectFiles', () => {
   });
 });
 
-describe('screen project: files (format v4)', () => {
+describe("the work's files in the document", () => {
   it('a work with a project and a code part survives export → import', () => {
     let doc = starter('bass', catalog);
     doc = applyIntents(
@@ -229,9 +217,9 @@ describe('screen project: files (format v4)', () => {
     const parsed = parseDocument(serializeDocument(doc), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
     expect(parsed.report).toEqual([]);
-    expect(parsed.doc.project).toEqual(doc.project);
+    expect(parsed.doc.files).toEqual(doc.files);
     expect(documentHash(parsed.doc)).toBe(documentHash(doc));
-    expect(JSON.parse(serializeDocument(doc)).version).toBe(4);
+    expect(JSON.parse(serializeDocument(doc)).version).toBe(5);
   });
   it('the project is part of the document hash', () => {
     const doc = starter('bass', catalog);
@@ -242,12 +230,10 @@ describe('screen project: files (format v4)', () => {
     ).doc;
     expect(documentHash(changed)).not.toBe(documentHash(doc));
   });
-  it('older files (no project) still load', () => {
+  it('documents from the preview before the file tree are refused with a reason', () => {
     const text = JSON.parse(serializeDocument(starter('bass', catalog)));
-    text.version = 3;
-    delete text.project;
+    text.version = 4;
     const parsed = parseDocument(JSON.stringify(text), catalog);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.doc.project).toBeUndefined();
+    expect(parsed).toEqual({ ok: false, error: expect.stringMatching(/earlier preview/) });
   });
 });

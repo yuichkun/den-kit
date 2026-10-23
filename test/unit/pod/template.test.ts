@@ -2,9 +2,9 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { applyIntents } from '../../../src/work/ops.ts';
-import { checkProjectPath } from '../../../src/work/project.ts';
+import { checkPath as checkProjectPath } from '../../../src/work/files.ts';
+import { parameters } from '../../../src/work/parameters.ts';
 import { starter } from '../../../src/work/starters.ts';
-import { pluginSpec } from '../../../src/screen/build.ts';
 import { controlsSource, starterPart, templateFiles } from '../../../src/workspace/template.ts';
 
 const syntaxErrors = (text: string) =>
@@ -70,12 +70,10 @@ describe('pod template', () => {
       ],
       catalog,
     ).doc;
-    const controls = pluginSpec(doc, catalog, { probes: [] }).controls;
+    const controls = parameters(doc, catalog);
     const text = controlsSource(controls);
     expect(syntaxErrors(text)).toEqual([]);
-    const ids = Object.keys(controls).filter(id =>
-      ['ui.knob', 'ui.slider', 'ui.toggle', 'ui.button', 'ui.xy'].includes(controls[id]!.type),
-    );
+    const ids = Object.keys(controls);
     expect(ids.length).toBeGreaterThan(0);
     for (const id of ids) expect(text).toContain(`${JSON.stringify(id)}: { kind:`);
     expect(text).toContain(

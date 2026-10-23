@@ -22,7 +22,7 @@ import { canonicalJson, hashString } from './hash.ts';
 import type { Catalog } from './catalog.ts';
 import type { Issue } from './issues.ts';
 import { checkFace, faceAssetUses } from './face.ts';
-import { MAX_ASSET_BYTES, checkAsset, type AssetMeta } from './ui.ts';
+import { MAX_ASSET_BYTES, assetsOf, checkAsset, type AssetMeta } from './ui.ts';
 import { membersOf, partIdFor, partInterface, readParamRange } from './parts.ts';
 
 export const LIBRARY_SCHEMA = 'den-kit/my-parts';
@@ -97,7 +97,7 @@ export function extractBundle(doc: PatchDocument, defId: string): PartBundle {
   for (const def of [part, ...Object.values(parts)])
     if (def.face)
       for (const id of faceAssetUses(def.face).keys())
-        if (doc.assets[id]) assets[id] = clone(doc.assets[id]!);
+        if (assetsOf(doc.files)[id]) assets[id] = clone(assetsOf(doc.files)[id]!);
   return { part, parts, nodes, edges, ...(Object.keys(assets).length ? { assets } : {}) };
 }
 

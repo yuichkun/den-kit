@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect 
 import { SESSION } from './context.ts';
 import { POD } from '../screen/code-frames.ts';
 import { KitSession, MY_PARTS_KEY } from './session.ts';
-import { MAX_FILE_BYTES } from '../work/persistence.ts';
+import { WORK_FILE_EXTENSION } from '../work/work-file.ts';
+import { WORK_LIMITS } from '../work/files.ts';
 import { COST_LIMITS, formatCpu } from '../work/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
@@ -333,10 +334,17 @@ function started(asked: boolean) {
 }
 async function exportPatch() {
   menu.value = false;
-  const blob = new Blob([await session.exportWithAssets()], { type: 'application/json' });
+  let bytes: Uint8Array;
+  try {
+    bytes = await session.exportWork();
+  } catch (error) {
+    session.toast('error', error instanceof Error ? error.message : String(error));
+    return;
+  }
+  const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${session.doc.value.name.replace(/[^\w-]+/g, '_') || 'patch'}.denkit.json`;
+  a.download = `${session.doc.value.name.replace(/[^\w-]+/g, '_') || 'work'}${WORK_FILE_EXTENSION}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -344,14 +352,13 @@ async function importPatch(e: Event) {
   menu.value = false;
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
-  if (file.size > MAX_FILE_BYTES) {
-    session.toast(
-      'error',
-      `Import refused: file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
-    );
+  // Read nothing larger than a work file can be (its files and its playable build).
+  if (file.size > WORK_LIMITS.workBytes * 2) {
+    session.toast('error', `Import refused: ${file.name} is larger than a work file can be.`);
     return;
   }
-  if (session.importText(await file.text())) name.value = session.doc.value.name;
+  if (await session.importWork(new Uint8Array(await file.arrayBuffer())))
+    name.value = session.doc.value.name;
   (e.target as HTMLInputElement).value = '';
 }
 </script>
@@ -382,7 +389,7 @@ async function importPatch(e: Event) {
         <input
           ref="fileInput"
           type="file"
-          accept=".json,.denkit.json,application/json"
+          accept=".denkit,application/zip"
           hidden
           data-testid="import-file"
           @change="importPatch"
