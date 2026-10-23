@@ -437,6 +437,7 @@ export class LlmWorkspace {
         config: def.config.map(c => ({
           id: c.id,
           kind: c.kind,
+          accepts: c.accepts,
           options: c.options,
           default: c.default,
           min: c.min,

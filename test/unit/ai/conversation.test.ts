@@ -41,7 +41,7 @@ const makeSession = (storage: StorageLike | null = null) =>
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
 const historicalLine = (
   id: string,

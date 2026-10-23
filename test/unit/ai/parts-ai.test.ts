@@ -27,7 +27,7 @@ const makeSession = () =>
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
 class FakeTransport {
   online = true;

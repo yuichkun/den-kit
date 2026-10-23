@@ -18,6 +18,7 @@ import {
   type PortDef,
 } from '../work/catalog.ts';
 import { inlineCodebox } from './codebox.ts';
+import { ASSET_BYTES, ASSET_FRAMES, type AssetSlot } from './assets.ts';
 import { hasErrors, type Issue } from '../work/issues.ts';
 import { flatten, mapIssue, type FlattenOptions } from '../work/parts.ts';
 import type { Scope } from '../work/scope.ts';
@@ -63,12 +64,14 @@ export interface Generated {
   nodes: NodeId[];
   /** Codebox sources by generated node id (a codebox inside a part appears once per use). */
   boxes: Record<NodeId, { code: string; inputs: PortSpec[]; outputs: PortSpec[] }>;
+  /** Where the assets the sound reads are loaded: samplers' sounds and what codeboxes read. */
+  assets: AssetSlot[];
 }
 
 const RESERVED = new Set(
   (
     'break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static implements interface package private protected public await async of ' +
-    'i n v p at core reset clear gate trigger sum blocks parts policy output input probes sig gat hist trace midi panic rendered live tuning voiceControls deferredRetrigger completed cleared health healthBad sampleRate select f32 f64 i32 bool state param event forSample instantiate defineProcessor audioInput audioOutput modulatePitch modulateCutoff'
+    'i n v p at core reset clear gate trigger sum blocks parts policy output input probes sig gat hist trace midi panic rendered live tuning voiceControls deferredRetrigger completed cleared health healthBad sampleRate select f32 f64 i32 bool state param event forSample instantiate defineProcessor audioInput audioOutput modulatePitch modulateCutoff assets kitAudio kitBytes residentSample CAPACITY_16'
   ).split(' '),
 );
 const jsName = (id: string) => (RESERVED.has(id) ? `${id}$` : id);
@@ -152,6 +155,7 @@ export function generate(
     audioIn: false,
     issues: finish([...issues, ...extra]),
     ...mapping,
+    assets: [],
   });
   if (hasErrors(issues)) return empty();
   const node = (id: NodeId) => doc.nodes[id]!;
@@ -375,9 +379,21 @@ export function generate(
     ),
   ];
   const top = new Writer();
+  const boxAudio = new Set<string>(),
+    boxBytes = new Set<string>();
   for (const id of codeboxIds) {
     const inlined = inlineCodebox(id, node(id).code ?? '');
     issues.push(...inlined.issues);
+    for (const path of [...inlined.assets.audio, ...inlined.assets.bytes])
+      if (!doc.files[path])
+        issues.push({
+          severity: 'warning',
+          code: 'missing-asset',
+          node: id,
+          message: `${id} reads "${path}", which is not in the work, so it reads nothing.`,
+        });
+    inlined.assets.audio.forEach(p => boxAudio.add(p));
+    inlined.assets.bytes.forEach(p => boxBytes.add(p));
     top.push(`// ${id}: codebox`);
     top.push(`const ${jsName(id)}Box = (() => {`);
     codeboxLines[id] = top.line + 1;
@@ -385,6 +401,49 @@ export function generate(
     top.push('})();');
   }
   if (hasErrors(issues)) return empty();
+
+  // Assets: a den resident sample (bytes: a buffer) for each sampler's sound and each asset a codebox reads,
+  // loaded from the page through an event. A sampler's sound is not in the source: pointing it elsewhere never recompiles.
+  const assets: AssetSlot[] = [];
+  const assetLines: string[] = [];
+  const residents = new Map<string, string>();
+  const resident = (event: string) => {
+    need('@denaudio/den/sample', 'residentSample');
+    need('@unworklet/core', 'CAPACITY_16');
+    assetLines.push(
+      `const ${event} = instantiate(residentSample, { capacity: ${ASSET_FRAMES}, sourceSampleRate: sampleRate }, { name: '${event}' });`,
+      `event<{ data: Float32Array }>({ from: 'main', name: '${event}', capacity: CAPACITY_16, payloadCapacity: ${ASSET_FRAMES * 4} }).onReceive(({ data }) => ${event}.load(data));`,
+    );
+  };
+  for (const id of [...pre, ...post, ...voiceOrder]) {
+    const den = def(id).den;
+    for (const key of Object.keys(den?.assets ?? {})) {
+      const event = `kitAsset${assets.length}`;
+      assets.push({ event, kind: 'mono', node: id, config: key });
+      residents.set(`${id}.${key}`, event);
+      resident(event);
+    }
+  }
+  if (boxAudio.size || boxBytes.size) need('@unworklet/core', 'f64', 'i32', 'f32', 'select');
+  for (const path of [...boxAudio].sort()) {
+    const left = `kitAsset${assets.length}`;
+    assets.push({ event: left, kind: 'left', path });
+    resident(left);
+    const right = `kitAsset${assets.length}`;
+    assets.push({ event: right, kind: 'right', path });
+    resident(right);
+    assetLines.push(`kitAudio.set(${lit(path)}, [${left}, ${right}]);`);
+  }
+  for (const path of [...boxBytes].sort()) {
+    const event = `kitAsset${assets.length}`;
+    assets.push({ event, kind: 'bytes', path });
+    need('@unworklet/core', 'CAPACITY_16', 'i32');
+    assetLines.push(
+      `const ${event} = { data: state.buffer.u8({ size: ${ASSET_BYTES} }).named('${event}'), length: state.i32(0).named('${event}_length') };`,
+      `event<{ data: Uint8Array; length: number }>({ from: 'main', name: '${event}', capacity: CAPACITY_16, payloadCapacity: ${ASSET_BYTES} }).onReceive(({ data, length }) => { ${event}.data.copyFrom(data); ${event}.length.write(i32(length)); });`,
+      `kitBytes.set(${lit(path)}, ${event});`,
+    );
+  }
 
   // Instances.
   const instanceLines: string[] = [];
@@ -403,6 +462,9 @@ export function generate(
     const fields = [
       ...(d.den.sampleRate === false ? [] : ['sampleRate']),
       ...Object.entries(mapped).map(([k, v]) => `${k}: ${lit(v)}`),
+      ...Object.entries(d.den.assets ?? {}).map(
+        ([key, denKey]) => `${denKey}: ${residents.get(`${id}.${key}`)}`,
+      ),
     ];
     return `instantiate(${d.den.export}, { ${fields.join(', ')} }, { name: ${name} })`;
   };
@@ -710,6 +772,57 @@ export function generate(
   out.push('');
   out.push("export const trace = { node: '' };");
   out.push('const at = (id: string) => { trace.node = id; };');
+  if (boxAudio.size || boxBytes.size) {
+    // The asset API codeboxes import: the processor fills these in before it builds the codeboxes.
+    out.push('const kitAudio = new Map<string, any>();');
+    out.push('const kitBytes = new Map<string, any>();');
+    out.push('const assets = {');
+    out.indent(() => {
+      out.push('audio(path: string) {');
+      out.indent(() => {
+        out.push('const pair = kitAudio.get(path);');
+        out.push(
+          "if (!pair) throw new Error(`audio('${path}'): no such audio asset in this work.`);",
+        );
+        out.push('return {');
+        out.indent(() => {
+          out.push('length: () => pair[0].length(),');
+          out.push('read: (channel: 0 | 1, position: any) => {');
+          out.indent(() => {
+            out.push(
+              'const sample = pair[channel === 1 ? 1 : 0], p = f64(position), n = sample.length();',
+            );
+            out.push(
+              'return select(p.gte(0).and(p.lt(f64(n))), sample.read(p, i32(0), n, false), f32(0));',
+            );
+          });
+          out.push('},');
+        });
+        out.push('};');
+      });
+      out.push('},');
+      out.push('bytes(path: string) {');
+      out.indent(() => {
+        out.push('const found = kitBytes.get(path);');
+        out.push("if (!found) throw new Error(`bytes('${path}'): no such asset in this work.`);");
+        out.push('return {');
+        out.indent(() => {
+          out.push('length: () => found.length.read(),');
+          out.push('at: (index: any) => {');
+          out.indent(() => {
+            out.push('const i = i32(index);');
+            out.push(
+              'return select(i.gte(0).and(i.lt(found.length.read())), found.data.read(i), i32(0));',
+            );
+          });
+          out.push('},');
+        });
+        out.push('};');
+      });
+      out.push('},');
+    });
+    out.push('};');
+  }
   const topOffset = out.line;
   for (const line of top.lines) out.lines.push(line);
   for (const [id, line] of Object.entries(codeboxLines)) codeboxLines[id] = line + topOffset;
@@ -789,6 +902,7 @@ export function generate(
       });
       out.push('});');
     }
+    for (const line of assetLines) out.push(line);
     if (instanceLines.length) {
       out.push('const blocks = {');
       out.indent(() =>
@@ -845,6 +959,7 @@ export function generate(
     audioIn,
     issues: finish(issues),
     ...mapping,
+    assets,
   };
 }
 
@@ -867,4 +982,24 @@ export function currentValues(
     values[p.name] = value === undefined ? p.default : Number(value);
   }
   return values;
+}
+
+/**
+ * The asset each slot of `generated` holds now: a sampler's sound as its config
+ * says, a codebox's asset by its path ('' for none). Pointing a sampler at
+ * another sound changes only this, never the source.
+ */
+export function currentAssets(
+  doc: PatchDocument,
+  catalog: Catalog,
+  generated: Pick<Generated, 'assets'>,
+  options: FlattenOptions = {},
+): Array<{ slot: AssetSlot; path: string }> {
+  if (!generated.assets.length) return [];
+  const flat = flatten(doc, catalog, options).doc;
+  return generated.assets.map(slot => {
+    if (slot.path !== undefined) return { slot, path: slot.path };
+    const value = flat.nodes[slot.node ?? '']?.config[slot.config ?? ''];
+    return { slot, path: typeof value === 'string' ? value : '' };
+  });
 }

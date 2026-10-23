@@ -60,6 +60,14 @@ These shortcuts apply outside text inputs. The table uses macOS key names.
 | `P` in Patch or Plugin            | Sketch over the view for an AI request.       |
 | `⌘J`                              | Show or hide the AI panel.                    |
 
+## Sounds from files
+
+Add an audio file as an asset, then add a **Sampler** module and choose the file under
+**Files** in the inspector. The Sampler plays the file each time its gate opens (in a
+voice, on each note), or loops it while the gate is open. Choosing another file does not
+recompile. A codebox reads assets with `import { audio, bytes } from '@den-kit/assets'`,
+naming each file by its path written out, such as `audio('assets/kick.wav')`.
+
 ## Saving and backups
 
 Works and assets autosave locally. Use the **Patch** menu to export a work file
@@ -84,6 +92,8 @@ and the [API definitions](../pod-template/src/kit/index.ts) describe how to writ
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
   dynamic `import()` can still load and execute remote JavaScript. Imported
   works and AI-generated Canvas code can therefore make network requests.
+- The Sampler and a codebox's `audio()` use the first 65,536 samples of a file (about
+  1.4 seconds), and the Sampler plays them in mono. `bytes()` reads the first 64 KB.
 - Works export as work files, but not as standalone DAW plugins or
   self-contained web instruments. `vp run build` builds the den-kit renderer,
   not a distributable instrument.

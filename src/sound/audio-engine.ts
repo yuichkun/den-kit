@@ -1,10 +1,12 @@
 // Live audio: one 48 kHz AudioContext, compiled artifacts swapped in with a short
 // crossfade, held notes re-sent across swaps, knob values applied as AudioParams,
-// and a safety stage (limiter + clipper + health mute) in front of the speakers.
+// assets decoded and sent to the processor that reads them, and a safety stage
+// (limiter + clipper + health mute) in front of the speakers.
 import { createNode, type CompiledProcessor, type UnworkletNode } from '@unworklet/core';
 import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet';
 import type { Artifact } from './compile/protocol.ts';
 import { testSignal as testSignalData } from './analysis.ts';
+import { ASSET_BYTES, slotSamples, type AssetLoad } from './assets.ts';
 
 export type EngineState = 'off' | 'starting' | 'running' | 'suspended' | 'error';
 /** What an effect patch hears: test material, the computer's audio input (`input`: a microphone or a line in), or nothing. */
@@ -15,6 +17,8 @@ export interface LoadInfo {
   voices: boolean;
   audioIn: boolean;
   probes: number;
+  /** What each asset slot of the processor holds. */
+  assets?: AssetLoad[];
 }
 type Node = UnworkletNode<unknown>;
 
@@ -24,6 +28,8 @@ interface Live {
   artifact: Artifact;
   info: LoadInfo;
   ctx: AudioContext;
+  /** The key of what was sent to each asset slot. */
+  sent: Map<string, string>;
 }
 
 export interface EngineEvents {
@@ -89,6 +95,9 @@ export class AudioEngine {
   private incoming: Node | null = null;
   private healthMuted = false;
   private loadSerial = 0;
+  private assetLoads: AssetLoad[] = [];
+  private decoded = new Map<string, Promise<AudioBuffer | null>>();
+  private incomingSent: Map<string, string> | null = null;
   private readonly options: Required<EngineOptions>;
   private readonly events: EngineEvents;
 
@@ -244,6 +253,11 @@ export class AudioEngine {
       throw new Error('The patch has no main output.');
     }
     this.incoming = node;
+    // Assets go in before the node is heard (they arrive at a block boundary).
+    const sent = new Map<string, string>();
+    this.incomingSent = sent;
+    this.assetLoads = info.assets ?? [];
+    void this.sendAssets(node, sent);
     node.outputs.main!.connect(gain);
     gain.connect(this.rawAnalyser!);
     if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
@@ -258,7 +272,7 @@ export class AudioEngine {
         if (this.current?.node === node || this.incoming === node) this.onHealth();
       });
     this.attachProbes(node, info.probes);
-    const live: Live = { node, gain, artifact, info, ctx };
+    const live: Live = { node, gain, artifact, info, ctx, sent };
     // Wall time is not audio time: a newly resumed device may take longer to start rendering.
     const rendered = ctx.currentTime + 256 / ctx.sampleRate;
     const renderDeadline = performance.now() + 3000;
@@ -290,6 +304,7 @@ export class AudioEngine {
     const previous = this.current;
     this.current = live;
     this.incoming = null;
+    this.incomingSent = null;
     // Send held notes once the new node has started, including keys pressed while it was loading.
     if (info.voices)
       for (const [note, velocity] of this.held)
@@ -373,6 +388,54 @@ export class AudioEngine {
       param.setValueAtTime(v, live.ctx.currentTime);
     }
     if (this.current) this.current.info.values[name] = value;
+  }
+
+  /** What the asset slots should hold now: anything that changed is decoded and sent, without recompiling. */
+  setAssets(loads: AssetLoad[]) {
+    this.assetLoads = loads;
+    if (this.current) void this.sendAssets(this.current.node, this.current.sent);
+    if (this.incoming && this.incomingSent) void this.sendAssets(this.incoming, this.incomingSent);
+  }
+
+  private async sendAssets(node: Node, sent: Map<string, string>) {
+    const events = node.events as unknown as Record<string, { emit?: (p: unknown) => void }>;
+    for (const load of this.assetLoads) {
+      if (sent.get(load.event) === load.key || !events[load.event]?.emit) continue;
+      sent.set(load.event, load.key);
+      let payload: unknown;
+      try {
+        if (load.kind === 'bytes') {
+          const bytes = load.key ? ((await load.read()) ?? new Uint8Array()) : new Uint8Array();
+          const data = bytes.slice(0, ASSET_BYTES);
+          payload = { data, length: data.length };
+        } else {
+          const audio = load.key ? await this.decode(load) : null;
+          payload = { data: audio ? slotSamples(audio, load.kind) : new Float32Array() };
+        }
+      } catch (error) {
+        this.events.error?.(`Could not read an asset: ${(error as Error).message}`);
+        continue;
+      }
+      // Pointed elsewhere while this was read: the newer one is on its way.
+      if (sent.get(load.event) !== load.key) continue;
+      events[load.event]!.emit!(payload);
+    }
+  }
+
+  private decode(load: AssetLoad): Promise<AudioBuffer | null> {
+    let decoding = this.decoded.get(load.key);
+    if (!decoding) {
+      const ctx = this.ctx;
+      decoding = load
+        .read()
+        .then(bytes =>
+          bytes && ctx ? ctx.decodeAudioData(bytes.slice().buffer).catch(() => null) : null,
+        );
+      this.decoded.set(load.key, decoding);
+      // Keep the few sounds in use, not every one ever heard.
+      while (this.decoded.size > 16) this.decoded.delete(this.decoded.keys().next().value!);
+    }
+    return decoding;
   }
 
   setVolume(volume: number) {

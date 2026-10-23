@@ -3,7 +3,8 @@
 // through commit() with an author, so humans and AI edit the same way.
 import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
-import { currentValues, generate, type Generated } from '../sound/codegen.ts';
+import { currentAssets, currentValues, generate, type Generated } from '../sound/codegen.ts';
+import type { AssetLoad } from '../sound/assets.ts';
 import {
   History,
   commit as commitWork,
@@ -857,8 +858,10 @@ export class KitSession {
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
     this.scheduleSave();
     this.keepPathsValid();
-    if (!ops.length || ops.some(op => op.op === 'setFile' && op.path.startsWith('assets/')))
+    if (!ops.length || ops.some(op => op.op === 'setFile' && op.path.startsWith('assets/'))) {
       void this.syncAssets();
+      if (ops.length) this.engine.setAssets(this.assetLoads());
+    }
     // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
     // A knob may stand for several AudioParams (each use of a part, each copy of a spread knob) or none (a use's parameter
     // sets it): the patch is expanded again and every AudioParam whose value moved is sent.
@@ -891,9 +894,30 @@ export class KitSession {
     if (same) {
       for (const [name, value] of Object.entries(generated.values))
         this.engine.setParam(name, value);
+      // A sampler pointed at another sound, or an asset replaced: new samples, no recompile.
+      this.engine.setAssets(this.assetLoads());
       return;
     }
     this.scheduleCompile();
+  }
+
+  /** What the sound's asset slots hold: each sampler's sound and each asset a codebox reads. */
+  private assetLoads(): AssetLoad[] {
+    const files = this.doc.value.files;
+    return currentAssets(
+      this.doc.value,
+      catalog,
+      this.generated.value,
+      this.solo.value ? { solo: this.solo.value } : {},
+    ).map(({ slot, path }) => {
+      const meta = path ? assetsOf(files)[path] : undefined;
+      return {
+        event: slot.event,
+        kind: slot.kind,
+        key: meta ? (meta.hash ?? meta.url ?? '') : '',
+        read: () => (meta ? this.assets.read(meta) : Promise.resolve(null)),
+      };
+    });
   }
 
   private scheduleCompile() {
@@ -974,6 +998,7 @@ export class KitSession {
         voices: !!g.voices,
         audioIn: g.audioIn,
         probes: g.probes.length,
+        assets: this.assetLoads(),
       });
     } catch (error) {
       this.toast(

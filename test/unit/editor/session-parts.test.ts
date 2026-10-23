@@ -20,6 +20,7 @@ function makeSession() {
       }) as never,
     engine: {
       setParam: (name: string, value: number) => set.push([name, value]),
+      setAssets() {},
       unload() {},
       running: false,
     } as never,

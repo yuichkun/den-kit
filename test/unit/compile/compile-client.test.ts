@@ -57,6 +57,7 @@ const gen = (hash: string): Generated => ({
   origin: {},
   nodes: [],
   boxes: {},
+  assets: [],
 });
 const inputs = { nodes: [], codeboxes: [] };
 

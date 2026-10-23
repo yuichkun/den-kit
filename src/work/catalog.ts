@@ -89,7 +89,14 @@ export interface PortDef {
 export interface ConfigDef {
   id: string;
   label?: string;
-  kind: 'enum' | 'number' | 'boolean';
+  /**
+   * asset: the path of one of the work's assets, or '' for none. It is a
+   * parameter that points at an asset: the sound reads the file without
+   * recompiling when it changes.
+   */
+  kind: 'enum' | 'number' | 'boolean' | 'asset';
+  /** Asset configs: the kind of file they take. */
+  accepts?: 'audio';
   options?: readonly string[];
   default: ConfigValue;
   min?: number;
@@ -118,6 +125,8 @@ export interface DenBinding {
   mapConfig?: (config: Record<string, ConfigValue>) => Record<string, unknown>;
   /** Approximate state bytes for one instance (validation budget). */
   memoryBytes?: (config: Record<string, ConfigValue>, sampleRate: number) => number;
+  /** Asset configs, by the den constructor key that takes the samples loaded from them. */
+  assets?: Readonly<Record<string, string>>;
 }
 
 /** Pure expression emitter for primitives: input expressions → output expressions. */
@@ -221,6 +230,10 @@ export class Catalog {
 
 /** Does `value` satisfy a config definition? Returns a reason when it does not. */
 export function checkConfigValue(def: ConfigDef, value: unknown): string | undefined {
+  if (def.kind === 'asset')
+    return typeof value === 'string' && (value === '' || value.startsWith('assets/'))
+      ? undefined
+      : `${def.id} must be the path of an asset, such as assets/kick.wav, or "" for none`;
   if (def.kind === 'enum')
     return typeof value === 'string' && def.options?.includes(value)
       ? undefined

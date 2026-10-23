@@ -13,6 +13,8 @@ import ValueField from './ValueField.vue';
 import InputSelect from './InputSelect.vue';
 import StackSection from './StackSection.vue';
 import { stackable } from '../work/stacks.ts';
+import { typeOfPath } from '../work/files.ts';
+import { assetsOf } from '../work/ui.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -79,7 +81,12 @@ function expose(port: string) {
         : `Added "${session.doc.value.nodes[made.id]?.label}" in the corner: the plugin has no free space (make it bigger, or move things).`,
     );
 }
-const configDefs = computed(() => def.value?.config ?? []);
+const configDefs = computed(() => (def.value?.config ?? []).filter(c => c.kind !== 'asset'));
+/** Configs that point at an asset: changing them sends the asset's samples, without recompiling. */
+const assetDefs = computed(() => (def.value?.config ?? []).filter(c => c.kind === 'asset'));
+const audioAssets = computed(() =>
+  Object.keys(assetsOf(session.doc.value.files)).filter(p => typeOfPath(p).as === 'audio'),
+);
 
 // ---- parts ---------------------------------------------------------------------------
 /** The part a selected use stands for. */
@@ -473,6 +480,22 @@ function updateMine() {
         </div>
       </div>
       <StackSection v-if="stackable(session.catalog, node.type)" :node="node" />
+      <div v-if="assetDefs.length" class="section">
+        <h3>Files</h3>
+        <div v-for="c in assetDefs" :key="c.id" class="row" :title="c.doc">
+          <label>{{ c.label ?? c.id }}</label>
+          <select
+            :value="String(node.config[c.id] ?? '')"
+            :data-config="c.id"
+            @change="setConfig(c, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ audioAssets.length ? '—' : 'No audio assets yet' }}</option>
+            <option v-for="path in audioAssets" :key="path" :value="path">
+              {{ path.slice('assets/'.length) }}
+            </option>
+          </select>
+        </div>
+      </div>
       <div v-if="configDefs.length" class="section">
         <h3>Construction (recompiles)</h3>
         <div v-for="c in configDefs" :key="c.id" class="row" :title="c.doc">

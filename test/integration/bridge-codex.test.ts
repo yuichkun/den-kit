@@ -146,6 +146,8 @@ describe('bounded model connection states', () => {
       error: { code: 'connection-timeout' },
     });
     expect(fake.client.busy).toBe(false);
+    // Both go out before the failure is reported; the failure can reach the tab before they reach Codex.
+    await until(() => fake.sent('thread/unsubscribe').length > 0);
     expect(fake.sent('turn/interrupt')).toHaveLength(1);
     expect(fake.sent('thread/unsubscribe')).toHaveLength(1);
     start(s, 'next', 'explain this');

@@ -104,9 +104,17 @@ function validateGraph(
     counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
     for (const c of def.config) {
       if (!Object.hasOwn(node.config, c.id)) continue;
-      const reason = checkConfigValue(c, node.config[c.id]);
+      const value = node.config[c.id];
+      const reason = checkConfigValue(c, value);
       if (reason)
         issues.push({ severity: 'error', code: 'bad-config', node: node.id, message: reason });
+      else if (c.kind === 'asset' && typeof value === 'string' && value && !doc.files[value])
+        issues.push({
+          severity: 'warning',
+          code: 'missing-asset',
+          node: node.id,
+          message: `${node.id}'s ${c.id} is "${value}", which is not in the work, so it plays nothing.`,
+        });
     }
     for (const port of catalog.inputs(node)) {
       if (!Object.hasOwn(node.values, port.id)) continue;

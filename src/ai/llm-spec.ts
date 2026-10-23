@@ -195,7 +195,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_write_codebox',
     description:
-      'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
+      'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core" (it may also import audio and bytes from "@den-kit/assets"); inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -532,6 +532,7 @@ The patch model
   import { defineSubgraph, type Node } from '@unworklet/core';
   export default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; drive: Node<'f32'> }) { return { out: i.in.mul(i.drive).tanh() }; } }));
   Declare its ports with kit_write_codebox; inputs become knobs when unconnected.
+- Audio assets in the sound: a Sampler (den.samplePlayer) plays one; set its sound config to the asset's path (assets/…): it plays the first 65,536 frames (about 1.4 s), mixed to mono. A codebox reads assets with import { audio, bytes } from '@den-kit/assets', the path written out: audio('assets/kick.wav').read(channel, position) gives a sample (two channels, 0 outside the sound), bytes('assets/table.bin').at(index) a byte.
 
 Parts (build small, listen, then reuse)
 - A part is a piece of patch defined once and used in several places (kit.part nodes; each use has its own parameter values). Nodes inside a part have "inside": "<part id>"; kit_get_patch lists every part, its uses, inputs, parameters, outputs and what is inside.

@@ -337,7 +337,7 @@ describe('faces in the session', () => {
           onerror: null,
           onmessageerror: null,
         }) as never,
-      engine: { setParam() {}, unload() {}, running: false } as never,
+      engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
     });
     session.replace(toned(), 'Tone', false);
     return session;

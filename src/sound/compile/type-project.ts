@@ -1,6 +1,8 @@
 // Codebox type checking with the TypeScript language service over a snapshot of
-// @unworklet/core declarations (adapted from playground/src/typescript-project.ts).
+// @unworklet/core declarations (adapted from playground/src/typescript-project.ts)
+// and den-kit's own asset API.
 import ts from 'typescript';
+import { ASSET_API_TYPES } from '../assets.ts';
 import type { Issue } from '../../work/issues.ts';
 import type { PortSpec } from '../../work/schema.ts';
 
@@ -11,7 +13,14 @@ export type TypeFiles = {
 
 export function createTypeProject(snapshot: TypeFiles) {
   const scripts = new Map<string, { text: string; version: number }>();
-  const files = snapshot.files;
+  const files: Record<string, string> = {
+    ...snapshot.files,
+    '/project/node_modules/@den-kit/assets/package.json': JSON.stringify({
+      name: '@den-kit/assets',
+      types: './index.d.ts',
+    }),
+    '/project/node_modules/@den-kit/assets/index.d.ts': ASSET_API_TYPES,
+  };
   const directories = new Set<string>();
   for (const name of Object.keys(files)) {
     const parts = name.split('/');

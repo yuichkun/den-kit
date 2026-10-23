@@ -8,6 +8,7 @@ import {
   clampPortValue,
   defaultValue,
   type Catalog,
+  type ConfigDef,
 } from './catalog.ts';
 import { createsCycle } from './scope.ts';
 import { OpError, fail } from './op-error.ts';
@@ -56,7 +57,14 @@ import {
   type XY,
 } from './schema.ts';
 import { checkSpread, spreadable, stackable } from './stacks.ts';
-import { WORK_LIMITS, checkPath, isTextPath, totalBytes, type WorkFile } from './files.ts';
+import {
+  WORK_LIMITS,
+  checkPath,
+  isTextPath,
+  totalBytes,
+  typeOfPath,
+  type WorkFile,
+} from './files.ts';
 import { CONTROL_OF, type ControlKind } from './skins.ts';
 import {
   ELEMENT_FIELDS,
@@ -546,6 +554,19 @@ export function applyIntents(
   return { doc: draft.doc, ops: draft.ops, created, createdBy };
 }
 
+/** An asset config names one of the work's assets, of the kind it takes, or nothing. */
+function checkAssetConfig(draft: Draft, c: ConfigDef, value: ConfigValue | undefined) {
+  if (c.kind !== 'asset' || value === '' || typeof value !== 'string') return;
+  if (!draft.doc.files[value])
+    fail(
+      'unknown-asset',
+      `No asset "${value}".`,
+      `Assets: ${Object.keys(assetsOf(draft.doc.files)).join(', ') || 'none'}`,
+    );
+  if (c.accepts === 'audio' && typeOfPath(value).as !== 'audio')
+    fail('bad-config', `${c.id} takes an audio file; "${value}" is not one.`);
+}
+
 function requireNode(draft: Draft, id: unknown): PatchNode {
   if (typeof id !== 'string' || !draft.doc.nodes[id]) {
     const known = Object.keys(draft.doc.nodes).sort();
@@ -597,6 +618,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
           spec.config && Object.hasOwn(spec.config, c.id) ? spec.config[c.id] : c.default;
         const reason = checkConfigValue(c, value);
         if (reason) fail('bad-config', reason);
+        checkAssetConfig(draft, c, value);
         config[c.id] = value!;
       }
       for (const key of Object.keys(spec.config ?? {}))
@@ -806,6 +828,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
         );
       const reason = checkConfigValue(c, intent.value);
       if (reason) fail('bad-config', reason);
+      checkAssetConfig(draft, c, intent.value);
       if (node.config[c.id] === intent.value) return;
       draft.apply({
         op: 'setConfig',
@@ -1100,6 +1123,9 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       ];
       for (const def of Object.values(draft.doc.parts))
         if (def.face && faceAssetUses(def.face).has(intent.id)) uses.push(`${def.name}'s face`);
+      for (const node of Object.values(draft.doc.nodes))
+        for (const [key, value] of Object.entries(node.config))
+          if (value === intent.id) uses.push(`${node.id}'s ${key}`);
       if (uses.length)
         fail(
           'asset-in-use',
@@ -1568,6 +1594,8 @@ function moveAssetRefs(draft: Draft, from: string, to: string) {
     const after = move(node.style);
     if (after !== node.style)
       draft.apply({ op: 'setField', node: node.id, field: 'style', from: node.style, to: after });
+    for (const [key, value] of Object.entries(node.config))
+      if (value === from) draft.apply({ op: 'setConfig', node: node.id, key, from: value, to });
   }
   for (const part of Object.values(draft.doc.parts)) {
     const after = move(part) as PartDef;

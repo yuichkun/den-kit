@@ -36,7 +36,7 @@ function makeSession(storage: StorageLike) {
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
   session.replace(starter('bass', catalog), 'Bass', false);
   return session;
