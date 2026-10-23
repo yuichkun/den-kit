@@ -98,6 +98,7 @@ writeFileSync(
 );
 
 // Only operator-controlled service credentials. No ChatGPT login, local config or logs are ever packaged.
+// Shipping the BrowserPod key breaks principle 1 in docs/principles.md.
 writeFileSync(
   join(resources, 'operator.json'),
   JSON.stringify({ browserPodKey: env.BROWSERPOD_API_KEY || undefined }),

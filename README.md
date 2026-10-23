@@ -8,8 +8,8 @@ undone.
 
 den-kit gives you good starting points: den blocks that sound good as they are, and
 ready-made UI components that are easy to use and look right together. When those are
-not enough, write your own DSP in codebox, or your own screen in code, with libraries
-such as three.js, in a BrowserPod workspace.
+not enough, write your own DSP in a codebox inside the patch, or write your own screen in
+code with libraries such as three.js in a BrowserPod workspace.
 
 den-kit runs on its own as a desktop app. It is also meant to work inside Suara Portal,
 the DAW plugin of [Suara](https://suara.audio) where people find and play instruments
@@ -27,7 +27,7 @@ Signed builds for macOS (Apple silicon and Intel) are on
   code parts and known limitations
 - [Development](docs/development.md): running from source, building the macOS app,
   checks and tests
-- [Architecture](docs/architecture.md): what each source directory holds
+- [Architecture](docs/architecture.md): how den-kit is structured
 
 Bug reports and suggestions are welcome as GitHub issues. Include reproduction steps and
 the relevant browser or app version, and do not include credentials or private logs.
