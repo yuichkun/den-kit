@@ -57,7 +57,7 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 The code is being rewritten to [docs/principles.md](docs/principles.md) and
 [docs/architecture.md](docs/architecture.md), and code that has not been rewritten yet does
 not follow them. New and changed code follows them, and a review flags a change only when it
-takes the code further from them. Remove this paragraph when the rewrite is done.
+takes the code further from them.
 
 ## How to work
 

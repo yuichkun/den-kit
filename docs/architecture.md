@@ -205,5 +205,6 @@ the sound to `screen`.
 | Consent        | Asking at first launch, sending analytics only with consent, and keeping the choice when the person makes an account                                                                                                                               | A send address set only in distributed builds                                                                                                                                                        |
 | Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                                                                                                                           | electron-updater                                                                                                                                                                                     |
 
-The desktop app in `desktop/` is the host this repository ships, for macOS and Windows.
+The desktop app in `desktop/` is the host this repository ships; the [README](../README.md)
+says which systems it is released for.
 Other hosts, such as one inside Suara Portal, implement the same interfaces.
