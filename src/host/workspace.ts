@@ -1,6 +1,8 @@
 // The Workspace interface: a pod, a Linux-like machine where the work's files
 // run as a web project with bash, git, Node and npm. The host decides whether
-// there is one and provides it; den-kit's workspace module drives it. Types only.
+// there is one and provides it; den-kit's workspace module drives it. Each work
+// has a pod with a disk of its own, and a pod reaches the internet only while
+// den-kit installs packages. Types only.
 
 /** How one command runs. The command is a bash script, run with `bash` in `cwd`. */
 export interface PodRunOptions {
@@ -47,6 +49,8 @@ export interface PodHost {
   readFile(path: string): Promise<string | null>;
   /** A server inside the pod opened a port and can be reached at `url` (also called for ports already open). */
   onPortal(listener: (portal: Portal) => void): () => void;
+  /** Let the pod reach the internet (open) or not. It starts closed; den-kit opens it only to install packages. */
+  network(open: boolean): void;
   dispose?(): void;
 }
 
@@ -54,8 +58,11 @@ export interface PodHost {
 export interface PodFactory {
   /** Which pod this is (null: none can be made; `reason` and `fix` say why). */
   kind: 'browserpod' | 'fake' | null;
-  /** Make the pod; `progress` says what it is doing (starting a pod takes a while the first time). */
-  create(progress?: (text: string) => void): Promise<PodHost>;
+  /**
+   * Make the pod for one work (its id): each work has a disk of its own. `progress`
+   * says what it is doing (starting a pod takes a while the first time).
+   */
+  create(work: string, progress?: (text: string) => void): Promise<PodHost>;
   reason?: string;
   fix?: string;
   /** The error the person sees when the pod fails, with what they can do about it. */

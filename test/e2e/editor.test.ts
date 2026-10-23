@@ -336,17 +336,30 @@ describe('patch editor', () => {
     assert.ok((await page.locator('[data-testid=code-view] .line .hljs-keyword').count()) > 10);
     await page.close();
   });
-  it('F6 two tabs can both edit (no read-only mode); each autosaves its own changes', async () => {
+  it('F6 a work opens in one window: a second window says so and saves nothing; once the first closes it opens again', async () => {
     const context = await h.browser.newContext();
     const a = await context.newPage();
     await a.goto(h.url);
     await waitCompiled(a);
+    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), true);
+    await kit(a, k => k.saveNow());
     const b = await context.newPage();
     await b.goto(h.url);
-    await waitCompiled(b);
-    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), true);
-    assert.equal(await kit(b, k => k.commit([{ op: 'setName', name: 'from b' }]).ok), true);
-    assert.equal(await b.$('[data-testid=take-over]'), null);
+    await b.waitForSelector('[data-testid=work-refused]');
+    assert.match(
+      (await b.textContent('[data-testid=work-refused]')) ?? '',
+      /“from a” is open in another den-kit window/,
+    );
+    // The first window keeps the work; the second wrote nothing over it.
+    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'still a' }]).ok), true);
+    await kit(a, k => k.saveNow());
+    await b.waitForTimeout(1200);
+    await a.close();
+    const c = await context.newPage();
+    await c.goto(h.url);
+    await waitCompiled(c);
+    assert.equal(await kit(c, k => k.doc.value.name), 'still a');
+    assert.equal(await c.$('[data-testid=work-refused]'), null);
     await context.close();
   });
 });

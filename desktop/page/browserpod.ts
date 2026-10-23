@@ -32,10 +32,105 @@ export interface BrowserPodOptions {
   apiKey: string;
   /** Installed-app users need app actions, while contributors need setup diagnostics. */
   audience?: 'desktop' | 'developer';
-  /** The pod's disk is kept in this browser (IndexedDB) under this key, so installed packages survive a reload. */
-  storageKey?: string;
+  /** The work the pod is for: its disk is kept in this browser (IndexedDB) under a key of its own, so installed packages survive a reload. */
+  work: string;
   log?(line: string): void;
 }
+
+/** The key BrowserPod keeps a work's disk under. */
+export const diskKey = (work: string) => `den-kit-work-${work}`;
+
+/**
+ * What BrowserPod gets for an outbound socket while the network is closed: it
+ * answers the way the portal answers a refused connection (a TCP connection is
+ * disconnected at once) and leaves UDP (name lookups) unanswered, so a command
+ * fails instead of waiting for a socket that never opens.
+ */
+class Refusing extends EventTarget {
+  readyState = 1;
+  binaryType = 'arraybuffer';
+  readonly url: string;
+  onmessage: ((event: { target: unknown; data: unknown }) => void) | null = null;
+  onclose: ((event: { target: unknown }) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  constructor(url: string) {
+    super();
+    this.url = url;
+    // Ready, as the portal says it is (an init without a portal).
+    setTimeout(() => this.reply({ type: 'init' }));
+  }
+  private reply(message: Record<string, unknown>) {
+    if (this.readyState === 1) this.onmessage?.({ target: this, data: JSON.stringify(message) });
+  }
+  send(data: unknown) {
+    if (typeof data !== 'string') return;
+    let m: Record<string, unknown>;
+    try {
+      m = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (m.type === 'tcpconnect')
+      setTimeout(() =>
+        this.reply({
+          type: 'tcpdisconnect',
+          destip: m.srcip,
+          destport: m.srcport,
+          srcip: m.destip,
+          srcport: m.destport,
+        }),
+      );
+  }
+  close() {
+    if (this.readyState === 3) return;
+    this.readyState = 3;
+    this.onclose?.({ target: this });
+  }
+}
+
+/**
+ * BrowserPod reaches the internet through WebSockets this page opens to its
+ * portal (`wss://main.browserportal.io/conn`); its start and the portal of the dev
+ * server use others. While the network is closed, those sockets are stand-ins
+ * that refuse every connection, and opening or closing the network ends the
+ * sockets of the other state, so BrowserPod's pool never mixes them. This relies
+ * on how BrowserPod connects: `vp run desktop:check --real` checks that a pod
+ * cannot reach github.com outside an install and can install inside one.
+ */
+export function networkGate(scope: { WebSocket: typeof WebSocket } = globalThis) {
+  const Native = scope.WebSocket;
+  const outbound = new Set<{ close(): void }>();
+  let open = false;
+  const isOutbound = (url: string) => {
+    try {
+      const u = new URL(url);
+      return u.pathname === '/conn' && /(^|\.)browserportal\.io$/.test(u.hostname);
+    } catch {
+      return false;
+    }
+  };
+  scope.WebSocket = new Proxy(Native, {
+    construct(target, args: [string | URL, (string | string[])?], newTarget) {
+      const url = String(args[0]);
+      if (!isOutbound(url)) return Reflect.construct(target, args, newTarget);
+      const socket = open
+        ? (Reflect.construct(target, args, newTarget) as WebSocket)
+        : (new Refusing(url) as unknown as WebSocket);
+      outbound.add(socket);
+      socket.addEventListener('close', () => outbound.delete(socket));
+      return socket;
+    },
+  });
+  return (value: boolean) => {
+    if (value === open) return;
+    open = value;
+    for (const socket of outbound) {
+      outbound.delete(socket);
+      socket.close();
+    }
+  };
+}
+let network: ((open: boolean) => void) | null = null;
 
 /** Quiet, colourless tools (their output goes to den-kit's log and to the AI). */
 const QUIET = {
@@ -203,8 +298,15 @@ async function boot(options: BrowserPodOptions & { testing?: BootTesting }): Pro
       `This browser is too old for BrowserPod (it lacks ${missing}).`,
       'Update Chrome (chrome://settings/help), then reload the page.',
     );
+  if (startedFor !== null && startedFor !== options.work)
+    throw new PodUnavailable(
+      'The project tools in this window belong to the work that started them.',
+      "Reopen den-kit with this work open: it starts this work's own project tools.",
+    );
+  startedFor = options.work;
   starting ??= startBoot(options).catch(error => {
     starting = null;
+    startedFor = null;
     throw error;
   });
   const boot = await starting;
@@ -212,7 +314,12 @@ async function boot(options: BrowserPodOptions & { testing?: BootTesting }): Pro
   if (!boot.pod) options.log?.('Connecting project tools…');
   const pod = boot.pod ?? (await Promise.race([boot.ready, boot.failed]));
   options.log?.('Preparing the project workspace…');
-  const host = new BrowserPodHost(pod, line => console.info('[den-kit] Project tools:', line));
+  network ??= networkGate();
+  const host = new BrowserPodHost(
+    pod,
+    line => console.info('[den-kit] Project tools:', line),
+    network,
+  );
   await host.init();
   return host;
 }
@@ -224,6 +331,7 @@ export interface BootTesting {
 /** For the tests: as a fresh page. */
 export function resetBrowserPodForTest() {
   starting = null;
+  startedFor = null;
 }
 
 /** BrowserPod's calls return thenables that are not always real Promises (no .catch): make them Promises. */
@@ -263,12 +371,14 @@ interface Boot {
   failed: Promise<never>;
 }
 let starting: Promise<Boot> | null = null;
+/** The work the pod of this page is for (BrowserPod starts once per page). */
+let startedFor: string | null = null;
 
 async function startBoot(options: BrowserPodOptions & { testing?: BootTesting }): Promise<Boot> {
-  if (!(await claimPod()))
+  if (!(await claimPod(options.work)))
     throw new PodUnavailable(
-      'Another den-kit tab is using the pod (BrowserPod runs in one tab at a time).',
-      'Close the other den-kit tab, then press Start the pod here.',
+      "This work's project tools are running in another den-kit window.",
+      'Close the other window, then press Start the pod here.',
     );
   options.log?.('Loading project tools…');
   let mod: typeof import('@leaningtech/browserpod');
@@ -331,7 +441,7 @@ async function startBoot(options: BrowserPodOptions & { testing?: BootTesting })
     globalThis.removeEventListener?.('unhandledrejection', onRejection);
   };
   boot.ready = promise(() =>
-    mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: options.storageKey }),
+    mod.BrowserPod.boot({ apiKey: options.apiKey, storageKey: diskKey(options.work) }),
   );
   boot.ready.then(
     pod => {
@@ -362,12 +472,12 @@ async function startBoot(options: BrowserPodOptions & { testing?: BootTesting })
 
 /** Only one den-kit tab may run BrowserPod (its disk is shared by every tab of this address): hold a lock for the page's lifetime. */
 let claimed = false;
-function claimPod(): Promise<boolean> {
+function claimPod(work: string): Promise<boolean> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
   if (claimed || !locks?.request) return Promise.resolve(true);
   return new Promise(resolve => {
     void locks
-      .request('den-kit:browserpod', { ifAvailable: true }, lock => {
+      .request(`den-kit:browserpod:${work}`, { ifAvailable: true }, lock => {
         if (!lock) {
           resolve(false);
           return null;
@@ -391,15 +501,21 @@ export class BrowserPodHost implements PodHost {
   private scripts = 0;
   private readonly pod: Pod;
   private readonly log?: (line: string) => void;
+  private readonly gate: (open: boolean) => void;
 
-  constructor(pod: Pod, log?: (line: string) => void) {
+  constructor(pod: Pod, log?: (line: string) => void, gate: (open: boolean) => void = () => {}) {
     this.pod = pod;
     this.log = log;
+    this.gate = gate;
     pod.onPortal(({ url, port }) => {
       this.portals.set(port, url);
       this.log?.(`portal ${port} → ${url}`);
       for (const l of this.listeners) l({ url, port });
     });
+  }
+
+  network(open: boolean) {
+    this.gate(open);
   }
 
   /**

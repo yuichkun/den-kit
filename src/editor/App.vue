@@ -364,7 +364,14 @@ async function importPatch(e: Event) {
 </script>
 
 <template>
+  <div v-if="session.refused.value" class="refused" data-testid="work-refused" role="alert">
+    <p>
+      “{{ session.refused.value }}” is open in another den-kit window. A work opens in one window at
+      a time: go on there, or close that window and reload this one.
+    </p>
+  </div>
   <div
+    v-else
     class="kit-shell"
     :class="{ focus: focusMode }"
     :style="{ '--ai-w': aiOpen ? `${dockWidth}px` : '0px' }"

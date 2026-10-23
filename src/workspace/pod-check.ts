@@ -1,7 +1,7 @@
 // The pod check: what working in the pod feels like, measured — the pod
 // starting (and npm install, the dev server), the usual tools, TypeScript,
-// ESLint, an npm install, a build, git, a code part loading from the dev server,
-// and an edit reaching it. Run from the Project view (and once by itself the
+// ESLint, an install by den-kit, no network outside it, a build, git, a code part
+// loading from the dev server, and an edit reaching it. Run from the Project view (and once by itself the
 // first time den-kit has a BrowserPod key). It changes nothing in the work: the
 // part it loads is a scratch file of the pod's own (CHECK_PART), removed after.
 import { ref } from 'vue';
@@ -24,7 +24,8 @@ const STEPS: Array<Pick<CheckStep, 'id' | 'title'>> = [
   { id: 'tools', title: 'bash, git, Node, npm' },
   { id: 'check', title: 'TypeScript (npm run check)' },
   { id: 'lint', title: 'ESLint (npm run lint)' },
-  { id: 'install', title: 'Install a package (npm install, not kept)' },
+  { id: 'install', title: 'den-kit installs a package (npm install, not kept)' },
+  { id: 'offline', title: 'No network outside installs (github.com cannot be reached)' },
   { id: 'build', title: 'Build (npm run build)' },
   { id: 'git', title: 'git (status, log)' },
   { id: 'part', title: 'A code part loads from the dev server' },
@@ -78,14 +79,32 @@ export class PodCheck {
       );
       await this.command(pod, 'check', 'npm run check', () => 'no errors');
       await this.command(pod, 'lint', 'npm run lint', () => 'no problems');
+      await this.step('install', async () => {
+        const r = await pod.installPackages('is-number@7.0.0');
+        const there = await pod.bash('test -d node_modules/is-number && echo installed', {
+          who: 'den-kit',
+        });
+        if (r.exitCode !== 0 || there.exitCode !== 0)
+          throw new Error(`exit ${r.exitCode}: ${r.output.slice(-400)}`);
+        return r.output
+          .split('\n')
+          .filter(l => /added|up to date/.test(l))
+          .join(' · ');
+      });
+      // curl when the pod has it, and Node's fetch: neither may get through.
       await this.command(
         pod,
-        'install',
-        'npm install --no-save --no-audit --no-fund is-number@7.0.0 && test -d node_modules/is-number && echo installed',
+        'offline',
+        [
+          'fail=0',
+          "if command -v curl >/dev/null; then if curl -sS -m 15 -o /dev/null https://github.com; then echo 'curl reached github.com'; fail=1; else echo 'curl: no network'; fi; fi",
+          `if node -e "fetch('https://github.com',{signal:AbortSignal.timeout(15000)}).then(()=>process.exit(1),()=>process.exit(0))"; then echo 'node: no network'; else echo 'node reached github.com'; fail=1; fi`,
+          'exit $fail',
+        ].join('\n'),
         r =>
           r.output
             .split('\n')
-            .filter(l => /added|up to date|installed/.test(l))
+            .filter(l => /no network/.test(l))
             .join(' · '),
       );
       await this.command(pod, 'build', 'npm run build', r =>

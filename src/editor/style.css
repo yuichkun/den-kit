@@ -467,3 +467,18 @@ input[type='range'] {
   align-items: center;
   background: #2b2b2b;
 }
+
+/* A work open in another window: this window says so instead of opening it. */
+.refused {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.refused p {
+  max-width: 34em;
+  font-size: 15px;
+  line-height: 1.5;
+}

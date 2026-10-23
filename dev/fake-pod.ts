@@ -21,8 +21,11 @@ type Inbound =
   | { t: 'portal'; url: string; port: number }
   | { t: 'error'; id?: string; message: string };
 
-export async function connectFakePod(url: string): Promise<PodHost> {
-  const socket = new WebSocket(url);
+/** A pod for one work's disk (a home of its own on the test machine). */
+export async function connectFakePod(url: string, disk: string): Promise<PodHost> {
+  const address = new URL(url);
+  address.searchParams.set('disk', disk);
+  const socket = new WebSocket(address);
   const host = new FakePodHost(socket);
   await host.ready;
   return host;
@@ -38,6 +41,8 @@ class FakePodHost implements PodHost {
     { out: string; onOutput?: (t: string) => void; done(m: Inbound): void }
   >();
   private readonly portals = new Map<number, string>();
+  /** The machine is the test machine: closed, commands get a proxy that leads nowhere. */
+  private online = false;
   private readonly listeners = new Set<(p: Portal) => void>();
   private readonly socket: WebSocket;
 
@@ -76,6 +81,27 @@ class FakePodHost implements PodHost {
     this.socket.send(JSON.stringify(message));
   }
 
+  network(open: boolean) {
+    this.online = open;
+  }
+  /** What the network being closed looks like to a command: every proxy points at a port nothing answers. */
+  private env(env?: Record<string, string>): Record<string, string> | undefined {
+    if (this.online) return env;
+    const nowhere = 'http://127.0.0.1:9';
+    return {
+      ...env,
+      HTTP_PROXY: nowhere,
+      HTTPS_PROXY: nowhere,
+      ALL_PROXY: nowhere,
+      http_proxy: nowhere,
+      https_proxy: nowhere,
+      all_proxy: nowhere,
+      npm_config_proxy: nowhere,
+      npm_config_https_proxy: nowhere,
+      NODE_USE_ENV_PROXY: '1',
+    };
+  }
+
   run(script: string, options: PodRunOptions = {}): Promise<PodRunResult> {
     const id = `r${++this.seq}`,
       started = performance.now();
@@ -100,7 +126,7 @@ class FakePodHost implements PodHost {
         id,
         script,
         cwd: options.cwd ?? this.home,
-        env: options.env,
+        env: this.env(options.env),
         timeoutMs: options.timeoutMs,
       });
     });
@@ -124,7 +150,14 @@ class FakePodHost implements PodHost {
         },
       });
     });
-    this.send({ t: 'start', id, name, script, cwd: options.cwd ?? this.home, env: options.env });
+    this.send({
+      t: 'start',
+      id,
+      name,
+      script,
+      cwd: options.cwd ?? this.home,
+      env: this.env(options.env),
+    });
     return {
       name,
       done,

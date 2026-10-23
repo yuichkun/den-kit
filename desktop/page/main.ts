@@ -67,11 +67,11 @@ const apiKey = shell.runtime.apiKey;
 const workspace: PodFactory = apiKey
   ? {
       kind: 'browserpod',
-      create: async progress =>
+      create: async (work, progress) =>
         (await import('./browserpod.ts')).bootBrowserPod({
           apiKey,
           audience: 'desktop',
-          storageKey: 'den-kit',
+          work,
           log: progress,
         }),
       explain: error => desktopProjectError(error),

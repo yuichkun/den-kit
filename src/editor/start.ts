@@ -34,6 +34,10 @@ export function startEditor(host: Host, options: EditorOptions): KitSession {
   });
   // Nothing saved yet (the very first launch): open on the start screen.
   const firstRun = !session.restore('bass') && !options.noStart;
+  const opened = session.doc.value;
+  void session.lock.claim(opened.id).then(ours => {
+    if (!ours) session.refused.value = opened.name;
+  });
   if (host.ai) {
     session.bridge = host.ai;
     host.ai.start();

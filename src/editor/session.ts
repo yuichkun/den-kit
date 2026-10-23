@@ -76,6 +76,7 @@ import { MARK_COLORS, type Box, type Mark, type SketchView } from '../ai/sketch.
 /** What drawing on a view does: a mark kind, or rubbing marks out. */
 export type InkTool = Mark['kind'] | 'eraser';
 import { ScreenShare } from './screen-share.ts';
+import { WorkLock } from './work-lock.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
@@ -109,6 +110,10 @@ export class KitSession {
   readonly catalog = catalog;
   readonly doc = shallowRef<PatchDocument>(emptyDocument('Untitled'));
   readonly history = markRaw(new History());
+  /** The open work is this window's alone (another window holding it is refused). */
+  readonly lock = new WorkLock();
+  /** Set when the work this window would open is open in another window: the window shows that instead, and saves nothing. */
+  readonly refused = ref<string | null>(null);
   readonly historyVersion = ref(0);
   /** My parts, as last read from storage. */
   readonly myParts = shallowRef<Library>(emptyLibrary());
@@ -277,12 +282,14 @@ export class KitSession {
         `Autosave could not be read (${read.error}); a copy was kept and a starter patch was loaded.`,
       );
     }
-    this.replace(starter(fallback, catalog), 'Starter', false);
+    this.replace({ ...starter(fallback, catalog), id: randomId('patch') }, 'Starter', false);
     return false;
   }
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
+    // Another work: this window holds it now (and lets go of the one before).
+    if (doc.id !== previous.id) void this.lock.claim(doc.id);
     if (undoable)
       this.history.record({
         id: randomId('tx'),
@@ -648,8 +655,9 @@ export class KitSession {
     if (this.solo.value && valid(this.solo.value) < this.solo.value.length) this.solo.value = null;
   }
 
+  /** A new work from a starter: a work of its own (its own id, disk and window). */
   loadStarter(id: StarterId) {
-    this.replace(starter(id, catalog), `Load ${id}`);
+    this.replace({ ...starter(id, catalog), id: randomId('patch') }, `Load ${id}`);
   }
   /** Start from a showcase work, optionally wearing another work's look (one undo step). */
   loadWork(work: Work, look?: Work) {
@@ -657,7 +665,11 @@ export class KitSession {
     if (look && look.id !== work.id)
       doc = applyIntents(doc, lookIntents(doc, look.build(catalog)), catalog).doc;
     this.replace(
-      { ...doc, name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name },
+      {
+        ...doc,
+        id: randomId('patch'),
+        name: look && look.id !== work.id ? `${doc.name} (${look.title} look)` : doc.name,
+      },
       `Start from ${work.title}`,
     );
   }
@@ -1130,11 +1142,12 @@ export class KitSession {
 
   // ---- Persistence --------------------------------------------------------------
   private scheduleSave() {
-    if (!this.storage) return;
+    if (!this.storage || this.refused.value) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this.saveNow(), 800);
   }
   saveNow() {
+    if (this.refused.value) return;
     this.requests?.persist();
     if (!this.storage) return;
     if (this.saveTimer) {
@@ -1187,6 +1200,10 @@ export class KitSession {
     const read = await readWorkFile(bytes, catalog);
     if (!read.ok) {
       this.toast('error', `Import refused: ${read.error}`);
+      return false;
+    }
+    if (!(await this.lock.claim(read.doc.id))) {
+      this.toast('error', `Import refused: “${read.doc.name}” is open in another den-kit window.`);
       return false;
     }
     for (const data of read.contents.values()) await this.assets.put(data);

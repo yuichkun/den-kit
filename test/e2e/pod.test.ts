@@ -555,7 +555,7 @@ describe('the Project view', () => {
           !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') &&
           document.querySelectorAll(
             '[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped',
-          ).length === 9,
+          ).length === 10,
         null,
         { timeout: 300000 },
       );
@@ -570,6 +570,7 @@ describe('the Project view', () => {
           'check:ok',
           'lint:ok',
           'install:ok',
+          'offline:ok',
           'build:ok',
           'git:ok',
           'part:ok',

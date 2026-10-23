@@ -114,6 +114,10 @@ class ProjectRetryFailed extends PodUnavailable {
   }
 }
 
+/** How den-kit installs packages: from the npm registry only, without running their install scripts. */
+const NPM_INSTALL =
+  'npm install --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund';
+
 export class PodSession {
   readonly state = ref<PodState>('off');
   readonly message = ref('');
@@ -143,6 +147,8 @@ export class PodSession {
   private queue: Promise<unknown> = Promise.resolve();
   private syncQueued = false;
   private controlsText = '';
+  /** The work this pod belongs to (its disk is that work's): set when it boots. */
+  private work: string | null = null;
   /** den-kit's own kit files (the behaviors), written into the project as they are. */
   private readonly kit: Readonly<Record<string, string>>;
   private entries = 0;
@@ -206,6 +212,14 @@ export class PodSession {
   ensure(): Promise<PodHost> {
     if (!this.factory.kind)
       return Promise.reject(new PodUnavailable(this.factory.reason ?? 'No pod.', this.factory.fix));
+    if (this.otherWork()) {
+      const error = new PodUnavailable(
+        'The project tools in this window belong to the work that started them.',
+        "Reopen den-kit with this work open: it starts this work's own project tools.",
+      );
+      this.set('unavailable', error.message, error.fix);
+      return Promise.reject(error);
+    }
     if (!this.booting) {
       const attempt = this.boot().catch(error => {
         if (this.booting === attempt) this.booting = null;
@@ -268,13 +282,20 @@ export class PodSession {
     return reported;
   }
 
+  /** The pod belongs to another work than the one open now (each work has its own disk). */
+  private otherWork(): boolean {
+    return this.work !== null && this.work !== this.session.doc.value.id;
+  }
+
   private async boot(): Promise<PodHost> {
     const started = performance.now();
     if (!this.host) {
       this.set('booting', 'Preparing project tools…');
-      this.host = await this.factory.create(text => {
+      const work = this.session.doc.value.id;
+      this.host = await this.factory.create(work, text => {
         if (this.state.value === 'booting') this.message.value = text;
       });
+      this.work = work;
       this.projectDir = `${this.host.home}/work`;
       this.portalWatch = this.host.onPortal(p => {
         if (p.port === DEV_PORT) {
@@ -319,7 +340,8 @@ export class PodSession {
   }
   /** One pending write of the document into the pod at a time (a knob drag changes the document many times). */
   private scheduleSync() {
-    if (this.syncQueued || !this.host) return;
+    // Another work's files never go onto this work's disk.
+    if (this.syncQueued || !this.host || this.otherWork()) return;
     this.syncQueued = true;
     void this.enqueue(async () => {
       this.syncQueued = false;
@@ -561,8 +583,8 @@ export class PodSession {
     const started = performance.now();
     const ready = this.state.value === 'ready';
     this.set('installing', 'Installing project dependencies…');
-    const r = await this.system(
-      `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else npm install --no-audit --no-fund && cp package.json node_modules/.den-kit-package.json; fi`,
+    const r = await this.npm(
+      `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
       'npm install',
       600_000,
     );
@@ -580,6 +602,29 @@ export class PodSession {
     }
     this.installedFor = pkg;
     if (ready || this.portal.value) this.set('ready', 'Ready.');
+  }
+
+  /**
+   * An install: the only time the pod reaches the internet. Only npm runs then,
+   * from the npm registry, with packages' install scripts off; the network
+   * closes again whatever happens.
+   */
+  private async npm(command: string, label: string, timeoutMs: number): Promise<PodRunResult> {
+    const host = this.host!;
+    host.network(true);
+    try {
+      return await this.system(command, label, timeoutMs);
+    } finally {
+      host.network(false);
+    }
+  }
+
+  /** Install packages without keeping them in package.json (the pod check). */
+  installPackages(specs: string): Promise<PodRunResult> {
+    return this.enqueue(async () => {
+      await this.ensure();
+      return this.npm(`${NPM_INSTALL} --no-save ${specs}`, `npm install ${specs}`, 300_000);
+    });
   }
 
   /** Start the dev server unless it is starting already. */

@@ -2,6 +2,8 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { textFiles } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
@@ -71,7 +73,11 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
       catalog,
     ).doc;
     kit = session(doc);
-    pod = new PodSession(kit, { kind: 'fake', create: () => connectFakePod(fake.url) }, kitFiles());
+    pod = new PodSession(
+      kit,
+      { kind: 'fake', create: work => connectFakePod(fake.url, work) },
+      kitFiles(),
+    );
   }, 30_000);
   afterAll(async () => {
     pod?.dispose();
@@ -270,4 +276,88 @@ describe('pod session without a pod', () => {
     await expect(pod.ensure()).rejects.toThrow();
     expect(tries).toBe(2);
   });
+});
+
+describe("each work's pod (test pod)", () => {
+  let fake: FakePod;
+  beforeAll(async () => {
+    fake = await startFakePod();
+  });
+  afterAll(async () => {
+    await fake?.close();
+  });
+
+  it('reaches the internet only while den-kit installs packages (npm, from the npm registry, no install scripts), and serves only the work it started for', async () => {
+    const kit = session(starter('bass', catalog));
+    const work = kit.doc.value.id;
+    const asked: string[] = [];
+    const pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: w => {
+          asked.push(w);
+          return connectFakePod(fake.url, w);
+        },
+      },
+      kitFiles(),
+    );
+    try {
+      await pod.ensure();
+      expect(pod.state.value).toBe('ready');
+      // The pod is the work's own: den-kit asked for this work's disk.
+      expect(asked).toEqual([work]);
+      const offline = async () => {
+        const curl = await pod.bash('curl -sS -m 10 -o /dev/null https://github.com', {
+          who: 'ai',
+        });
+        expect(curl.exitCode, curl.output).not.toBe(0);
+        const node = await pod.bash(
+          `node -e "fetch('https://github.com').then(()=>process.exit(0),()=>process.exit(3))"`,
+          { who: 'ai' },
+        );
+        expect(node.exitCode, node.output).toBe(3);
+      };
+      await offline();
+      // A command cannot install from the internet; den-kit's install can.
+      expect(
+        (await pod.bash('npm install --no-save is-number@7.0.0', { who: 'ai' })).exitCode,
+      ).not.toBe(0);
+      const installed = await pod.installPackages('is-number@7.0.0');
+      expect(installed.exitCode, installed.output).toBe(0);
+      await offline();
+      // den-kit's installs: the boot's and the one above, from the npm registry, without install scripts.
+      const ours = fake.commands.filter(c => c.includes('--registry=https://registry.npmjs.org/'));
+      expect(ours.length).toBeGreaterThanOrEqual(2);
+      for (const c of ours) expect(c).toContain('npm install --ignore-scripts');
+      // Another work opened in the same window: the pod is not used for it, and its files do not go onto this disk.
+      const other = { ...starter('bass', catalog), id: 'another-work' };
+      kit.doc.value = applyIntents(
+        other,
+        [
+          {
+            op: 'setProjectFiles',
+            files: withTemplate(other.files, { 'src/parts/other.ts': starterPart('other') }),
+          },
+        ],
+        catalog,
+      ).doc;
+      await expect(pod.ensure()).rejects.toThrow(/belong to the work that started them/);
+      expect(pod.state.value).toBe('unavailable');
+      await settle(500);
+      expect(existsSync(join(fake.homeOf(work), 'work', 'src/parts/other.ts'))).toBe(false);
+    } finally {
+      pod.dispose();
+    }
+  }, 300_000);
+
+  it("a work's disk is its own: what one work leaves in its pod, another does not see", async () => {
+    const a = await connectFakePod(fake.url, 'work-a');
+    const b = await connectFakePod(fake.url, 'work-b');
+    expect((await a.run('echo secret > ~/left-by-a.txt')).exitCode).toBe(0);
+    expect((await a.run('test -e ~/left-by-a.txt')).exitCode).toBe(0);
+    expect((await b.run('test -e ~/left-by-a.txt')).exitCode).toBe(1);
+    a.dispose?.();
+    b.dispose?.();
+  }, 60_000);
 });

@@ -1,6 +1,7 @@
 // FOR TESTS ONLY: stands in for BrowserPod (which needs an API key the cloud
 // tests do not have). The page talks to it through dev/fake-pod.ts over a
-// WebSocket; commands run in this machine's bash, in a temporary home, and a
+// WebSocket; commands run in this machine's bash, in a temporary home (one per
+// disk the page asks for: a work's disk, like BrowserPod's storage key), and a
 // server they start is reported as a "portal" (its local address). Commands run
 // with the test machine's own tools, so it checks den-kit's side of the pod
 // (files, commands, the dev server, the code parts), not BrowserPod itself.
@@ -13,7 +14,10 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 export interface FakePod {
   url: string;
+  /** The home of a page that names no disk. */
   home: string;
+  /** The home of a disk. */
+  homeOf(disk: string): string;
   close(): Promise<void>;
   /** Commands the page ran (scripts), for tests to inspect. */ commands: string[];
 }
@@ -33,17 +37,13 @@ async function freePort(): Promise<number> {
 export async function startFakePod(options: { root?: string } = {}): Promise<FakePod> {
   const root = options.root ?? mkdtempSync(join(tmpdir(), 'den-kit-fake-pod-'));
   const home = join(root, 'home');
+  const homeOf = (disk: string) => join(root, 'disks', disk.replace(/[^\w-]/g, '_'));
   mkdirSync(join(home, '.den-kit', 'run'), { recursive: true });
   const children = new Set<ChildProcess>();
   const commands: string[] = [];
   let scripts = 0;
-  const inside = (p: string) => {
-    const abs = resolve(p);
-    return abs === home || abs.startsWith(`${home}/`) ? abs : null;
-  };
-  const baseEnv = {
+  const env = {
     ...process.env,
-    HOME: home,
     CI: '1',
     NO_COLOR: '1',
     FORCE_COLOR: '0',
@@ -57,7 +57,15 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
   await new Promise(r => wss.once('listening', r));
   const port = (wss.address() as AddressInfo).port;
 
-  wss.on('connection', (socket: WebSocket) => {
+  wss.on('connection', (socket: WebSocket, request) => {
+    const disk = new URL(request.url ?? '/', 'http://pod').searchParams.get('disk');
+    const home = disk ? homeOf(disk) : join(root, 'home');
+    mkdirSync(join(home, '.den-kit', 'run'), { recursive: true });
+    const inside = (p: string) => {
+      const abs = resolve(p);
+      return abs === home || abs.startsWith(`${home}/`) ? abs : null;
+    };
+    const baseEnv = { ...env, HOME: home };
     const send = (m: Record<string, unknown>) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(m));
     };
@@ -178,6 +186,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
   return {
     url: `ws://127.0.0.1:${port}/`,
     home,
+    homeOf,
     commands,
     async close() {
       for (const c of children) {

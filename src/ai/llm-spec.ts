@@ -306,8 +306,8 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_bash',
     description: [
-      "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm install a package, npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF.",
-      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. No network beyond the npm registry and GitHub.',
+      "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF. To add a package, add it with a version to package.json's dependencies: den-kit installs it from the npm registry.",
+      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. The pod has no network: only installs by den-kit reach the npm registry (npm install <name>, curl and fetch fail).',
     ].join('\n'),
     inputSchema: {
       type: 'object',
@@ -561,7 +561,7 @@ The plugin screen (what the user plays)
 The screen project (code parts: when den-kit's own pieces are not enough)
 - Each work can have a web project (Vite + TypeScript, ESLint, git) that lives in the pod; its code parts show on the plugin in their own box, fed with the controls' values and the sound, and can move controls (one drag is one undo step for the person). Use it when the screen needs what controls, skins, decorations and canvases do not do: a look of its own, 3D (three.js), motion and physics, a display of the sound, a control that behaves its own way, a whole custom screen.
 - Before your first code part, read the project's AGENTS.md (kit_read_file "AGENTS.md"): the part API (src/kit/index.ts), how parts reach the controls (src/kit/controls.ts, made from the patch), and the rules. A work without a project gets one from den-kit's template on your first kit_bash or kit_write_file.
-- Work as in any web project: write files, npm install what you need, run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
+- Work as in any web project: write files, add the packages you need to package.json (den-kit installs them), run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
 - A control a code part reads or moves must exist in the patch (a knob wired to the input it stands for; it need not be on the plugin). Use the look's colours (the --dk-* CSS variables) so the part belongs to the plugin, and keep parts light (one animation loop through kit.frame).
 - Everything you change in the project lands in the work at once and undoes with your request; node_modules, dist and .git stay in the pod.
 

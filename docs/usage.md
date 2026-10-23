@@ -87,8 +87,12 @@ and the [API definitions](../pod-template/src/kit/index.ts) describe how to writ
 
 ## Known limitations
 
-- BrowserPod needs recent WebAssembly features, and only one den-kit tab can own
-  its workspace at a time.
+- BrowserPod needs recent WebAssembly features.
+- A work opens in one den-kit window at a time. Each work has its own project
+  disk, and a window's project tools are for the work they started with: to use
+  them with another work, reopen den-kit with that work open.
+- The project tools reach the internet only while den-kit installs the packages
+  in `package.json`; commands in the project have no network.
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
   dynamic `import()` can still load and execute remote JavaScript. Imported
   works and AI-generated Canvas code can therefore make network requests.

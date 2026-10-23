@@ -22,16 +22,17 @@ const apiKey = podConfig.apiKey;
 const workspace: PodFactory = podConfig.fakeUrl
   ? {
       kind: 'fake',
-      create: async () => (await import('./fake-pod.ts')).connectFakePod(podConfig.fakeUrl!),
+      create: async work =>
+        (await import('./fake-pod.ts')).connectFakePod(podConfig.fakeUrl!, work),
     }
   : apiKey
     ? {
         kind: 'browserpod',
-        create: async progress =>
+        create: async (work, progress) =>
           (await import('../desktop/page/browserpod.ts')).bootBrowserPod({
             apiKey,
             audience: 'developer',
-            storageKey: 'den-kit',
+            work,
             log: progress,
           }),
       }

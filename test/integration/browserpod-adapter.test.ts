@@ -293,9 +293,14 @@ describe('BrowserPod starts once per page', () => {
   });
   /** A stand-in module whose boot is controlled by the test, counting boots and refusing a second one like BrowserPod. */
   function module(settle: (mock: MockBrowserPod) => Promise<unknown>) {
-    const state = { boots: 0, mock: new MockBrowserPod({ home }) };
+    const state = {
+      boots: 0,
+      mock: new MockBrowserPod({ home }),
+      options: null as { storageKey?: string } | null,
+    };
     const BrowserPod = {
-      boot: async () => {
+      boot: async (options: { storageKey?: string }) => {
+        state.options = options;
         state.boots++;
         if (state.boots > 1) throw new Error('Device already opened in another tab');
         await settle(state.mock);
@@ -308,6 +313,17 @@ describe('BrowserPod starts once per page', () => {
     };
   }
 
+  it("a work's pod keeps the work's own disk, and a page that started one work's pod refuses another's", async () => {
+    resetBrowserPodForTest();
+    const { state, load } = module(async () => undefined);
+    await bootBrowserPod({ apiKey: 'k', work: 'w1', testing: { load } });
+    expect(state.options?.storageKey).toBe('den-kit-work-w1');
+    await expect(bootBrowserPod({ apiKey: 'k', work: 'w2', testing: { load } })).rejects.toThrow(
+      /belong to the work that started them/,
+    );
+    expect(state.boots).toBe(1);
+    state.mock.dispose();
+  });
   it('a slow start: den-kit says so, and asking again waits for the same start (no second boot)', async () => {
     resetBrowserPodForTest();
     let release!: () => void;
@@ -318,13 +334,13 @@ describe('BrowserPod starts once per page', () => {
         }),
     );
     await expect(
-      bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load, limitMs: 200 } }),
+      bootBrowserPod({ apiKey: 'k', work: 's', testing: { load, limitMs: 200 } }),
     ).rejects.toThrow(/has not started after/);
     release();
     await new Promise(r => setTimeout(r, 50));
     const host = await bootBrowserPod({
       apiKey: 'k',
-      storageKey: 's',
+      work: 's',
       testing: { load, limitMs: 200 },
     });
     expect(host.home).toBe(home);
@@ -336,13 +352,11 @@ describe('BrowserPod starts once per page', () => {
     const { state, load } = module(async () => {
       throw new Error('the machine image could not be read');
     });
-    const first = bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } });
+    const first = bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } });
     await expect(first).rejects.toThrow(
       'BrowserPod did not start: the machine image could not be read',
     );
-    const again = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-      e => e,
-    );
+    const again = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(e => e);
     expect(again.message).toBe('BrowserPod did not start: the machine image could not be read');
     expect(again.fix).toMatch(/Reload the page/);
     expect(state.boots).toBe(1);
@@ -353,9 +367,7 @@ describe('BrowserPod starts once per page', () => {
     const had = memory.toResizableBuffer;
     delete memory.toResizableBuffer;
     try {
-      const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-        x => x,
-      );
+      const e = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(x => x);
       expect(e.message).toBe(
         'This browser is too old for BrowserPod (it lacks resizable WebAssembly memory).',
       );
@@ -370,9 +382,7 @@ describe('BrowserPod starts once per page', () => {
     const { load } = module(async () => {
       throw new Error('Device already opened in another tab');
     });
-    const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-      x => x,
-    );
+    const e = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(x => x);
     expect(e.message).toMatch(/disk is open in another den-kit tab/);
     expect(e.fix).toMatch(/Close the other den-kit tabs/);
   });

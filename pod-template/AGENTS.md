@@ -107,9 +107,11 @@ The same part can be placed several times with different props.
 
 ## Tools
 
-- Any npm package: `npm install three`, `gsap`, `d3`, `pixi.js`, … Packages
-  that ship native binaries do not run here; most have a WebAssembly build
-  (see the `overrides` in package.json for esbuild and rollup).
+- Any npm package (`three`, `gsap`, `d3`, `pixi.js`, …): add it with a version to
+  `dependencies` in package.json, and den-kit installs it from the npm registry
+  (packages' install scripts do not run). Packages that ship native binaries do
+  not run here; most have a WebAssembly build (see the `overrides` in
+  package.json for esbuild and rollup).
 - `npm run check` (TypeScript), `npm run lint` (ESLint), `npm run build` (Vite):
   run them before you finish. ESLint cannot search folders in this pod (its
   Node has a fault there), so `npm run lint` hands it the files; to lint a few,
@@ -117,7 +119,8 @@ The same part can be placed several times with different props.
 - The dev server is already running (den-kit starts it and shows the parts from
   it); do not start another. Saving a file updates the plugin.
 - git works as usual. den-kit also commits after each request.
-- The network inside reaches the npm registry and GitHub, not arbitrary sites.
+- The pod has no network: only den-kit's installs reach the npm registry, so
+  `npm install <name>`, curl and fetch to the internet fail here.
 
 ## Making it good
 
