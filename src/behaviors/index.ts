@@ -3,7 +3,8 @@
 // notches, keys) and sends values and events: `begin` when a gesture starts,
 // `value` for each new value, `end` when it ends. One gesture is one undo step.
 // The controls on the plugin screen are built on these, and code parts use the
-// same behaviors through the kit. Imports nothing.
+// same behaviors through the kit; `listen` feeds an element's pointer, wheel and
+// keys to a behavior for both. Imports nothing.
 //
 // The rules (decided 2026-10-24; test/unit/behaviors checks each):
 //  1. A knob turns by dragging up and down. Its sensitivity is the same wherever
@@ -37,3 +38,4 @@ export * from './button.ts';
 export * from './xy.ts';
 export * from './keyboard.ts';
 export * from './meter.ts';
+export * from './dom.ts';

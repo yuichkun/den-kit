@@ -21,6 +21,10 @@ export class Slider extends Continuous {
   private along(input: PointerInput) {
     return this.shape.orientation === 'vertical' ? -input.y : input.x;
   }
+  /** The control's box: the track runs along its length. */
+  fit(width: number, height: number) {
+    this.shape = { ...this.shape, length: this.shape.orientation === 'vertical' ? height : width };
+  }
   pointerDown(input: PointerInput) {
     this.dragStart(this.along(input));
   }

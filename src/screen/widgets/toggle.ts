@@ -1,6 +1,9 @@
-// On/off switch (toggle) or momentary button (`momentary`).
+// On/off switch (toggle) or momentary button (`momentary`), moved by den-kit's
+// switch and button behaviors: a switch changes on each press, a button is on
+// while it is held; Space and Enter press both.
 // Skins: button (a labelled button that lights), footswitch (a round metal stomp
 // switch, optional LED), switch (a lever or slide with ON/OFF), image (off/on pictures).
+import { Button, Switch, listen } from '../../behaviors/index.ts';
 import { BASE_CSS, DkElement, col, escapeHtml, safeUrl } from './base.ts';
 
 export class DkToggle extends DkElement {
@@ -13,6 +16,24 @@ export class DkToggle extends DkElement {
   set value(v: boolean) {
     const x: unknown = v;
     this.setAttribute('value', String(x === true || x === 'true' || x === '1'));
+  }
+  private readonly button = new Button();
+  private readonly switch = new Switch();
+  private stopListening: (() => void) | null = null;
+  constructor() {
+    super();
+    for (const behavior of [this.button, this.switch])
+      behavior.events.on(e => {
+        if (e.type === 'begin') this.holding = true;
+        else if (e.type === 'value') {
+          this.setAttribute('value', String(e.value));
+          this.paint();
+          this.emit('input', e.value);
+        } else {
+          this.ended();
+          this.emit('change', this.value);
+        }
+      });
   }
   private get kind() {
     return ['button', 'footswitch', 'switch', 'image'].includes(this.skinName)
@@ -68,34 +89,40 @@ export class DkToggle extends DkElement {
       .imgbtn.on .off{display:none}
       </style>${body}`;
     const button = this.$<HTMLButtonElement>('button');
-    const set = (v: boolean) => {
-      this.setAttribute('value', String(v));
-      this.paint();
-      this.emit('input', v);
-      this.emit('change', v);
+    // The control itself takes the focus, so it is one stop for the keyboard.
+    button.tabIndex = -1;
+    const behavior = momentary ? this.button : this.switch;
+    const follow = () => {
+      if (!momentary) this.switch.set(this.value);
     };
-    if (momentary) {
-      button.addEventListener('pointerdown', e => {
-        button.setPointerCapture(e.pointerId);
-        this.holding = true;
-        set(true);
-      });
-      const release = () => {
-        if (!this.holding) return;
-        set(false);
-        this.ended();
-      };
-      button.addEventListener('pointerup', release);
-      button.addEventListener('pointercancel', release);
-      button.addEventListener('lostpointercapture', release);
-    } else button.addEventListener('click', () => set(!this.value));
+    this.stopListening?.();
+    this.stopListening = listen(
+      this,
+      {
+        pointerDown: () => {
+          follow();
+          behavior.pointerDown();
+        },
+        pointerUp: () => {
+          if (momentary) this.button.pointerUp();
+        },
+        keyDown: input => {
+          follow();
+          return behavior.keyDown(input);
+        },
+        keyUp: input => (momentary ? this.button.keyUp(input) : false),
+      },
+      { target: button },
+    );
+    this.setAttribute('role', momentary ? 'button' : 'switch');
+    this.setAttribute('aria-label', label);
     this.paint();
   }
 
   protected paint() {
     const on = this.value;
     const button = this.$<HTMLButtonElement>('button');
-    button?.setAttribute('aria-pressed', String(on));
+    this.setAttribute(this.hasAttribute('momentary') ? 'aria-pressed' : 'aria-checked', String(on));
     for (const el of [button, this.$<HTMLElement>('.fs'), this.$<HTMLElement>('.sw')])
       el?.classList.toggle('on', on);
   }

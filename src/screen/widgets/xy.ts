@@ -1,5 +1,8 @@
-// Two-axis pad, x and y in [0,1]. Skins: pad (a flat pad with a dot), glow (a
-// clear pad: a glowing dot with a fading trail over whatever is behind it).
+// Two-axis pad, x and y in [0,1], moved by den-kit's XY pad behavior: it jumps
+// to where it is clicked and follows the pointer; the arrow keys move x and y.
+// Skins: pad (a flat pad with a dot), glow (a clear pad: a glowing dot with a
+// fading trail over whatever is behind it).
+import { XYPad, listen } from '../../behaviors/index.ts';
 import { BASE_CSS, DkElement, col, escapeHtml } from './base.ts';
 
 export class DkXy extends DkElement {
@@ -8,6 +11,26 @@ export class DkXy extends DkElement {
   private trail: Array<{ x: number; y: number; t: number }> = [];
   private frame = 0;
   private trailFrames = 0;
+  private readonly pad = new XYPad(
+    { x: { min: 0, max: 1 }, y: { min: 0, max: 1 } },
+    { width: 1, height: 1 },
+  );
+  private stopListening: (() => void) | null = null;
+  constructor() {
+    super();
+    this.pad.events.on(e => {
+      if (e.type === 'begin') this.holding = true;
+      else if (e.type === 'value') {
+        this.setAttribute('x', String(e.value.x));
+        this.setAttribute('y', String(e.value.y));
+        this.paint();
+        this.emit('input', e.value);
+      } else {
+        this.ended();
+        this.emit('change', { x: this.num('x', 0.5), y: this.num('y', 0.5) });
+      }
+    });
+  }
   private get kind() {
     return this.skinName === 'glow' ? 'glow' : 'pad';
   }
@@ -30,31 +53,28 @@ export class DkXy extends DkElement {
       .label{position:absolute;left:6px;top:4px}
       </style>
       <div class="pad" part="pad">${grid ? '<div class="grid"></div>' : ''}${this.trailFrames ? '<canvas></canvas>' : ''}${glow && this.p(params, 'crosshair', false) ? '<div class="cross"><i class="h"></i><i class="v"></i></div>' : ''}${this.p(params, 'label', 'corner') === 'none' ? '' : `<div class="label" part="label">${escapeHtml(this.getAttribute('label') ?? '')}</div>`}<div class="dot"></div></div>`;
-    const pad = this.$<HTMLElement>('.pad');
-    pad.addEventListener('pointerdown', e => {
-      pad.setPointerCapture(e.pointerId);
-      this.holding = true;
-      const set = (m: PointerEvent) => {
-        const r = pad.getBoundingClientRect();
-        const nx = Math.min(1, Math.max(0, (m.clientX - r.left) / r.width)),
-          ny = Math.min(1, Math.max(0, 1 - (m.clientY - r.top) / r.height));
-        this.setAttribute('x', String(nx));
-        this.setAttribute('y', String(ny));
-        this.paint();
-        this.emit('input', { x: nx, y: ny });
-      };
-      set(e);
-      const up = () => {
-        pad.removeEventListener('pointermove', set as EventListener);
-        pad.removeEventListener('pointerup', up);
-        pad.removeEventListener('pointercancel', up);
-        this.ended();
-        this.emit('change', { x: this.num('x', 0.5), y: this.num('y', 0.5) });
-      };
-      pad.addEventListener('pointermove', set as EventListener);
-      pad.addEventListener('pointerup', up);
-      pad.addEventListener('pointercancel', up);
-    });
+    const pad = this.pad;
+    const follow = () => pad.set({ x: this.num('x', 0.5), y: this.num('y', 0.5) });
+    this.stopListening?.();
+    this.stopListening = listen(
+      this,
+      {
+        fit: (width, height) => pad.fit(width, height),
+        pointerDown: input => {
+          follow();
+          pad.pointerDown(input);
+        },
+        pointerMove: input => pad.pointerMove(input),
+        pointerUp: () => pad.pointerUp(),
+        keyDown: input => {
+          follow();
+          return pad.keyDown(input);
+        },
+      },
+      { target: this.$<HTMLElement>('.pad') },
+    );
+    this.setAttribute('role', 'slider');
+    this.setAttribute('aria-label', this.getAttribute('label') ?? '');
     this.paint();
     if (this.trailFrames) this.frame = requestAnimationFrame(this.drawTrail);
   }
@@ -77,6 +97,7 @@ export class DkXy extends DkElement {
       Object.assign(v.style, { top: '0', bottom: '0', width: '1px', left: `${x * 100}%` });
     }
     if (this.trailFrames) this.trail.push({ x, y, t: performance.now() });
+    this.setAttribute('aria-valuetext', `x ${x.toFixed(2)}, y ${y.toFixed(2)}`);
   }
 
   /** The trail fades over `trail` frames (about 1/60 s each), also after the finger lifts. */

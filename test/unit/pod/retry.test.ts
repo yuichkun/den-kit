@@ -7,6 +7,7 @@ import type { PodHost, PodProcess, Portal } from '../../../src/host/workspace.ts
 import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
 import { templateFiles } from '../../../src/workspace/template.ts';
 import { textFiles } from '../../../src/work/files.ts';
+import { kitFiles } from '../../../src/screen/kit-files.ts';
 
 class PreviewProcess implements PodProcess {
   readonly name = 'dev';
@@ -97,7 +98,7 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
     },
   };
   const create = vi.fn(async () => host);
-  const pod = new PodSession(session, { kind: 'fake', create });
+  const pod = new PodSession(session, { kind: 'fake', create }, kitFiles());
   return {
     session,
     files,

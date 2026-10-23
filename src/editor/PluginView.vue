@@ -149,8 +149,8 @@ watch(
     if (checks.value && !checks.value.running) checks.value = { ...checks.value, stale: true };
   },
 );
-function onNote(note: number, on: boolean) {
-  if (on) session.noteOn(note, 100);
+function onNote(note: number, on: boolean, velocity: number) {
+  if (on) session.noteOn(note, velocity);
   else session.noteOff(note);
 }
 

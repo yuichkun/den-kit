@@ -27,6 +27,7 @@ import {
 import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart } from '../../src/workspace/template.ts';
 import { MockBrowserPod, resizableBuffer } from '../fakes/pod/mock-browserpod.ts';
+import { kitFiles } from '../../src/screen/kit-files.ts';
 
 const resizable = (buffer: ArrayBufferLike) =>
   (buffer as { resizable?: boolean }).resizable === true;
@@ -213,14 +214,18 @@ describe('the pod session through the BrowserPod adapter', () => {
       doc: shallowRef(starter('bass', catalog)),
       commit: () => ({ ok: true, ops: [], created: [] }),
     } as unknown as KitSession;
-    pod = new PodSession(kit, {
-      kind: 'fake',
-      create: async () => {
-        const h = new BrowserPodHost(mock as unknown as BrowserPod);
-        await h.init();
-        return h;
+    pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: async () => {
+          const h = new BrowserPodHost(mock as unknown as BrowserPod);
+          await h.init();
+          return h;
+        },
       },
-    });
+      kitFiles(),
+    );
   });
   afterAll(() => {
     pod?.dispose();

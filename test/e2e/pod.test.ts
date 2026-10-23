@@ -208,8 +208,12 @@ describe('the pod: a free environment for the AI', () => {
       const { page, errors } = await openKit(h);
       await waitCompiled(page);
       const created = await kit(page, k => {
-        const files = Object.fromEntries(k.pod.wanted());
-        delete files['src/kit/controls.ts'];
+        // den-kit's own files (the controls list, the kit's behaviors) are not kept in the work.
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
         const result = k.commit([
           {
             op: 'addNode',
@@ -289,6 +293,106 @@ export default part({ mount(root, kit) {
       await displayed(50, 0.5, 4);
       await page.waitForTimeout(300);
       await displayed(50, 0.5, 4);
+      assert.deepEqual(errors, []);
+      await page.close();
+    },
+  );
+
+  it(
+    "a code part's own knob uses den-kit's knob behavior: same drag and keys, one drag one undo step; messages from anywhere but its frame are ignored",
+    { timeout: 120000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      const created = await kit(page, k => {
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
+        const result = k.commit([
+          {
+            op: 'addNode',
+            node: {
+              id: 'ownknob',
+              type: 'ui.knob',
+              config: { min: 0, max: 100, scale: 'linear' },
+              values: { value: 50 },
+            },
+          },
+          {
+            op: 'setProjectFiles',
+            files: {
+              ...files,
+              'src/parts/own.ts': `import { CONTROLS, behaviors, part } from '../kit';
+export default part({ mount(root, kit) {
+  const pad = root.appendChild(document.createElement('div'));
+  pad.id = 'own-knob';
+  Object.assign(pad.style, { position: 'absolute', inset: '0' });
+  const knob = behaviors.createKnob(CONTROLS.ownknob);
+  const unbind = kit.bind(knob, 'ownknob');
+  const unlisten = behaviors.listen(pad, knob);
+  return () => { unbind(); unlisten(); };
+} });\n`,
+            },
+          },
+          {
+            op: 'addElement',
+            element: {
+              id: 'own1',
+              kind: 'code',
+              part: 'own',
+              rect: { x: 20, y: 20, w: 240, h: 240 },
+              props: {},
+            },
+          },
+        ]);
+        return { ok: result.ok, error: result.error?.message };
+      });
+      assert.equal(created.ok, true, JSON.stringify(created.error));
+      // The kit the part imports carries den-kit's behaviors, and the part type-checks against it.
+      const check = await kit(page, k => k.pod.bash('npm run check', { who: 'ai' }));
+      assert.equal(check.exitCode, 0, check.output);
+      await page.click('[data-testid=view-plugin]');
+      await page.waitForSelector('[data-element=own1] [data-code-state=ready]', { timeout: 60000 });
+      const f = await partFrame(page, 'own');
+      const value = () => kit(page, k => k.doc.value.nodes.ownknob.values.value);
+      const steps = () => kit(page, k => k.history.size);
+      const before = await steps();
+      // Rule 1: 200 px of drag is the whole range, so 40 px up is 20 of 0–100, wherever it was grabbed.
+      // The plugin is drawn scaled to fit: 40 of the part's pixels are 40 × scale on screen.
+      const pad = await f.locator('#own-knob').boundingBox();
+      assert.ok(pad);
+      const scale = pad.height / 240;
+      const x = pad.x + pad.width / 2,
+        y = pad.y + pad.height * 0.7;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (const dy of [10, 20, 30, 40]) await page.mouse.move(x, y - dy * scale);
+      await page.mouse.up();
+      const near = (v: number) =>
+        page.waitForFunction(
+          v => Math.abs((window as any).__kit.doc.value.nodes.ownknob.values.value - v) < 0.5,
+          v,
+        );
+      await near(70);
+      assert.equal(await steps(), before + 1, 'one drag is one undo step');
+      // Rule 4: the arrow keys move 1% of the range.
+      await f.focus('#own-knob');
+      await page.keyboard.press('ArrowUp');
+      await near(71);
+      await kit(page, k => k.undo());
+      await kit(page, k => k.undo());
+      assert.equal(await value(), 50);
+      // A message that does not come from the part's frame, or not from its origin, is ignored.
+      await page.evaluate(() => {
+        const forged = { denkit: 1, type: 'set', id: 'ownknob', value: 5, gesture: 'forged' };
+        window.postMessage(forged, '*');
+        const other = document.body.appendChild(document.createElement('iframe'));
+        other.srcdoc = `<script>parent.postMessage(${JSON.stringify(forged)}, '*')</script>`;
+      });
+      await page.waitForTimeout(500);
+      assert.equal(await value(), 50);
       assert.deepEqual(errors, []);
       await page.close();
     },

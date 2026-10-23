@@ -20,6 +20,7 @@ import { connectFakePod } from '../../dev/fake-pod.ts';
 import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
+import { kitFiles } from '../../src/screen/kit-files.ts';
 
 /** Just what the pod session uses of the editor's session: the document and commit. */
 function session(start: PatchDocument) {
@@ -70,7 +71,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
       catalog,
     ).doc;
     kit = session(doc);
-    pod = new PodSession(kit, { kind: 'fake', create: () => connectFakePod(fake.url) });
+    pod = new PodSession(kit, { kind: 'fake', create: () => connectFakePod(fake.url) }, kitFiles());
   }, 30_000);
   afterAll(async () => {
     pod?.dispose();
@@ -235,12 +236,16 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
 describe('pod session without a pod', () => {
   it('says why and how to fix it, and refuses commands', async () => {
     const kit = session(starter('bass', catalog));
-    const pod = new PodSession(kit, {
-      kind: null,
-      create: () => Promise.reject(new Error('no')),
-      reason: 'The pod (BrowserPod) is off: no API key.',
-      fix: 'Put BROWSERPOD_API_KEY=… in .env',
-    });
+    const pod = new PodSession(
+      kit,
+      {
+        kind: null,
+        create: () => Promise.reject(new Error('no')),
+        reason: 'The pod (BrowserPod) is off: no API key.',
+        fix: 'Put BROWSERPOD_API_KEY=… in .env',
+      },
+      kitFiles(),
+    );
     expect(pod.state.value).toBe('unavailable');
     expect(pod.fix.value).toContain('BROWSERPOD_API_KEY');
     await expect(pod.bash('ls', { who: 'ai' })).rejects.toThrow(/off: no API key/);
@@ -248,13 +253,17 @@ describe('pod session without a pod', () => {
   it('a pod that fails to start says so, and the next try starts again', async () => {
     const kit = session(starter('bass', catalog));
     let tries = 0;
-    const pod = new PodSession(kit, {
-      kind: 'fake',
-      create: () => {
-        tries++;
-        return Promise.reject(new Error('pod could not boot'));
+    const pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: () => {
+          tries++;
+          return Promise.reject(new Error('pod could not boot'));
+        },
       },
-    });
+      kitFiles(),
+    );
     await expect(pod.ensure()).rejects.toThrow('pod could not boot');
     expect(pod.state.value).toBe('unavailable');
     expect(pod.message.value).toContain('pod could not boot');

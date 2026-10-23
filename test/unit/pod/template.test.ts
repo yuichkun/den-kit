@@ -6,6 +6,9 @@ import { checkPath as checkProjectPath } from '../../../src/work/files.ts';
 import { parameters } from '../../../src/work/parameters.ts';
 import { starter } from '../../../src/work/starters.ts';
 import { controlsSource, starterPart, templateFiles } from '../../../src/workspace/template.ts';
+import { kitFiles } from '../../../src/screen/kit-files.ts';
+import { checkPath } from '../../../src/work/files.ts';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const syntaxErrors = (text: string) =>
   ts.transpileModule(text, {
@@ -49,6 +52,25 @@ describe('pod template', () => {
     expect(Object.keys(lock.packages).filter(k => /@esbuild\/|@rollup\/rollup-/.test(k))).toEqual(
       [],
     );
+  });
+  it("the kit gives code parts den-kit's behaviors, as written in src/behaviors, and they are not kept in the work", () => {
+    const kit = kitFiles();
+    const sources = readdirSync('src/behaviors').filter(f => f.endsWith('.ts'));
+    expect(Object.keys(kit).sort()).toEqual(sources.map(f => `src/kit/behaviors/${f}`).sort());
+    for (const f of sources) {
+      const text = kit[`src/kit/behaviors/${f}`]!;
+      // The same code, its imports without the extension (the project's TypeScript setup).
+      expect(text).toBe(
+        readFileSync(`src/behaviors/${f}`, 'utf8').replace(/(from '\.\/[\w-]+)\.ts'/g, "$1'"),
+      );
+      expect(text).not.toMatch(/from '\.\/[\w-]+\.ts'/);
+      expect(syntaxErrors(text)).toEqual([]);
+      expect(checkPath(`src/kit/behaviors/${f}`)).toMatch(/made by den-kit/);
+    }
+    expect(templateFiles()['src/kit/index.ts']).toContain(
+      "export * as behaviors from './behaviors/index';",
+    );
+    expect(templateFiles()['src/kit/behaviors/index.ts']).toBeUndefined();
   });
   it('the starter part is valid TypeScript', () => {
     expect(syntaxErrors(starterPart('meter'))).toEqual([]);

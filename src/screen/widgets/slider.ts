@@ -1,13 +1,42 @@
-// Linear slider, vertical when taller than wide. Press anywhere on the travel to jump there.
+// Linear slider, vertical when taller than wide, moved by den-kit's slider
+// behavior: it moves from where it is grabbed (a click never jumps), and takes the
+// wheel and the arrow keys; a double-click returns it to its default.
 // Skins: bar (a filled bar), fader (a slot with a desk fader cap and scale marks),
 // image (your track picture with your thumb picture sliding along it).
-import { BASE_CSS, DkElement, col, formatValue, fromUnit, safeUrl, toUnit } from './base.ts';
+import { Slider, listen } from '../../behaviors/index.ts';
+import { BASE_CSS, DkElement, col, formatValue, safeUrl, toUnit } from './base.ts';
 
 export class DkSlider extends DkElement {
-  static observedAttributes = ['value', 'min', 'max', 'scale', 'label', 'unit', 'skin', 'params'];
+  static observedAttributes = [
+    'value',
+    'min',
+    'max',
+    'scale',
+    'label',
+    'unit',
+    'default',
+    'skin',
+    'params',
+  ];
   protected static override readonly painted = ['value'];
   private observer: ResizeObserver | null = null;
   private capSize = 0.18;
+  private readonly slider = new Slider({ min: 0, max: 1 }, { orientation: 'vertical', length: 1 });
+  private stopListening: (() => void) | null = null;
+  constructor() {
+    super();
+    this.slider.events.on(e => {
+      if (e.type === 'begin') this.holding = true;
+      else if (e.type === 'value') {
+        this.setAttribute('value', String(e.value));
+        this.paint();
+        this.emit('input', e.value);
+      } else {
+        this.ended();
+        this.emit('change', this.value);
+      }
+    });
+  }
   get value() {
     return this.num('value', 0);
   }
@@ -61,40 +90,50 @@ export class DkSlider extends DkElement {
       .thumb:not(.cap){position:absolute}
       .thumb img{width:100%;height:100%;object-fit:contain;pointer-events:none;display:block}
       </style><div class="wrap">${this.layout(track, params)}</div>`;
-    const el = this.$<HTMLElement>('.track');
-    el.addEventListener('pointerdown', e => {
-      el.setPointerCapture(e.pointerId);
-      this.holding = true;
-      const min = this.num('min', 0),
-        max = this.num('max', 1),
-        log = this.getAttribute('scale') === 'log',
-        vertical = this.vertical();
-      const set = (m: PointerEvent) => {
-        const r = el.getBoundingClientRect();
-        const travel = 1 - this.capSize;
-        const raw = vertical ? 1 - (m.clientY - r.top) / r.height : (m.clientX - r.left) / r.width;
-        const value = fromUnit(
-          this.capSize ? (raw - this.capSize / 2) / travel : raw,
-          min,
-          max,
-          log,
-        );
-        this.setAttribute('value', String(value));
-        this.paint();
-        this.emit('input', value);
-      };
-      set(e);
-      const up = () => {
-        el.removeEventListener('pointermove', set as EventListener);
-        el.removeEventListener('pointerup', up);
-        el.removeEventListener('pointercancel', up);
-        this.ended();
-        this.emit('change', this.value);
-      };
-      el.addEventListener('pointermove', set as EventListener);
-      el.addEventListener('pointerup', up);
-      el.addEventListener('pointercancel', up);
+    const min = this.num('min', 0),
+      max = this.num('max', 1),
+      log = this.getAttribute('scale') === 'log';
+    this.slider.setRange({
+      min,
+      max,
+      scale: log ? 'log' : 'linear',
+      default: this.hasAttribute('default') ? this.num('default', min) : undefined,
     });
+    const slider = this.slider;
+    const follow = () => {
+      if (!slider.dragged) slider.set(this.value);
+    };
+    this.stopListening?.();
+    this.stopListening = listen(
+      this,
+      {
+        // The travel is the track less the cap: dragging across it moves the whole range.
+        fit: (width, height) => {
+          slider.shape = { orientation: this.vertical() ? 'vertical' : 'horizontal', length: 1 };
+          slider.fit(width * (1 - this.capSize), height * (1 - this.capSize));
+        },
+        pointerDown: input => {
+          follow();
+          slider.pointerDown(input);
+        },
+        pointerMove: input => slider.pointerMove(input),
+        pointerUp: () => slider.pointerUp(),
+        wheel: input => {
+          follow();
+          slider.wheel(input);
+        },
+        keyDown: input => {
+          follow();
+          return slider.keyDown(input);
+        },
+        doubleClick: () => slider.doubleClick(),
+      },
+      { target: this.$<HTMLElement>('.track') },
+    );
+    this.setAttribute('role', 'slider');
+    this.setAttribute('aria-label', this.getAttribute('label') ?? '');
+    this.setAttribute('aria-valuemin', String(min));
+    this.setAttribute('aria-valuemax', String(max));
     this.paint();
   }
 
@@ -175,13 +214,15 @@ export class DkSlider extends DkElement {
             : { top: '10%', bottom: '10%', left: 'calc(50% - 1px)', width: '2px' },
         );
     }
+    const text = formatValue(this.value, this.getAttribute('unit') ?? '');
     const value = this.$<HTMLElement>('.value');
     if (value) {
-      const text = formatValue(this.value, this.getAttribute('unit') ?? '');
       if (value.textContent?.length !== text.length) {
         value.textContent = text;
         this.fit(value);
       } else value.textContent = text;
     }
+    this.setAttribute('aria-valuenow', String(this.value));
+    this.setAttribute('aria-valuetext', text);
   }
 }

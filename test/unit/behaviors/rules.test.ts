@@ -267,6 +267,23 @@ describe('rule 8: the musical keyboard', () => {
     expect(soft!.velocity).toBeLessThan(hard!.velocity);
     expect(hard!.velocity).toBeLessThanOrEqual(127);
   });
+  it('each finger plays its own key, and pads say which note is where', () => {
+    const pads = new Keyboard((x, y) => ({ note: x < 50 ? 36 : 38, velocity: y < 50 ? 40 : 120 }));
+    const r = record(pads);
+    pads.pointerDown({ x: 10, y: 10, pointer: 1 });
+    pads.pointerDown({ x: 90, y: 90, pointer: 2 });
+    expect(pads.notes).toEqual([36, 38]);
+    pads.pointerUp({ pointer: 1 });
+    expect(pads.notes).toEqual([38]);
+    pads.pointerUp({ pointer: 2 });
+    expect(r.values()).toEqual([
+      { note: 36, velocity: 40 },
+      { note: 38, velocity: 120 },
+      { note: 36, velocity: 0 },
+      { note: 38, velocity: 0 },
+    ]);
+    expect(r.kinds()).toEqual(['begin', 'value', 'value', 'value', 'value', 'end']);
+  });
   it('black keys sit over the white ones, at the top only', () => {
     const w = layout.width / 15; // 15 white keys from C3 to C5
     expect(keyAt(layout, w - 2, 10)).toBe(49);

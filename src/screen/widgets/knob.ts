@@ -1,8 +1,10 @@
-// Rotary knob. Drag vertically (Shift: fine), double-click resets, the wheel nudges.
+// Rotary knob, moved by den-kit's knob behavior: drag up and down (Shift: finer),
+// the wheel, the arrow keys; a double-click returns it to its default.
 // Skins: classic (disc over a value arc), ring (thick ring, value inside),
 // cap (hardware cap with a printed scale; line, dot or chicken-head pointer),
 // dot (soft round button with a travelling dot), image (your picture, turned).
-import { BASE_CSS, DkElement, arc, col, formatValue, fromUnit, safeUrl, toUnit } from './base.ts';
+import { Knob, listen } from '../../behaviors/index.ts';
+import { BASE_CSS, DkElement, arc, col, formatValue, safeUrl, toUnit } from './base.ts';
 
 const FROM = -135,
   TO = 135;
@@ -24,6 +26,22 @@ export class DkKnob extends DkElement {
   private valueInside = false;
   /** Room inside the dial for the value (radius, in the 40-unit dial). */
   private innerRadius = 11;
+  private readonly knob = new Knob({ min: 0, max: 1 });
+  private stopListening: (() => void) | null = null;
+  constructor() {
+    super();
+    this.knob.events.on(e => {
+      if (e.type === 'begin') this.holding = true;
+      else if (e.type === 'value') {
+        this.setAttribute('value', String(e.value));
+        this.paint();
+        this.emit('input', e.value);
+      } else {
+        this.ended();
+        this.emit('change', this.value);
+      }
+    });
+  }
   get value() {
     return this.num('value', 0);
   }
@@ -62,22 +80,44 @@ export class DkKnob extends DkElement {
       .imgs img{position:absolute;inset:0;margin:auto;width:calc(var(--size,1)*100%);height:calc(var(--size,1)*100%);object-fit:contain;pointer-events:none;-webkit-user-drag:none}
       </style>
       <div class="wrap" part="wrap">${this.layout(`<div class="dial">${dial}</div>`, params, { valueDefault })}</div>`;
-    const dialEl = this.$<HTMLElement>('.dial');
-    dialEl.addEventListener('pointerdown', e => this.drag(e));
-    dialEl.addEventListener('dblclick', () => {
-      if (this.hasAttribute('default')) this.commit(this.num('default', this.range().min));
+    const { min, max, log } = this.range();
+    this.knob.setRange({
+      min,
+      max,
+      scale: log ? 'log' : 'linear',
+      default: this.hasAttribute('default') ? this.num('default', min) : undefined,
     });
-    dialEl.addEventListener(
-      'wheel',
-      e => {
-        e.preventDefault();
-        const { min, max, log } = this.range();
-        this.commit(
-          fromUnit(toUnit(this.value, min, max, log) - Math.sign(e.deltaY) * 0.02, min, max, log),
-        );
+    const knob = this.knob;
+    // Before each gesture, take up a value set elsewhere (another control, the AI, an undo).
+    const follow = () => {
+      if (!knob.dragged) knob.set(this.value);
+    };
+    this.stopListening?.();
+    this.stopListening = listen(
+      this,
+      {
+        pointerDown: input => {
+          follow();
+          knob.pointerDown(input);
+        },
+        pointerMove: input => knob.pointerMove(input),
+        pointerUp: () => knob.pointerUp(),
+        wheel: input => {
+          follow();
+          knob.wheel(input);
+        },
+        keyDown: input => {
+          follow();
+          return knob.keyDown(input);
+        },
+        doubleClick: () => knob.doubleClick(),
       },
-      { passive: false },
+      { target: this.$<HTMLElement>('.dial') },
     );
+    this.setAttribute('role', 'slider');
+    this.setAttribute('aria-label', this.getAttribute('label') ?? '');
+    this.setAttribute('aria-valuemin', String(min));
+    this.setAttribute('aria-valuemax', String(max));
     this.paint();
   }
 
@@ -184,41 +224,6 @@ export class DkKnob extends DkElement {
       if (grew) this.fit(below);
     }
     this.setAttribute('aria-valuenow', String(this.value));
-  }
-
-  private drag(e: PointerEvent) {
-    e.preventDefault();
-    const target = e.currentTarget as Element;
-    target.setPointerCapture(e.pointerId);
-    this.holding = true;
-    const { min, max, log } = this.range();
-    const startY = e.clientY,
-      startU = toUnit(this.value, min, max, log);
-    const move = (m: PointerEvent) => {
-      const next = fromUnit(
-        startU + (startY - m.clientY) / (m.shiftKey ? 800 : 160),
-        min,
-        max,
-        log,
-      );
-      this.setAttribute('value', String(next));
-      this.paint();
-      this.emit('input', next);
-    };
-    const up = () => {
-      target.removeEventListener('pointermove', move as EventListener);
-      target.removeEventListener('pointerup', up);
-      target.removeEventListener('pointercancel', up);
-      this.ended();
-      this.emit('change', this.value);
-    };
-    target.addEventListener('pointermove', move as EventListener);
-    target.addEventListener('pointerup', up);
-    target.addEventListener('pointercancel', up);
-  }
-  private commit(value: number) {
-    this.value = value;
-    this.emit('input', value);
-    this.emit('change', value);
+    this.setAttribute('aria-valuetext', text);
   }
 }

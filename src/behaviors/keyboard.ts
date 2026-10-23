@@ -1,7 +1,8 @@
 // The musical keyboard (rule 8): the computer keys play notes along one row (A
 // is C, W and E the black keys above it), Z and X move an octave down and up,
 // and dragging across the keys with the mouse plays each key it reaches. Where
-// a key is clicked, from top to bottom, sets how hard the note is played.
+// a key is clicked, from top to bottom, sets how hard the note is played. Each
+// finger on a touch screen plays its own key.
 import { Emitter, type KeyInput, type PointerInput } from './events.ts';
 
 /** A note starting (velocity 1–127) or ending (velocity 0). */
@@ -32,7 +33,11 @@ const KEY_NOTES: Readonly<Record<string, number>> = {
 };
 const BLACK = new Set([1, 3, 6, 8, 10]);
 export const isBlack = (note: number) => BLACK.has(((note % 12) + 12) % 12);
+/** How far down a black key reaches, and how wide it is, against a white key. */
+const BLACK_LENGTH = 0.6,
+  BLACK_WIDTH = 0.6;
 
+/** A piano keyboard: white keys side by side, black keys over their boundaries. */
 export interface KeyboardLayout {
   /** The lowest and highest notes shown (MIDI note numbers). */
   low: number;
@@ -40,6 +45,8 @@ export interface KeyboardLayout {
   width: number;
   height: number;
 }
+/** The key under a point and how hard a press there plays, for layouts other than a piano (pads). */
+export type KeyFinder = (x: number, y: number) => NoteEvent | null;
 
 /** Which key is under a point of the keyboard, black keys first. */
 export function keyAt(layout: KeyboardLayout, x: number, y: number): number | null {
@@ -50,35 +57,45 @@ export function keyAt(layout: KeyboardLayout, x: number, y: number): number | nu
   const w = layout.width / whites.length;
   const index = Math.min(whites.length - 1, Math.floor(x / w));
   const white = whites[index]!;
-  if (y < layout.height * 0.62) {
+  if (y < layout.height * BLACK_LENGTH) {
     const within = x - index * w;
-    // A black key sits across the boundary between two white keys, 0.6 of a white key wide.
-    if (within > w * 0.7 && white + 1 <= layout.high && isBlack(white + 1)) return white + 1;
-    if (within < w * 0.3 && white - 1 >= layout.low && isBlack(white - 1)) return white - 1;
+    const half = (1 - BLACK_WIDTH / 2) * w;
+    if (within > half && white + 1 <= layout.high && isBlack(white + 1)) return white + 1;
+    if (within < w - half && white - 1 >= layout.low && isBlack(white - 1)) return white - 1;
   }
   return white;
 }
 
 /** How hard a click plays: soft at the top of a key, hard at its bottom. */
-export const velocityAt = (layout: KeyboardLayout, y: number) =>
-  Math.max(1, Math.min(127, Math.round(1 + (126 * y) / Math.max(1, layout.height))));
+export const velocityAt = (height: number, y: number) =>
+  Math.max(1, Math.min(127, Math.round(1 + (126 * y) / Math.max(1, height))));
 
 export class Keyboard {
   readonly events = new Emitter<NoteEvent>();
-  layout: KeyboardLayout;
+  layout: KeyboardLayout | KeyFinder;
   /** The C the A key plays. */
   octaveStart: number;
   private held = new Set<number>();
   private keysDown = new Map<string, number>();
-  private pointerNote: number | null = null;
+  /** The key each pointer holds. */
+  private pointers = new Map<number, number>();
 
-  constructor(layout: KeyboardLayout, octaveStart = 60) {
+  constructor(layout: KeyboardLayout | KeyFinder, octaveStart = 60) {
     this.layout = layout;
     this.octaveStart = octaveStart;
   }
   /** The notes playing now. */
   get notes(): number[] {
     return [...this.held].sort((a, b) => a - b);
+  }
+  /** The control's box (a piano layout spreads its keys over it). */
+  fit(width: number, height: number) {
+    if (typeof this.layout !== 'function') this.layout = { ...this.layout, width, height };
+  }
+  private hit(x: number, y: number): NoteEvent | null {
+    if (typeof this.layout === 'function') return this.layout(x, y);
+    const note = keyAt(this.layout, x, y);
+    return note === null ? null : { note, velocity: velocityAt(this.layout.height, y) };
   }
   private on(note: number, velocity: number) {
     if (note < 0 || note > 127 || this.held.has(note)) return;
@@ -87,30 +104,37 @@ export class Keyboard {
     this.events.emit({ type: 'value', value: { note, velocity } });
   }
   private off(note: number) {
+    // Another finger or key still holds it.
+    if ([...this.pointers.values(), ...this.keysDown.values()].includes(note)) return;
     if (!this.held.delete(note)) return;
     this.events.emit({ type: 'value', value: { note, velocity: 0 } });
     if (!this.held.size) this.events.emit({ type: 'end' });
   }
 
   pointerDown(input: PointerInput) {
-    const note = keyAt(this.layout, input.x, input.y);
-    if (note === null) return;
-    this.pointerNote = note;
-    this.on(note, velocityAt(this.layout, input.y));
+    const id = input.pointer ?? 0;
+    const key = this.hit(input.x, input.y);
+    if (!key || this.pointers.has(id)) return;
+    this.pointers.set(id, key.note);
+    this.on(key.note, key.velocity);
   }
   /** Dragging across the keys plays each key it reaches. */
   pointerMove(input: PointerInput) {
-    if (this.pointerNote === null) return;
-    const note = keyAt(this.layout, input.x, input.y);
-    if (note === null || note === this.pointerNote) return;
-    this.off(this.pointerNote);
-    this.pointerNote = note;
-    this.on(note, velocityAt(this.layout, input.y));
+    const id = input.pointer ?? 0;
+    const old = this.pointers.get(id);
+    if (old === undefined) return;
+    const key = this.hit(input.x, input.y);
+    if (!key || key.note === old) return;
+    this.pointers.set(id, key.note);
+    this.off(old);
+    this.on(key.note, key.velocity);
   }
-  pointerUp() {
-    if (this.pointerNote === null) return;
-    this.off(this.pointerNote);
-    this.pointerNote = null;
+  pointerUp(input: Partial<PointerInput> = {}) {
+    const id = input.pointer ?? 0;
+    const note = this.pointers.get(id);
+    if (note === undefined) return;
+    this.pointers.delete(id);
+    this.off(note);
   }
 
   /** Computer keys: notes, and Z / X for the octave. Returns whether the key was the keyboard's. */
@@ -142,7 +166,7 @@ export class Keyboard {
   /** Everything stops (focus lost, the page hidden). */
   releaseAll() {
     this.keysDown.clear();
-    this.pointerNote = null;
+    this.pointers.clear();
     for (const note of this.notes) this.off(note);
   }
   aria(label: string) {
@@ -154,5 +178,5 @@ export class Keyboard {
   }
 }
 
-export const createKeyboard = (layout: KeyboardLayout, octaveStart?: number) =>
+export const createKeyboard = (layout: KeyboardLayout | KeyFinder, octaveStart?: number) =>
   new Keyboard(layout, octaveStart);

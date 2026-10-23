@@ -3,68 +3,34 @@
 // keys printed on it (A W S E D F T G Y H U J K, Z/X shift the octave), or play a
 // MIDI keyboard (connected automatically). ⌘. stops everything.
 import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computerKeys, type ComputerKeys } from '../screen/computer-keys.ts';
 import { useSession } from './context.ts';
 
 const session = useSession();
-const octave = ref(3);
-const KEYS = 'awsedftgyhujk';
-const down = new Map<string, number>();
-function typing(e: KeyboardEvent) {
-  return (
-    (e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable]') ||
-    e.metaKey ||
-    e.ctrlKey ||
-    e.altKey
-  );
-}
-function keydown(e: KeyboardEvent) {
+/** The note the A key plays. */
+const pc = ref(48);
+let keys: ComputerKeys | null = null;
+function panic(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === '.') {
     e.preventDefault();
     session.panic();
-    down.clear();
-    return;
   }
-  if (typing(e) || e.repeat) return;
-  const k = e.key.toLowerCase();
-  if (k === 'z') {
-    octave.value = Math.max(1, octave.value - 1);
-    return;
-  }
-  if (k === 'x') {
-    octave.value = Math.min(7, octave.value + 1);
-    return;
-  }
-  const i = KEYS.indexOf(k);
-  if (i < 0) return;
-  const note = 12 * (octave.value + 1) + i;
-  down.set(k, note);
-  session.noteOn(note);
-}
-function keyup(e: KeyboardEvent) {
-  const note = down.get(e.key.toLowerCase());
-  if (note !== undefined) {
-    down.delete(e.key.toLowerCase());
-    session.noteOff(note);
-  }
-}
-function blur() {
-  for (const note of down.values()) session.noteOff(note);
-  down.clear();
 }
 onMounted(() => {
-  window.addEventListener('keydown', keydown);
-  window.addEventListener('keyup', keyup);
-  window.addEventListener('blur', blur);
+  window.addEventListener('keydown', panic);
+  keys = computerKeys({
+    octaveStart: pc.value,
+    onNote: (note, velocity) => (velocity ? session.noteOn(note, velocity) : session.noteOff(note)),
+    onOctave: start => (pc.value = start),
+  });
 });
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', keydown);
-  window.removeEventListener('keyup', keyup);
-  window.removeEventListener('blur', blur);
-  blur();
+  window.removeEventListener('keydown', panic);
+  keys?.stop();
 });
 function onNote(e: Event) {
-  const d = (e as CustomEvent<{ note: number; on: boolean }>).detail;
-  if (d.on) session.noteOn(d.note);
+  const d = (e as CustomEvent<{ note: number; on: boolean; velocity?: number }>).detail;
+  if (d.on) session.noteOn(d.note, d.velocity ?? 100);
   else session.noteOff(d.note);
 }
 </script>
@@ -76,9 +42,9 @@ function onNote(e: Event) {
     title="Play with the keys shown (A–K); Z / X change the octave; ⌘. stops all sound"
   >
     <dk-keyboard
-      :start="String(12 * octave)"
+      :start="String(pc - 12)"
       octaves="4"
-      :pc="String(12 * (octave + 1))"
+      :pc="String(pc)"
       :held="session.heldNotes.value.join(',')"
       class="keys"
       @note="onNote"

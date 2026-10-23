@@ -1,6 +1,12 @@
-// Keys that play notes; emits `note` {note, on}. Skins: piano (black and white
-// keys; `start`, `octaves`, `held`, and `pc` = the note where the computer-keyboard
-// letters are printed), pads (big pads in a grid, one note each, stepping through a scale).
+// Keys that play notes, played by den-kit's keyboard behavior: dragging across the
+// keys plays each one it reaches, each finger plays its own key, and where a key
+// is pressed, top to bottom, sets how hard; emits `note` {note, on, velocity}. The
+// computer keys are played by whoever shows the keyboard (they work without
+// focus), and the letters they play are printed here.
+// Skins: piano (black and white keys; `start`, `octaves`, `held`, and `pc` = the
+// note where the computer-keyboard letters are printed), pads (big pads in a grid,
+// one note each, stepping through a scale).
+import { Keyboard, listen, velocityAt } from '../../behaviors/index.ts';
 import { BASE_CSS, DkElement, col, escapeHtml } from './base.ts';
 
 const SCALES: Record<string, number[]> = {
@@ -25,7 +31,19 @@ export function padNotes(count: number, start: number, scale: string): number[] 
 export class DkKeyboard extends DkElement {
   static observedAttributes = ['octave', 'start', 'octaves', 'held', 'pc', 'skin', 'params'];
   protected static override readonly painted = ['held'];
-  private down = new Map<number, number>();
+  private readonly keys = new Keyboard({ low: 48, high: 72, width: 1, height: 1 });
+  private stopListening: (() => void) | null = null;
+  constructor() {
+    super();
+    this.keys.events.on(e => {
+      if (e.type === 'begin') this.holding = true;
+      else if (e.type === 'value') {
+        const { note, velocity } = e.value;
+        this.emit('note', { note, on: velocity > 0, velocity });
+        this.paint();
+      } else this.ended();
+    });
+  }
   override attributeChangedCallback(name: string) {
     // Lit keys follow `held` even while a key is pressed (another key, the computer keyboard, MIDI).
     if (name === 'held' && this.root.firstChild) {
@@ -39,46 +57,43 @@ export class DkKeyboard extends DkElement {
     const html = this.skinName === 'pads' ? this.pads(params) : this.piano(params);
     this.root.innerHTML = html;
     const kb = this.$<HTMLElement>('.kb');
-    const noteAt = (e: PointerEvent) => {
-      const el = (
-        this.root.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      )?.closest?.('[data-note]') as HTMLElement | null;
-      return el?.dataset.note ? Number(el.dataset.note) : null;
-    };
-    kb.addEventListener('pointerdown', e => {
-      kb.setPointerCapture(e.pointerId);
-      const n = noteAt(e);
-      if (n === null) return;
-      this.holding = true;
-      this.down.set(e.pointerId, n);
-      this.emit('note', { note: n, on: true });
-      this.paint();
-    });
-    kb.addEventListener('pointermove', e => {
-      if (!this.down.has(e.pointerId)) return;
-      const n = noteAt(e);
-      const old = this.down.get(e.pointerId)!;
-      if (n !== null && n !== old) {
-        this.emit('note', { note: old, on: false });
-        this.down.set(e.pointerId, n);
-        this.emit('note', { note: n, on: true });
-        this.paint();
-      }
-    });
-    const up = (e: PointerEvent) => {
-      const n = this.down.get(e.pointerId);
-      if (n === undefined) return;
-      this.down.delete(e.pointerId);
-      this.emit('note', { note: n, on: false });
-      if (!this.down.size) this.ended();
-      else this.paint();
-    };
-    kb.addEventListener('pointerup', up);
-    kb.addEventListener('pointercancel', up);
+    const keys = this.keys;
+    if (this.skinName === 'pads')
+      // Pads sit in a grid: the pad under the pointer, played harder toward its bottom.
+      keys.layout = (x, y) => {
+        const box = kb.getBoundingClientRect();
+        const pad = (
+          this.root.elementFromPoint(box.left + x, box.top + y) as HTMLElement | null
+        )?.closest?.('[data-note]') as HTMLElement | null;
+        if (!pad?.dataset.note) return null;
+        const r = pad.getBoundingClientRect();
+        return {
+          note: Number(pad.dataset.note),
+          velocity: velocityAt(r.height, box.top + y - r.top),
+        };
+      };
+    else {
+      const { start, octaves } = this.pianoRange(params);
+      keys.layout = { low: start, high: start + 12 * octaves, width: 1, height: 1 };
+    }
+    this.stopListening?.();
+    this.stopListening = listen(
+      this,
+      {
+        fit: (width, height) => keys.fit(width, height),
+        pointerDown: input => keys.pointerDown(input),
+        pointerMove: input => keys.pointerMove(input),
+        pointerUp: input => keys.pointerUp(input),
+        releaseAll: () => keys.releaseAll(),
+      },
+      { target: kb },
+    );
+    this.setAttribute('role', 'application');
+    this.setAttribute('aria-label', 'Keyboard: press keys to play notes');
     this.paint();
   }
 
-  private piano(params: Record<string, unknown>): string {
+  private pianoRange(params: Record<string, unknown>) {
     const start =
       typeof params.start === 'number'
         ? params.start
@@ -89,6 +104,11 @@ export class DkKeyboard extends DkElement {
       1,
       Math.min(8, typeof params.octaves === 'number' ? params.octaves : this.num('octaves', 2)),
     );
+    return { start, octaves };
+  }
+
+  private piano(params: Record<string, unknown>): string {
+    const { start, octaves } = this.pianoRange(params);
     const pc = this.hasAttribute('pc') ? this.num('pc', start) : null;
     const letter = (n: number) =>
       pc !== null && n >= pc && n <= pc + 12 ? 'AWSEDFTGYHUJK'[n - pc] : '';
@@ -140,7 +160,7 @@ export class DkKeyboard extends DkElement {
   protected paint() {
     const held = new Set([
       ...(this.getAttribute('held') ?? '').split(',').filter(Boolean).map(Number),
-      ...this.down.values(),
+      ...this.keys.notes,
     ]);
     for (const key of this.root.querySelectorAll<HTMLElement>('[data-note]'))
       key.classList.toggle('on', held.has(Number(key.dataset.note)));

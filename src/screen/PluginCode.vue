@@ -7,7 +7,10 @@
 // sends back the controls it moves (one drag, or one burst of moves, is one ⌘Z
 // step, as with a canvas), its errors and console lines (the AI reads them), and
 // a picture of itself when den-kit looks at the plugin. A broken part shows its
-// error in its box; the rest of the plugin keeps playing.
+// error in its box; the rest of the plugin keeps playing. The frame runs scripts
+// on its own origin and nothing more (no popups, forms or leaving the frame), and
+// may use only the devices the person allowed for this work. Messages count only
+// from that frame's window and origin.
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { COLOR_TOKENS, FONT_TOKENS, tokenVar, type CodeElement } from '../work/ui.ts';
 import { toUnit } from './format.ts';
@@ -22,7 +25,11 @@ const props = defineProps<{
   url: AssetUrl;
   /** The plugin plays: the part may take the mouse. */ play?: boolean;
   /** A look at the plugin (start screen, the AI's look): shown only if the pod is up already. */ preview?: boolean;
+  /** The devices the person allowed this work's code parts (permission policy names: microphone, midi, …). */
+  devices?: readonly string[];
 }>();
+/** The frame's permission policy: the allowed devices for its own origin, nothing else. */
+const allow = computed(() => (props.devices ?? []).map(d => `${d} 'src'`).join('; '));
 const emit = defineEmits<{
   (e: 'set', id: string, values: Record<string, number | boolean>, gesture: string): void;
 }>();
@@ -358,6 +365,8 @@ defineExpose({ state, error });
       ref="frame"
       class="page"
       title="code part"
+      sandbox="allow-scripts allow-same-origin"
+      :allow="allow"
       :class="{ shown: state === 'ready' || state === 'loading' }"
     />
     <div v-if="message" class="status" :class="state" data-testid="code-status">{{ message }}</div>

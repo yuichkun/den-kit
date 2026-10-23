@@ -9,6 +9,8 @@ export interface PointerInput {
   x: number;
   y: number;
   shift?: boolean;
+  /** Which pointer: each finger on a touch screen is its own. */
+  pointer?: number;
 }
 /** One wheel notch: up (toward the user's screen top) is positive. */
 export interface WheelInput {

@@ -628,4 +628,95 @@ describe('building the plugin screen by hand', () => {
     assert.deepEqual(errors, []);
     await page.close();
   });
+
+  it("ready-made controls behave by den-kit's rules: a knob drags 200 px for its range, takes the wheel and keys, resets on double-click; a slider never jumps; each gesture is one undo step", async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'addNode',
+          node: {
+            id: 'bk',
+            type: 'ui.knob',
+            label: 'BK',
+            pos: { x: -300, y: 0 },
+            panel: { x: 40, y: 40, w: 120, h: 140 },
+            config: { min: 0, max: 100, scale: 'linear', unit: '' },
+            values: { value: 50 },
+          },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'bs',
+            type: 'ui.slider',
+            label: 'BS',
+            pos: { x: -300, y: 200 },
+            panel: { x: 200, y: 40, w: 50, h: 240 },
+            config: { min: 0, max: 100, scale: 'linear', unit: '' },
+            values: { value: 50 },
+          },
+        },
+      ]),
+    );
+    await page.keyboard.press('Control+Alt+KeyE');
+    const knob = page.locator('[data-widget=bk] dk-knob');
+    await knob.waitFor();
+    const value = (id: string): Promise<number> =>
+      page.evaluate(id => (window as any).__kit.doc.value.nodes[id].values.value, id);
+    const near = async (id: string, v: number) =>
+      page.waitForFunction(
+        ([id, v]) => Math.abs((window as any).__kit.doc.value.nodes[id].values.value - v) < 0.6,
+        [id, v] as const,
+        { timeout: 5000 },
+      );
+    const steps = () => kit(page, k => k.history.size);
+    const b = (await knob.boundingBox())!;
+    let size = await steps();
+    // Rule 1: 40 px up on screen (however the plugin is scaled) is 20% of the range, wherever it is grabbed.
+    for (const grab of [0.3, 0.6]) {
+      const start = await value('bk');
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height * grab);
+      await page.mouse.down();
+      for (const dy of [10, 20, 30, 40])
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height * grab - dy);
+      await page.mouse.up();
+      await near('bk', Math.min(100, start + 20));
+      assert.equal(await steps(), ++size, 'one drag is one undo step');
+    }
+    // Rule 4: keys (1%, Shift 10%, Home and End); rule 3: a wheel notch is 1%; rule 2: a double-click is the default.
+    await kit(page, k => k.commit([{ op: 'setValue', node: 'bk', port: 'value', value: 50 }]));
+    await knob.focus();
+    await page.keyboard.press('ArrowUp');
+    await near('bk', 51);
+    await page.keyboard.press('Shift+ArrowUp');
+    await near('bk', 61);
+    await page.keyboard.press('Home');
+    await near('bk', 0);
+    await page.keyboard.press('End');
+    await near('bk', 100);
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.wheel(0, 100);
+    await near('bk', 99);
+    await knob.dblclick();
+    await near('bk', Number(await knob.getAttribute('default')));
+    // Rule 5: clicking a slider somewhere else does not move it; dragging moves it from where it was.
+    const slider = page.locator('[data-widget=bs] dk-slider .track');
+    const s = (await slider.boundingBox())!;
+    size = await steps();
+    await page.mouse.click(s.x + s.width / 2, s.y + 4);
+    await page.waitForTimeout(200);
+    assert.equal(await value('bs'), 50, 'a click does not jump');
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height - 4);
+    await page.mouse.down();
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height - 4 - s.height / 4, { steps: 4 });
+    await page.mouse.up();
+    await near('bs', 75);
+    assert.equal(await steps(), size + 1, 'the drag is one undo step');
+    await kit(page, k => k.undo());
+    assert.equal(await value('bs'), 50);
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
 });

@@ -331,6 +331,24 @@ export function boot(modules: Modules) {
       if (gesture) post({ type: 'end', gesture });
       gesture = null;
     },
+    bind: (behavior, id) => {
+      known(id);
+      const b = behavior as unknown as {
+        events: { on(l: (e: { type: string; value?: unknown }) => void): () => void };
+        set?(value: unknown): void;
+      };
+      b.set?.(values[id]);
+      const stop = b.events.on(e => {
+        if (e.type === 'begin') kit.begin();
+        else if (e.type === 'value') move(id as ControlId, e.value as ControlValue);
+        else kit.end();
+      });
+      const follow = kit.on(id, value => b.set?.(value));
+      return () => {
+        stop();
+        follow();
+      };
+    },
     audio,
     frame: l => {
       listeners.frame.add(l);

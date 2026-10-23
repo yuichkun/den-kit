@@ -50,6 +50,11 @@ export const WORK_LIMITS = {
 export const ASSETS = 'assets/';
 /** Made by den-kit from the patch on every change; never kept in the work. */
 export const GENERATED_FILES: ReadonlySet<string> = new Set(['src/kit/controls.ts']);
+/** den-kit's own part of the kit (the behaviors of its controls), written into the project, never kept in the work. */
+export const KIT_FOLDER = 'src/kit/behaviors/';
+/** A file den-kit writes into the project itself. */
+export const isGenerated = (path: string) =>
+  GENERATED_FILES.has(path) || path.startsWith(KIT_FOLDER);
 
 // Plain names (dotfiles too: .gitignore, .prettierrc) joined with "/"; "." and ".." are refused below.
 const PATH = /^[A-Za-z0-9_@.][A-Za-z0-9_.@+ -]*(?:\/[A-Za-z0-9_@.][A-Za-z0-9_.@+ -]*)*$/;
@@ -63,8 +68,7 @@ export function checkPath(path: unknown): string | null {
   const top = path.split('/')[0]!;
   if (['node_modules', '.git', 'dist'].includes(top))
     return `${path}: ${top}/ is made by the tools and is not kept in the work.`;
-  if (GENERATED_FILES.has(path))
-    return `${path} is made by den-kit from the patch; it is not kept in the work.`;
+  if (isGenerated(path)) return `${path} is made by den-kit; it is not kept in the work.`;
   return null;
 }
 

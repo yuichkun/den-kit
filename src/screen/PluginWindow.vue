@@ -36,7 +36,7 @@ const emit = defineEmits<{
     done: boolean,
     gesture?: string,
   ): void;
-  (e: 'note', note: number, on: boolean): void;
+  (e: 'note', note: number, on: boolean, velocity: number): void;
 }>();
 
 const url: AssetUrl = id => props.assetUrls?.[id] ?? null;
@@ -93,8 +93,8 @@ function onWidget(w: WidgetSpec, e: Event, done: boolean) {
   emit('change', w.id, w.type === 'ui.xy' ? { x: detail.x, y: detail.y } : { value: detail }, done);
 }
 function onNote(e: Event) {
-  const d = (e as CustomEvent<{ note: number; on: boolean }>).detail;
-  emit('note', d.note, d.on);
+  const d = (e as CustomEvent<{ note: number; on: boolean; velocity?: number }>).detail;
+  emit('note', d.note, d.on, d.velocity ?? 100);
 }
 
 // The sound, for lamps and canvases.
@@ -203,6 +203,7 @@ onBeforeUnmount(() => {
             :scale="text(item.widget, 'scale')"
             :unit="text(item.widget, 'unit')"
             :label="item.widget.label"
+            :default="text(item.widget, 'default')"
             :skin="item.widget.skin.name"
             :params="params(item.widget)"
             @input="onWidget(item.widget, $event, false)"

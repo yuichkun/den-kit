@@ -5,7 +5,8 @@
 // their output), and the pod check (what working in the pod feels like, measured).
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useSession } from './context.ts';
-import { GENERATED_FILES, checkPath, textFiles } from '../work/files.ts';
+import { GENERATED_FILES, checkPath, isGenerated, textFiles } from '../work/files.ts';
+import { kitFiles } from '../screen/kit-files.ts';
 import { templateFiles, withTemplate } from '../workspace/template.ts';
 import { PodCheck, secs } from '../workspace/pod-check.ts';
 import CodeArea from './CodeArea.vue';
@@ -21,10 +22,12 @@ const project = computed(() => {
   const files = textFiles(session.doc.value.files);
   return Object.keys(files).length ? { files } : undefined;
 });
-/** The files: the work's (or the template's, while it has none) and the one den-kit makes. */
+/** den-kit's own kit (the behaviors of its controls), shown as den-kit writes it. */
+const kit = kitFiles();
+/** The files: the work's (or the template's, while it has none) and the ones den-kit makes. */
 const files = computed(() => {
   const own = project.value?.files ?? templateFiles();
-  return [...Object.keys(own), ...GENERATED_FILES].sort(
+  return [...Object.keys(own), ...GENERATED_FILES, ...Object.keys(kit)].sort(
     (a, b) => depth(a) - depth(b) || a.localeCompare(b),
   );
 });
@@ -32,9 +35,10 @@ const depth = (p: string) => p.split('/').length;
 const current = ref<string>(props.open ?? '');
 const draft = ref('');
 const dirty = computed(() => draft.value !== text(current.value));
-const readOnly = computed(() => GENERATED_FILES.has(current.value));
+const readOnly = computed(() => isGenerated(current.value));
 function text(path: string): string {
   if (GENERATED_FILES.has(path)) return pod?.controls ?? '';
+  if (isGenerated(path)) return kit[path] ?? '';
   return (project.value?.files ?? templateFiles())[path] ?? '';
 }
 function select(path: string) {

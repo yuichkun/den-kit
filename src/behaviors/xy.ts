@@ -50,6 +50,10 @@ export class XYPad {
       y: 1 - input.y / Math.max(1, this.size.height),
     };
   }
+  /** The control's box. */
+  fit(width: number, height: number) {
+    this.size = { width, height };
+  }
   pointerDown(input: PointerInput) {
     this.dragging = true;
     this.events.emit({ type: 'begin' });

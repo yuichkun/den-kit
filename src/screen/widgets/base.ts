@@ -9,7 +9,8 @@
 
 export { formatValue, toUnit, fromUnit } from '../format.ts';
 
-export const BASE_CSS = `:host{display:block;box-sizing:border-box;width:100%;height:100%;color:var(--dk-fg,#e6e8ec);font-family:var(--dk-label-font,var(--dk-font,system-ui,sans-serif));font-size:var(--dk-label-size,11px);user-select:none;-webkit-user-select:none;touch-action:none}
+export const BASE_CSS = `:host(:focus-visible){outline:2px solid var(--dk-accent,#5ec4ff);outline-offset:2px;border-radius:4px}
+:host{display:block;box-sizing:border-box;width:100%;height:100%;color:var(--dk-fg,#e6e8ec);font-family:var(--dk-label-font,var(--dk-font,system-ui,sans-serif));font-size:var(--dk-label-size,11px);user-select:none;-webkit-user-select:none;touch-action:none}
 *{box-sizing:border-box}
 .label{text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dk-label-color,var(--dk-fg,#e6e8ec));font-weight:var(--dk-label-weight,400);letter-spacing:var(--dk-label-spacing,0);text-transform:var(--dk-label-case,none);font-style:var(--dk-label-style,normal);text-shadow:var(--dk-label-shadow,none);-webkit-text-stroke:var(--dk-label-stroke,0);line-height:1.2;opacity:.9;flex:none}
 .value{text-align:center;white-space:nowrap;font-family:var(--dk-value-font,var(--dk-font,system-ui));font-variant-numeric:tabular-nums;color:var(--dk-value-color,var(--dk-fg,#e6e8ec));text-shadow:var(--dk-label-shadow,none);opacity:.75;font-size:.92em;line-height:1.2;flex:none}`;

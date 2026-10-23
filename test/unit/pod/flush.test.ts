@@ -4,6 +4,7 @@ import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
 import type { PodHost, PodRunResult, Portal } from '../../../src/host/workspace.ts';
 import { DEV_PORT, PodSession, type WorkspaceSession } from '../../../src/workspace/pod-session.ts';
+import { kitFiles } from '../../../src/screen/kit-files.ts';
 
 const success = (): PodRunResult => ({ exitCode: 0, output: '', timedOut: false, ms: 1 });
 const pods: PodSession[] = [];
@@ -70,7 +71,7 @@ function harness(sync: () => Promise<PodRunResult> = async () => success()) {
     },
   };
   const create = vi.fn(async () => host);
-  const pod = new PodSession(session, { kind: 'fake', create });
+  const pod = new PodSession(session, { kind: 'fake', create }, kitFiles());
   pods.push(pod);
   return { pod, host, session, files, run, create, release: () => releaseCommand?.() };
 }

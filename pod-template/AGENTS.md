@@ -20,7 +20,7 @@ A code part is a file `src/parts/<name>.ts` (name: lowercase letters, digits,
 dashes) whose default export is `part({...})`:
 
 ```ts
-import { part } from '../kit';
+import { CONTROLS, behaviors, part } from '../kit';
 
 export default part({
   // Settings shown in den-kit's inspector (the musician changes them without code).
@@ -59,16 +59,16 @@ export default part({
       g.stroke();
       // … kit.audio.wave, kit.audio.spectrum, kit.value('kcut') …
     });
-    // Dragging up and down turns a knob: one drag is one ⌘Z step.
-    canvas.addEventListener('pointerdown', e => {
-      canvas.setPointerCapture(e.pointerId);
-      kit.begin();
-    });
-    canvas.addEventListener('pointermove', e => {
-      if (e.buttons) kit.setNorm('kcut', kit.norm('kcut') - e.movementY / 200);
-    });
-    canvas.addEventListener('pointerup', () => kit.end());
-    return stop;
+    // The canvas is a knob with den-kit's knob behavior: drag up and down, the
+    // wheel, the arrow keys, a double-click for the default; one drag is one ⌘Z step.
+    const knob = behaviors.createKnob(CONTROLS.kcut);
+    const unbind = kit.bind(knob, 'kcut');
+    const unlisten = behaviors.listen(canvas, knob);
+    return () => {
+      stop();
+      unbind();
+      unlisten();
+    };
   },
 });
 ```
@@ -87,6 +87,12 @@ The same part can be placed several times with different props.
   control; the sound follows at once and the musician can undo it. To move a
   sound parameter that has no control yet, add one in the patch first (a knob
   wired to that input; it need not be on the plugin).
+- `behaviors` — how den-kit's own controls respond to input, without their look:
+  `createKnob`, `createSlider`, `createButton`, `createSwitch`, `createXYPad`,
+  `createKeyboard`, `createMeter`. `behaviors.listen(element, behavior)` feeds a
+  behavior the element's pointer, wheel and keys, and `kit.bind(behavior, id)`
+  lets it move a control. A control drawn this way behaves like den-kit's (same
+  drag, wheel and keys, one drag one ⌘Z step); prefer it to handling input by hand.
 - `kit.audio` — the plugin's output now: `level`, `peak`, `wave` (256 samples),
   `spectrum` (64 bands, low to high, 0..1). Read it in `kit.frame(...)`.
 - `kit.props` / `kit.onProps(fn)` — this part's settings.

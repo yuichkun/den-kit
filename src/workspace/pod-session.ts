@@ -13,7 +13,7 @@ import type { Author } from '../work/history.ts';
 import type { OpError } from '../work/op-error.ts';
 import type { Intent } from '../work/ops.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { GENERATED_FILES, WORK_LIMITS, checkPath, textFiles } from '../work/files.ts';
+import { WORK_LIMITS, checkPath, isGenerated, textFiles } from '../work/files.ts';
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
 import { controlsSource, templateFiles } from './template.ts';
@@ -143,14 +143,21 @@ export class PodSession {
   private queue: Promise<unknown> = Promise.resolve();
   private syncQueued = false;
   private controlsText = '';
+  /** den-kit's own kit files (the behaviors), written into the project as they are. */
+  private readonly kit: Readonly<Record<string, string>>;
   private entries = 0;
   private stopWatch: (() => void) | null = null;
   private portalWatch: (() => void) | null = null;
   private readonly session: WorkspaceSession;
 
-  constructor(session: WorkspaceSession, factory: PodFactory) {
+  constructor(
+    session: WorkspaceSession,
+    factory: PodFactory,
+    kit: Readonly<Record<string, string>>,
+  ) {
     this.session = session;
     this.factory = factory;
+    this.kit = kit;
     if (!factory.kind) this.set('unavailable', factory.reason ?? 'No pod.', factory.fix);
   }
 
@@ -330,6 +337,7 @@ export class PodSession {
     const doc = this.session.doc.value;
     const own = textFiles(doc.files);
     const files = new Map(Object.entries(Object.keys(own).length ? own : templateFiles()));
+    for (const [path, text] of Object.entries(this.kit)) files.set(path, text);
     files.set('src/kit/controls.ts', controlsSource(parameters(doc, this.session.catalog)));
     return files;
   }
@@ -396,12 +404,17 @@ export class PodSession {
         const path = line.trim().replace(/^\.\//, '');
         // Assets are the work's own files; commands do not change them (yet).
         if (!path || seen.has(path) || path === CHECK_FILE || path.startsWith('assets/')) continue;
-        if (GENERATED_FILES.has(path)) {
+        if (isGenerated(path)) {
+          const made = this.generated(path);
           const text = await host.readFile(`${this.projectDir}/${path}`);
-          if (text !== null && text !== this.controlsText) {
-            await host.writeFile(`${this.projectDir}/${path}`, this.controlsText);
+          if (text !== null && text !== made) {
+            if (made === undefined)
+              await host.run(`rm -f -- ${q(path)}`, { cwd: this.projectDir, timeoutMs: 10_000 });
+            else await host.writeFile(`${this.projectDir}/${path}`, made);
             skipped.push(
-              `${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`,
+              path === 'src/kit/controls.ts'
+                ? `${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`
+                : `${path} (den-kit's own kit; your change was undone)`,
             );
           }
           continue;
@@ -681,6 +694,11 @@ export class PodSession {
   /** The controls file den-kit generates (what parts can read and move). */
   get controls(): string {
     return this.controlsText || (this.wanted().get('src/kit/controls.ts') ?? '');
+  }
+
+  /** What den-kit writes at a path of its own (undefined: nothing, there). */
+  generated(path: string): string | undefined {
+    return path === 'src/kit/controls.ts' ? this.controls : this.kit[path];
   }
 
   /** A code part's news (PluginCode.vue): its state, settings, errors and console lines. */
