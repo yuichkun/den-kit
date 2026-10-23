@@ -102,7 +102,7 @@ the sound to `screen`.
   permissions it gives these APIs. An effect
   processes audio from an input device or from an audio asset.
 - The output passes a safety stage, a limiter, a clipper and a mute for broken audio, before
-  it reaches the speakers.
+  it reaches the speakers. Sound a code part plays on its own does not pass it.
 
 ## The work
 
@@ -120,17 +120,18 @@ the sound to `screen`.
   second origin for the code parts.
 - `player` never changes a work's record. Values moved while playing are the player's own
   state, which a host such as a DAW can keep.
-- Conversations, settings and the person's consent are not part of a work. The host's
-  storage keeps them.
+- Conversations, settings and the person's consent are not part of a work. The agent runtime
+  keeps each conversation, and the host's storage keeps which conversation belongs to which
+  work, the settings and the consent.
 
 ## Assets
 
 - An asset can be any file: images, including HDR, 3D models, audio, video, fonts or data.
   den-kit reads only what its own features use: images, fonts and video on the plugin
   screen, and audio in `sound`. Code in a work reads anything else.
-- People, the AI and the workspace's tools add files, and each addition is an operation.
-  den-kit fetches a URL itself and checks the type and size before the file becomes an
-  asset. An asset records where it came from and its license.
+- People, the AI and the workspace's tools add files, and each addition is an operation. The
+  host fetches a file from a URL, and den-kit checks the type and size before the file
+  becomes an asset. An asset records where it came from and its license.
 - The plugin screen refers to assets by path. A code part gets their URLs from the kit,
   served from the code part's own origin so that ordinary loaders work, and can also import
   them when it is built. den blocks take audio assets through asset parameters. A codebox reads
@@ -141,10 +142,13 @@ the sound to `screen`.
 
 - A codebox's source is in the document. `sound` compiles it with the patch into the audio
   processor that runs in the AudioWorklet. Codeboxes can share modules with each other.
-- A code part's source is in the work's files. While the person edits, `workspace` builds it
-  and serves it from the workspace; otherwise it comes from the playable build. It runs in a
-  frame from another origin, with no host API and no network access except to the origins
-  the person allowed for that work, and it talks to `screen` only through the kit.
+- A code part's source is in the work's files. The host's sandbox serves it in a frame from
+  the work's own origin: while the person edits, it passes requests through to the
+  workspace's dev server, and otherwise it serves the playable build. The frame has no host
+  API, cannot navigate away, and has no network access except to the origins the person
+  allowed for that work, and it talks to `screen` only through the kit. The sandbox sets these
+  rules in its own responses, so nothing in the work's files, such as the dev server's
+  settings, can change them.
 - The kit gives a code part the parameters, to read and to move (while editing, each move is
   an operation; in the player, a move changes only the player's own state),
   the sound's level, waveform and spectrum, its own settings shown in the inspector, the
@@ -162,37 +166,44 @@ the sound to `screen`.
   (the selection, sketches and sticky notes, what the person is looking at, pictures of a
   shared screen), the tools (reading the work, applying operations, listening, looking at
   the screen, handling assets, running workspace commands), each agent's scope and one
-  conversation per work.
+  conversation per work. A sub-agent states its scope through a tool before it edits, and
+  the scopes of agents running at once do not overlap.
 - The agent runtime holds model calls, retries, error handling, sub-agents and conversation
   state ([principle 5](principles.md#5-build-what-makes-music-not-chat-infrastructure)). It
-  brings its own tools, such as reading a web page the person pastes or using MCP servers, and
+  brings its own tools, such as searching the web and reading a page the person pastes, and
   den-kit does not build them. Bringing something from them into the work goes through asset
-  import.
+  import. Its tools that act on the person's computer or accounts, such as a shell, files or
+  connected apps, stay off.
 - The provider, the way the person signs in, and the way the tools are offered to the
   runtime can each change without the others: the tools are defined once, and an adapter
-  offers them to each runtime, for example through MCP.
+  offers them to each runtime, for example through MCP. The adapter offers them so that the
+  runtime's sub-agents get them too, and each tool call says which agent made it.
 
 ## Workspace
 
 - `workspace` keeps a working copy of the work's files in a workspace, installs packages,
-  builds and serves code parts, and runs commands for the person and the AI. Changed files
-  return to the work as operations made by whoever ran the command; the record stays in the
-  work.
+  builds code parts, runs their dev server, and runs commands for the person and the AI.
+  Changed files return to the work as operations made by whoever ran the command; the record
+  stays in the work.
+- Each work has its own workspace, so no work reaches another's files or installed packages.
+  The workspace reaches the network only while den-kit installs packages, with install
+  scripts off and nothing else running, so code in a work never runs with network access.
 - The host decides whether a workspace is available. Without one, everything except editing
   code parts still works, and code parts show from the playable build.
 
 ## Interfaces
 
-| Interface      | What the host provides                                                                                                                                               | In the desktop app                                                                                                                 |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| AI             | The available providers, each provider's sign-in state, models, capabilities, usage, the notices each provider requires, and the exchange of requests and tool calls | A local bridge to the Codex app-server. Sign in with ChatGPT uses den-kit's own client ID, and the tokens stay in the main process |
-| Account        | The person's account, apart from AI sign-in: its sign-in state, what is available to the person, and signing in and out                                              | Signing in through the system browser                                                                                              |
-| Storage        | Work records, conversations and settings, synced to the cloud when the person has an account                                                                         | The app's data folder, and a server when the person has an account                                                                 |
-| Workspace      | A workspace, or none                                                                                                                                                 | BrowserPod, with a key handed out by a server                                                                                      |
-| Sandbox        | A separate origin that serves code parts and the assets they read, and lets through only the origins and devices the person allowed                                  | A second local origin                                                                                                              |
-| Screen capture | Pictures of den-kit as the person sees it                                                                                                                            | A capture of the app's own window                                                                                                  |
-| Consent        | Asking at first launch, sending analytics only with consent, and keeping the choice when the person makes an account                                                 | A send address set only in distributed builds                                                                                      |
-| Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                                             | electron-updater                                                                                                                   |
+| Interface      | What the host provides                                                                                                                                                                                                                             | In the desktop app                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI             | The available providers, each provider's sign-in state, models, capabilities, usage, the notices each provider requires, and the exchange of requests and tool calls                                                                               | A local bridge to the Codex app-server. Sign in with ChatGPT uses den-kit's own client ID, and the tokens stay in the main process. den-kit's tools reach Codex as an MCP server in the main process |
+| Account        | The person's account, apart from AI sign-in: its sign-in state, what is available to the person, and signing in and out                                                                                                                            | Signing in through the system browser                                                                                                                                                                |
+| Storage        | Work records, which conversation belongs to which work, and settings, synced to the cloud when the person has an account                                                                                                                           | The app's data folder, and a server when the person has an account                                                                                                                                   |
+| Workspace      | A workspace, or none                                                                                                                                                                                                                               | BrowserPod, with a key handed out by a server                                                                                                                                                        |
+| Sandbox        | An origin for each work, apart from den-kit's, that serves its code parts and the assets they read, keeps their frames from navigating away, and lets through only the origins and devices the person allowed, WebRTC and DNS prefetching included | The app's local server under a host name for each work, and the window's settings for what response headers do not cover                                                                             |
+| Fetch          | Getting a file from a URL for asset import, from public addresses only and up to a size limit                                                                                                                                                      | The main process                                                                                                                                                                                     |
+| Screen capture | Pictures of den-kit as the person sees it                                                                                                                                                                                                          | A capture of the app's own window                                                                                                                                                                    |
+| Consent        | Asking at first launch, sending analytics only with consent, and keeping the choice when the person makes an account                                                                                                                               | A send address set only in distributed builds                                                                                                                                                        |
+| Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                                                                                                                           | electron-updater                                                                                                                                                                                     |
 
 The desktop app in `desktop/` is the host this repository ships, for macOS and Windows.
 Other hosts, such as one inside Suara Portal, implement the same interfaces.
