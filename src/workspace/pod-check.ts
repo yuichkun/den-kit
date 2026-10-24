@@ -171,10 +171,12 @@ export class PodCheck {
 
   /** Load a scratch part from the dev server in a hidden frame, then change it and wait for the change to show. */
   private async partSteps(pod: PodSession, frames?: () => string | null) {
-    // The dev server starts again after an install: wait for its address.
+    // The dev server starts again after an install: wait until its pages load, from the sandbox
+    // when there is one (it serves the dev server a moment after the dev server has an address).
+    const address = () => (frames ? frames() : pod.portal.value);
     const deadline = Date.now() + 60_000;
-    while (!pod.portal.value && Date.now() < deadline) await new Promise(r => setTimeout(r, 200));
-    const portal = frames ? frames() : pod.portal.value;
+    while (!address() && Date.now() < deadline) await new Promise(r => setTimeout(r, 200));
+    const portal = address();
     if (!portal) {
       this.set('part', { state: 'failed', detail: 'The dev server has no address.' });
       this.set('edit', { state: 'skipped' });
