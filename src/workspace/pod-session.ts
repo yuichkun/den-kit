@@ -439,13 +439,14 @@ export class PodSession {
       this.knownAssets.set(asset.id, assetSource(asset));
     }
     const goneAssets = [...this.knownAssets.keys()].filter(p => !assets[p]);
-    if (goneAssets.length) {
-      await host.run(`rm -f -- ${goneAssets.map(q).join(' ')}`, {
+    // A text file that took an asset's path was written above: it stays.
+    const removed = goneAssets.filter(p => !wanted.has(p));
+    if (removed.length)
+      await host.run(`rm -f -- ${removed.map(q).join(' ')}`, {
         cwd: this.projectDir,
         timeoutMs: 60_000,
       });
-      for (const p of goneAssets) this.knownAssets.delete(p);
-    }
+    for (const p of goneAssets) this.knownAssets.delete(p);
     if ([...this.knownAssets.keys()].sort().join('\n') !== assetsBefore) await this.excludeAssets();
     this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
     if (!first && packageChanged) await this.install(false).catch(() => undefined);

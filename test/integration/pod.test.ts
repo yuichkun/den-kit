@@ -257,13 +257,13 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
   }, 240_000);
 
   it("the work's assets are in the project, its stored ones outside its git: code imports them, a replaced or removed one follows, and a text file under assets/ reads back like any other", async () => {
-    const add = async (path: string, bytes: Uint8Array) => {
+    const add = async (path: string, bytes: Uint8Array, mime = 'image/png') => {
       const hash = await sha256(bytes);
       kit.contents.set(hash, bytes);
       const asset = {
         id: path,
         name: path.split('/').at(-1)!,
-        mime: 'image/png',
+        mime,
         bytes: bytes.length,
         hash,
         width: 1,
@@ -303,6 +303,15 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     await pod.bash(`printf '{"a":2}\\n' > assets/curve.json`, { who: 'ai' });
     expect((await pod.collect()).files['assets/curve.json']).toBe('{"a":2}\n');
     kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': null } }]);
+    await settle(800);
+    // A text file that takes a stored asset's path stays in the project.
+    await add('assets/table.json', new TextEncoder().encode('{"stored":1}'), 'application/json');
+    await settle(800);
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': '{"text":1}\n' } }]);
+    await settle(800);
+    expect(await pod.readFile('assets/table.json')).toBe('{"text":1}\n');
+    expect((await pod.collect()).files).not.toHaveProperty(['assets/table.json']);
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': null } }]);
     await settle(800);
     // Replaced at the same path, then removed.
     kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
