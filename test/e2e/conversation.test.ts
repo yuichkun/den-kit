@@ -1,4 +1,4 @@
-// U5a in the browser: the patch canvas behaves like a drawing app (drag on
+// In the browser: the patch canvas behaves like a drawing app (drag on
 // empty space selects, scrolling pans, a pinch or ⌘/Ctrl + wheel zooms); what
 // is selected rides along with an AI request as chips (× leaves one out); the
 // work's conversation, which the runtime keeps, goes on after a reload and shows

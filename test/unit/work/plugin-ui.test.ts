@@ -653,7 +653,7 @@ describe('the plugin screen: saving and loading', () => {
       source: { license: 'CC0' },
     });
   });
-  it('a canvas was called a custom part (kind "part") before U5: such files load, and the old word still adds one', () => {
+  it('an element kind den-kit does not have ("part", a canvas in an earlier preview) is left out of a file and refused in an edit, with the kinds there are', () => {
     const doc = apply(base(), {
       op: 'addElement',
       element: {
@@ -666,27 +666,29 @@ describe('the plugin screen: saving and loading', () => {
     old.ui.elements.canvas1.kind = 'part';
     const parsed = parseDocument(JSON.stringify(old), catalog);
     if (!parsed.ok) throw new Error(parsed.error);
-    expect(parsed.report).toEqual([]);
-    expect(parsed.doc.ui.elements.canvas1).toMatchObject({
-      kind: 'canvas',
-      code: 'export default () => {};',
-    });
-    const r = applyIntents(
-      base(),
-      [
-        {
-          op: 'addElement',
-          element: {
-            kind: 'part' as never,
-            code: 'export default () => {};',
-            rect: { x: 0, y: 0, w: 40, h: 40 },
+    expect(parsed.doc.ui.elements.canvas1).toBeUndefined();
+    expect(parsed.report).toEqual([
+      expect.objectContaining({
+        code: 'dropped-element',
+        message: expect.stringMatching(/canvas/),
+      }),
+    ]);
+    expect(() =>
+      applyIntents(
+        base(),
+        [
+          {
+            op: 'addElement',
+            element: {
+              kind: 'part' as never,
+              code: 'export default () => {};',
+              rect: { x: 0, y: 0, w: 40, h: 40 },
+            },
           },
-        },
-      ],
-      catalog,
-    );
-    expect(r.created).toEqual(['canvas1']);
-    expect(r.doc.ui.elements.canvas1!.kind).toBe('canvas');
+        ],
+        catalog,
+      ),
+    ).toThrow(/element kind must be one of .*canvas/);
   });
   it('documents of earlier previews are refused, not half-read', () => {
     const v1 = JSON.parse(serializeDocument(starter('bass', catalog)));

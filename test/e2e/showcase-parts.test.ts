@@ -1,4 +1,4 @@
-// The U5 works through the real UI: Rainfall, opened from the start screen,
+// The showcase works with parts through the real UI: Rainfall, opened from the start screen,
 // rains by itself (one Drop part ×16, its face on the plugin); turning the
 // Drop's face knob plays all sixteen copies without recompiling, each still
 // moved by its own spread. Supersaw plays
@@ -46,7 +46,7 @@ async function turnUp(page: Page, id: string, by = 70) {
   await page.mouse.up();
 }
 
-describe('the U5 works', () => {
+describe('the showcase works with parts', () => {
   it('Rainfall rains by itself; the Drop face plays all sixteen copies live; the patch shows one Drop ×16', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);

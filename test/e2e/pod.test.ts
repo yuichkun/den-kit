@@ -1,4 +1,4 @@
-// U6: the AI's free environment. The (fake) model works in the pod like in any
+// The AI's free environment. The (fake) model works in the pod like in any
 // web project — reads the guide, writes a code part with bash, runs TypeScript
 // and ESLint on it — and the part shows on the plugin from the pod's dev server,
 // reads and moves a knob, and undoes with the request. The pod here is the test

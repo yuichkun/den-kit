@@ -176,7 +176,7 @@ export function isolationProblem(f: PageFacts): { reason: string; fix: string } 
   if (!f.secure)
     return {
       reason: `${origin} is not a secure address, so the browser ignores the isolation headers`,
-      fix: 'Open http://127.0.0.1:5180/ (or http://localhost:5180/) on the Mac running `npm run dev`, not a network address.',
+      fix: 'Open http://127.0.0.1:5180/ (or http://localhost:5180/) on the Mac running `vp run dev`, not a network address.',
     };
   if (f.framed)
     return {
@@ -187,7 +187,7 @@ export function isolationProblem(f: PageFacts): { reason: string; fix: string } 
   if (!f.headers)
     return {
       reason: 'den-kit could not read its own page from the server',
-      fix: 'Check that `npm run dev` is still running, then reload.',
+      fix: 'Check that `vp run dev` is still running, then reload.',
     };
   if (
     f.headers.coop !== 'same-origin' ||
@@ -195,7 +195,7 @@ export function isolationProblem(f: PageFacts): { reason: string; fix: string } 
   )
     return {
       reason: `the server sends COOP "${f.headers.coop ?? 'none'}" and COEP "${f.headers.coep ?? 'none'}" with this page`,
-      fix: `Another server may be answering on ${origin}: stop it, start \`npm run dev\` (from the den-kit folder) and reload.`,
+      fix: `Another server may be answering on ${origin}: stop it, start \`vp run dev\` (from the den-kit folder) and reload.`,
     };
   if (f.serviceWorker)
     return {
@@ -351,7 +351,7 @@ export const plainBytes = (data: ArrayBuffer | ArrayBufferView): Uint8Array =>
 
 const KEY_PROBLEM = /api ?key|auth|401|403|token|credential/i;
 const KEY_FIX =
-  'Check BROWSERPOD_API_KEY in .env (a key from console.browserpod.io) and the network; after changing the key, restart `npm run dev` and reload the page.';
+  'Check BROWSERPOD_API_KEY in .env (a key from console.browserpod.io) and the network; after changing the key, restart `vp run dev` and reload the page.';
 /** How long den-kit waits for BrowserPod to start before saying so (it keeps starting; asking again waits for the same start). */
 export const BOOT_LIMIT_MS = 300_000;
 
@@ -387,7 +387,7 @@ async function startBoot(options: BrowserPodOptions & { testing?: BootTesting })
   } catch (error) {
     throw new PodUnavailable(
       `The BrowserPod package could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
-      'Run `npm ci` in the den-kit repo.',
+      'Run `vp install --frozen-lockfile` in the den-kit repo.',
     );
   }
   if (!mod.BrowserPod)
@@ -637,7 +637,6 @@ export class BrowserPodHost implements PodHost {
     let out = '',
       running = true;
     const decoder = new TextDecoder();
-    const self = this;
     const done = (async () => {
       const path = `${this.home}/.den-kit/run/${name.replace(/[^a-z0-9-]/gi, '')}.sh`;
       await this.writeFile(path, `${script.replace(/\s+$/, '')}\n`);
@@ -662,7 +661,7 @@ export class BrowserPodHost implements PodHost {
       })
       .finally(() => {
         running = false;
-        self.log?.(`${name} ended`);
+        this.log?.(`${name} ended`);
       });
     return {
       name,

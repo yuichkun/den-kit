@@ -1,4 +1,4 @@
-// Pictures of den-kit as the person sees it (U8b), for the AI. Sharing starts
+// Pictures of den-kit as the person sees it, for the AI. Sharing starts
 // off and needs the person's explicit click; the host takes the pictures
 // (src/host, ScreenCapture) and may ask the person first. Stopping sharing
 // prevents new pictures and discards those still being prepared. Nothing leaves

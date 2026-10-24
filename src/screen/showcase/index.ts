@@ -114,7 +114,7 @@ export const WORKS: readonly Work[] = [
     reference: 'neon sign photo',
     build: neon,
   },
-  // Parts and ×N (U5): one small thing made once and used many times, with its own face on the plugin.
+  // Parts and ×N: one small thing made once and used many times, with its own face on the plugin.
   {
     id: 'rain',
     title: 'Rainfall',

@@ -1,4 +1,4 @@
-// K6–K8 editor flows driven through the real UI (mouse and keyboard).
+// Editor flows driven through the real UI (mouse and keyboard).
 import { writeZip } from '../../src/work/zip.ts';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -185,7 +185,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K7 exposes an input to the plugin and plays it from there; theme and layout edits are undoable', async () => {
+  it('exposes an input to the plugin and plays it from there; theme and layout edits are undoable', async () => {
     const { page } = await fresh();
     await page.locator('.vue-flow__node[data-id="cut1"] header').click();
     await page.click('[data-expose="hz"]');
@@ -250,7 +250,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K8 codebox: edit in the editor, see a type error at its line, fix it and hear it compile', async () => {
+  it('codebox: edit in the editor, see a type error at its line, fix it and hear it compile', async () => {
     const { page } = await fresh();
     await kit(page, k =>
       k.commit([
@@ -291,7 +291,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K8 import refuses broken files with a reason; export → import round-trips; code view highlights the selection', async () => {
+  it('import refuses broken files with a reason; export → import round-trips; code view highlights the selection', async () => {
     const { page } = await fresh();
     const newer = writeZip([
       {
@@ -336,7 +336,7 @@ describe('patch editor', () => {
     assert.ok((await page.locator('[data-testid=code-view] .line .hljs-keyword').count()) > 10);
     await page.close();
   });
-  it('F6 a work opens in one window: a second window says so and saves nothing; once the first closes it opens again', async () => {
+  it('a work opens in one window: a second window says so and saves nothing; once the first closes it opens again', async () => {
     const context = await h.browser.newContext();
     const a = await context.newPage();
     await a.goto(h.url);

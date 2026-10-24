@@ -1,5 +1,5 @@
-// Compatibility references (docs/filter-materialization.md sense), not audio
-// goldens: the module-built starters must reproduce den's own engines.
+// References, not audio goldens: the starters built from modules must reproduce
+// den's own engines sample for sample.
 import { describe, expect, it, beforeAll } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import {

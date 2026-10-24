@@ -81,7 +81,7 @@ export interface WorkspaceDeps {
   claim?(args: unknown): ToolOutput;
   /** The sub-agents still working, for the agent the person asked ("“Sound”"). */
   working?(): string[];
-  /** A picture of what the person sees now (U8b): their view, or the one asked for; or why there is none. */
+  /** A picture of what the person sees now: their view, or the one asked for; or why there is none. */
   seen?(view?: 'plugin' | 'patch' | 'window'): Promise<SeenResult>;
   /** A file from a public URL, kept as an asset would be but not yet in the work (absent: den-kit cannot fetch here). */
   importFile?(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }>;
@@ -173,13 +173,7 @@ export class LlmWorkspace {
           );
         case 'kit_get_plugin': {
           const doc = this.deps.read();
-          // ("part" was its name before U5; an old habit still works.)
-          const canvas =
-            typeof a.canvas === 'string' && a.canvas
-              ? a.canvas
-              : typeof a.part === 'string' && a.part
-                ? a.part
-                : undefined;
+          const canvas = typeof a.canvas === 'string' && a.canvas ? a.canvas : undefined;
           return {
             success: true,
             text: clip(

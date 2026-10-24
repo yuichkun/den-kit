@@ -37,7 +37,7 @@ function commit(...args: Parameters<typeof session.commit>) {
   return r;
 }
 async function addFiles(files: FileList | File[] | null) {
-  for (const file of [...(files ?? [])]) {
+  for (const file of Array.from(files ?? [])) {
     const meta = await session.addAssetFile(file);
     if (meta) current.value = meta.id;
   }

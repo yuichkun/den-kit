@@ -171,8 +171,7 @@ export class BridgeClient implements AI {
   start() {
     if (!this.token) {
       this.state.value = 'disabled';
-      this.detail.value =
-        'AI offline: start the editor with `npm run dev` to enable the AI bridge.';
+      this.detail.value = 'AI offline: start the editor with `vp run dev` to enable the AI bridge.';
       return;
     }
     this.stopped = false;
@@ -268,13 +267,13 @@ export class BridgeClient implements AI {
       if (this.stopped) return;
       if (event.code === CLOSE.badOrigin) {
         this.refuse(
-          'AI bridge refused this page (origin). Open the editor at the address `npm run dev` prints.',
+          'AI bridge refused this page (origin). Open the editor at the address `vp run dev` prints.',
         );
         return;
       }
       if (event.code === CLOSE.protocol) {
         this.refuse(
-          `AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`npm run dev\`.`,
+          `AI bridge speaks a different protocol${this.detail.value ? ` (${this.detail.value})` : ''}. Reload the page; if it persists, restart \`vp run dev\`.`,
         );
         return;
       }
@@ -285,7 +284,7 @@ export class BridgeClient implements AI {
       this.scheduleRetry(
         welcomed
           ? 'AI bridge disconnected; reconnecting…'
-          : 'AI offline: the bridge is not running (start the editor with `npm run dev`).',
+          : 'AI offline: the bridge is not running (start the editor with `vp run dev`).',
       );
     };
   }

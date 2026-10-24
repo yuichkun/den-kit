@@ -20,10 +20,13 @@ describe('installed-app AI recovery', () => {
   });
 
   it('keeps backend details and terminal instructions out of request failures', () => {
-    const backend = 'Codex crashed reading /private/auth.json; token=private-key; run npm ci';
+    const backend =
+      'Codex crashed reading /private/auth.json; token=private-key; run npm ci or vp install --frozen-lockfile';
     for (const code of ['login', 'crashed', 'unknown']) {
       const message = aiFailure({ code, message: backend, fix: 'Set KIT_CODEX_BIN in .env.' });
-      expect(message).not.toMatch(/Codex|auth\.json|private-key|npm ci|KIT_CODEX_BIN|\.env/);
+      expect(message).not.toMatch(
+        /Codex|auth\.json|private-key|npm ci|vp install|KIT_CODEX_BIN|\.env/,
+      );
       expect(message).toMatch(/Settings|request again|sending it again|reconnect/);
     }
   });
@@ -32,20 +35,22 @@ describe('installed-app AI recovery', () => {
     const message = aiFailure({ code: 'failed', message: 'HTTP 429: usage limit reached' });
     expect(message).toMatch(/ChatGPT usage limit/);
     expect(message).toMatch(/Settings/);
-    expect(message).not.toMatch(/restart|terminal|npm/);
+    expect(message).not.toMatch(/restart|terminal|npm|\bvp\b/);
   });
 
   it('can recover an expired account even when Settings still shows it as signed in', () => {
     for (const detail of ['HTTP 401 Unauthorized', 'ChatGPT refresh token expired']) {
       const message = aiFailure({
         code: 'request',
-        message: `${detail}; token=private-key; run npm ci`,
+        message: `${detail}; token=private-key; run npm ci or vp install --frozen-lockfile`,
         fix: 'Set KIT_CODEX_BIN in .env.',
       });
       expect(message).toMatch(/Open Settings/);
       expect(message).toMatch(/Sign out if you are signed in, then sign in with ChatGPT/);
       expect(message).toMatch(/send your request again/);
-      expect(message).not.toMatch(/401|Unauthorized|token|private-key|npm ci|KIT_CODEX_BIN|\.env/);
+      expect(message).not.toMatch(
+        /401|Unauthorized|token|private-key|npm ci|vp install|KIT_CODEX_BIN|\.env/,
+      );
     }
     const signedOut = aiFailure({ code: 'login', message: 'Codex is not signed in.' });
     expect(signedOut).toMatch(/Sign in with ChatGPT in Settings/);

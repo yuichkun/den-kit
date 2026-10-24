@@ -41,5 +41,5 @@ and a dead proxy, so no model was ever called. The fake copies them.
   to choose either: if a question still comes, it is answered empty at once.
 
 Tool calls, questions and approvals need a signed-in model, so they follow the
-generated protocol types and the app-server documentation; `npm run doctor
--- --deep` records a real conversation on the Mac to check them.
+generated protocol types and the app-server documentation; `vp run doctor
+--deep` records a real conversation on the Mac to check them.

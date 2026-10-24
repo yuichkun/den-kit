@@ -1,5 +1,6 @@
-// K5 audio engine in a real browser: create → sound → rewire → keeps sounding →
-// failure keeps the previous sound; plus the D-row abnormal cases.
+// The audio engine in a real browser: create → sound → rewire → keeps sounding →
+// failure keeps the previous sound; plus what goes wrong (runaway feedback, a
+// codebox that never finishes building, a device at another rate).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -124,7 +125,7 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('C4 a burst of structural edits ends on the latest patch with few compiles', async () => {
+  it('a burst of structural edits ends on the latest patch with few compiles', async () => {
     const { page } = await ready();
     const started = await kit(page, k => k.compiler.stats.started);
     for (let n = 0; n < 12; n++)
@@ -152,7 +153,7 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('D5/D12 many swaps rotate the AudioContext and leak no nodes', async () => {
+  it('many swaps rotate the AudioContext and leak no nodes', async () => {
     const { page, errors } = await ready('?rotateAfter=6');
     await kit(page, k => k.engine.noteOn(50, 100));
     for (let n = 0; n < 14; n++) {
@@ -178,7 +179,7 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('B6/D9 runaway feedback is muted, reported and recoverable; the safety stage bounds the output', async () => {
+  it('runaway feedback is muted, reported and recoverable; the safety stage bounds the output', async () => {
     const { page } = await ready();
     const ok = await kit(
       page,
@@ -228,7 +229,7 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('C2/B7b a codebox that loops forever while building times out; the worker is replaced', async () => {
+  it('a codebox that loops forever while building times out; the worker is replaced', async () => {
     const { page } = await ready('?compileTimeout=4000');
     const before = await kit(page, k => k.engine.currentHash);
     await kit(page, k =>
@@ -305,7 +306,7 @@ describe('audio engine', () => {
     await second.page.close();
   });
 
-  it('D1 a non-48 kHz device is refused with a clear message (and compiling still works)', async () => {
+  it('a non-48 kHz device is refused with a clear message (and compiling still works)', async () => {
     const context = await h.browser.newContext();
     const page = await context.newPage();
     await page.addInitScript(() => {
@@ -331,7 +332,7 @@ describe('audio engine', () => {
     await page.close();
   });
 
-  it('F1/F7 autosave restores after reload; a corrupted autosave falls back with a warning', async () => {
+  it('autosave restores after reload; a corrupted autosave falls back with a warning', async () => {
     const { page } = await openKit(h);
     await waitCompiled(page);
     await kit(page, k => {

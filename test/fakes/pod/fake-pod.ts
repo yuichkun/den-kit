@@ -137,6 +137,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
             send({ t: 'out', id, text });
             if (m.t === 'start' && !portalSent) {
               const found = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/.exec(
+                // eslint-disable-next-line no-control-regex -- the colour codes are what this takes out
                 text.replace(/\x1b\[[0-9;]*m/g, ''),
               );
               if (found) {

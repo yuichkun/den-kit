@@ -370,7 +370,7 @@ function renameRefs(root: Element, ids: Map<string, string>) {
       ids.has(id) ? `url("#${ids.get(id)}")` : m,
     );
   for (const el of [root, ...root.querySelectorAll('*')]) {
-    for (const a of [...el.attributes]) {
+    for (const a of el.attributes) {
       if (a.localName === 'href' && a.value.startsWith('#') && ids.has(a.value.slice(1)))
         el.setAttributeNS(a.namespaceURI, a.name, `#${ids.get(a.value.slice(1))}`);
       else if (
@@ -391,19 +391,19 @@ async function fontCss(
 ): Promise<string> {
   const rules: string[] = [];
   const wanted = (family: string) => families.has(family.replace(/^["']|["']$/g, ''));
-  for (const sheet of [...document.styleSheets]) {
+  for (const sheet of Array.from(document.styleSheets)) {
     let list: CSSRuleList;
     try {
       list = sheet.cssRules;
     } catch {
       continue;
     }
-    for (const rule of [...list]) {
+    for (const rule of Array.from(list)) {
       if (!(rule instanceof CSSFontFaceRule)) continue;
       if (!wanted(rule.style.getPropertyValue('font-family'))) continue;
       const base = sheet.href ?? document.baseURI;
       let text = rule.cssText;
-      for (const m of [...text.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)]) {
+      for (const m of text.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)) {
         const data = await inliner.data(m[2]!, base);
         text = text.replace(m[0], data ? `url("${data}")` : 'local("none")');
       }

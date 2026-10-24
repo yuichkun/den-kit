@@ -5,7 +5,6 @@ import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { applyIntents, type Intent } from '../../../src/work/ops.ts';
 import { starter } from '../../../src/work/starters.ts';
-import { validate } from '../../../src/work/validate.ts';
 import { analyse } from '../../../src/sound/analysis.ts';
 import { checkPlugin } from '../../../src/screen/checks.ts';
 

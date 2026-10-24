@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The person's rough sketch over a view (U8c): pen and marker strokes, boxes,
+// The person's rough sketch over a view: pen and marker strokes, boxes,
 // arrows, sticky notes and texts, kept in the view's own coordinates (the
 // plugin's design pixels, the patch's positions) so they stay put when the
 // view zooms, scrolls or scales. Marks are for the AI: not part of the work,

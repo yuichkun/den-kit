@@ -1,5 +1,5 @@
 // The editing session: the one document the browser owns, its history, the
-// compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
+// compile→audio pipeline and the hooks the AI plugs into. Every change goes
 // through commit() with an author, so humans and AI edit the same way.
 import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
@@ -182,15 +182,15 @@ export class KitSession {
   pod: PodSession | null = null;
   /** Where the code parts run and what the person allowed them; null when not wired (unit tests). */
   codeParts: CodeParts | null = null;
-  /** What the person is looking at (U8b): the view and the plugin's mode (the editor keeps it up to date). */
+  /** What the person is looking at: the view and the plugin's mode (the editor keeps it up to date). */
   readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
   /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
   viewDetails: (() => Partial<Seeing>) | null = null;
-  /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches (U8c). */
+  /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches. */
   patchBoxes: (() => Record<string, Box>) | null = null;
-  /** Pictures of den-kit as the person sees it, once they let the AI see the screen (U8b). */
+  /** Pictures of den-kit as the person sees it, once they let the AI see the screen. */
   readonly screen: ScreenShare;
-  /** The person's rough sketch over each view (U8c): marks for the AI, not part of the work and not in the undo history. */
+  /** The person's rough sketch over each view: marks for the AI, not part of the work and not in the undo history. */
   readonly sketch = shallowRef<Record<SketchView, Mark[]>>({ plugin: [], patch: [] });
   /** Drawing on the view: the tool in hand (null: not drawing). */
   readonly inking = ref<InkTool | null>(null);
@@ -687,7 +687,7 @@ export class KitSession {
     );
   }
 
-  // ---- the sketch (U8c) ----
+  // ---- the sketch ----
   /** The first stroke a stylus draws by itself says so (someone using a pen as their mouse may not want it). */
   stylusNoticed() {
     if (this.stylusTold) return;

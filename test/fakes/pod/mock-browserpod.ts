@@ -98,7 +98,9 @@ export class MockBrowserPod {
     opts: { terminal: Terminal; env?: string[]; cwd?: string; echo?: boolean },
   ): PromiseLike<object> {
     const ran = this.start(executable, args, opts);
+    // BrowserPod's calls may answer with a bare thenable; the adapter must take one.
     return {
+      // eslint-disable-next-line unicorn/no-thenable -- a thenable is what this stands in for
       then: ((ok?: (v: object) => unknown, fail?: (e: unknown) => unknown) => {
         void ran.then(ok, fail);
       }) as PromiseLike<object>['then'],
@@ -147,6 +149,7 @@ export class MockBrowserPod {
       // (Only a server, given a PORT, is announced: other output may print addresses too, a proxy's for one.)
       if (asked && !announced) {
         const m = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/.exec(
+          // eslint-disable-next-line no-control-regex -- the colour codes are what this takes out
           b.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''),
         );
         if (m) {

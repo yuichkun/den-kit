@@ -1,4 +1,4 @@
-// A rough sketch for the AI (U8c): marks the person draws over the plugin or
+// A rough sketch for the AI: marks the person draws over the plugin or
 // the patch — a pen or marker stroke, a box, an arrow, a sticky note, a text —
 // to say "this here", "something like this" or "put a waveform here". Marks are
 // not part of the work and not in the undo history; they ride along with the

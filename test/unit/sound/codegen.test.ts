@@ -18,7 +18,7 @@ const wire = (a: string, b: string): Intent => ({
 });
 
 describe('codegen', () => {
-  it('B11 empty and UI-only patches have nothing to compile', () => {
+  it('empty and UI-only patches have nothing to compile', () => {
     expect(generate(emptyDocument(), catalog)).toMatchObject({
       source: '',
       issues: [{ code: 'nothing-to-compile' }],
@@ -39,7 +39,7 @@ describe('codegen', () => {
     expect(g.source).toBe('');
     expect(g.issues.some(i => i.code === 'voice-to-global')).toBe(true);
   });
-  it('B8 deterministic: insertion order does not change source or hash', () => {
+  it('deterministic: insertion order does not change source or hash', () => {
     const a = starter('pad', catalog);
     const shuffled: PatchDocument = {
       ...a,
@@ -48,7 +48,7 @@ describe('codegen', () => {
     };
     expect(generate(shuffled, catalog).source).toBe(generate(a, catalog).source);
   });
-  it('B9 values, positions and labels do not change the hash; cables and config do', () => {
+  it('values, positions and labels do not change the hash; cables and config do', () => {
     const doc = starter('bass', catalog);
     const h = generate(doc, catalog).hash;
     const moved = applyIntents(
@@ -71,7 +71,7 @@ describe('codegen', () => {
     ).doc;
     expect(generate(rewired, catalog).hash).not.toBe(h);
   });
-  it('B3 hostile labels and reserved-word ids cannot break the module', () => {
+  it('hostile labels and reserved-word ids cannot break the module', () => {
     const doc = build(
       node('class', 'den.oscillator', { label: "x'); throw 1; //\n*/ `${evil}`" }),
       node('out1', 'kit.out'),
@@ -84,7 +84,7 @@ describe('codegen', () => {
     expect(g.source).toContain('const class$ = blocks.class$.tick(');
     expect(g.source).not.toMatch(/\n[^/\n]*throw 1/);
   });
-  it('B12 implicit voice bindings follow createInstrument', () => {
+  it('implicit voice bindings follow createInstrument', () => {
     const g = generate(starter('bass', catalog), catalog);
     expect(g.source).toContain('gate: gate, retrigger: trigger, reset: clear');
     expect(g.source).toMatch(/gat\.write\([^;]*, clear\.or\(trigger\)\);/);
@@ -93,7 +93,7 @@ describe('codegen', () => {
     );
     expect(g.source).toContain('select(clear, f32(0), osc1)');
   });
-  it('B13 mono into stereo: right falls back to left', () => {
+  it('mono into stereo: right falls back to left', () => {
     const doc = build(
       node('noise1', 'den.seededNoise'),
       node('delay1', 'den.delayFx'),
@@ -107,7 +107,7 @@ describe('codegen', () => {
     expect(g.source).toMatch(/sig\.write\(\d+, noise1\);/);
     expect(g.source).toMatch(/blocks\.delay1\.tick\(sig\.read\(\d+\), sig\.read\(\d+\),/);
   });
-  it('B2 shared global signals are materialized before the voice loop reads them', () => {
+  it('shared global signals are materialized before the voice loop reads them', () => {
     const g = generate(starter('pad', catalog), catalog);
     expect(g.source).toMatch(
       /const lfo1 = blocks\.lfo1\.tick\(lfo1_rate\.at\(i\), reset, f32\(0\)\);\n\s+sig\.write\(0, lfo1\);/,
@@ -139,7 +139,7 @@ describe('codebox inlining', () => {
     expect(r.lines.at(-1)).toBe('return __default;');
     expect(r.lines.length).toBe(code.trimEnd().split('\n').length + 1);
   });
-  it('B7d refuses other imports and missing/duplicate default exports', () => {
+  it('refuses other imports and missing/duplicate default exports', () => {
     expect(
       inlineCodebox('b', "import fs from 'node:fs';\nexport default 1;").issues[0],
     ).toMatchObject({ code: 'codebox-import', line: 1 });

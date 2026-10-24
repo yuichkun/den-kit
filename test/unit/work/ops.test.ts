@@ -30,14 +30,14 @@ const base = () =>
   ).doc;
 
 describe('ops: rejection keeps the document untouched', () => {
-  it('A1 unknown node type', () => {
+  it('unknown node type', () => {
     const doc = base();
     const before = JSON.stringify(doc);
     const e = failure(() => apply(doc, { op: 'addNode', node: { type: 'den.nope' } }));
     expect(e.code).toBe('unknown-type');
     expect(JSON.stringify(doc)).toBe(before);
   });
-  it('A2 duplicate and invalid ids', () => {
+  it('duplicate and invalid ids', () => {
     expect(
       failure(() => apply(base(), { op: 'addNode', node: { id: 'osc1', type: 'den.oscillator' } }))
         .code,
@@ -51,7 +51,7 @@ describe('ops: rejection keeps the document untouched', () => {
         .code,
     ).toBe('bad-id');
   });
-  it('A3 cables to missing nodes or ports name the valid choices', () => {
+  it('cables to missing nodes or ports name the valid choices', () => {
     const e1 = failure(() =>
       apply(base(), {
         op: 'connect',
@@ -79,7 +79,7 @@ describe('ops: rejection keeps the document untouched', () => {
     );
     expect(e3.hint).toContain('cutoff');
   });
-  it('A5 second driver needs replace', () => {
+  it('second driver needs replace', () => {
     let doc = apply(
       base(),
       { op: 'addNode', node: { id: 'osc2', type: 'den.oscillator' } },
@@ -120,7 +120,7 @@ describe('ops: rejection keeps the document untouched', () => {
     });
     expect(again.ops).toEqual([]);
   });
-  it('A6 loops need History', () => {
+  it('loops need History', () => {
     const doc = apply(
       base(),
       { op: 'addNode', node: { id: 'add1', type: 'kit.add' } },
@@ -157,7 +157,7 @@ describe('ops: rejection keeps the document untouched', () => {
     );
     expect(Object.keys(ok.doc.edges)).toHaveLength(4);
   });
-  it('A10 NaN, Infinity and out-of-range values are refused; UI drags clamp', () => {
+  it('NaN, Infinity and out-of-range values are refused; UI drags clamp', () => {
     const doc = base();
     for (const value of [NaN, Infinity, -Infinity])
       expect(
@@ -197,7 +197,7 @@ describe('ops: rejection keeps the document untouched', () => {
       ).code,
     ).toBe('bad-config');
   });
-  it('A13 a failing op rolls back the whole transaction', () => {
+  it('a failing op rolls back the whole transaction', () => {
     const doc = base();
     const before = JSON.stringify(doc);
     const e = failure(() =>
@@ -231,7 +231,7 @@ describe('ops: rejection keeps the document untouched', () => {
       'singleton',
     );
   });
-  it('A15 removing a node removes its cables; undo restores node, cables, values and panel', () => {
+  it('removing a node removes its cables; undo restores node, cables, values and panel', () => {
     let doc = apply(
       base(),
       {
@@ -311,7 +311,7 @@ describe('ops: rejection keeps the document untouched', () => {
   });
 });
 
-describe('A11 property: random edits always invert exactly and never throw anything but OpError', () => {
+describe('property: random edits always invert exactly and never throw anything but OpError', () => {
   it('10k seeded steps', () => {
     let seed = 42;
     const rand = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32;

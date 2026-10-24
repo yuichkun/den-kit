@@ -123,6 +123,9 @@ The same part can be placed several times with different props.
   name them: `npx eslint src/parts/meter.ts`.
 - The dev server is already running (den-kit starts it and shows the parts from
   it); do not start another. Saving a file updates the plugin.
+- When the work is exported, den-kit builds this project (`npm run build`) into
+  the work's playable build, where the parts load from a folder of their own:
+  reach files by import or `kit.asset`, never by an absolute path.
 - git works as usual. den-kit also commits after each request.
 - The pod has no network: only den-kit's installs reach the npm registry, so
   `npm install <name>`, curl and fetch to the internet fail here.

@@ -362,7 +362,7 @@ export class AudioEngine {
   private async rotate() {
     const old = this.ctx;
     this.stats.rotations++;
-    for (const live of [...this.fading]) this.retire(live);
+    for (const live of Array.from(this.fading)) this.retire(live);
     if (this.current) {
       this.fading.push(this.current);
       this.retire(this.current);
@@ -454,7 +454,7 @@ export class AudioEngine {
     this.send({ type: 'noteOff', channel: 0, note, velocity: 0 });
   }
   allNotesOff() {
-    for (const note of [...this.held.keys()]) this.noteOff(note);
+    for (const note of Array.from(this.held.keys())) this.noteOff(note);
     this.send({ type: 'cc', channel: 0, controller: 123, value: 0 });
   }
   get heldNotes() {
@@ -703,13 +703,13 @@ export class AudioEngine {
   stopPhrase() {
     for (const t of this.phraseTimers) clearTimeout(t);
     this.phraseTimers = [];
-    for (const note of [...this.held.keys()]) this.noteOff(note);
+    for (const note of Array.from(this.held.keys())) this.noteOff(note);
   }
 
   async dispose() {
     this.stopPhrase();
     this.stopTestSignal();
-    for (const live of [...this.fading]) this.retire(live);
+    for (const live of Array.from(this.fading)) this.retire(live);
     if (this.current) {
       this.fading.push(this.current);
       this.retire(this.current);

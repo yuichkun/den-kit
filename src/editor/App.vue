@@ -123,7 +123,7 @@ function backToCanvas() {
 
 // ---- full screen: only the plugin -------------------------------------------------------
 const focusMode = ref(false);
-// What the person is looking at goes with every AI request (U8b).
+// What the person is looking at goes with every AI request.
 watchEffect(() => {
   props.session.seeing.value = { view: view.value, edit: pluginEdit.value, full: focusMode.value };
 });

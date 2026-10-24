@@ -152,7 +152,6 @@ const snapshot = () => {
     Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
   return JSON.stringify({ ...d, revision: 0, nodes: sort(d.nodes), edges: sort(d.edges) });
 };
-const startId = () => String(t.last('llm.start')!.id);
 
 describe('a request', () => {
   it('replaces reconnecting progress when output resumes and clears loading after a failed connection', () => {
@@ -465,7 +464,7 @@ describe('when something does not work', () => {
   it('Codex not signed in: the line says what to run', () => {
     t.status.value = {
       ...t.status.value,
-      codex: { state: 'login', fix: 'Run `npm run codex:login` once.' },
+      codex: { state: 'login', fix: 'Run `vp run codex:login` once.' },
     };
     const o = llm.run('wobble');
     expect(o).toMatchObject({
@@ -516,7 +515,7 @@ describe('the prompt sends every request to the LLM', () => {
       codex: {
         state: 'error',
         detail: 'Codex stopped unexpectedly.',
-        fix: 'Run `npm run doctor`.',
+        fix: 'Run `vp run doctor`.',
       },
     };
     const before = snapshot();

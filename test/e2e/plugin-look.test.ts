@@ -1,4 +1,4 @@
-// U4 in the browser: looking the plugin over the way the AI does (and the
+// Looking the plugin over in the browser, the way the AI does (and the
 // person, with ✓ Check). The plugin is drawn off-screen and photographed in the
 // page; the checks measure where things were drawn: text that does not fit,
 // labels squeezed, words on a control, text too faint for what is behind it,

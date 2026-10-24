@@ -252,7 +252,7 @@ describe('Codex start-up and status', () => {
   it('not signed in: `login` with the command to run; a request says so; the login is picked up by itself', async () => {
     const { bridge, fake } = await setup({ signedIn: false });
     expect(fake.client.status).toMatchObject({ state: 'login' });
-    expect(fake.client.status.fix).toContain('npm run codex:login');
+    expect(fake.client.status.fix).toContain('vp run codex:login');
     const s = await tab(bridge);
     start(s, 'r1', 'wobble the cutoff');
     const done = doneOf((await collect(s, 'r1')).events)!;

@@ -11,7 +11,7 @@ import {
 import { STARTERS, starter } from '../../../src/work/starters.ts';
 
 describe('persistence', () => {
-  it('F8 export → import is identical for every starter', () => {
+  it('export → import is identical for every starter', () => {
     for (const id of STARTERS) {
       const doc = starter(id, catalog);
       const parsed = parseDocument(serializeDocument(doc), catalog);
@@ -20,7 +20,7 @@ describe('persistence', () => {
       expect(documentHash(parsed.doc)).toBe(documentHash(doc));
     }
   });
-  it('F5 refuses non-JSON, wrong schema, huge files and newer versions with a reason', () => {
+  it('refuses non-JSON, wrong schema, huge files and newer versions with a reason', () => {
     expect(parseDocument('{nope', catalog)).toMatchObject({
       ok: false,
       error: expect.stringContaining('Not valid JSON'),
@@ -41,7 +41,7 @@ describe('persistence', () => {
       error: expect.stringContaining('larger'),
     });
   });
-  it('F4 repairs and reports unknown blocks, bad ids, bad values and dangling cables', () => {
+  it('repairs and reports unknown blocks, bad ids, bad values and dangling cables', () => {
     const parsed = parseDocument(
       JSON.stringify({
         schema: 'den-kit/patch',
@@ -84,7 +84,7 @@ describe('persistence', () => {
     ]);
     expect(parsed.doc.nodes.f1!.pos).toEqual({ x: 0, y: 0 });
   });
-  it('F1 autosave records detect corruption', () => {
+  it('autosave records detect corruption', () => {
     const record = makeSaveRecord(starter('bass', catalog), 1);
     expect(readSaveRecord(record, catalog).ok).toBe(true);
     expect(

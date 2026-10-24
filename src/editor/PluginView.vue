@@ -361,7 +361,8 @@ async function dropFiles(e: DragEvent) {
   e.preventDefault();
   const at = designPoint(e.clientX, e.clientY);
   const created: string[] = [];
-  for (const file of [...e.dataTransfer.files]) {
+  // The dropped files, taken while the drop lasts (the list empties after it).
+  for (const file of Array.from(e.dataTransfer.files)) {
     const meta = await session.addAssetFile(file);
     if (!meta) continue;
     if (!meta.mime.startsWith('image/')) {
@@ -598,7 +599,7 @@ function onEnter(e: KeyboardEvent): boolean {
 }
 // The AI panel offers Enter here before jumping to its prompt; without the panel, the window listener takes it.
 const releaseEnter = claimEnter(onEnter);
-/** Drawing on the plugin (U8c): the pen is in hand while the person looks at the plugin. */
+/** Drawing on the plugin: the pen is in hand while the person looks at the plugin. */
 const inking = computed(() => !!session.inking.value && session.seeing.value.view === 'plugin');
 /** Lay the sketch under the plugin, a picture to build on (it shows while editing), and rub the marks out. */
 async function layUnder() {
@@ -622,7 +623,7 @@ async function layUnder() {
     'The sketch is under the plugin now, to build on: it shows while you edit (the plugin inspector’s reference picture hides it or changes its opacity; ⌘Z takes it back).',
   );
 }
-/** What the person sees of the plugin (U8b): its scale on screen. */
+/** What the person sees of the plugin: its scale on screen. */
 const viewDetails = () => {
   const panel = stageEl.value?.querySelector('[data-testid=panel]');
   const width = panel?.getBoundingClientRect().width;

@@ -361,7 +361,7 @@ export interface LedElement extends ElementBase {
   color: string;
   threshold: number;
 }
-/** A canvas: code that draws every frame (runs in a worker) and may take the mouse. (Files before U5 called it a custom part, kind "part".) */
+/** A canvas: code that draws every frame (runs in a worker) and may take the mouse. */
 export interface CanvasElement extends ElementBase {
   kind: 'canvas';
   code: string;
@@ -893,8 +893,7 @@ const SVG_START = /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i;
 /** Check (and normalise) one element. */
 export function checkElement(v: unknown, ctx: CheckContext): UiElement {
   if (!isObj(v)) bad('bad-element', 'An element is an object with a kind.');
-  // A canvas was called a custom part (kind "part") before U5: older files and old habits still work.
-  const e = (v.kind === 'part' ? { ...v, kind: 'canvas' } : v) as Record<string, unknown>;
+  const e = v as Record<string, unknown>;
   const kind = oneOf(e.kind, ELEMENT_KINDS, 'element kind');
   const known = ['id', 'kind', 'rect', 'name', 'style', 'locked', 'hidden', ...KIND_FIELDS[kind]];
   for (const key of Object.keys(e))

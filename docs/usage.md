@@ -120,8 +120,9 @@ files have not changed since.
 - The project tools reach the internet only while den-kit installs the packages
   in `package.json`; commands in the project have no network.
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
-  dynamic `import()` can still load and execute remote JavaScript. Imported
-  works and AI-generated Canvas code can therefore make network requests.
+  dynamic `import()` still loads code from the network: in the macOS app only
+  from BrowserPod's hosts and the addresses allowed for the work, in a browser
+  from anywhere.
 - The Sampler and a codebox's `audio()` use the first 65,536 samples of a file (about
   1.4 seconds), and the Sampler plays them in mono. `bytes()` reads the first 64 KB.
 - Works do not export as DAW plugins.

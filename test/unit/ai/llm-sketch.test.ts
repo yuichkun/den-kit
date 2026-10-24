@@ -1,4 +1,4 @@
-// The person's rough sketch (U8c), from the marks to the AI: marks belong where
+// The person's rough sketch, from the marks to the AI: marks belong where
 // they were drawn (the plugin; the patch, or the part the person is inside);
 // sending reads them (what each goes around, crosses or joins) and keeps them,
 // dimmed, until the request ends; the LLM gets their words (in den-kit's notes)

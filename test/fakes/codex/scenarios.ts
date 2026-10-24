@@ -162,7 +162,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // U8b: the model asks to see what the person sees.
+    // The model asks to see what the person sees.
     name: 'see',
     match: /what do you see/i,
     async run(t) {
@@ -172,7 +172,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // U8c: a request with the person's sketch: what came (pictures, the marks in words), and an edit on what was circled.
+    // A request with the person's sketch: what came (pictures, the marks in words), and an edit on what was circled.
     name: 'sketch',
     // The person's words come last (the recap of earlier requests may quote an older sketch request).
     match: text => /Do what my sketch shows|sketch test/i.test(text.split('\n\n').at(-1) ?? ''),
@@ -296,7 +296,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run doctor -- --deep
+    // vp run doctor --deep
     name: 'doctor-ping',
     match: /connectivity check/i,
     async run(t) {
@@ -307,7 +307,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run doctor -- --deep: a picture with the request, another added (turn/steer) while the ping is out.
+    // vp run doctor --deep: a picture with the request, another added (turn/steer) while the ping is out.
     name: 'doctor-picture',
     match: /den-kit picture check/i,
     async run(t) {
@@ -318,7 +318,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run doctor -- --deep: a sub-agent calls den-kit's tool from its own conversation.
+    // vp run doctor --deep: a sub-agent calls den-kit's tool from its own conversation.
     name: 'doctor-subagent',
     match: /den-kit sub-agent check/i,
     async run(t) {

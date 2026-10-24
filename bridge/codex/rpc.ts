@@ -136,7 +136,7 @@ export class RpcPeer {
     if (this.closedReason !== null) return;
     this.closedReason = reason;
     this.queue = [];
-    for (const [id, p] of [...this.pending]) {
+    for (const [id, p] of Array.from(this.pending)) {
       this.pending.delete(id);
       if (p.timer) clearTimeout(p.timer);
       p.reject(new RpcClosed(reason));

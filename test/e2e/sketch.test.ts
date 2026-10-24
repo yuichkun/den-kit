@@ -1,4 +1,4 @@
-// U8c in the page: the person picks up the pen (P), circles a knob and leaves a
+// In the page: the person picks up the pen (P), circles a knob and leaves a
 // sticky note on the plugin, sends a request: the AI gets the marks in words
 // (what each goes around) and the plugin re-drawn with the numbered marks; the
 // marks wait, dimmed, while it works and go when it is done. ⌘Z while drawing

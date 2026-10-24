@@ -17,7 +17,7 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
     },
     { id: 'gpt-6-luna', name: 'GPT-6-Luna', isDefault: false, efforts: ['low', 'medium'] },
   ],
-  codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run npm run codex:login.' },
+  codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run vp run codex:login.' },
   podConfigured: true,
   login: 'idle',
   aiBusy: false,
@@ -117,7 +117,7 @@ describe('desktop interface', () => {
       assert.equal(await page.getByRole('button', { name: 'Manage usage' }).count(), 0);
       assert.doesNotMatch(
         await dialog.innerText(),
-        /BrowserPod|Escentier|Codex is|Starting Codex|Codex crashed|\bLLM\b|copy the conversation|fork|npm run|API key/i,
+        /BrowserPod|Escentier|Codex is|Starting Codex|Codex crashed|\bLLM\b|copy the conversation|fork|npm (run|ci)|vp (run|install)|API key/i,
       );
       assert.equal(
         await page.locator('[data-testid=desktop-model] option[value="gpt-6.1-sol"]').textContent(),
@@ -160,7 +160,7 @@ describe('desktop interface', () => {
         (window as any).__desktopTest.info.codex = {
           state: 'error',
           detail: 'Codex crashed at /private/auth.json.',
-          fix: 'Run npm ci in .desktop-build.',
+          fix: 'Run vp install --frozen-lockfile in .desktop-build.',
         };
       });
       await page.waitForFunction(() =>
@@ -170,7 +170,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         await dialog.innerText(),
-        /Codex crashed|\/private\/auth|npm ci|\.desktop-build/,
+        /Codex crashed|\/private\/auth|npm ci|vp install|\.desktop-build/,
       );
       assert.equal(await page.locator('[data-testid=desktop-sign-in]').count(), 0);
       assert.equal(await page.locator('[data-testid=desktop-reconnect]').isEnabled(), true);
@@ -336,7 +336,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         (await page.locator('[data-testid=ai-status-codex]').getAttribute('title')) ?? '',
-        /Codex|npm run|\.env|app-server/,
+        /Codex|npm run|vp run|\.env|app-server/,
       );
       await page.fill('[data-testid=ai-input]', 'add reverb');
       await page.press('[data-testid=ai-input]', 'Enter');
@@ -349,7 +349,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         await page.locator('[data-testid=ai-panel]').innerText(),
-        /Codex|\bLLM\b|npm run|\.env|app-server/,
+        /Codex|\bLLM\b|npm run|vp run|\.env|app-server/,
       );
       await page.click('[data-testid=ai-status-codex]');
       await page.locator('[data-testid=desktop-settings]').waitFor();

@@ -19,7 +19,7 @@ const wire = (a: string, b: string): Intent => ({
 });
 const codes = (doc: PatchDocument) => validate(doc, catalog).issues.map(i => i.code);
 
-describe('A7 voice scope', () => {
+describe('voice scope', () => {
   it('per-voice signal straight to Out is an error', () => {
     const doc = build(
       node('voice1', 'kit.voiceIn'),

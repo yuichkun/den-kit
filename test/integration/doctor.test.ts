@@ -121,7 +121,7 @@ describe('doctor', () => {
   it('not signed in: one FAIL that says what to run', async () => {
     const { code, out } = await run('scripts/doctor.ts', codexEnv('home-out', false));
     expect(line(out, 'Codex sign-in')).toMatch(/^FAIL.*Not logged in/);
-    expect(out).toContain('npm run codex:login');
+    expect(out).toContain('vp run codex:login');
     expect(line(out, 'Codex live request')).toMatch(/^SKIP/);
     expect(code).toBe(1);
   }, 150000);

@@ -1,4 +1,4 @@
-// `npm run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
+// `vp run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
 // for the editor (127.0.0.1:5180), in one process. The bridge starts first and the
 // page receives its per-launch token through virtual:kit-bridge.
 import { createServer } from 'vite';
@@ -54,7 +54,7 @@ try {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     /EADDRINUSE/.test(message)
-      ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run dev.`
+      ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 vp run dev.`
       : `Could not start the AI bridge: ${message}`,
   );
   process.exit(1);
@@ -111,7 +111,7 @@ try {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     /EADDRINUSE|already in use/i.test(message)
-      ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run dev.`
+      ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 vp run dev.`
       : message,
   );
   process.exit(1);

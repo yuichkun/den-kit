@@ -35,7 +35,7 @@ export function checkRelease({
     assert.equal(
       actual,
       version,
-      `${path} does not match ${branch}. Run npm run release:version -- ${version}.`,
+      `${path} does not match ${branch}. Run vp run release:version ${version}.`,
     );
   assert(
     changelog.split('\n').some(line => line.startsWith(`## ${version} — `)),

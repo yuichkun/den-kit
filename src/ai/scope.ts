@@ -286,7 +286,7 @@ function keptOrder(a: string[], b: string[]): string[] {
   const rank = new Map(a.map((id, i) => [id, i]));
   const seq = b.map(id => rank.get(id)!);
   const tails: number[] = [],
-    prev: number[] = new Array(seq.length).fill(-1),
+    prev: number[] = Array.from({ length: seq.length }, () => -1),
     at: number[] = [];
   seq.forEach((v, i) => {
     let lo = 0,

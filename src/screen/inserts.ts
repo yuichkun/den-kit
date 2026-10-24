@@ -64,7 +64,6 @@ export const INSERTABLES: readonly Insertable[] = [
     title: 'Canvas (code)',
     doc: 'Your own drawing code, reacting to the sound and controls; it can take the mouse.',
     group: 'Decoration',
-    also: 'custom part',
   },
   {
     key: 'code',

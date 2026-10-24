@@ -809,7 +809,7 @@ export class CodexClient {
       this.setStatus({
         state: 'error',
         detail: `Codex ${command.version} is installed; den-kit is pinned to ${CODEX_VERSION}.`,
-        fix: 'Run `npm ci` from the repo root.',
+        fix: 'Run `vp install --frozen-lockfile` from the repo root.',
       });
       return;
     }
@@ -1050,7 +1050,7 @@ export class CodexClient {
       this.setStatus({
         state: 'error',
         detail: `${detail}${last ? ` (${last.slice(0, 160)})` : ''}`,
-        fix: 'Run `npm run doctor` to see why, then click the Codex status to retry.',
+        fix: 'Run `vp run doctor` to see why, then click the Codex status to retry.',
       });
       return;
     }
@@ -1087,7 +1087,7 @@ export class CodexClient {
 
   /** End every running request and forget every thread (they belong to a process that is gone). */
   private failAll(error: LlmError) {
-    for (const turn of [...this.turns.values()]) this.finish(turn, 'failed', error);
+    for (const turn of Array.from(this.turns.values())) this.finish(turn, 'failed', error);
     for (const q of this.questions.values()) if (q.timer) clearTimeout(q.timer);
     this.questions.clear();
     this.threads.clear();

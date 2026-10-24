@@ -444,7 +444,7 @@ const offLlmFit = session.onTransaction(tx => {
   lastFit = performance.now();
   setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
 });
-/** What the person sees of the patch (U8b): the zoom and the modules in sight. */
+/** What the person sees of the patch: the zoom and the modules in sight. */
 const viewDetails = () => {
   const vp = flow.getViewport();
   const { width, height } = flow.dimensions.value;
@@ -459,7 +459,7 @@ const viewDetails = () => {
     .map(n => n.id);
   return { zoom: Math.round(vp.zoom * 100) / 100, inView };
 };
-/** Where the modules are drawn (their boxes in the patch's positions), for reading the person's sketch (U8c). */
+/** Where the modules are drawn (their boxes in the patch's positions), for reading the person's sketch. */
 const patchBoxes = () =>
   Object.fromEntries(
     flow.getNodes.value.map(n => [

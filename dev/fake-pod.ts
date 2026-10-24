@@ -2,7 +2,7 @@
 // files, reached over a WebSocket from test/fakes/pod/fake-pod.ts. It gives the
 // cloud tests the same interface as BrowserPod (browserpod.ts), which needs an
 // API key the tests do not have. It is used only when the test harness sets
-// KIT_FAKE_POD_URL; `npm run dev` never does.
+// KIT_FAKE_POD_URL; `vp run dev` never does.
 import type {
   PodHost,
   PodProcess,

@@ -1,4 +1,4 @@
-// U1 in the browser: the AI panel sits next to the canvas (never over it), work
+// The workspace in the browser: the AI panel sits next to the canvas (never over it), work
 // goes by keyboard (request, stop, undo, back to the canvas), nothing ever asks
 // you to choose, the patch keys (⌘A, nudge, fit, zoom), the plugin view that
 // scales to its window (Patch ⇄ Plugin, Play ⇄ Edit, full screen) and the start

@@ -1,6 +1,6 @@
 // The showcase works are ordinary patches: each one builds from den-kit edits,
-// validates, compiles and renders finite, audible, unclipped audio; its custom
-// parts load and draw a frame; its look can be put on another work. And each
+// validates, compiles and renders finite, audible, unclipped audio; its
+// canvases load and draw a frame; its look can be put on another work. And each
 // does what its controls say (measured on the rendered sound, not assumed).
 import { assetsOf } from '../../src/work/ui.ts';
 import { appendFileSync, readFileSync, statSync } from 'node:fs';

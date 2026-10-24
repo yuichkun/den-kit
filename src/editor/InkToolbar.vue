@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The sketch's tools (U8c), over the view while drawing: pen, marker, box,
+// The sketch's tools, over the view while drawing: pen, marker, box,
 // arrow, sticky note, text, eraser; four colours; undo the last mark, rub all
 // out, keep marks after the AI is done; on the plugin, lay the sketch under it.
 // Esc (or Done) puts the pen down; the marks stay for the next request.

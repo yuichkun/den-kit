@@ -76,7 +76,7 @@ const KIND_ICON: Record<Attachment['kind'], string> = {
   element: '◇',
   cable: '⌇',
 };
-// ---- letting the AI see the screen (U8b) ----
+// ---- letting the AI see the screen ----
 const screen = session.screen;
 const screenOn = computed(() => screen.state.value === 'on');
 const screenTitle = computed(() =>
@@ -86,7 +86,7 @@ async function toggleScreen() {
   if (screenOn.value) screen.stop();
   else await screen.start();
 }
-// ---- the sketch (U8c) ----
+// ---- the sketch ----
 /** The view the pen draws on: the one the person looks at, when it is the patch or the plugin. */
 const inkView = computed<SketchView | null>(() =>
   session.seeing.value.view === 'plugin' || session.seeing.value.view === 'patch'

@@ -34,7 +34,7 @@ function undoOk(h: History, doc: PatchDocument) {
 }
 
 describe('history', () => {
-  it('A12 a knob drag is one undo step', () => {
+  it('a knob drag is one undo step', () => {
     const h = new History();
     const start = starter('bass', catalog);
     let doc = start;
@@ -80,7 +80,7 @@ describe('history', () => {
     });
     expect(h.size).toBe(4);
   });
-  it('A14 undo after an AI edit restores the exact pre-AI document; a new edit clears redo', () => {
+  it('undo after an AI edit restores the exact pre-AI document; a new edit clears redo', () => {
     const h = new History();
     let doc = starter('bass', catalog);
     const before = doc;

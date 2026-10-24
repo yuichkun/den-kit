@@ -83,7 +83,7 @@ function setup() {
 }
 
 describe('compile client', () => {
-  it('C4 a burst of edits compiles the first and the last only; superseded ones reject', async () => {
+  it('a burst of edits compiles the first and the last only; superseded ones reject', async () => {
     const { client, workers } = setup();
     const results = ['a', 'b', 'c', 'd'].map(h =>
       client.compile(gen(h), inputs).then(
@@ -98,7 +98,7 @@ describe('compile client', () => {
     workers[0]!.succeed();
     expect(await Promise.all(results)).toEqual(['a', 'superseded', 'superseded', 'd']);
   });
-  it('C9 cache hits never recompile; identical in-flight requests share one compile', async () => {
+  it('cache hits never recompile; identical in-flight requests share one compile', async () => {
     const { client, workers } = setup();
     const p1 = client.compile(gen('a'), inputs),
       p2 = client.compile(gen('a'), inputs);
@@ -109,7 +109,7 @@ describe('compile client', () => {
     expect(workers[0]!.received).toHaveLength(1);
     expect(client.stats.cacheHits).toBe(1);
   });
-  it('C2 a hung worker is terminated at the timeout and replaced; codeboxes are blamed', async () => {
+  it('a hung worker is terminated at the timeout and replaced; codeboxes are blamed', async () => {
     const { client, workers, timers } = setup();
     const g = { ...gen('loop'), codeboxes: { box1: 10 } };
     const p = client.compile(g, inputs).then(
@@ -128,7 +128,7 @@ describe('compile client', () => {
     workers[1]!.succeed();
     expect((await next).hash).toBe('ok');
   });
-  it('C5 late results from a terminated worker are ignored', async () => {
+  it('late results from a terminated worker are ignored', async () => {
     const { client, workers, timers } = setup();
     const p = client.compile(gen('a'), inputs).catch(e => (e as CompileFailure).kind);
     timers[0]!.fn();
@@ -138,7 +138,7 @@ describe('compile client', () => {
     workers[1]!.succeed();
     expect((await q).hash).toBe('b');
   });
-  it('C3 worker crash rejects the job and the next compile uses a fresh worker', async () => {
+  it('worker crash rejects the job and the next compile uses a fresh worker', async () => {
     const { client, workers } = setup();
     const p = client.compile(gen('a'), inputs).catch(e => (e as CompileFailure).kind);
     workers[0]!.onerror?.({ message: 'OOM' });

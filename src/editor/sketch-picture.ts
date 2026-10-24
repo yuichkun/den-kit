@@ -1,4 +1,4 @@
-// The sketch as a picture (U8c). For the AI: the marks drawn over the view they
+// The sketch as a picture. For the AI: the marks drawn over the view they
 // were made on, numbered as on screen — the plugin re-drawn at its design size,
 // the patch as the person sees it (a shared screen) or drawn plainly (modules as
 // named boxes, cables as lines). Alone, without numbers: a picture to lay under

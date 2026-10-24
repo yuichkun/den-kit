@@ -10,13 +10,7 @@
 //   that is read more than once (or by every voice) is written once per sample into
 //   a transient slot and read from there. Single-use signals stay expressions, like
 //   den's own final audio paths, so tiny values are never flushed needlessly.
-import {
-  isParamInput,
-  defaultValue,
-  type Catalog,
-  type NodeDef,
-  type PortDef,
-} from '../work/catalog.ts';
+import { isParamInput, defaultValue, type Catalog, type PortDef } from '../work/catalog.ts';
 import { inlineCodebox } from './codebox.ts';
 import { ASSET_BYTES, ASSET_FRAMES, type AssetSlot } from './assets.ts';
 import { hasErrors, type Issue } from '../work/issues.ts';

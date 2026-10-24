@@ -1411,11 +1411,7 @@ function addElement(draft: Draft, spec: NewElement, created: string[]) {
   const id =
     typeof spec.id === 'string' && spec.id
       ? spec.id
-      : nextNodeId(
-          draft.doc,
-          ELEMENT_STEM[(spec.kind as string) === 'part' ? 'canvas' : (spec.kind as ElementKind)] ??
-            'element',
-        );
+      : nextNodeId(draft.doc, ELEMENT_STEM[spec.kind as ElementKind] ?? 'element');
   if (!NODE_ID_PATTERN.test(id))
     fail(
       'bad-id',

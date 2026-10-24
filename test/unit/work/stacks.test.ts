@@ -137,9 +137,9 @@ describe('the rules of a stack', () => {
     expect(checkSpread({ kind: 'range', amount: Number.NaN }, q)).toMatch(/finite/);
     expect(checkSpread({ kind: 'random', amount: 1, seed: 1.5 }, q)).toMatch(/seed/);
     expect(checkSpread({ kind: 'each', values: [1, 'x'] }, q)).toMatch(/finite/);
-    expect(checkSpread({ kind: 'each', values: new Array(MAX_COUNT + 1).fill(1) }, q)).toMatch(
-      /up to/,
-    );
+    expect(
+      checkSpread({ kind: 'each', values: Array.from({ length: MAX_COUNT + 1 }, () => 1) }, q),
+    ).toMatch(/up to/);
     expect(checkSpread({ kind: 'range', amount: 99 }, cutoff)).toEqual({
       kind: 'range',
       amount: 10,

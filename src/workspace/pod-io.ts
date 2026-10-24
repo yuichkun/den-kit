@@ -18,7 +18,9 @@ export class PodUnavailable extends Error {
 export const MAX_OUTPUT = 200_000;
 
 // CSI (colours, cursor moves), OSC (titles, links) and two-byte escapes; then stray control characters.
+// eslint-disable-next-line no-control-regex -- terminal control codes are what these take out
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+// eslint-disable-next-line no-control-regex -- terminal control codes are what these take out
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
 /**

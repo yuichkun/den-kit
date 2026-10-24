@@ -1,4 +1,4 @@
-// U4 with the LLM: the (fake) model builds the plugin screen with den-kit's
+// The plugin screen with the AI: the (fake) model builds the plugin screen with den-kit's
 // tools in this page — reads it, writes a design brief, edits, looks at it
 // (the real off-screen picture and checks), fixes what the look found, looks
 // again — and the person sees it land on the plugin; one ⌘Z takes it all back.

@@ -54,7 +54,6 @@ async function settled(page: Page, text: string, timeout = 90000) {
   );
   return lineFor(page, text);
 }
-const sendCount = (h: Harness, method: string) => h.codex!.sent(method).length;
 
 let h: Harness;
 before(async () => {

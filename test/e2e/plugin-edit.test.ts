@@ -1,8 +1,8 @@
-// U3 in the browser: building a plugin screen by hand. Adding things from the
+// Building a plugin screen by hand, in the browser. Adding things from the
 // keyboard, editing text in place, aligning, grouping, stacking, undo; pictures
-// dropped onto the plugin become assets and travel inside an export; custom
-// parts draw, and a broken or endless one is stopped without taking the page
-// down; a part that handles the mouse moves controls in one undo step per
+// dropped onto the plugin become assets and travel inside an export; canvases
+// draw, and a broken or endless one is stopped without taking the page down; a
+// canvas that handles the mouse moves controls in one undo step per
 // press; decorations never block the controls under them; the look and skins
 // change from the inspector; the start screen starts a work in another work's look.
 import { after, before, describe, it } from 'node:test';
@@ -272,10 +272,8 @@ describe('building the plugin screen by hand', () => {
     await waitCompiled(page);
     await pluginEdit(page);
     await page.keyboard.press('Shift+Space');
-    // Its old name still finds it.
-    await page.keyboard.type('custom');
+    await page.keyboard.type('canvas');
     await page.waitForSelector('[data-testid=insert-menu] .item.current[data-insert=canvas]');
-    await page.fill('[data-testid=insert-search]', 'canvas');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-element=canvas1] canvas');
     // Enter opens the code; a throwing draw shows its message in the canvas.

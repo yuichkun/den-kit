@@ -1,4 +1,4 @@
-// U8b in the page: every LLM request says what the person is looking at; the
+// In the page: every LLM request says what the person is looking at; the
 // model can ask to see it (kit_look as "seen"): without screen sharing it gets
 // the plugin re-drawn and is told so, with sharing a picture of the view as
 // the person sees it. (The cloud's headless Chrome cannot share a tab, so the

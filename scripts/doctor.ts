@@ -1,7 +1,7 @@
-// `npm run doctor`: checks the local setup step by step and says how to fix each problem.
+// `vp run doctor`: checks the local setup step by step and says how to fix each problem.
 //   Node, dependencies, ports ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
-// `npm run doctor -- --deep` also makes one real Codex request with a ping tool, then
+// `vp run doctor --deep` also makes one real Codex request with a ping tool, then
 // tries what den-kit needs beyond one request: a sub-agent calling den-kit's tool from its
 // own conversation, two requests at once (two windows), a tool call held as long as a
 // kit_bash command may run, pictures with a request and added while it works (sketches,
@@ -81,7 +81,7 @@ if (!existsSync(core))
     'FAIL',
     'den-kit dependencies',
     'missing node_modules at the repo root',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 else {
   const v = json(core).version;
@@ -91,7 +91,7 @@ else {
     v,
     v === '0.4.1'
       ? undefined
-      : 'den-kit is pinned to unworklet 0.4.1: run `npm ci` at the repo root.',
+      : 'den-kit is pinned to unworklet 0.4.1: run `vp install --frozen-lockfile` at the repo root.',
   );
 }
 try {
@@ -101,7 +101,7 @@ try {
     denPackage.version === '0.1.0' ? 'PASS' : 'FAIL',
     '@denaudio/den',
     denPackage.version,
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
   const ownCore = realpathSync(findPackageJSON('@unworklet/core', import.meta.url)!);
   const denCore = realpathSync(
@@ -113,14 +113,14 @@ try {
     ownCore === denCore
       ? 'den and den-kit resolve the same installed module'
       : 'den and den-kit resolve different copies',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 } catch {
   report(
     'FAIL',
     '@denaudio/den',
     'the npm package or its core dependency is missing',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 }
 for (const [name, path] of [
@@ -132,7 +132,7 @@ for (const [name, path] of [
     existsSync(join(kit, path)) ? 'PASS' : 'FAIL',
     name,
     existsSync(join(kit, path)) ? json(join(kit, path)).version : 'not installed',
-    'Run `npm ci` from the repo root.',
+    'Run `vp install --frozen-lockfile` from the repo root.',
   );
 }
 
@@ -190,7 +190,7 @@ try {
 console.log(
   failed
     ? `\n${failed} problem(s) to fix.`
-    : `\nAll checks passed. Start with \`npm run dev\`.${deep ? '' : ' (Add `-- --deep` to try one real Codex request.)'}`,
+    : `\nAll checks passed. Start with \`vp run dev\`.${deep ? '' : ' (Add `--deep` to try one real Codex request.)'}`,
 );
 process.exit(failed ? 1 : 0);
 
@@ -239,7 +239,7 @@ async function checkCodex() {
       'FAIL',
       'Codex CLI',
       version.out.split('\n')[0] || `exit ${version.code}`,
-      `den-kit is pinned to ${CODEX_VERSION}: run \`npm ci\`.`,
+      `den-kit is pinned to ${CODEX_VERSION}: run \`vp install --frozen-lockfile\`.`,
     );
     return;
   }
@@ -425,7 +425,7 @@ async function checkCodex() {
       report(
         'SKIP',
         'Codex live request',
-        'run `npm run doctor -- --deep` to make one real request (uses a little of your ChatGPT usage)',
+        'run `vp run doctor --deep` to make one real request (uses a little of your ChatGPT usage)',
       );
     else {
       const t0 = Date.now();
