@@ -400,6 +400,8 @@ export class AudioEngine {
   private async sendAssets(node: Node, sent: Map<string, string>) {
     const events = node.events as unknown as Record<string, { emit?: (p: unknown) => void }>;
     for (const load of this.assetLoads) {
+      // Superseded by newer loads: they are on their way, and the rest of these would send old contents.
+      if (!this.assetLoads.includes(load)) return;
       if (sent.get(load.event) === load.key || !events[load.event]?.emit) continue;
       sent.set(load.event, load.key);
       let payload: unknown;

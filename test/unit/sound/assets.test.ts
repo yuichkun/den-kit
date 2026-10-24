@@ -1,10 +1,12 @@
 // Audio assets in the sound, without audio: a codebox names the assets it reads
 // by their paths written out, a sampler's sound must be an audio asset of the
-// work and follows it when it is renamed, and the samples a slot gets are mixed,
-// picked and cut as the slot says.
+// work and follows it when it is renamed, the samples a slot gets are mixed,
+// picked and cut as the slot says, and newer assets are never overwritten by
+// older ones still being read.
 import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
-import { ASSET_FRAMES, slotSamples } from '../../../src/sound/assets.ts';
+import { ASSET_FRAMES, slotSamples, type AssetLoad } from '../../../src/sound/assets.ts';
+import { AudioEngine } from '../../../src/sound/audio-engine.ts';
 import { inlineCodebox } from '../../../src/sound/codebox.ts';
 import { sha256 } from '../../../src/work/files.ts';
 import { OpError } from '../../../src/work/op-error.ts';
@@ -179,6 +181,37 @@ describe("a sampler's sound", () => {
     expect(validate(gone, catalog).issues).toContainEqual(
       expect.objectContaining({ severity: 'warning', code: 'missing-asset', node: 'sampler1' }),
     );
+  });
+});
+
+describe('the assets the running sound gets', () => {
+  it('older loads still being read do not overwrite the newer ones in any slot', async () => {
+    const engine = new AudioEngine();
+    const emitted: Record<string, number[]> = { a: [], b: [] };
+    const emit = (slot: string) => (p: unknown) =>
+      emitted[slot]!.push((p as { data: Uint8Array }).data[0]!);
+    // A processor that is about to play, with its two slots.
+    Object.assign(engine as unknown as Record<string, unknown>, {
+      incoming: { events: { a: { emit: emit('a') }, b: { emit: emit('b') } } },
+      incomingSent: new Map(),
+    });
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>(r => (release = r));
+    const load = (event: string, key: string, byte: number, wait?: Promise<void>): AssetLoad => ({
+      event,
+      kind: 'bytes',
+      key,
+      read: async () => {
+        await wait;
+        return new Uint8Array([byte]);
+      },
+    });
+    engine.setAssets([load('a', 'old-a', 1, slow), load('b', 'old-b', 2)]);
+    engine.setAssets([load('a', 'new-a', 3), load('b', 'new-b', 4)]);
+    for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+    release();
+    for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+    expect(emitted).toEqual({ a: [3], b: [4] });
   });
 });
 
