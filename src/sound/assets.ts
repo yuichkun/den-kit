@@ -31,10 +31,37 @@ export interface AssetLoad {
   read: () => Promise<Uint8Array | null>;
 }
 
-interface Decoded {
+/** Decoded audio (an AudioBuffer). */
+export interface Decoded {
   numberOfChannels: number;
   length: number;
   getChannelData(channel: number): Float32Array;
+}
+
+/** Audio decoded at a sample rate; null when it is not audio, or when there is no decoder here (Node). */
+export async function decodeAudio(bytes: Uint8Array, sampleRate: number): Promise<Decoded | null> {
+  if (typeof OfflineAudioContext === 'undefined') return null;
+  try {
+    return await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(
+      bytes.slice().buffer as ArrayBuffer,
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** What the event that loads a slot carries: the bytes, or the samples of the decoded audio (none: empty). */
+export function slotPayload(kind: AssetSlot['kind'], contents: Uint8Array | Decoded | null) {
+  if (kind === 'bytes') {
+    const data = contents instanceof Uint8Array ? contents.slice(0, ASSET_BYTES) : new Uint8Array();
+    return { data, length: data.length };
+  }
+  return {
+    data:
+      contents && !(contents instanceof Uint8Array)
+        ? slotSamples(contents, kind)
+        : new Float32Array(),
+  };
 }
 
 /** The samples a slot gets from decoded audio: mixed to mono or one channel, cut to what a resident holds, non-finite samples as 0. */

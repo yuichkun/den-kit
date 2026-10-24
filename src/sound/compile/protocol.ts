@@ -43,6 +43,8 @@ export interface RenderRequest {
   params: Record<string, number>;
   /** MIDI events at sample offsets (phraseEvents). */
   events: Array<{ name: string; atSample: number; payload: unknown }>;
+  /** What the processor is sent as it starts: the contents of its asset slots, as the editor's sound gets them. */
+  messages: Array<{ name: string; atQuantum: number; payload: unknown }>;
   /** Note times for attack/release measurement. */
   notes: { onSamples: number[]; offSamples: number[] };
   /** Test material for effect patches (Audio In). */

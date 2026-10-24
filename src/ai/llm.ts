@@ -572,6 +572,7 @@ export class LlmController {
         }
       },
       render: request => this.checkRenderer().render(request),
+      readAsset: asset => this.session.assets.read(asset),
       look: (doc, picture) => this.session.look({ doc, picture }),
       viewPicture: async id => {
         const asset = assetsOf(this.session.doc.value.files)[id] ?? SHOWCASE_ASSETS[id];

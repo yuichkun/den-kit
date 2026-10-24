@@ -61,6 +61,53 @@ describe('a codebox reads assets through @den-kit/assets', () => {
   });
 });
 
+describe("a codebox's assets", () => {
+  it('follow an asset that is renamed, and keep it from being removed', async () => {
+    const bytes = new TextEncoder().encode('kick');
+    const code = [
+      "import { defineSubgraph } from '@unworklet/core';",
+      "import { audio as clip } from '@den-kit/assets';",
+      'export default defineSubgraph(() => {',
+      '  const kick = clip(\'assets/kick.wav\'), spare = clip("assets/kick.wav.bak");',
+      '  // assets/kick.wav, named in a comment, stays as it is',
+      '  return { tick: () => ({ out: kick.read(0, spare.length()) }) };',
+      '});',
+    ].join('\n');
+    const doc = applyIntents(
+      emptyDocument('t', 't'),
+      [
+        {
+          op: 'addAsset',
+          asset: {
+            id: 'assets/kick.wav',
+            name: 'kick.wav',
+            mime: 'audio/wav',
+            bytes: bytes.length,
+            hash: await sha256(bytes),
+          },
+        },
+        { op: 'addNode', node: { id: 'box1', type: 'kit.codebox' } },
+        { op: 'setCode', node: 'box1', code },
+      ],
+      catalog,
+    ).doc;
+    const renamed = applyIntents(
+      doc,
+      [{ op: 'updateAsset', id: 'assets/kick.wav', set: { name: 'boom.wav' } }],
+      catalog,
+    ).doc;
+    const moved = renamed.nodes.box1!.code!;
+    expect(inlineCodebox('box1', moved).assets.audio).toEqual([
+      'assets/boom.wav',
+      'assets/kick.wav.bak',
+    ]);
+    expect(moved).toContain('// assets/kick.wav, named in a comment');
+    const removed = attempt(renamed, [{ op: 'removeAsset', id: 'assets/boom.wav' }]);
+    expect(removed.ok).toBe(false);
+    if (!removed.ok) expect(removed.error.message).toMatch(/box1's code/);
+  });
+});
+
 /** applyIntents, with a refusal as a value. */
 function attempt(doc: PatchDocument, intents: Intent[]) {
   try {

@@ -13,6 +13,7 @@ import {
 import { createsCycle } from './scope.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox-template.ts';
+import { assetReads, moveAssetReads } from './codebox-assets.ts';
 import {
   addParam,
   checkPlacement,
@@ -1126,9 +1127,11 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       ];
       for (const def of Object.values(draft.doc.parts))
         if (def.face && faceAssetUses(def.face).has(intent.id)) uses.push(`${def.name}'s face`);
-      for (const node of Object.values(draft.doc.nodes))
+      for (const node of Object.values(draft.doc.nodes)) {
         for (const [key, value] of Object.entries(node.config))
           if (value === intent.id) uses.push(`${node.id}'s ${key}`);
+        if (node.code && assetReads(node.code).has(intent.id)) uses.push(`${node.id}'s code`);
+      }
       if (uses.length)
         fail(
           'asset-in-use',
@@ -1593,7 +1596,7 @@ function checkWorkSize(draft: Draft, path: string, file: WorkFile) {
     fail('too-large', `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`);
 }
 
-/** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay and part faces. */
+/** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay, part faces, node settings and what codeboxes read. */
 function moveAssetRefs(draft: Draft, from: string, to: string) {
   const move = (value: unknown): unknown => {
     const text = JSON.stringify(value ?? null);
@@ -1621,6 +1624,11 @@ function moveAssetRefs(draft: Draft, from: string, to: string) {
       draft.apply({ op: 'setField', node: node.id, field: 'style', from: node.style, to: after });
     for (const [key, value] of Object.entries(node.config))
       if (value === from) draft.apply({ op: 'setConfig', node: node.id, key, from: value, to });
+    if (node.code) {
+      const code = moveAssetReads(node.code, from, to);
+      if (code !== node.code)
+        draft.apply({ op: 'setField', node: node.id, field: 'code', from: node.code, to: code });
+    }
   }
   for (const part of Object.values(draft.doc.parts)) {
     const after = move(part) as PartDef;

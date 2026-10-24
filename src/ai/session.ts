@@ -34,6 +34,8 @@ export interface AiSession {
   readonly compiler: CompileClient;
   readonly loadEpoch: Ref<number>;
   readonly assetUrls: ShallowRef<Record<string, string>>;
+  /** The contents of the work's assets. */
+  readonly assets: { read(asset: AssetMeta): Promise<Uint8Array | null> };
   readonly selection: Ref<string[]>;
   /** Notes held from the on-screen keyboard, the computer keyboard or MIDI. */
   readonly heldNotes: Ref<number[]>;

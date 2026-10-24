@@ -234,7 +234,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_listen',
     description:
-      'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
+      'Render the patch offline with a short phrase (its assets loaded, as the editor plays them) and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
     inputSchema: {
       type: 'object',
       properties: {

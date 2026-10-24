@@ -4,6 +4,7 @@
 // export into a return, and keep line numbers stable so diagnostics map back
 // onto the codebox. Assets are named by their path written out, so the
 // processor knows which ones to hold before it runs.
+import { assetApiNames } from '../work/codebox-assets.ts';
 import type { Issue } from '../work/issues.ts';
 
 export interface InlinedCodebox {
@@ -23,7 +24,7 @@ export function inlineCodebox(node: string, code: string): InlinedCodebox {
   const lineOf = (index: number) => code.slice(0, index).split('\n').length;
   const names: string[] = [];
   /** Local names of the asset API's functions. */
-  const assetNames = new Map<string, 'audio' | 'bytes'>();
+  const assetNames = assetApiNames(code);
   if (SIDE_EFFECT_IMPORT.test(code))
     issues.push({
       severity: 'error',
@@ -101,7 +102,6 @@ export function inlineCodebox(node: string, code: string): InlinedCodebox {
             });
             continue;
           }
-          assetNames.set(alias[2] ?? alias[1]!, alias[1] as 'audio' | 'bytes');
           continue;
         }
         names.push(alias[2] ? `${alias[1]}: ${alias[2]}` : alias[1]!);

@@ -6,7 +6,7 @@ import { createNode, type CompiledProcessor, type UnworkletNode } from '@unworkl
 import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet';
 import type { Artifact } from './compile/protocol.ts';
 import { testSignal as testSignalData } from './analysis.ts';
-import { ASSET_BYTES, slotSamples, type AssetLoad } from './assets.ts';
+import { slotPayload, type AssetLoad } from './assets.ts';
 
 export type EngineState = 'off' | 'starting' | 'running' | 'suspended' | 'error';
 /** What an effect patch hears: test material, the computer's audio input (`input`: a microphone or a line in), or nothing. */
@@ -404,14 +404,12 @@ export class AudioEngine {
       sent.set(load.event, load.key);
       let payload: unknown;
       try {
-        if (load.kind === 'bytes') {
-          const bytes = load.key ? ((await load.read()) ?? new Uint8Array()) : new Uint8Array();
-          const data = bytes.slice(0, ASSET_BYTES);
-          payload = { data, length: data.length };
-        } else {
-          const audio = load.key ? await this.decode(load) : null;
-          payload = { data: audio ? slotSamples(audio, load.kind) : new Float32Array() };
-        }
+        const contents = !load.key
+          ? null
+          : load.kind === 'bytes'
+            ? await load.read()
+            : await this.decode(load);
+        payload = slotPayload(load.kind, contents);
       } catch (error) {
         this.events.error?.(`Could not read an asset: ${(error as Error).message}`);
         continue;

@@ -88,6 +88,7 @@ async function render(request: RenderRequest) {
       inputs,
       params,
       events: request.events,
+      messages: request.messages,
     });
     const channels = (result.outputs.main ?? []) as Float32Array[];
     const report = analyse(channels, sampleRate, {

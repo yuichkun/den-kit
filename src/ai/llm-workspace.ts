@@ -6,7 +6,8 @@
 import { textFiles } from '../work/files.ts';
 import { assetsOf, type AssetMeta } from '../work/ui.ts';
 import type { Catalog, PortDef } from '../work/catalog.ts';
-import { generate, type Generated } from '../sound/codegen.ts';
+import { currentAssets, generate, type Generated } from '../sound/codegen.ts';
+import { decodeAudio, slotPayload, type Decoded } from '../sound/assets.ts';
 import { describePatch } from './describe.ts';
 import { formatIssue, type Issue } from '../work/issues.ts';
 import { applyIntents, OpError, type Intent } from '../work/ops.ts';
@@ -73,6 +74,10 @@ export interface WorkspaceDeps {
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
   pod?: PodAccess;
+  /** The contents of an asset of the work (absent in tests that do not need them: the sound's assets are silent when it listens). */
+  readAsset?(asset: AssetMeta): Promise<Uint8Array | null>;
+  /** Decode audio at a sample rate (absent: the page's decoder). */
+  decodeAudio?(bytes: Uint8Array, sampleRate: number): Promise<Decoded | null>;
   /** Why an edit (the live patch → the patch with it) is outside what this agent may change now; null: it may. */
   scope?(before: PatchDocument, after: PatchDocument): string | null;
   /** Why this agent may not use the screen project now (another agent holds it, or it is not in its scope); null: it may. */
@@ -858,6 +863,35 @@ export class LlmWorkspace {
   }
 
   // ---- listening ---------------------------------------------------------------------
+  /** What loads the sound's assets as it starts, as the editor's sound gets them, and the assets that cannot be. */
+  private async assetMessages(
+    doc: PatchDocument,
+    generated: Generated,
+  ): Promise<{ messages: RenderRequest['messages']; missing: string[] }> {
+    const files = assetsOf(doc.files);
+    const decode = this.deps.decodeAudio ?? decodeAudio;
+    const decoded = new Map<string, Promise<Decoded | null>>();
+    const messages: RenderRequest['messages'] = [];
+    const missing = new Set<string>();
+    for (const { slot, path } of currentAssets(doc, this.deps.catalog, generated)) {
+      if (!path) continue;
+      const asset = files[path];
+      const bytes = asset && this.deps.readAsset ? await this.deps.readAsset(asset) : null;
+      let contents: Uint8Array | Decoded | null = bytes;
+      if (bytes && slot.kind !== 'bytes') {
+        if (!decoded.has(path)) decoded.set(path, decode(bytes, LISTEN_RATE));
+        contents = await decoded.get(path)!;
+      }
+      if (!contents) missing.add(path);
+      else
+        messages.push({
+          name: slot.event,
+          atQuantum: 0,
+          payload: slotPayload(slot.kind, contents),
+        });
+    }
+    return { messages, missing: [...missing] };
+  }
   private async listen(phrase?: string, seconds?: number): Promise<ToolOutput> {
     const { catalog } = this.deps;
     const doc = this.deps.read();
@@ -868,7 +902,7 @@ export class LlmWorkspace {
         text: 'There is nothing to play: the patch does not compile or nothing reaches Out. Fix that first (kit_get_patch shows the problems).',
       };
     const effect = generated.audioIn;
-    let request: Omit<RenderRequest, 'id' | 'kind'>;
+    let request: Omit<RenderRequest, 'id' | 'kind' | 'messages'>;
     const base = {
       source: generated.source,
       ...compileInputs(doc, generated),
@@ -915,18 +949,25 @@ export class LlmWorkspace {
         },
       };
     }
-    const rendered = await this.deps.render(request);
+    const assets = await this.assetMessages(doc, generated);
+    const rendered = await this.deps.render({ ...request, messages: assets.messages });
     this.steps.push(
       `listened (${rendered.report.silent ? 'silent' : `${rendered.report.peakDb} dB peak`})`,
     );
     const { summary, ...metrics } = rendered.report;
+    const missing = assets.missing.length
+      ? `\nNot loaded (their contents are not here, or they are not audio), so silent: ${assets.missing.join(', ')}.`
+      : '';
     return {
       success: true,
-      text: `${summary}\n${JSON.stringify(metrics)}`,
+      text: `${summary}${missing}\n${JSON.stringify(metrics)}`,
       imageDataUrl: rendered.png ? pngDataUrl(rendered.png) : undefined,
     };
   }
 }
+
+/** The listening render's sample rate (src/sound/compile/compiler.worker.ts). */
+const LISTEN_RATE = 48000;
 
 /** "+ LFO, cable lfo2 → cut1.octaves, filter1.resonance = 2" */
 export function describeOps(ops: Intent[], created: string[]): string {
