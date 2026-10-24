@@ -1,8 +1,9 @@
 // The work's pod: boots it when the work first needs it (the AI's first command,
 // a code part to show, the Project drawer), keeps its copy of the screen project,
 // the work's assets included so code can import them, in step with the document
-// (an undo, an edit in den-kit or another work loaded is written into the pod),
-// installs packages when package.json changes, keeps
+// (an undo, an edit in den-kit or another work loaded is written into the pod,
+// and a stored asset a command changed is put back), installs packages when
+// package.json changes, keeps
 // the dev server running and knows its address (the portal), runs commands for
 // the AI and the person (logged, with their output), and reads the project back
 // after a command so what changed lands in the document (and undoes with it).
@@ -108,6 +109,9 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 export const GIT =
   'git -c user.name=den-kit -c user.email=den-kit@localhost -c init.defaultBranch=main -c commit.gpgsign=false';
 const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`;
+/** den-kit's own git index of the stored assets as it wrote them: what a command changed or removed shows against it. */
+const ASSET_INDEX = '.git/den-kit-assets';
+const ASSET_MARK = '--den-kit-assets--';
 const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
 /** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
 const shown = (path: string) =>
@@ -336,6 +340,7 @@ export class PodSession {
     this.repository =
       (await this.system(`[ -d .git ] || ${GIT} init -q`, 'git init')).exitCode === 0;
     await this.excludeAssets();
+    await this.indexAssets([...this.knownAssets.keys()], [], true);
     await this.system(
       `${GIT} rev-parse -q --verify HEAD >/dev/null || { ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null; }`,
       'git commit',
@@ -430,6 +435,7 @@ export class PodSession {
       if (gone.some(shown)) changed = true;
     }
     const assetsBefore = [...this.knownAssets.keys()].sort().join('\n');
+    const written: string[] = [];
     for (const asset of Object.values(assets)) {
       if (this.knownAssets.get(asset.id) === assetSource(asset)) continue;
       // Contents that are not here are written with the next change.
@@ -437,6 +443,7 @@ export class PodSession {
       if (!bytes) continue;
       await host.writeFile(`${this.projectDir}/${asset.id}`, bytes);
       this.knownAssets.set(asset.id, assetSource(asset));
+      written.push(asset.id);
     }
     const goneAssets = [...this.knownAssets.keys()].filter(p => !assets[p]);
     // A text file that took an asset's path was written above: it stays.
@@ -448,6 +455,8 @@ export class PodSession {
       });
     for (const p of goneAssets) this.knownAssets.delete(p);
     if ([...this.knownAssets.keys()].sort().join('\n') !== assetsBefore) await this.excludeAssets();
+    // On the first sync the index is made again after git init (boot).
+    if (!first) await this.indexAssets(written, goneAssets);
     this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
     if (!first && packageChanged) await this.install(false).catch(() => undefined);
     if (!first && changed) this.reloads.value++;
@@ -462,16 +471,20 @@ export class PodSession {
     if (!host) return { files: {}, skipped: [] };
     return this.enqueue(async () => {
       this.unread = false;
+      const restored = await this.restoreAssets();
       const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
       // While the work has no sources, the pod holds the template: it all becomes the work's.
       const base = textFiles(this.session.doc.value.files);
       const stored = assetsOf(this.session.doc.value.files);
       const files: Record<string, string | null> = {};
-      const skipped: string[] = [];
+      const skipped = restored.map(
+        path =>
+          `${path} (one of the work's stored assets: den-kit put its contents back, as commands do not change them)`,
+      );
       const seen = new Set<string>();
       for (const line of listed.output.split('\n')) {
         const path = line.trim().replace(/^\.\//, '');
-        // The work's stored assets are den-kit's to write; commands do not change them (yet).
+        // The work's stored assets are den-kit's to write: what a command did to one was undone above.
         if (!path || seen.has(path) || path === CHECK_FILE || stored[path]) continue;
         if (isGenerated(path)) {
           const made = this.generated(path);
@@ -638,6 +651,66 @@ export class PodSession {
       `${this.projectDir}/.git/info/exclude`,
       `# The work's stored assets: den-kit writes them from the work.\n${lines.map(l => `${l}\n`).join('')}`,
     );
+  }
+
+  /** Note in den-kit's own index the stored assets it wrote, and drop the ones it took out (`fresh`: make the index again). */
+  private async indexAssets(written: readonly string[], removed: readonly string[], fresh = false) {
+    if (!this.repository) return;
+    const git = `GIT_INDEX_FILE=${q(`${this.projectDir}/${ASSET_INDEX}`)} ${GIT}`;
+    const steps: string[] = [];
+    if (fresh) steps.push(`rm -f ${q(ASSET_INDEX)}`);
+    if (written.length)
+      steps.push(`${git} update-index --add --info-only -- ${written.map(q).join(' ')}`);
+    if (removed.length)
+      steps.push(`${git} update-index --force-remove -- ${removed.map(q).join(' ')}`);
+    if (steps.length)
+      await this.host!.run(steps.join(' && '), { cwd: this.projectDir, timeoutMs: 120_000 });
+  }
+
+  /**
+   * Put back the stored assets a command changed or removed (den-kit writes them from the work; commands do
+   * not change them), and those den-kit's index does not hold, to be sure. Returns the ones a command changed.
+   */
+  private async restoreAssets(): Promise<string[]> {
+    const host = this.host!;
+    if (!this.knownAssets.size) return [];
+    let indexed = new Set<string>(),
+      changed = new Set<string>();
+    if (this.repository) {
+      const git = `GIT_INDEX_FILE=${q(`${this.projectDir}/${ASSET_INDEX}`)} ${GIT}`;
+      const r = await host.run(`${git} ls-files && echo ${ASSET_MARK} && ${git} ls-files -m -d`, {
+        cwd: this.projectDir,
+        timeoutMs: 60_000,
+      });
+      const [all, diff] = r.output.split(`${ASSET_MARK}\n`);
+      if (r.exitCode === 0 && diff !== undefined) {
+        const paths = (text: string) =>
+          text
+            .split('\n')
+            .map(l => l.trim())
+            .filter(Boolean);
+        indexed = new Set(paths(all!));
+        changed = new Set(paths(diff));
+      }
+    }
+    const assets = assetsOf(this.session.doc.value.files);
+    const put: string[] = [];
+    for (const [path, source] of this.knownAssets) {
+      if (indexed.has(path) && !changed.has(path)) continue;
+      const asset = assets[path];
+      // One the work has changed since is written with the next sync.
+      if (!asset || assetSource(asset) !== source) continue;
+      const bytes = await this.session.assets.read(asset);
+      if (!bytes) {
+        // Not here: written with the next change, and the project does not hold the work until then.
+        this.knownAssets.delete(path);
+        continue;
+      }
+      await host.writeFile(`${this.projectDir}/${path}`, bytes);
+      put.push(path);
+    }
+    await this.indexAssets(put, []);
+    return put.filter(p => changed.has(p));
   }
 
   /** The project holds `doc`'s files: what den-kit last wrote or read back is theirs, and no command's changes wait to be read. */

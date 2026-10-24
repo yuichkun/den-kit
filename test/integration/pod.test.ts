@@ -366,6 +366,26 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await built(withAsset)).toBe('changed');
     expect(await built(kit.doc.value)).toContain('index.html');
   }, 300_000);
+
+  it('puts back a stored asset that a command changed or removed, and says so', async () => {
+    // assets/late.png ("a picture") is one of the work's stored assets (the test before added it).
+    const after = async (command: string) => {
+      await pod.bash(command, { who: 'ai' });
+      const { skipped } = await pod.collect();
+      return {
+        said: skipped.filter(s => s.startsWith('assets/late.png')),
+        now: await pod.readFile('assets/late.png'),
+      };
+    };
+    const putBack = { said: [expect.stringContaining('put its contents back')], now: 'a picture' };
+    expect(await after("printf 'other' > assets/late.png")).toEqual(putBack);
+    expect(await after('rm assets/late.png')).toEqual(putBack);
+    // As large as before, in the same second den-kit put it back.
+    expect(await after("printf 'b picture' > assets/late.png")).toEqual(putBack);
+    expect(await after('true')).toEqual({ said: [], now: 'a picture' });
+    // The project holds the work again: its parts build.
+    expect(await pod.buildParts(kit.doc.value)).not.toBe('changed');
+  }, 300_000);
 });
 
 describe('pod session without a pod', () => {
