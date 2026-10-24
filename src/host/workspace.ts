@@ -53,7 +53,7 @@ export interface PodHost {
   onPortal(listener: (portal: Portal) => void): () => void;
   /** Let the pod reach the internet (open) or not. It starts closed; den-kit opens it only to install packages. */
   network(open: boolean): void;
-  /** Stop everything still running in the pod, what earlier commands left in the background included. */
+  /** Stop everything still running in the pod, what earlier commands left in the background included; rejects when it cannot make sure. */
   stopAll(): Promise<void>;
   /** How long after `sync` the pod's disk takes to keep what was written (none: sync is enough). */
   readonly settleMs?: number;

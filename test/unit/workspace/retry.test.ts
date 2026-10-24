@@ -53,12 +53,19 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
   const portalListeners = new Set<(portal: Portal) => void>();
   let next = initial;
   let installationFails = false;
+  let stopFails = false;
+  const network: boolean[] = [];
   const unrelated = new PreviewProcess();
   const host: PodHost = {
     kind: 'fake',
     home: '/home/test',
-    network() {},
-    stopAll: async () => undefined,
+    network(open) {
+      network.push(open);
+    },
+    stopAll: async () => {
+      if (stopFails)
+        throw new Error("The project's processes could not be stopped. Still running: 77");
+    },
     async run(script, options) {
       commands.push({ script, cwd: options?.cwd });
       const output = script.includes('find .')
@@ -119,6 +126,10 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
     failInstallation(value: boolean) {
       installationFails = value;
     },
+    failStop(value: boolean) {
+      stopFails = value;
+    },
+    network,
   };
 }
 
@@ -211,6 +222,30 @@ describe('explicit project preview retry', () => {
     expect(h.commands.some(command => /\b(?:kill|pkill)\b/.test(command.script))).toBe(false);
     expect(h.create).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(h.session.doc.value)).toBe(before);
+  });
+
+  it('installs nothing while something in the project keeps running, says so, and runs the preview again', async () => {
+    const h = harness();
+    await boot(h);
+    const preview = h.starts[0]!;
+    h.network.length = 0;
+    const doc = h.session.doc.value;
+    const pkg = JSON.parse(textFiles(doc.files)['package.json']!);
+    h.failStop(true);
+    (h.session.doc as Ref<PatchDocument>).value = {
+      ...doc,
+      files: {
+        ...doc.files,
+        'package.json': { text: JSON.stringify({ ...pkg, name: 'stubborn' }) },
+      },
+    };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.pod.state.value).toBe('failed');
+    expect(h.pod.message.value).toMatch(/not installed.*could not be stopped.*77/);
+    expect(h.network).toEqual([]);
+    expect(preview.running).toBe(false);
+    expect(h.starts).toHaveLength(2);
+    expect(h.starts[1]!.running).toBe(true);
   });
 
   it('keeps dependency repair guidance after an installation failure; the preview, stopped while installing, runs again', async () => {

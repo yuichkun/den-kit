@@ -697,13 +697,24 @@ export class PodSession {
     const ready = this.state.value === 'ready';
     const paused = !first && !!this.dev?.running;
     this.set('installing', 'Installing project dependencies…');
-    const r = await this.alone(() =>
-      this.npm(
-        `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
-        'npm install',
-        600_000,
-      ),
-    );
+    let r: PodRunResult;
+    try {
+      r = await this.alone(() =>
+        this.npm(
+          `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
+          'npm install',
+          600_000,
+        ),
+      );
+    } catch (error) {
+      this.set(
+        'failed',
+        `Project dependencies were not installed. ${error instanceof Error ? error.message : String(error)}`,
+        'Close and reopen den-kit, then try again.',
+      );
+      this.installFailed = true;
+      throw error;
+    }
     this.timings.value = {
       ...this.timings.value,
       installMs: Math.round(performance.now() - started),
@@ -736,8 +747,9 @@ export class PodSession {
       this.portal.value = null;
       await dev.stop();
     }
-    await this.host!.stopAll();
     try {
+      // When that cannot be made sure, nothing is installed and the network stays closed.
+      await this.host!.stopAll();
       return await install();
     } finally {
       if (dev) {

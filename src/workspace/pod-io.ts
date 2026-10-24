@@ -55,10 +55,13 @@ export function keepEnd(text: string, max = MAX_OUTPUT): string {
 export function exitMarker(nonce: string): string {
   return `<<den-kit-exit:${nonce}:`;
 }
-/** The bash line that runs `scriptPath` in `cwd` and then prints the marker. */
+/**
+ * The bash line that runs `scriptPath` in `cwd` and then prints the marker. The script learns
+ * this line's process id as DEN_KIT_RUNNER (no other process can change what it is told).
+ */
 export function runnerLine(nonce: string): string {
   // $1: cwd, $2: the script. Its own shell, so `exit` or `cd` in it end there.
-  return `cd "$1" 2>/dev/null || cd ~; bash "$2"; __s=$?; printf '\\n${exitMarker(nonce)}%d>>\\n' "$__s"`;
+  return `cd "$1" 2>/dev/null || cd ~; DEN_KIT_RUNNER=$$ bash "$2"; __s=$?; printf '\\n${exitMarker(nonce)}%d>>\\n' "$__s"`;
 }
 /** Find the marker in the (cleaned) output: the output before it and the exit status. */
 export function readExit(
