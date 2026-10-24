@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { applyIntents } from '../../../src/work/ops.ts';
 import { documentHash } from '../../../src/work/persistence.ts';
-import { sha256 } from '../../../src/work/files.ts';
+import { WORK_LIMITS, sha256 } from '../../../src/work/files.ts';
 import { starter } from '../../../src/work/starters.ts';
 import { readWorkFile, writeWorkFile } from '../../../src/work/work-file.ts';
 import { readZip, writeZip } from '../../../src/work/zip.ts';
@@ -79,6 +79,31 @@ describe('the work file', () => {
     if (!read.ok) throw new Error(read.error);
     expect(read.build).toEqual(build);
   });
+
+  it("a work whose text takes more than one file's limit in the record reads back, and so does its build's record", async () => {
+    // JSON writes each backslash as two: 51 MB of them make a record of more than 100 MB.
+    const files = Object.fromEntries(
+      Array.from({ length: 51 }, (_, i) => [`src/data${i}.ts`, '\\'.repeat(WORK_LIMITS.textBytes)]),
+    );
+    const doc = applyIntents(
+      starter('bass', catalog),
+      [{ op: 'setProjectFiles', files }],
+      catalog,
+    ).doc;
+    const bytes = await writeWorkFile(doc, async () => null);
+    expect(readZip(bytes, limits)[0]!.data.length).toBeGreaterThan(WORK_LIMITS.fileBytes);
+    const read = await readWorkFile(bytes, catalog);
+    if (!read.ok) throw new Error(read.error);
+    expect(read.doc.files).toEqual(doc.files);
+    // The build's build.json holds the document too.
+    const build = { 'build.json': new Uint8Array(WORK_LIMITS.fileBytes + 1) };
+    const withBuild = await readWorkFile(
+      await writeWorkFile(starter('bass', catalog), async () => null, build),
+      catalog,
+    );
+    if (!withBuild.ok) throw new Error(withBuild.error);
+    expect(withBuild.build['build.json']!.length).toBe(WORK_LIMITS.fileBytes + 1);
+  }, 60_000);
 
   it('cannot be written without the contents it names', async () => {
     const { doc } = await work();

@@ -40,9 +40,6 @@ import {
   type CheckContext,
 } from './ui.ts';
 
-/** A document as JSON (its files' contents are not in it, only their hashes). */
-export const MAX_FILE_BYTES = 40 * 1024 * 1024;
-
 export type ParseResult =
   | { ok: true; doc: PatchDocument; report: Issue[] }
   | { ok: false; error: string };
@@ -69,8 +66,6 @@ export function serializeDocument(doc: PatchDocument): string {
 export function parseDocument(input: string | unknown, catalog: Catalog): ParseResult {
   let data: unknown = input;
   if (typeof input === 'string') {
-    if (new TextEncoder().encode(input).length > MAX_FILE_BYTES)
-      return { ok: false, error: `File is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.` };
     try {
       data = JSON.parse(input);
     } catch (error) {

@@ -42,6 +42,18 @@ describe('the work file container', () => {
     expect(() => readZip(count, limits)).toThrow(/at most 10/);
   });
 
+  it('an entry with a limit of its own may hold more than the others', () => {
+    const zip = writeZip([
+      { path: 'work.json', data: new Uint8Array(2000) },
+      { path: 'big.bin', data: new Uint8Array(2000) },
+    ]);
+    const own = { ...limits, maxBytesOf: { 'work.json': 3000 } };
+    expect(() => readZip(zip, own)).toThrow(/big\.bin is .* at most/);
+    expect(
+      readZip(zip.slice(), { ...own, maxBytesOf: { 'work.json': 3000, 'big.bin': 3000 } }),
+    ).toHaveLength(2);
+  });
+
   it('refuses paths that leave the archive or appear twice', () => {
     expect(() => readZip(writeZip([{ path: '../evil', data: text('') }]), limits)).toThrow(
       /outside the work/,

@@ -9,6 +9,7 @@ import type { Catalog } from './catalog.ts';
 import { HASH, WORK_LIMITS, isContent, sha256, sniff, typeOfPath } from './files.ts';
 import type { Issue } from './issues.ts';
 import { parseDocument, serializeDocument } from './persistence.ts';
+import { PLAYABLE_MANIFEST } from './playable.ts';
 import type { PatchDocument } from './schema.ts';
 import { ZipError, readZip, writeZip, type ZipEntry } from './zip.ts';
 
@@ -19,6 +20,12 @@ export const WORK_FILE_EXTENSION = '.denkit';
 const RECORD = 'work.json';
 const CONTENTS = 'contents/';
 const BUILD = 'build/';
+/**
+ * work.json and the build's build.json hold the document with every text file JSON-escaped (a quote,
+ * backslash or line break takes two bytes), so they can take more than the work's files: twice the
+ * most those may hold together.
+ */
+const RECORD_BYTES = 2 * WORK_LIMITS.workBytes;
 
 /** The playable build's static files, by path inside the build. */
 export type PlayableBuild = Record<string, Uint8Array>;
@@ -73,8 +80,9 @@ export async function readWorkFile(bytes: Uint8Array, catalog: Catalog): Promise
   try {
     entries = readZip(bytes, {
       maxEntryBytes: WORK_LIMITS.fileBytes,
-      // The playable build is made from the record and may add as much again.
-      maxTotalBytes: WORK_LIMITS.workBytes * 2,
+      maxBytesOf: { [RECORD]: RECORD_BYTES, [BUILD + PLAYABLE_MANIFEST]: RECORD_BYTES },
+      // The playable build is made from the record and the contents, and may add as much again.
+      maxTotalBytes: 2 * (RECORD_BYTES + WORK_LIMITS.workBytes),
       maxEntries: WORK_LIMITS.files * 4,
     });
   } catch (error) {

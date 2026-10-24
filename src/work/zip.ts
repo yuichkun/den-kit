@@ -12,6 +12,8 @@ export interface ZipEntry {
 export interface ZipLimits {
   /** The most bytes one entry may hold. */
   maxEntryBytes: number;
+  /** The most bytes the entries named here may hold, in place of maxEntryBytes. */
+  maxBytesOf?: Readonly<Record<string, number>>;
   /** The most bytes all entries may hold together. */
   maxTotalBytes: number;
   maxEntries: number;
@@ -160,10 +162,12 @@ export function readZip(bytes: Uint8Array, limits: ZipLimits): ZipEntry[] {
     if (!safePath(path)) throw new ZipError(`The work file holds a file outside the work: ${path}`);
     if (seen.has(path)) throw new ZipError(`The work file holds ${path} twice.`);
     seen.add(path);
-    if (size > limits.maxEntryBytes)
-      throw new ZipError(
-        `${path} is ${megabytes(size)}; one file may hold at most ${megabytes(limits.maxEntryBytes)}.`,
-      );
+    const most =
+      limits.maxBytesOf && Object.hasOwn(limits.maxBytesOf, path)
+        ? limits.maxBytesOf[path]!
+        : limits.maxEntryBytes;
+    if (size > most)
+      throw new ZipError(`${path} is ${megabytes(size)}; it may hold at most ${megabytes(most)}.`);
     total += size;
     if (total > limits.maxTotalBytes)
       throw new ZipError(`The work's files are larger than ${megabytes(limits.maxTotalBytes)}.`);

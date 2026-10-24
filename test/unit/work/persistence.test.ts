@@ -6,8 +6,9 @@ import {
   parseDocument,
   readSaveRecord,
   serializeDocument,
-  MAX_FILE_BYTES,
 } from '../../../src/work/persistence.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import { WORK_LIMITS } from '../../../src/work/files.ts';
 import { STARTERS, starter } from '../../../src/work/starters.ts';
 
 describe('persistence', () => {
@@ -20,7 +21,7 @@ describe('persistence', () => {
       expect(documentHash(parsed.doc)).toBe(documentHash(doc));
     }
   });
-  it('refuses non-JSON, wrong schema, huge files and newer versions with a reason', () => {
+  it('refuses non-JSON, wrong schema and newer versions with a reason', () => {
     expect(parseDocument('{nope', catalog)).toMatchObject({
       ok: false,
       error: expect.stringContaining('Not valid JSON'),
@@ -35,10 +36,6 @@ describe('persistence', () => {
     ).toMatchObject({ ok: false, error: expect.stringContaining('newer den-kit') });
     expect(parseDocument(JSON.stringify({ schema: 'den-kit/patch' }), catalog)).toMatchObject({
       ok: false,
-    });
-    expect(parseDocument('x'.repeat(MAX_FILE_BYTES + 1), catalog)).toMatchObject({
-      ok: false,
-      error: expect.stringContaining('larger'),
     });
   });
   it('repairs and reports unknown blocks, bad ids, bad values and dangling cables', () => {
@@ -91,5 +88,18 @@ describe('persistence', () => {
       readSaveRecord({ ...record, text: record.text.replace('Bass', 'Bas') }, catalog),
     ).toMatchObject({ ok: false, error: expect.stringContaining('checksum') });
     expect(readSaveRecord(null, catalog).ok).toBe(false);
+  });
+  it("the editor's record of a work with 41 MB of text reads back (the work's limits hold its files)", () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 41 }, (_, i) => [`src/data${i}.ts`, 'x'.repeat(WORK_LIMITS.textBytes)]),
+    );
+    const doc = applyIntents(
+      starter('bass', catalog),
+      [{ op: 'setProjectFiles', files }],
+      catalog,
+    ).doc;
+    const read = readSaveRecord(makeSaveRecord(doc, 1), catalog);
+    if (!read.ok) throw new Error(read.error);
+    expect(read.doc.files).toEqual(doc.files);
   });
 });
