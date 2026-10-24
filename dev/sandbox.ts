@@ -9,12 +9,14 @@ import type { Sandbox } from '../src/host/index.ts';
 
 export function devSandbox(token: string, port: number): Sandbox {
   const origin = (work: string) => `http://${work}.localhost:${port}`;
-  const send = (body: Record<string, unknown>) =>
-    void fetch('/__kit/sandbox', {
+  const send = async (body: Record<string, unknown>) => {
+    const r = await fetch('/__kit/sandbox', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
-    }).catch(() => undefined);
+    });
+    if (!r.ok) throw new Error(`The sandbox refused to ${String(body.op)} the work (${r.status}).`);
+  };
   return {
     open: (work, settings) =>
       send({
@@ -26,7 +28,7 @@ export function devSandbox(token: string, port: number): Sandbox {
           devices: settings.devices,
         },
       }),
-    close: work => send({ op: 'close', work }),
+    close: work => void send({ op: 'close', work }).catch(() => undefined),
     origin,
     servesContents: false,
     fileUrl: () => null,

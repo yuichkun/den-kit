@@ -256,7 +256,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect((await fetch(pod.portal.value!)).status).toBe(200);
   }, 240_000);
 
-  it("the work's assets are in the project, outside its git: code imports them, and a replaced or removed one follows", async () => {
+  it("the work's assets are in the project, its stored ones outside its git: code imports them, a replaced or removed one follows, and a text file under assets/ reads back like any other", async () => {
     const add = async (path: string, bytes: Uint8Array) => {
       const hash = await sha256(bytes);
       kit.contents.set(hash, bytes);
@@ -291,9 +291,19 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(head.output.replace(/\s+/g, ' ').trim()).toBe('89 50 4e 47 0d 0a 1a 0a');
     const build = await pod.bash('npm run build', { who: 'den-kit', timeoutMs: 180_000 });
     expect(build.exitCode, build.output).toBe(0);
-    expect(
-      (await pod.bash('git status --porcelain -- assets', { who: 'den-kit' })).output.trim(),
-    ).toBe('');
+    const ignored = async (path: string) =>
+      (await pod.bash(`git check-ignore -q ${path} && echo ignored`, { who: 'den-kit' })).output;
+    expect(await ignored('assets/dot.png')).toContain('ignored');
+    // A text file under assets/ is a project file: a command leaves it, or changes it, and it reads back.
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': '{"a":1}\n' } }]);
+    await settle(800);
+    expect(await ignored('assets/curve.json')).not.toContain('ignored');
+    await pod.bash('true', { who: 'ai' });
+    expect((await pod.collect()).files).not.toHaveProperty(['assets/curve.json']);
+    await pod.bash(`printf '{"a":2}\\n' > assets/curve.json`, { who: 'ai' });
+    expect((await pod.collect()).files['assets/curve.json']).toBe('{"a":2}\n');
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': null } }]);
+    await settle(800);
     // Replaced at the same path, then removed.
     kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
     await add('assets/dot.png', new TextEncoder().encode('another picture'));

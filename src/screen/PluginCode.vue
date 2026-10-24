@@ -313,7 +313,8 @@ function load() {
   state.value = 'loading';
   error.value = null;
   report({ state: 'loading', error: undefined });
-  if (f.src !== s) f.src = s;
+  // Even at the same address: the page there has said hello already and would not again.
+  f.src = s;
 }
 
 onMounted(() => {

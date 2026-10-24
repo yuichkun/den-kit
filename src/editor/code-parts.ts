@@ -1,12 +1,12 @@
 // Where the open work's code parts run, and what they may use. Their frames load
-// from the work's own origin, the host's sandbox, with the origins and devices the
-// person allowed for that work: it passes requests through to the workspace's dev
-// server while that runs, and otherwise serves the code parts as last built (when
-// the work was exported or imported), if that build was made from the files the
-// work has now. A host without a sandbox cannot isolate code parts, so they do not
-// run there. What the person allowed, and the last build, are kept in the host's
-// storage by work, never in the work, so a work never arrives with network access
-// already allowed.
+// from the work's own origin, the host's sandbox, once it serves what they load,
+// with the origins and devices the person allowed for that work: it passes requests
+// through to the workspace's dev server while that runs, and otherwise serves the
+// code parts as last built (when the work was exported or imported), if that build
+// was made from the files the work has now. A host without a sandbox cannot isolate
+// code parts, so they do not run there. What the person allowed, and the last build,
+// are kept in the host's storage by work, never in the work, so a work never arrives
+// with network access already allowed.
 import { computed, ref, shallowRef, watch } from 'vue';
 import type { Allowed, Device, Host } from '../host/index.ts';
 import type { CodePartSource } from '../screen/code-frames.ts';
@@ -107,13 +107,22 @@ export class CodeParts {
         !!this.built.value &&
         this.built.value.from === this.builtFrom(),
     );
+    // What the sandbox said it serves (it is told asynchronously): a frame that loaded before would get what it served before.
+    const told = shallowRef<{ work: string; devServer: string | null; build: boolean } | null>(
+      null,
+    );
     this.source = {
       get available() {
         return !!sandbox && (pod.available || fromBuild.value);
       },
-      portal: computed(() =>
-        sandbox && (pod.portal.value || fromBuild.value) ? `${sandbox.origin(work())}/` : null,
-      ),
+      portal: computed(() => {
+        const t = told.value;
+        const serves =
+          !!t &&
+          t.work === work() &&
+          (pod.portal.value ? t.devServer === pod.portal.value : fromBuild.value && t.build);
+        return sandbox && serves ? `${sandbox.origin(work())}/` : null;
+      }),
       state: pod.state,
       // Without a pod, what to set up first; with one, why its parts still do not run here.
       message: computed(() =>
@@ -183,7 +192,13 @@ export class CodeParts {
         if (open === id && key === sent) return;
         open = id;
         sent = key;
-        sandbox.open(id, settings);
+        sandbox.open(id, settings).then(
+          () => {
+            if (sent === key)
+              told.value = { work: id, devServer, build: Object.keys(build).length > 0 };
+          },
+          () => undefined,
+        );
       },
       { immediate: true },
     );

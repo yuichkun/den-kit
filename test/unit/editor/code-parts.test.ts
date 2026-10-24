@@ -24,10 +24,18 @@ function hostStorage(): Storage & { data: Map<string, string> } {
   };
 }
 
-function setup(storage = hostStorage(), work = 'work-a', isolated = true) {
+function setup(
+  storage = hostStorage(),
+  work = 'work-a',
+  isolated = true,
+  answer = () => Promise.resolve(),
+) {
   const opened: Array<Parameters<Sandbox['open']>[1]> = [];
   const sandbox: Sandbox = {
-    open: (_, settings) => opened.push(settings),
+    open: (_, settings) => {
+      opened.push(settings);
+      return answer();
+    },
     close: () => undefined,
     origin: id => `http://${id}.localhost:5247`,
     servesContents: true,
@@ -92,6 +100,29 @@ describe("the editor's code parts", () => {
     await settled();
     expect(parts.source.portal.value).toBe('http://work-a.localhost:5247/');
     expect(opened.at(-1)).toMatchObject({ devServer: 'https://p-5173.portal.example' });
+  });
+
+  it("load from the work's own origin only once the sandbox serves the dev server", async () => {
+    const answers: Array<() => void> = [];
+    const { pod, parts } = setup(
+      hostStorage(),
+      'work-a',
+      true,
+      () => new Promise<void>(r => answers.push(r)),
+    );
+    pod.portal.value = 'https://p-5173.portal.example';
+    await settled();
+    expect(parts.source.portal.value).toBeNull();
+    answers.at(-1)!();
+    await settled();
+    expect(parts.source.portal.value).toBe('http://work-a.localhost:5247/');
+    // The dev server again, at another address: not until the sandbox serves that one.
+    pod.portal.value = 'https://p-5174.portal.example';
+    await settled();
+    expect(parts.source.portal.value).toBeNull();
+    answers.at(-1)!();
+    await settled();
+    expect(parts.source.portal.value).toBe('http://work-a.localhost:5247/');
   });
 
   it('show as last built while there is no dev server, when built from the files the work has now', async () => {

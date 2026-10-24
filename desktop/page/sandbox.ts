@@ -10,20 +10,18 @@ const FILES_PATH = '/__den-kit/files/';
 export function desktopSandbox(shell: Pick<DesktopAPI, 'sandbox' | 'onSandboxRefused'>): Sandbox {
   const origin = (work: string) => `http://${work}.localhost:${location.port}`;
   return {
-    open(work, settings) {
-      void shell
-        .sandbox({
-          op: 'open',
-          work,
-          settings: {
-            portal: settings.devServer,
-            origins: settings.origins,
-            devices: settings.devices,
-            files: settings.files,
-            build: settings.build,
-          },
-        })
-        .catch(() => undefined);
+    async open(work, settings) {
+      await shell.sandbox({
+        op: 'open',
+        work,
+        settings: {
+          portal: settings.devServer,
+          origins: settings.origins,
+          devices: settings.devices,
+          files: settings.files,
+          build: settings.build,
+        },
+      });
     },
     close(work) {
       void shell.sandbox({ op: 'close', work }).catch(() => undefined);

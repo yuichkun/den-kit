@@ -86,10 +86,36 @@ async function partReady(page: Page, element: string, timeout: number) {
               (e: any) =>
                 `${e.who} ${e.command.slice(0, 60)} → ${e.running ? 'running' : e.exitCode} (${e.ms} ms)`,
             ),
+          // What the part's page told den-kit (its console lines included), and what the dev server printed.
+          report: k.pod.parts.value[id] ?? null,
+          dev: k.pod.log.value
+            .filter((e: any) => e.command === 'npm run dev')
+            .at(-1)
+            ?.output.slice(-1500),
         };
       }, element)
       .catch(() => null);
-    throw new Error(`${(error as Error).message.split('\n')[0]}\n${JSON.stringify(seen, null, 1)}`);
+    // How far the part's page got: its frame's address and the files it has loaded.
+    const frames = await Promise.all(
+      page
+        .frames()
+        .filter(f => f.url().includes(`el=${element}`))
+        .map(async f => ({
+          url: f.url(),
+          page: await f
+            .evaluate(() => ({
+              readyState: document.readyState,
+              loaded: performance
+                .getEntriesByType('resource')
+                .map(e => e.name.replace(location.origin, ''))
+                .slice(-12),
+            }))
+            .catch((e: Error) => e.message),
+        })),
+    );
+    throw new Error(
+      `${(error as Error).message.split('\n')[0]}\n${JSON.stringify({ ...seen, frames }, null, 1)}`,
+    );
   }
 }
 
@@ -456,6 +482,72 @@ export default part({ mount(root, kit) {
         await frame.evaluate(() => document.getElementById('root')!.textContent),
         'fixed',
       );
+      assert.deepEqual(errors, []);
+      await page.close();
+    },
+  );
+
+  it(
+    'a code part comes back when the dev server starts again (as after an install)',
+    { timeout: 180000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      const created = await kit(page, k => {
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
+        const result = k.commit([
+          {
+            op: 'setProjectFiles',
+            files: {
+              ...files,
+              'src/parts/again.ts': `import { part } from '../kit';\nexport default part({ mount(root) { root.textContent = 'again'; } });\n`,
+            },
+          },
+          {
+            op: 'addElement',
+            element: {
+              id: 'again1',
+              kind: 'code',
+              part: 'again',
+              rect: { x: 20, y: 20, w: 200, h: 80 },
+              props: {},
+            },
+          },
+        ]);
+        return { ok: result.ok, error: result.error?.message };
+      });
+      assert.equal(created.ok, true, JSON.stringify(created.error));
+      await page.click('[data-testid=view-plugin]');
+      await partReady(page, 'again1', 60000);
+      const hello = () => kit(page, k => k.pod.parts.value.again1.at as number);
+      const helloAgain = async (after: number) => {
+        await page.waitForFunction(
+          at => ((window as any).__kit.pod.parts.value.again1?.at ?? 0) > at,
+          after,
+          { timeout: 60000 },
+        );
+        await partReady(page, 'again1', 60000);
+      };
+      // The dev server's address goes and comes back the same, as BrowserPod's does (its dev server keeps its
+      // port) while the dev server's own page keeps running: den-kit loads the part's page again.
+      const first = await hello();
+      await kit(page, async k => {
+        const portal = k.pod.portal.value;
+        k.pod.portal.value = null;
+        await new Promise(r => setTimeout(r, 500));
+        k.pod.portal.value = portal;
+      });
+      await helloAgain(first);
+      // Only this pod's dev server stops (HOME is the pod's own folder); den-kit starts it again.
+      const second = await hello();
+      await kit(page, k =>
+        k.pod.bash('pkill -f "$HOME/work/node_modules/.bin/vite" || true; sleep 1', { who: 'ai' }),
+      );
+      await helloAgain(second);
       assert.deepEqual(errors, []);
       await page.close();
     },

@@ -107,8 +107,6 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** git with an identity and no signing (the pod has no config of its own). */
 export const GIT =
   'git -c user.name=den-kit -c user.email=den-kit@localhost -c init.defaultBranch=main -c commit.gpgsign=false';
-/** The work's assets are on the pod's disk for code to import; the pod's git leaves them out. */
-const IGNORE_ASSETS = `mkdir -p .git/info && { grep -qx 'assets/' .git/info/exclude 2>/dev/null || echo 'assets/' >> .git/info/exclude; }`;
 const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`;
 const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
 /** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
@@ -146,6 +144,8 @@ export class PodSession {
   private known = new Map<string, string>();
   /** The work's assets in the pod as den-kit last wrote them (path → what their contents are). */
   private knownAssets = new Map<string, string>();
+  /** The project is a git repository. */
+  private repository = false;
   /** A command or the AI wrote in the project after it was last read back. */
   private unread = false;
   private installedFor: string | null = null;
@@ -333,9 +333,12 @@ export class PodSession {
     this.set('syncing', 'Preparing project files…');
     const synced = performance.now();
     await this.writeAll(true);
+    this.repository =
+      (await this.system(`[ -d .git ] || ${GIT} init -q`, 'git init')).exitCode === 0;
+    await this.excludeAssets();
     await this.system(
-      `[ -d .git ] || { ${GIT} init -q && ${IGNORE_ASSETS} && ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null; }; ${IGNORE_ASSETS}`,
-      'git init',
+      `${GIT} rev-parse -q --verify HEAD >/dev/null || { ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null; }`,
+      'git commit',
     );
     this.timings.value = { ...this.timings.value, syncMs: Math.round(performance.now() - synced) };
     await this.install(true);
@@ -426,6 +429,7 @@ export class PodSession {
       for (const p of gone) this.known.delete(p);
       if (gone.some(shown)) changed = true;
     }
+    const assetsBefore = [...this.knownAssets.keys()].sort().join('\n');
     for (const asset of Object.values(assets)) {
       if (this.knownAssets.get(asset.id) === assetSource(asset)) continue;
       // Contents that are not here are written with the next change.
@@ -442,6 +446,7 @@ export class PodSession {
       });
       for (const p of goneAssets) this.knownAssets.delete(p);
     }
+    if ([...this.knownAssets.keys()].sort().join('\n') !== assetsBefore) await this.excludeAssets();
     this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
     if (!first && packageChanged) await this.install(false).catch(() => undefined);
     if (!first && changed) this.reloads.value++;
@@ -459,13 +464,14 @@ export class PodSession {
       const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
       // While the work has no sources, the pod holds the template: it all becomes the work's.
       const base = textFiles(this.session.doc.value.files);
+      const stored = assetsOf(this.session.doc.value.files);
       const files: Record<string, string | null> = {};
       const skipped: string[] = [];
       const seen = new Set<string>();
       for (const line of listed.output.split('\n')) {
         const path = line.trim().replace(/^\.\//, '');
-        // Assets are the work's own files; commands do not change them (yet).
-        if (!path || seen.has(path) || path === CHECK_FILE || path.startsWith('assets/')) continue;
+        // The work's stored assets are den-kit's to write; commands do not change them (yet).
+        if (!path || seen.has(path) || path === CHECK_FILE || stored[path]) continue;
         if (isGenerated(path)) {
           const made = this.generated(path);
           const text = await host.readFile(`${this.projectDir}/${path}`);
@@ -620,6 +626,17 @@ export class PodSession {
       }
       return files;
     });
+  }
+
+  /** The pod's git leaves out the work's stored assets that den-kit wrote (text files under assets/ stay in). */
+  private async excludeAssets() {
+    // Not before git init: a .git folder made here would keep it from running.
+    if (!this.repository) return;
+    const lines = [...this.knownAssets.keys()].sort().map(p => `/${p.replace(/[\\*?[]/g, '\\$&')}`);
+    await this.host!.writeFile(
+      `${this.projectDir}/.git/info/exclude`,
+      `# The work's stored assets: den-kit writes them from the work.\n${lines.map(l => `${l}\n`).join('')}`,
+    );
   }
 
   /** The project holds `doc`'s files: what den-kit last wrote or read back is theirs, and no command's changes wait to be read. */

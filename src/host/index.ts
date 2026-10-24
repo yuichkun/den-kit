@@ -65,6 +65,7 @@ export interface Sandbox {
   /**
    * Serve a work: its code parts from `devServer` (the workspace's, while it runs), or else from `build`
    * (the code parts as last built), and its files by path. `files` and `build` name contents in the host's storage.
+   * Settles once the host serves these settings; until then it serves what it was told before.
    */
   open(
     work: string,
@@ -73,7 +74,7 @@ export interface Sandbox {
       files: Record<string, { hash: string; type: string }>;
       build: Record<string, { hash: string; type: string }>;
     },
-  ): void;
+  ): Promise<void>;
   close(work: string): void;
   /** The work's own origin, where its frames load from. */
   origin(work: string): string;
