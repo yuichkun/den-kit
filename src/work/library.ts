@@ -22,7 +22,15 @@ import { canonicalJson, hashString } from './hash.ts';
 import type { Catalog } from './catalog.ts';
 import type { Issue } from './issues.ts';
 import { checkFace, faceAssetUses } from './face.ts';
-import { MAX_ASSET_BYTES, assetsOf, checkAsset, type AssetMeta } from './ui.ts';
+import {
+  MAX_ASSET_BYTES,
+  assetSource,
+  assetsOf,
+  checkAsset,
+  styleAssets,
+  type AssetMeta,
+} from './ui.ts';
+import { assetReads } from './codebox-assets.ts';
 import { membersOf, partIdFor, partInterface, readParamRange } from './parts.ts';
 
 export const LIBRARY_SCHEMA = 'den-kit/my-parts';
@@ -93,11 +101,19 @@ export function extractBundle(doc: PatchDocument, defId: string): PartBundle {
     if (nodes[e.from.node] && nodes[e.to.node]) edges[e.id] = clone(e);
   const part = clone(root);
   delete part.from;
-  const assets: Record<string, AssetMeta> = {};
+  // The assets it uses: its faces' pictures and fonts, what its sound reads (a sampler's sound, a
+  // codebox's assets) and what its controls' styles show.
+  const files = assetsOf(doc.files);
+  const used = new Set<string>();
   for (const def of [part, ...Object.values(parts)])
-    if (def.face)
-      for (const id of faceAssetUses(def.face).keys())
-        if (assetsOf(doc.files)[id]) assets[id] = clone(assetsOf(doc.files)[id]!);
+    if (def.face) for (const id of faceAssetUses(def.face).keys()) used.add(id);
+  for (const n of Object.values(nodes)) {
+    for (const value of Object.values(n.config)) if (typeof value === 'string') used.add(value);
+    if (n.code) for (const id of assetReads(n.code)) used.add(id);
+    for (const id of styleAssets(n.style)) used.add(id);
+  }
+  const assets: Record<string, AssetMeta> = {};
+  for (const id of [...used].sort()) if (files[id]) assets[id] = clone(files[id]!);
   return { part, parts, nodes, edges, ...(Object.keys(assets).length ? { assets } : {}) };
 }
 
@@ -151,6 +167,10 @@ export function bundleHash(bundle: PartBundle): string {
       .sort((a, b) => a.id.localeCompare(b.id)),
     edges: Object.values(bundle.edges)
       .map(e => `${nn(e.from.node)}.${e.from.port}>${nn(e.to.node)}.${e.to.port}`)
+      .sort(),
+    // Its assets by path (a placed part keeps them) and what they hold: other contents at a path are another part.
+    assets: Object.values(bundle.assets ?? {})
+      .map(a => `${a.id}=${assetSource(a)}`)
       .sort(),
   };
   return hashString(canonicalJson(shape));
@@ -480,7 +500,7 @@ export function checkBundle(raw: unknown, catalog: Catalog): PartBundle | string
 
 // ---- files and storage -------------------------------------------------------------------
 
-/** My parts as JSON. With `assetData` (data: URLs by asset id) the faces' pictures and fonts travel inside (a file for another machine). */
+/** My parts as JSON. With `assetData` (data: URLs by what they hold, assetSource) the parts' assets travel inside (a file for another machine). */
 export function serializeLibrary(
   library: Library,
   ids?: readonly string[],
@@ -505,7 +525,7 @@ export function serializeLibrary(
                     assets: Object.fromEntries(
                       Object.entries(v.bundle.assets).map(([a, meta]) => [
                         a,
-                        data[a] ? { ...meta, data: data[a] } : meta,
+                        data[assetSource(meta)] ? { ...meta, data: data[assetSource(meta)] } : meta,
                       ]),
                     ),
                   },
@@ -519,13 +539,16 @@ export function serializeLibrary(
     JSON.stringify({ schema: LIBRARY_SCHEMA, version: LIBRARY_VERSION, parts }, null, 2) + '\n'
   );
 }
-/** The pictures and fonts the faces in `library` use (to put inside an exported file). */
+/**
+ * The assets the parts in `library` use, one per contents (to put inside an exported file): parts from
+ * different works may hold other contents at the same path.
+ */
 export function libraryAssets(library: Library, ids?: readonly string[]): AssetMeta[] {
   const out = new Map<string, AssetMeta>();
   for (const entry of Object.values(library.parts))
     if (!ids || ids.includes(entry.id))
       for (const v of entry.versions)
-        for (const a of Object.values(v.bundle.assets ?? {})) out.set(a.id, a);
+        for (const a of Object.values(v.bundle.assets ?? {})) out.set(assetSource(a), a);
   return [...out.values()];
 }
 const DATA_URL = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/;
@@ -602,12 +625,13 @@ export function parseLibrary(
           isObject(v.bundle) && isObject(v.bundle.assets) && isObject(v.bundle.assets[asset.id])
             ? (v.bundle.assets[asset.id] as Record<string, unknown>).data
             : undefined;
-        if (carried === undefined || assetData[asset.id] || unreadable.has(asset.id)) continue;
+        const contents = assetSource(asset);
+        if (carried === undefined || assetData[contents] || unreadable.has(contents)) continue;
         const bytes = typeof carried === 'string' ? DATA_URL.exec(carried) : null;
         if (bytes && bytes[1] === asset.mime && bytes[2]!.length * 0.75 <= MAX_ASSET_BYTES * 1.01)
-          assetData[asset.id] = carried as string;
+          assetData[contents] = carried as string;
         else {
-          unreadable.add(asset.id);
+          unreadable.add(contents);
           report.push({
             severity: 'warning',
             code: 'dropped-asset-data',

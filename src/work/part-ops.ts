@@ -1040,7 +1040,7 @@ function addBundle(
   return def(bundle.part, ids.parts[bundle.part.id]!);
 }
 
-/** The pictures and fonts a bundle's faces use come into the work's files (one already there is the same file). */
+/** The assets a bundle uses come into the work's files (one already there is the same file). */
 function addAssets(draft: PartDraft, bundle: PartBundle) {
   for (const asset of Object.values(bundle.assets ?? {}).sort(byId)) {
     const file = assetFile(checkAsset(asset));

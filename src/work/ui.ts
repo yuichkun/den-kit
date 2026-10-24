@@ -1094,14 +1094,22 @@ export function assetUses(
     if (el.kind === 'image') add(el.asset, el.id);
     if (el.kind === 'text') text(el.textStyle, el.id);
   }
-  for (const [id, style] of widgetStyles) {
-    if (!style) continue;
-    fills(style.style?.fill, id);
-    text(style.textStyle, id);
-    skin(style.skin, controlOfId(style), id);
-  }
+  for (const [id, style] of widgetStyles) for (const asset of styleAssets(style)) add(asset, id);
   if (ui.underlay) add(ui.underlay.asset, 'underlay');
   return uses;
+}
+/** The assets a control's style shows: pictures in its fills, its font, its skin's pictures. */
+export function styleAssets(style: WidgetStyle | undefined): string[] {
+  if (!style) return [];
+  const out: string[] = [];
+  for (const f of style.style?.fill ?? []) if (f.kind === 'image' && f.asset) out.push(f.asset);
+  if (style.textStyle?.font && isAssetPath(style.textStyle.font)) out.push(style.textStyle.font);
+  const control = controlOfId(style);
+  const def = style.skin && control ? skinDef(control, style.skin.name) : undefined;
+  for (const p of def?.params ?? [])
+    if (p.kind === 'asset' && typeof style.skin!.params?.[p.id] === 'string')
+      out.push(style.skin!.params[p.id] as string);
+  return out;
 }
 // Widget skins are checked against their control kind when set; for listing uses any kind that knows the skin will do.
 function controlOfId(style: WidgetStyle): ControlKind | undefined {

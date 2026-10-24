@@ -499,7 +499,7 @@ export class KitSession {
     if (!this.myParts.value.parts[id]) return false;
     return this.storeMyParts(removeFromLibrary(this.myParts.value, id));
   }
-  /** My parts as a file, with the pictures and fonts their faces use inside (so it opens on another machine). */
+  /** My parts as a file, with the assets they use inside (so it opens on another machine). */
   async exportMyParts(ids?: readonly string[]): Promise<string> {
     const assetData: Record<string, string> = {};
     for (const asset of libraryAssets(this.myParts.value, ids)) {
@@ -509,7 +509,7 @@ export class KitSession {
       } catch {
         /* said below */
       }
-      if (data) assetData[asset.id] = data;
+      if (data) assetData[assetSource(asset)] = data;
       else this.toast('warn', `"${asset.name}" is missing; the file only names it.`);
     }
     return serializeLibrary(this.myParts.value, ids, { assetData });

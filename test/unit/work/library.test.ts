@@ -17,6 +17,7 @@ import {
   latest,
   LIBRARY_SCHEMA,
   mergeLibrary,
+  libraryAssets,
   parseLibrary,
   removeFromLibrary,
   saveToLibrary,
@@ -84,7 +85,64 @@ const place = (
   });
 };
 
+/** A work whose part Kit plays assets/kick.wav (its contents `kick`) in a sampler and reads assets/table.bin in a codebox. */
+function kitWork(kick = `sha256-${'1'.repeat(64)}`) {
+  const asset = (id: string, mime: string, hash: string): Intent => ({
+    op: 'addAsset',
+    asset: { id, name: id.slice(7), mime, bytes: 4, hash },
+  });
+  const code = [
+    "import { defineSubgraph, f32, i32, type Node } from '@unworklet/core';",
+    "import { bytes } from '@den-kit/assets';",
+    'export default defineSubgraph(() => {',
+    "  const table = bytes('assets/table.bin');",
+    "  return { tick: (i: { in: Node<'f32'> }) => ({ out: i.in.add(f32(table.at(i32(0)))) }) };",
+    '});',
+  ].join('\n');
+  const doc = apply(
+    blank(),
+    asset('assets/kick.wav', 'audio/wav', kick),
+    asset('assets/table.bin', 'application/octet-stream', `sha256-${'2'.repeat(64)}`),
+    {
+      op: 'addNode',
+      node: { id: 'sampler1', type: 'den.samplePlayer', config: { sound: 'assets/kick.wav' } },
+    },
+    { op: 'addNode', node: { id: 'box1', type: 'kit.codebox' } },
+    { op: 'setCode', node: 'box1', code },
+  ).doc;
+  return apply(doc, { op: 'makePart', ids: ['sampler1', 'box1'], name: 'Kit' }).doc;
+}
+
 describe('a bundle: a part and what it needs', () => {
+  it("carries the assets its sound reads, as well as its faces'; placed elsewhere, they come with it", () => {
+    const doc = kitWork();
+    expect(Object.keys(extractBundle(doc, 'kit').assets ?? {})).toEqual([
+      'assets/kick.wav',
+      'assets/table.bin',
+    ]);
+    const placed = place(blank(), save(emptyLibrary(), doc, 'kit').library, 'kit').doc;
+    expect(placed.files['assets/kick.wav']).toMatchObject({ hash: `sha256-${'1'.repeat(64)}` });
+    expect(placed.files['assets/table.bin']).toBeTruthy();
+  });
+
+  it("other contents at an asset's path are another version", () => {
+    const doc = kitWork();
+    const saved = save(emptyLibrary(), doc, 'kit');
+    const replaced: PatchDocument = {
+      ...saved.doc,
+      files: {
+        ...saved.doc.files,
+        'assets/kick.wav': {
+          ...saved.doc.files['assets/kick.wav']!,
+          hash: `sha256-${'3'.repeat(64)}`,
+        } as never,
+      },
+    };
+    const again = saveToLibrary(saved.library, replaced, 'kit', 2);
+    expect(again.unchanged).toBe(false);
+    expect(again.version).toBe(2);
+  });
+
   it('carries the definition, the parts inside it, their nodes and cables; its hash ignores ids and places', () => {
     const doc = nested();
     const b = extractBundle(doc, 'tone');
@@ -329,6 +387,28 @@ describe('saving, placing and updating', () => {
 });
 
 describe('My parts files', () => {
+  it('carry every content their parts use, two at the same path from different works included', () => {
+    const one = save(emptyLibrary(), kitWork(`sha256-${'4'.repeat(64)}`), 'kit').library;
+    const both = save(one, kitWork(`sha256-${'5'.repeat(64)}`), 'kit').library;
+    const kicks = libraryAssets(both).filter(a => a.id === 'assets/kick.wav');
+    expect(kicks.map(a => a.hash).sort()).toEqual([
+      `sha256-${'4'.repeat(64)}`,
+      `sha256-${'5'.repeat(64)}`,
+    ]);
+    const text = serializeLibrary(both, undefined, {
+      assetData: {
+        [`sha256-${'4'.repeat(64)}`]: 'data:audio/wav;base64,AAAA',
+        [`sha256-${'5'.repeat(64)}`]: 'data:audio/wav;base64,BBBB',
+      },
+    });
+    const read = parseLibrary(text, catalog);
+    if (!read.ok) throw new Error(read.error);
+    expect(read.assetData).toMatchObject({
+      [`sha256-${'4'.repeat(64)}`]: 'data:audio/wav;base64,AAAA',
+      [`sha256-${'5'.repeat(64)}`]: 'data:audio/wav;base64,BBBB',
+    });
+  });
+
   it('round trip; versions are kept up to the limit, oldest first out', () => {
     let lib = emptyLibrary(),
       doc = toned();

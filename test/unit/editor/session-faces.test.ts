@@ -240,10 +240,13 @@ describe('screen parts', () => {
         .map(a => a.id)
         .sort(),
     ).toEqual([LOGO, 'assets/den-kit/screw.svg'].sort());
-    const text = serializeLibrary(session.myParts.value, undefined, { assetData: { [LOGO]: PNG } });
+    // The bytes go by what they hold (parts from different works may hold other contents at one path).
+    const text = serializeLibrary(session.myParts.value, undefined, {
+      assetData: { [LOGO_HASH]: PNG },
+    });
     const read = parseLibrary(text, catalog);
     if (!read.ok) throw new Error(read.error);
-    expect(read.assetData).toEqual({ [LOGO]: PNG });
+    expect(read.assetData).toEqual({ [LOGO_HASH]: PNG });
     expect(read.library.parts.rainLogo!.versions[0]!.bundle.assets?.[LOGO]).not.toHaveProperty(
       'data',
     );
