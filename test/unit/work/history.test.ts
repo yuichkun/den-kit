@@ -152,6 +152,20 @@ describe('undo steps', () => {
     expect(w.state.doc.nodes.osc1!.label).toBe('AI two');
   });
 
+  it('undo, redo and undo again restore what was there: a redone edit taken back again no longer stands', () => {
+    const w = work();
+    w.edit([{ op: 'setLabel', node: 'osc1', label: 'AI' }], lead, { group: 'rq1' });
+    w.edit([{ op: 'setLabel', node: 'osc1', label: 'Mine' }], PERSON);
+    w.undo();
+    w.undo();
+    w.redo();
+    w.redo();
+    expect(w.state.doc.nodes.osc1!.label).toBe('Mine');
+    w.undo();
+    w.undo();
+    expect(w.state.doc.nodes.osc1!.label).toBeUndefined();
+  });
+
   it('the AI is told when the person took its edit back', () => {
     const w = work();
     const read = w.state.doc.revision;

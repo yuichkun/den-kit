@@ -102,8 +102,9 @@ export class AssetStore {
   async put(bytes: Uint8Array): Promise<string> {
     const hash = await sha256(bytes);
     if (!this.memory.has(hash)) {
-      this.memory.set(hash, bytes);
+      // Kept by the host first: contents the host refused are not offered as kept.
       await this.storage?.writeContent(hash, bytes);
+      this.memory.set(hash, bytes);
     }
     return hash;
   }

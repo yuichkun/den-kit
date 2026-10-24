@@ -82,6 +82,15 @@ export interface SandboxWork {
   build?: Record<string, { hash: string; type: string }>;
 }
 
+/**
+ * Where a request goes on the dev server: its path and query on the portal's own
+ * origin, whatever host the request's target names ("//elsewhere/…" stays here).
+ */
+function onPortal(url: string | undefined, portal: string): URL {
+  const asked = new URL(url ?? '/', 'http://sandbox');
+  return new URL(`${asked.pathname}${asked.search}`, new URL(portal).origin);
+}
+
 /** A path from a URL, or null when it does not decode. */
 function decoded(path: string): string | null {
   try {
@@ -335,7 +344,7 @@ export class SandboxServer {
 
   /** Passes a request through to the dev server; its headers are dropped for the sandbox's own. */
   private relay(work: string, portal: string, req: IncomingMessage, res: ServerResponse) {
-    const target = new URL(req.url ?? '/', portal);
+    const target = onPortal(req.url, portal);
     const headers: OutgoingHttpHeaders = { host: target.host };
     for (const name of FORWARD)
       if (req.headers[name] !== undefined) headers[name] = req.headers[name];
@@ -387,7 +396,7 @@ export class SandboxServer {
       socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       return true;
     }
-    const target = new URL(req.url ?? '/', portal);
+    const target = onPortal(req.url, portal);
     target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
     const protocols = String(req.headers['sec-websocket-protocol'] ?? '')
       .split(',')

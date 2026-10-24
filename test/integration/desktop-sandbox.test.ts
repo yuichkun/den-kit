@@ -178,6 +178,40 @@ describe('the sandbox server', () => {
     expect(sandbox.allowedHosts()).toEqual(['api.example.com']);
   });
 
+  it("keeps every request on the dev server's origin: a path that names another host does not leave it", async () => {
+    const { sandbox, port } = await sandboxServer();
+    const dev = await devServer();
+    // Another server on this machine, which a code part must not reach through the relay.
+    const elsewhere = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('elsewhere');
+    });
+    const away = new WebSocketServer({ server: elsewhere });
+    away.on('connection', ws => ws.send('elsewhere'));
+    closing.push(() => away.close());
+    const other = await listen(elsewhere);
+    sandbox.open('work-a', {
+      portal: `http://127.0.0.1:${dev.port}`,
+      origins: [],
+      devices: [],
+      files: {},
+    });
+    const host = `work-a.localhost:${port}`;
+    for (const path of [`//127.0.0.1:${other}/secret`, `http://127.0.0.1:${other}/secret`]) {
+      const r = await get(port, host, path, sandbox.secret);
+      expect(r.body.toString()).not.toContain('elsewhere');
+    }
+    const ws = new WebSocket(`ws://127.0.0.1:${port}//127.0.0.1:${other}/`, {
+      headers: { host, [SECRET_HEADER]: sandbox.secret },
+    });
+    const first = await new Promise<string>((resolve, reject) => {
+      ws.once('message', m => resolve(String(m)));
+      ws.once('error', reject);
+    });
+    expect(first).not.toContain('elsewhere');
+    ws.close();
+  });
+
   it("passes the dev server's WebSocket (live reload) through, with its subprotocol", async () => {
     const { sandbox, port } = await sandboxServer();
     const dev = await devServer();

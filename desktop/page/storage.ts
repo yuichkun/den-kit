@@ -63,8 +63,24 @@ export function browserStorage(
       return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
     },
     async writeContent(hash, bytes) {
+      const d = await db;
+      // Without IndexedDB (a private window) contents stay in memory, as the header says.
+      if (d)
+        await new Promise<void>((resolve, reject) => {
+          const failed = (error: unknown) =>
+            reject(error instanceof Error ? error : new Error('The file could not be kept.'));
+          try {
+            const tx = d.transaction(STORE, 'readwrite');
+            tx.objectStore(STORE).put(new Blob([bytes as BlobPart]), hash);
+            // Kept once the transaction completes; a full disk aborts it.
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => failed(tx.error);
+            tx.onabort = () => failed(tx.error);
+          } catch (error) {
+            failed(error);
+          }
+        });
       memory.set(hash, bytes);
-      await run('readwrite', s => s.put(new Blob([bytes as BlobPart]), hash));
     },
   };
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, type StorageLike } from '../../../src/editor/session.ts';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { starter } from '../../../src/work/starters.ts';
+import { writeWorkFile } from '../../../src/work/work-file.ts';
 
 function memoryStorage(): StorageLike {
   const data = new Map<string, string>();
@@ -26,6 +27,28 @@ const session = (storage: StorageLike) =>
       }) as never,
     engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
+
+describe('importing a work file', () => {
+  it('the work keeps its identity and this window keeps its lock', async () => {
+    const storage = memoryStorage();
+    const from = session(storage);
+    from.restore('bass');
+    from.commit([{ op: 'setName', name: 'Elsewhere' }]);
+    const file = await writeWorkFile({ ...from.doc.value, id: 'another-work' }, async () => null);
+    const here = session(memoryStorage());
+    here.restore('bass');
+    const id = here.doc.value.id;
+    const claims: string[] = [];
+    here.lock.claim = async (work: string) => {
+      claims.push(work);
+      return true;
+    };
+    expect(await here.importWork(file)).toBe(true);
+    expect(here.doc.value.name).toBe('Elsewhere');
+    expect(here.doc.value.id).toBe(id);
+    expect(claims.filter(c => c !== id)).toEqual([]);
+  });
+});
 
 describe('opening the saved work', () => {
   it('gives back the document as it was saved, its revision included', () => {

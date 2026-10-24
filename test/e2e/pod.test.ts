@@ -64,6 +64,35 @@ async function ask(page: Page, text: string, timeout = 300000) {
     return { status: o.status, label: o.label, steps: o.steps, message: o.message };
   });
 }
+/** Wait until a code part on the plugin is ready; when it is not in time, say what it and the pod were doing. */
+async function partReady(page: Page, element: string, timeout: number) {
+  try {
+    await page.waitForSelector(`[data-element=${element}] [data-code-state=ready]`, { timeout });
+  } catch (error) {
+    const seen = await page
+      .evaluate(id => {
+        const k = (window as any).__kit;
+        const box = document.querySelector(`[data-element=${id}] [data-code-part]`);
+        return {
+          part: box?.getAttribute('data-code-state'),
+          error: box?.getAttribute('data-code-error'),
+          status: document.querySelector(`[data-element=${id}] [data-testid=code-status]`)
+            ?.textContent,
+          pod: `${k.pod.state.value}: ${k.pod.message.value}`,
+          portal: k.pod.portal.value,
+          log: k.pod.log.value
+            .slice(-6)
+            .map(
+              (e: any) =>
+                `${e.who} ${e.command.slice(0, 60)} → ${e.running ? 'running' : e.exitCode} (${e.ms} ms)`,
+            ),
+        };
+      }, element)
+      .catch(() => null);
+    throw new Error(`${(error as Error).message.split('\n')[0]}\n${JSON.stringify(seen, null, 1)}`);
+  }
+}
+
 async function partFrame(page: Page, part: string, timeout = 60000): Promise<Frame> {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
@@ -143,9 +172,7 @@ describe('the pod: a free environment for the AI', () => {
 
       // On the plugin: the part's page from the pod's dev server, drawing the knob.
       await page.click('[data-testid=ai-show-plugin]');
-      await page.waitForSelector('[data-element=meter1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'meter1', 60000);
       const frame = await partFrame(page, 'meter');
       const height = () => frame.evaluate(() => document.getElementById('meter-bar')!.style.height);
       const norm = () =>
@@ -257,9 +284,7 @@ export default part({ mount(root, kit) {
       });
       assert.equal(created.ok, true, JSON.stringify(created.error));
       await page.click('[data-testid=view-plugin]');
-      await page.waitForSelector('[data-element=subscribe1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'subscribe1', 60000);
       const f = await partFrame(page, 'subscribed');
       const displayed = async (value: number, norm: number, calls: number) => {
         await f.waitForFunction(
@@ -354,7 +379,7 @@ export default part({ mount(root, kit) {
       const check = await kit(page, k => k.pod.bash('npm run check', { who: 'ai' }));
       assert.equal(check.exitCode, 0, check.output);
       await page.click('[data-testid=view-plugin]');
-      await page.waitForSelector('[data-element=own1] [data-code-state=ready]', { timeout: 60000 });
+      await partReady(page, 'own1', 60000);
       const f = await partFrame(page, 'own');
       const value = () => kit(page, k => k.doc.value.nodes.ownknob.values.value);
       const steps = () => kit(page, k => k.history.size);
@@ -425,9 +450,7 @@ export default part({ mount(root, kit) {
       );
       assert.doesNotMatch(looks.at(-1)!, /oops1 fails/);
       await page.click('[data-testid=ai-show-plugin]');
-      await page.waitForSelector('[data-element=oops1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'oops1', 60000);
       const frame = await partFrame(page, 'oops');
       assert.equal(
         await frame.evaluate(() => document.getElementById('root')!.textContent),
@@ -461,9 +484,7 @@ export default part({ mount(root, kit) {
         await kit(page, k => typeof k.doc.value.files['src/parts/wave.ts']?.text),
         'string',
       );
-      await page.waitForSelector(`[data-element=${id}] [data-code-state=ready]`, {
-        timeout: 120000,
-      });
+      await partReady(page, id, 120000);
       // The inspector shows the setting the part declares (its colour).
       await page.waitForSelector('[data-testid=code-part-state]');
       await page.waitForSelector('[data-prop=color]', { timeout: 20000 });

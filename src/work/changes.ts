@@ -87,7 +87,7 @@ export function describeKey(key: ChangeKey): string {
 interface Entry {
   change: Change;
   kind: 'edit' | 'undo' | 'redo';
-  /** An edit that was undone (and not redone) no longer stands. */
+  /** An edit or redo that was undone (and not redone) no longer stands. */
   undone?: boolean;
 }
 /** How many changes of one key are kept. */
@@ -108,7 +108,7 @@ export class ChangeLog {
         const list = this.entries.get(key) ?? [];
         if (kind !== 'edit')
           for (const e of list)
-            if (e.kind === 'edit' && txs.includes(e.change.tx)) e.undone = kind === 'undo';
+            if (e.kind !== 'undo' && txs.includes(e.change.tx)) e.undone = kind === 'undo';
         list.push({ change, kind });
         if (list.length > KEPT) list.splice(0, list.length - KEPT);
         this.entries.set(key, list);

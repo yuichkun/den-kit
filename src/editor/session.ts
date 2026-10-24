@@ -1240,10 +1240,6 @@ export class KitSession {
       this.toast('error', `Import refused: ${read.error}`);
       return false;
     }
-    if (!(await this.lock.claim(read.doc.id))) {
-      this.toast('error', `Import refused: “${read.doc.name}” is open in another den-kit window.`);
-      return false;
-    }
     for (const data of read.contents.values()) await this.assets.put(data);
     this.replace(read.doc, 'Import');
     this.report(read.report);
