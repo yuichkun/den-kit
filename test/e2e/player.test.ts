@@ -1,19 +1,21 @@
 // The playable build without den-kit: the work file den-kit exports carries it; one
 // static server serves it, another one on a second origin serves the built code
-// parts. The player plays when clicked, the computer keys play notes, a code part
-// shows from its own origin, and moving a control changes only the player's own
-// state. The record and the build are of the work as it was when the export
+// parts (built with a picture of the work that a part imports). The player plays
+// when clicked, the computer keys play notes, a code part shows from its own
+// origin, the work's own font is loaded, and moving a control changes only the
+// player's own state. The record and the build are of the work as it was when the export
 // started, and the build plays the whole sound, whatever the editor has soloed.
 // Needs den-kit's player build (vp run build makes dist/player/).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join } from 'node:path';
 import { kitRoot, openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
 import { catalog } from '../../src/sound/blocks/index.ts';
 import { generate } from '../../src/sound/codegen.ts';
 import { parseDocument } from '../../src/work/persistence.ts';
+import { assetFontFamily } from '../../src/work/ui.ts';
 import { readZip } from '../../src/work/zip.ts';
 
 const TYPES: Record<string, string> = {
@@ -33,6 +35,16 @@ export default part({ mount(root, kit) {
   const bar = root.appendChild(document.createElement('div'));
   bar.id = 'level';
   return kit.frame(() => { bar.dataset.level = String(kit.audio.level); });
+} });
+`;
+const LOGO =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="teal"/></svg>';
+// A code part that imports a picture of the work.
+const LOGO_PART = `import logo from '../../assets/logo.svg';
+import { part } from '../kit';
+export default part({ mount(root) {
+  const img = root.appendChild(document.createElement('img'));
+  img.src = logo;
 } });
 `;
 /** A work file's entries by path. */
@@ -87,47 +99,72 @@ describe('the playable build', () => {
       );
       const { page, errors } = await openKit(h);
       await waitCompiled(page);
-      const placed = await page.evaluate(async part => {
-        const k = (window as any).__kit;
-        // den-kit's own files (the controls list, the kit's behaviors) are not kept in the work.
-        const files = Object.fromEntries(
-          [...k.pod.wanted()].filter(
-            ([p]: [string]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
-          ),
-        );
-        const result = k.commit([
-          { op: 'setProjectFiles', files: { ...files, 'src/parts/meter.ts': part } },
-          // A knob on the plugin that sets the filter's cutoff.
-          {
-            op: 'addNode',
-            node: {
-              id: 'cutknob',
-              type: 'ui.knob',
-              label: 'Cutoff',
-              pos: { x: 400, y: 480 },
-              panel: { x: 160, y: 20, w: 120, h: 140 },
-              config: { min: 100, max: 2000, scale: 'linear', unit: 'Hz' },
-              values: { value: 300 },
+      // The work's own font and picture.
+      const font = Array.from(
+        readFileSync(
+          join(kitRoot, 'node_modules/@fontsource/caveat/files/caveat-latin-400-normal.woff2'),
+        ),
+      );
+      const added = await page.evaluate(
+        async ([font, logo]) => {
+          const k = (window as any).__kit;
+          const add = async (data: BlobPart, name: string, type: string) =>
+            (await k.addAssetFile(new File([data], name, { type })))?.id;
+          return [
+            await add(new Uint8Array(font as number[]), 'title.woff2', 'font/woff2'),
+            await add(logo as string, 'logo.svg', 'image/svg+xml'),
+          ];
+        },
+        [font, LOGO] as const,
+      );
+      assert.deepEqual(added, ['assets/title.woff2', 'assets/logo.svg']);
+      const placed = await page.evaluate(
+        async ([part, logoPart]) => {
+          const k = (window as any).__kit;
+          // den-kit's own files (the controls list, the kit's behaviors) are not kept in the work.
+          const files = Object.fromEntries(
+            [...k.pod.wanted()].filter(
+              ([p]: [string]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+            ),
+          );
+          const result = k.commit([
+            {
+              op: 'setProjectFiles',
+              files: { ...files, 'src/parts/meter.ts': part, 'src/parts/logo.ts': logoPart },
             },
-          },
-          {
-            op: 'connect',
-            from: { node: 'cutknob', port: 'out' },
-            to: { node: 'cut1', port: 'hz' },
-          },
-          {
-            op: 'addElement',
-            element: {
-              id: 'meter1',
-              kind: 'code',
-              part: 'meter',
-              rect: { x: 20, y: 20, w: 120, h: 80 },
-              props: {},
+            // A knob on the plugin that sets the filter's cutoff.
+            {
+              op: 'addNode',
+              node: {
+                id: 'cutknob',
+                type: 'ui.knob',
+                label: 'Cutoff',
+                pos: { x: 400, y: 480 },
+                panel: { x: 160, y: 20, w: 120, h: 140 },
+                config: { min: 100, max: 2000, scale: 'linear', unit: 'Hz' },
+                values: { value: 300 },
+              },
             },
-          },
-        ]);
-        return { ok: result.ok, error: result.error?.message };
-      }, METER);
+            {
+              op: 'connect',
+              from: { node: 'cutknob', port: 'out' },
+              to: { node: 'cut1', port: 'hz' },
+            },
+            {
+              op: 'addElement',
+              element: {
+                id: 'meter1',
+                kind: 'code',
+                part: 'meter',
+                rect: { x: 20, y: 20, w: 120, h: 80 },
+                props: {},
+              },
+            },
+          ]);
+          return { ok: result.ok, error: result.error?.message };
+        },
+        [METER, LOGO_PART] as const,
+      );
       assert.equal(placed.ok, true, placed.error);
       // The work file carries the playable build: the player, the compiled sound and the built code parts.
       const bytes = await page.evaluate(async () =>
@@ -168,6 +205,17 @@ describe('the playable build', () => {
           document.querySelector('[data-testid=player]')?.getAttribute('data-state') === 'playing',
         null,
         { timeout: 30000 },
+      );
+      // The work's font, under the family its screen names it by.
+      assert.ok(
+        await player.evaluate(
+          family =>
+            [...document.fonts].some(
+              f => f.family.replace(/"/g, '') === family && f.status === 'loaded',
+            ),
+          assetFontFamily('assets/title.woff2'),
+        ),
+        "the work's font is loaded",
       );
       // The code part runs, from its own origin.
       await player.waitForSelector('[data-element=meter1] [data-code-state=ready]', {

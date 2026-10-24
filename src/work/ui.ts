@@ -244,6 +244,8 @@ export function assetFile(asset: AssetMeta): ContentFile {
     ...(asset.source ? { source: asset.source } : {}),
   } as ContentFile;
 }
+/** What an asset's contents are: their hash, or where den-kit ships the file. */
+export const assetSource = (asset: AssetMeta) => asset.hash ?? asset.url ?? '';
 export const isImageAsset = (a: AssetMeta | undefined) =>
   !!a && (IMAGE_MIMES as readonly string[]).includes(a.mime);
 export const isFontAsset = (a: AssetMeta | undefined) =>

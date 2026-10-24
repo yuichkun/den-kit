@@ -127,7 +127,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           const p = inside(String(m.path));
           if (!p) throw new Error(`${m.path} is outside the pod's home.`);
           mkdirSync(dirname(p), { recursive: true });
-          writeFileSync(p, String(m.content ?? ''));
+          const content = String(m.content ?? '');
+          writeFileSync(p, m.base64 ? Buffer.from(content, 'base64') : content);
           send({ t: 'ok', id });
           return;
         }

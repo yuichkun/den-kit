@@ -1,7 +1,8 @@
 // The work's pod: boots it when the work first needs it (the AI's first command,
-// a code part to show, the Project drawer), keeps its copy of the screen project
-// in step with the document (an undo, an edit in den-kit or another work loaded
-// is written into the pod), installs packages when package.json changes, keeps
+// a code part to show, the Project drawer), keeps its copy of the screen project,
+// the work's assets included so code can import them, in step with the document
+// (an undo, an edit in den-kit or another work loaded is written into the pod),
+// installs packages when package.json changes, keeps
 // the dev server running and knows its address (the portal), runs commands for
 // the AI and the person (logged, with their output), and reads the project back
 // after a command so what changed lands in the document (and undoes with it).
@@ -14,6 +15,7 @@ import type { OpError } from '../work/op-error.ts';
 import type { Intent } from '../work/ops.ts';
 import type { PatchDocument } from '../work/schema.ts';
 import { WORK_LIMITS, checkPath, isGenerated, textFiles } from '../work/files.ts';
+import { assetSource, assetsOf, type AssetMeta } from '../work/ui.ts';
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
 import { controlsSource, templateFiles } from './template.ts';
@@ -26,6 +28,8 @@ import { PodUnavailable, keepEnd } from './pod-io.ts';
 /** What the workspace needs from the editing session: the work, and commit() for the files that changed. */
 export interface WorkspaceSession {
   readonly doc: Readonly<Ref<PatchDocument>>;
+  /** The contents of the work's assets (written into the pod too). */
+  readonly assets: { read(asset: AssetMeta): Promise<Uint8Array | null> };
   commit(
     intents: Intent[],
     options?: { author?: Author; label?: string },
@@ -103,6 +107,8 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** git with an identity and no signing (the pod has no config of its own). */
 export const GIT =
   'git -c user.name=den-kit -c user.email=den-kit@localhost -c init.defaultBranch=main -c commit.gpgsign=false';
+/** The work's assets are on the pod's disk for code to import; the pod's git leaves them out. */
+const IGNORE_ASSETS = `mkdir -p .git/info && { grep -qx 'assets/' .git/info/exclude 2>/dev/null || echo 'assets/' >> .git/info/exclude; }`;
 const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`;
 const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
 /** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
@@ -138,6 +144,8 @@ export class PodSession {
   private retrying: Promise<PodHost> | null = null;
   /** The pod's files as den-kit last wrote or read them (path → text). */
   private known = new Map<string, string>();
+  /** The work's assets in the pod as den-kit last wrote them (path → what their contents are). */
+  private knownAssets = new Map<string, string>();
   /** A command or the AI wrote in the project after it was last read back. */
   private unread = false;
   private installedFor: string | null = null;
@@ -326,7 +334,7 @@ export class PodSession {
     const synced = performance.now();
     await this.writeAll(true);
     await this.system(
-      `[ -d .git ] || (${GIT} init -q && ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null)`,
+      `[ -d .git ] || { ${GIT} init -q && ${IGNORE_ASSETS} && ${GIT} add -A && ${GIT} commit -qm 'den-kit: start' >/dev/null; }; ${IGNORE_ASSETS}`,
       'git init',
     );
     this.timings.value = { ...this.timings.value, syncMs: Math.round(performance.now() - synced) };
@@ -380,7 +388,9 @@ export class PodSession {
   private async writeAll(first: boolean) {
     const host = this.host;
     if (!host) return;
-    const wanted = this.wanted();
+    const doc = this.session.doc.value;
+    const wanted = this.wanted(doc);
+    const assets = assetsOf(doc.files);
     if (first) {
       const listed = await host.run(
         `mkdir -p ${q(this.projectDir)} && cd ${q(this.projectDir)} && find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -type f -print`,
@@ -389,13 +399,14 @@ export class PodSession {
       const stale = listed.output
         .split('\n')
         .map(l => l.trim().replace(/^\.\//, ''))
-        .filter(p => p && !wanted.has(p) && !p.startsWith('assets/') && !checkPath(p));
+        .filter(p => p && !wanted.has(p) && !assets[p] && !checkPath(p));
       if (stale.length)
         await host.run(`rm -f -- ${stale.map(q).join(' ')}`, {
           cwd: this.projectDir,
           timeoutMs: 60_000,
         });
       this.known.clear();
+      this.knownAssets.clear();
     }
     let changed = false,
       packageChanged = false;
@@ -414,6 +425,22 @@ export class PodSession {
       });
       for (const p of gone) this.known.delete(p);
       if (gone.some(shown)) changed = true;
+    }
+    for (const asset of Object.values(assets)) {
+      if (this.knownAssets.get(asset.id) === assetSource(asset)) continue;
+      // Contents that are not here are written with the next change.
+      const bytes = await this.session.assets.read(asset);
+      if (!bytes) continue;
+      await host.writeFile(`${this.projectDir}/${asset.id}`, bytes);
+      this.knownAssets.set(asset.id, assetSource(asset));
+    }
+    const goneAssets = [...this.knownAssets.keys()].filter(p => !assets[p]);
+    if (goneAssets.length) {
+      await host.run(`rm -f -- ${goneAssets.map(q).join(' ')}`, {
+        cwd: this.projectDir,
+        timeoutMs: 60_000,
+      });
+      for (const p of goneAssets) this.knownAssets.delete(p);
     }
     this.controlsText = wanted.get('src/kit/controls.ts') ?? '';
     if (!first && packageChanged) await this.install(false).catch(() => undefined);
@@ -570,13 +597,7 @@ export class PodSession {
     }
     const host = this.host!;
     return this.enqueue(async () => {
-      const wanted = this.wanted(doc);
-      if (
-        this.unread ||
-        wanted.size !== this.known.size ||
-        [...wanted].some(([path, text]) => this.known.get(path) !== text)
-      )
-        return 'changed';
+      if (!this.holds(doc)) return 'changed';
       // Relative addresses: the built pages work from any folder they are served from.
       const build = 'npm run build -- --base ./';
       if ((await this.system(build, `${build} (for the playable build)`)).exitCode !== 0)
@@ -599,6 +620,19 @@ export class PodSession {
       }
       return files;
     });
+  }
+
+  /** The project holds `doc`'s files: what den-kit last wrote or read back is theirs, and no command's changes wait to be read. */
+  private holds(doc: PatchDocument): boolean {
+    const wanted = this.wanted(doc);
+    const assets = Object.values(assetsOf(doc.files));
+    return (
+      !this.unread &&
+      wanted.size === this.known.size &&
+      [...wanted].every(([path, text]) => this.known.get(path) === text) &&
+      assets.length === this.knownAssets.size &&
+      assets.every(a => this.knownAssets.get(a.id) === assetSource(a))
+    );
   }
 
   /** A line in the log from den-kit itself (no command). */

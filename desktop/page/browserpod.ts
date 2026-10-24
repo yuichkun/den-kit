@@ -696,13 +696,13 @@ export class BrowserPodHost implements PodHost {
     };
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
     const dir = path.slice(0, path.lastIndexOf('/'));
     if (dir)
       await promise(() => this.pod.createDirectory(dir, { recursive: true })).catch(
         () => undefined,
       );
-    const bytes = new TextEncoder().encode(content);
+    const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
     const write = async () => {
       const file = (await this.pod.createFile(
         path,
@@ -717,7 +717,7 @@ export class BrowserPodHost implements PodHost {
         await file.close();
       }
     };
-    // If creating a file does not empty an existing one, a shorter text would keep the old tail: remove it and write again.
+    // If creating a file does not empty an existing one, a shorter file would keep the old tail: remove it and write again.
     if ((await write()) !== bytes.byteLength) {
       await this.run(`rm -f -- ${JSON.stringify(path)}`, { timeoutMs: 20_000 });
       if ((await write()) !== bytes.byteLength)

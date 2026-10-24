@@ -21,6 +21,14 @@ type Inbound =
   | { t: 'portal'; url: string; port: number }
   | { t: 'error'; id?: string; message: string };
 
+/** Bytes as base64, the way they go over the socket. */
+function base64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
 /** A pod for one work's disk (a home of its own on the test machine). */
 export async function connectFakePod(url: string, disk: string): Promise<PodHost> {
   const address = new URL(url);
@@ -189,8 +197,12 @@ class FakePodHost implements PodHost {
       this.send({ ...message, id });
     });
   }
-  async writeFile(path: string, content: string): Promise<void> {
-    const m = await this.request({ t: 'write', path, content });
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+    const m = await this.request(
+      typeof content === 'string'
+        ? { t: 'write', path, content }
+        : { t: 'write', path, content: base64(content), base64: true },
+    );
     if (m.t === 'error') throw new Error(m.message);
   }
   async readFile(path: string): Promise<string | null> {

@@ -19,7 +19,7 @@ import { computerKeys } from '../screen/computer-keys.ts';
 import { applyIntents, type Intent } from '../work/ops.ts';
 import { parseDocument } from '../work/persistence.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { assetsOf } from '../work/ui.ts';
+import { assetFontFamily, assetsOf, isFontAsset } from '../work/ui.ts';
 import {
   PARTS_FOLDER,
   PLAYABLE_MANIFEST,
@@ -81,6 +81,7 @@ onMounted(async () => {
       sampleRate: manifest.processor.sampleRate,
       compileMs: 0,
     };
+    await registerFonts(read.doc);
     doc.value = read.doc;
     generated.value = generate(read.doc, catalog);
     partsAt.value = partsAddress(new URLSearchParams(location.search).get('parts'));
@@ -94,6 +95,23 @@ onMounted(async () => {
     message.value = `This build cannot be played: ${error instanceof Error ? error.message : String(error)}`;
   }
 });
+
+/** The work's own fonts, from the build's files, under the families its screen names them by. */
+async function registerFonts(work: PatchDocument) {
+  if (typeof FontFace === 'undefined') return;
+  await Promise.all(
+    Object.values(assetsOf(work.files))
+      .filter(isFontAsset)
+      .map(async asset => {
+        try {
+          const face = new FontFace(assetFontFamily(asset.id), `url("${asset.id}")`);
+          document.fonts.add(await face.load());
+        } catch {
+          // A font that cannot be read shows as the fallback font, as in the editor.
+        }
+      }),
+  );
+}
 
 /** The code parts' address from ?parts=, when it is another origin (http or https). */
 function partsAddress(named: string | null): string | null {

@@ -45,8 +45,8 @@ export interface PodHost {
   run(script: string, options?: PodRunOptions): Promise<PodRunResult>;
   /** Start a long-running command; it keeps running after this returns. */
   start(name: string, script: string, options?: Omit<PodRunOptions, 'timeoutMs'>): PodProcess;
-  /** Write a text file (absolute path; directories are made). */
-  writeFile(path: string, content: string): Promise<void>;
+  /** Write a file, text or bytes (absolute path; directories are made). */
+  writeFile(path: string, content: string | Uint8Array): Promise<void>;
   /** A text file's contents, or null when there is none. */
   readFile(path: string): Promise<string | null>;
   /** A server inside the pod opened a port and can be reached at `url` (also called for ports already open). */

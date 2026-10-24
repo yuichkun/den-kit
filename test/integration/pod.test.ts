@@ -4,7 +4,7 @@
 // and the document staying the record (changes read back, undo written in).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { textFiles } from '../../src/work/files.ts';
+import { sha256, textFiles } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/sound/blocks/index.ts';
@@ -16,6 +16,7 @@ import {
   type ResolvedOp,
 } from '../../src/work/ops.ts';
 import type { PatchDocument } from '../../src/work/schema.ts';
+import type { AssetMeta } from '../../src/work/ui.ts';
 import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import { connectFakePod } from '../../dev/fake-pod.ts';
@@ -25,13 +26,16 @@ import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 import { kitFiles } from '../../src/screen/kit-files.ts';
 import { throughSandbox } from '../helpers/sandboxed.ts';
 
-/** Just what the pod session uses of the editor's session: the document and commit. */
+/** Just what the pod session uses of the editor's session: the document, commit and the assets' contents. */
 function session(start: PatchDocument) {
   const doc = shallowRef(start);
   const steps: ResolvedOp[][] = [];
+  const contents = new Map<string, Uint8Array>();
   const s = {
     catalog,
     doc,
+    contents,
+    assets: { read: async (asset: AssetMeta) => contents.get(asset.hash ?? '') ?? null },
     commit(intents: Intent[]) {
       try {
         const r = applyIntents(doc.value, intents, catalog);
@@ -47,7 +51,7 @@ function session(start: PatchDocument) {
       if (ops) doc.value = applyResolvedOps(doc.value, invertAll(ops));
     },
   };
-  return s as unknown as KitSession & { undo(): void };
+  return s as unknown as KitSession & { undo(): void; contents: Map<string, Uint8Array> };
 }
 const settle = (ms = 300) => new Promise(r => setTimeout(r, ms));
 
@@ -252,6 +256,56 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect((await fetch(pod.portal.value!)).status).toBe(200);
   }, 240_000);
 
+  it("the work's assets are in the project, outside its git: code imports them, and a replaced or removed one follows", async () => {
+    const add = async (path: string, bytes: Uint8Array) => {
+      const hash = await sha256(bytes);
+      kit.contents.set(hash, bytes);
+      const asset = {
+        id: path,
+        name: path.split('/').at(-1)!,
+        mime: 'image/png',
+        bytes: bytes.length,
+        hash,
+        width: 1,
+        height: 1,
+      };
+      expect(kit.commit([{ op: 'addAsset', asset }]).ok).toBe(true);
+    };
+    const png = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      ),
+      c => c.charCodeAt(0),
+    );
+    await add('assets/dot.png', png);
+    kit.commit([
+      {
+        op: 'setProjectFiles',
+        files: {
+          'src/parts/dot.ts': "import dot from '../../assets/dot.png';\nexport const url = dot;\n",
+        },
+      },
+    ]);
+    await settle(800);
+    const head = await pod.bash('od -An -tx1 -N8 assets/dot.png', { who: 'den-kit' });
+    expect(head.output.replace(/\s+/g, ' ').trim()).toBe('89 50 4e 47 0d 0a 1a 0a');
+    const build = await pod.bash('npm run build', { who: 'den-kit', timeoutMs: 180_000 });
+    expect(build.exitCode, build.output).toBe(0);
+    expect(
+      (await pod.bash('git status --porcelain -- assets', { who: 'den-kit' })).output.trim(),
+    ).toBe('');
+    // Replaced at the same path, then removed.
+    kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
+    await add('assets/dot.png', new TextEncoder().encode('another picture'));
+    await settle(800);
+    expect(await pod.readFile('assets/dot.png')).toBe('another picture');
+    kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
+    await settle(800);
+    expect(await pod.readFile('assets/dot.png')).toBeNull();
+    kit.commit([{ op: 'setProjectFiles', files: { 'src/parts/dot.ts': null } }]);
+    await settle(800);
+  }, 300_000);
+
   it("builds a document's code parts only while the project holds that document's files", async () => {
     const built = async (doc: PatchDocument) => {
       const b = await pod.buildParts(doc);
@@ -269,6 +323,28 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     await settle(800);
     expect(textFiles(kit.doc.value.files)['src/parts/dial.ts']).toContain('// more');
     expect(await built(before)).toBe('changed');
+    expect(await built(kit.doc.value)).toContain('index.html');
+    // An asset is part of what it is built from.
+    const bytes = new TextEncoder().encode('a picture');
+    const hash = await sha256(bytes);
+    kit.contents.set(hash, bytes);
+    const withAsset = kit.doc.value;
+    kit.commit([
+      {
+        op: 'addAsset',
+        asset: {
+          id: 'assets/late.png',
+          name: 'late.png',
+          mime: 'image/png',
+          bytes: bytes.length,
+          hash,
+          width: 1,
+          height: 1,
+        },
+      },
+    ]);
+    await settle(800);
+    expect(await built(withAsset)).toBe('changed');
     expect(await built(kit.doc.value)).toContain('index.html');
   }, 300_000);
 });

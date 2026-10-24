@@ -58,8 +58,8 @@ function harness(sync: () => Promise<PodRunResult> = async () => success()) {
         },
       };
     },
-    async writeFile(path, text) {
-      files.set(path, text);
+    async writeFile(path, content) {
+      files.set(path, typeof content === 'string' ? content : new TextDecoder().decode(content));
     },
     async readFile(path) {
       return files.get(path) ?? null;

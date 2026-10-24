@@ -75,6 +75,7 @@ import { PARTS_FOLDER } from '../work/playable.ts';
 import { lookAt, type LookResult } from '../screen/look.ts';
 import {
   assetFontFamily,
+  assetSource,
   isFontAsset,
   MAX_ASSET_BYTES,
   type AssetMeta,
@@ -1332,9 +1333,6 @@ export class KitSession {
     triggerRef(this.doc);
   }
 }
-
-/** What an asset's URL is made from: its contents, or where den-kit ships it. */
-const assetSource = (asset: AssetMeta) => asset.hash ?? asset.url ?? '';
 
 function safeStorage(): StorageLike | null {
   try {
