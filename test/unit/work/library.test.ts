@@ -33,6 +33,7 @@ import {
   type Intent,
   type ResolvedOp,
 } from '../../../src/work/ops.ts';
+import { WORK_LIMITS, totalBytes } from '../../../src/work/files.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
 import { clone, emptyDocument, type PatchDocument } from '../../../src/work/schema.ts';
 import { starter } from '../../../src/work/starters.ts';
@@ -85,6 +86,17 @@ const place = (
   });
 };
 
+const KICK2 = `sha256-${'5'.repeat(64)}`,
+  KICK3 = `sha256-${'6'.repeat(64)}`;
+/** `doc` with other contents (`hash`, and `bytes`) at the asset `path`. */
+const withContents = (doc: PatchDocument, path: string, hash: string, bytes?: number) => ({
+  ...doc,
+  files: {
+    ...doc.files,
+    [path]: { ...doc.files[path]!, hash, ...(bytes ? { bytes } : {}) } as never,
+  },
+});
+
 /** A work whose part Kit plays assets/kick.wav (its contents `kick`) in a sampler and reads assets/table.bin in a codebox. */
 function kitWork(kick = `sha256-${'1'.repeat(64)}`) {
   const asset = (id: string, mime: string, hash: string): Intent => ({
@@ -128,17 +140,12 @@ describe('a bundle: a part and what it needs', () => {
   it("other contents at an asset's path are another version", () => {
     const doc = kitWork();
     const saved = save(emptyLibrary(), doc, 'kit');
-    const replaced: PatchDocument = {
-      ...saved.doc,
-      files: {
-        ...saved.doc.files,
-        'assets/kick.wav': {
-          ...saved.doc.files['assets/kick.wav']!,
-          hash: `sha256-${'3'.repeat(64)}`,
-        } as never,
-      },
-    };
-    const again = saveToLibrary(saved.library, replaced, 'kit', 2);
+    const again = saveToLibrary(
+      saved.library,
+      withContents(saved.doc, 'assets/kick.wav', KICK2),
+      'kit',
+      2,
+    );
     expect(again.unchanged).toBe(false);
     expect(again.version).toBe(2);
   });
@@ -326,6 +333,93 @@ describe('saving, placing and updating', () => {
     expect(bundleHash(extractBundle(doc, defId))).toBe(bundleHash(v.bundle));
     expect(validate(doc, catalog).issues.filter(i => i.severity === 'error')).toEqual([]);
     undoes(elsewhere, r);
+  });
+  it("updating to other contents at an asset's path replaces the file only the earlier version used, and undoes exactly", () => {
+    const home = save(emptyLibrary(), kitWork(), 'kit');
+    const placed = place(blank(), home.library, 'kit').doc;
+    const defId = Object.values(placed.nodes).find(n => n.type === 'kit.part')!.part!;
+    const v2 = save(home.library, withContents(home.doc, 'assets/kick.wav', KICK2), 'kit', 2);
+    const v = latest(v2.library.parts.kit!);
+    const update: Intent = {
+      op: 'replacePart',
+      part: defId,
+      bundle: v.bundle,
+      from: { id: 'kit', version: v.version, hash: bundleHash(v.bundle) },
+    };
+    const r = apply(placed, update);
+    expect(r.doc.files['assets/kick.wav']).toMatchObject({ hash: KICK2 });
+    expect(bundleHash(extractBundle(r.doc, defId))).toBe(bundleHash(v.bundle));
+    undoes(placed, r);
+    // Something else plays the earlier file too, and would change with it: the update is refused.
+    const shared = apply(placed, {
+      op: 'addNode',
+      node: { id: 'sampler9', type: 'den.samplePlayer', config: { sound: 'assets/kick.wav' } },
+    }).doc;
+    const refused = failure(() => apply(shared, update));
+    expect(refused.code).toBe('duplicate-id');
+    expect(refused.message).toMatch(/sampler9's sound/);
+    // A file at that path the earlier version does not use is the work's own: it stays.
+    const own = apply(
+      placed,
+      { op: 'updateAsset', id: 'assets/kick.wav', set: { name: 'kick-old.wav' } },
+      {
+        op: 'addAsset',
+        asset: {
+          id: 'assets/kick.wav',
+          name: 'kick.wav',
+          mime: 'audio/wav',
+          bytes: 4,
+          hash: KICK3,
+        },
+      },
+    ).doc;
+    expect(failure(() => apply(own, update)).code).toBe('duplicate-id');
+  });
+
+  it('placing or updating a part refuses what would take the work over its limits', () => {
+    const home = save(emptyLibrary(), kitWork(), 'kit');
+    /** `doc` with four files of 100 MB and one that brings its files to `total` bytes. */
+    const filled = (doc: PatchDocument, total: number) =>
+      apply(
+        doc,
+        ...['a', 'b', 'c', 'd', 'e'].map((c, i): Intent => ({
+          op: 'addAsset',
+          asset: {
+            id: `assets/big-${c}.bin`,
+            name: `big-${c}.bin`,
+            mime: 'application/octet-stream',
+            bytes:
+              i < 4
+                ? WORK_LIMITS.fileBytes
+                : total - totalBytes(doc.files) - 4 * WORK_LIMITS.fileBytes,
+            hash: `sha256-${c.repeat(64)}`,
+          },
+        })),
+      ).doc;
+    // The part's two assets (8 bytes) would take a work one byte over, and one file over.
+    expect(
+      failure(() => place(filled(blank(), WORK_LIMITS.workBytes - 7), home.library, 'kit')).code,
+    ).toBe('too-large');
+    const many = apply(blank(), {
+      op: 'setProjectFiles',
+      files: Object.fromEntries(
+        Array.from({ length: WORK_LIMITS.files - 1 }, (_, i) => [`src/f${i}.ts`, 'x']),
+      ),
+    }).doc;
+    expect(failure(() => place(many, home.library, 'kit')).code).toBe('too-large');
+    // A newer version whose file is a byte larger than the one it replaces, in a full work.
+    const placed = place(blank(), home.library, 'kit').doc;
+    const defId = Object.values(placed.nodes).find(n => n.type === 'kit.part')!.part!;
+    const v2 = save(home.library, withContents(home.doc, 'assets/kick.wav', KICK2, 5), 'kit', 2);
+    expect(
+      failure(() =>
+        apply(filled(placed, WORK_LIMITS.workBytes), {
+          op: 'replacePart',
+          part: defId,
+          bundle: latest(v2.library.parts.kit!).bundle,
+        }),
+      ).code,
+    ).toBe('too-large');
   });
   it('placing or updating refuses a broken bundle and leaves the patch as it was', () => {
     const lib = save(emptyLibrary(), toned(), 'tone').library;

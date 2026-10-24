@@ -13,7 +13,8 @@ import {
 import { createsCycle } from './scope.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox-template.ts';
-import { assetReads, moveAssetReads } from './codebox-assets.ts';
+import { moveAssetReads } from './codebox-assets.ts';
+import { usesOfAsset } from './asset-uses.ts';
 import {
   addParam,
   checkPlacement,
@@ -27,7 +28,6 @@ import {
   unpackPart,
   updatePart,
 } from './part-ops.ts';
-import { faceAssetUses } from './face.ts';
 import { partInterface } from './parts.ts';
 import {
   MAX_COUNT,
@@ -62,7 +62,7 @@ import {
   WORK_LIMITS,
   checkPath,
   isTextPath,
-  totalBytes,
+  overLimits,
   typeOfPath,
   type WorkFile,
 } from './files.ts';
@@ -73,7 +73,6 @@ import {
   networkOrigin,
   UiCheckError,
   assetFile,
-  assetUses,
   assetsOf,
   checkAsset,
   checkElement,
@@ -1117,25 +1116,11 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
     case 'removeAsset': {
       const old = assetsOf(draft.doc.files)[intent.id];
       if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
-      const uses = [
-        ...(assetUses(
-          draft.doc.ui,
-          Object.values(draft.doc.nodes).map(
-            n => [n.id, n.style] as [string, WidgetStyle | undefined],
-          ),
-        ).get(intent.id) ?? []),
-      ];
-      for (const def of Object.values(draft.doc.parts))
-        if (def.face && faceAssetUses(def.face).has(intent.id)) uses.push(`${def.name}'s face`);
-      for (const node of Object.values(draft.doc.nodes)) {
-        for (const [key, value] of Object.entries(node.config))
-          if (value === intent.id) uses.push(`${node.id}'s ${key}`);
-        if (node.code && assetReads(node.code).has(intent.id)) uses.push(`${node.id}'s code`);
-      }
+      const uses = usesOfAsset(draft.doc, intent.id);
       if (uses.length)
         fail(
           'asset-in-use',
-          `Asset "${intent.id}" is used by ${[...new Set(uses)].join(', ')}.`,
+          `Asset "${intent.id}" is used by ${uses.join(', ')}.`,
           'Remove or change those first.',
         );
       draft.apply({
@@ -1229,10 +1214,8 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
           next[path] = { text };
         }
       }
-      if (Object.keys(next).length > WORK_LIMITS.files)
-        fail('too-large', `A work holds at most ${WORK_LIMITS.files} files.`);
-      if (totalBytes(next) > WORK_LIMITS.workBytes)
-        fail('too-large', `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`);
+      const over = overLimits(next);
+      if (over) fail('too-large', over);
       for (const path of Object.keys(intent.files).sort()) {
         const from = current[path],
           to = next[path];
@@ -1589,11 +1572,8 @@ const byteLength = (text: string) => new TextEncoder().encode(text).length;
 
 /** A work's files stay within the size limits (see files.ts). */
 function checkWorkSize(draft: Draft, path: string, file: WorkFile) {
-  const next = { ...draft.doc.files, [path]: file };
-  if (Object.keys(next).length > WORK_LIMITS.files)
-    fail('too-large', `A work holds at most ${WORK_LIMITS.files} files.`);
-  if (totalBytes(next) > WORK_LIMITS.workBytes)
-    fail('too-large', `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`);
+  const over = overLimits({ ...draft.doc.files, [path]: file });
+  if (over) fail('too-large', over);
 }
 
 /** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay, part faces, node settings and what codeboxes read. */

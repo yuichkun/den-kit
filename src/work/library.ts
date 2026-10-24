@@ -45,7 +45,7 @@ export interface PartBundle {
   parts: Record<string, PartDef>;
   nodes: Record<NodeId, PatchNode>;
   edges: Record<EdgeId, PatchEdge>;
-  /** The pictures and fonts its faces use (what they are; the bytes stay in this browser's store, and go inside exported files). */
+  /** The assets it uses (what they are; the bytes stay in the host's storage, and go inside exported files). */
   assets?: Record<string, AssetMeta>;
 }
 export interface MyPartVersion {
@@ -482,7 +482,7 @@ export function checkBundle(raw: unknown, catalog: Catalog): PartBundle | string
       return `part ${id}: its face cannot be read (${error instanceof Error ? error.message : String(error)})`;
     }
   }
-  // What the faces' pictures and fonts are (one that cannot be read stays behind; putting the face says so).
+  // What its assets are (one that cannot be read stays behind, and shows as missing where it is used).
   const assets: Record<string, AssetMeta> = {};
   if (isObject(raw.assets))
     for (const [key, v] of Object.entries(raw.assets)) {
@@ -619,7 +619,7 @@ export function parseLibrary(
         });
         continue;
       }
-      // Bytes a file carried for the faces' pictures (checked like a patch file's).
+      // Bytes a file carried for the parts' assets (checked like a patch file's).
       for (const asset of Object.values(bundle.assets ?? {})) {
         const carried =
           isObject(v.bundle) && isObject(v.bundle.assets) && isObject(v.bundle.assets[asset.id])
@@ -635,7 +635,7 @@ export function parseLibrary(
           report.push({
             severity: 'warning',
             code: 'dropped-asset-data',
-            message: `My part "${key}": the picture data of "${asset.name}" was unreadable; it shows as missing until added again.`,
+            message: `My part "${key}": the data of "${asset.name}" was unreadable; it shows as missing until added again.`,
           });
         }
       }

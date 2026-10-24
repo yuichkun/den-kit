@@ -211,7 +211,7 @@ export class KitSession {
   readonly sentMarks = shallowRef<Record<string, string>>({});
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
-  /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
+  /** Where the bytes of the work's assets are kept (the host's storage), and the URLs the page shows them with. */
   readonly assets: AssetStore;
   readonly assetUrls = shallowRef<Record<string, string>>({});
   /** What each path's URL was made from: its contents' hash, or where den-kit ships the file. */
@@ -528,7 +528,7 @@ export class KitSession {
     if (carried.length)
       void Promise.all(carried.map(data => this.assets.putDataUrl(data))).then(
         () => this.syncAssets(),
-        () => this.toast('warn', 'Some pictures in that file could not be kept.'),
+        () => this.toast('warn', 'Some assets in that file could not be kept.'),
       );
     const bits = [
       merged.added.length ? `added ${merged.added.length}` : '',

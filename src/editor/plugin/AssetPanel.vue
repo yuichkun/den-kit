@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The patch's pictures and fonts. Drop files here (or on the plugin), or add
-// them with the button; each keeps where it came from and its licence. A picture
-// can go on the plugin, become the background or the reference picture under it.
+// The patch's assets: pictures, fonts and sounds. Drop files here (or on the
+// plugin), or add pictures and fonts with the button; each keeps where it came
+// from and its licence. A picture can go on the plugin, become the background or
+// the reference picture under it.
 import { computed, ref } from 'vue';
 import {
   assetFontFamily,

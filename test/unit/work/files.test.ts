@@ -110,6 +110,20 @@ describe("the work's files", () => {
     expect(totalBytes(files)).toBe(10 + 'export {}'.length);
   });
 
+  it('counts contents once however many paths hold them, as a work file keeps them', () => {
+    const report: Issue[] = [];
+    const big = {
+      hash: `sha256-${'b'.repeat(64)}`,
+      bytes: WORK_LIMITS.fileBytes,
+      type: 'application/octet-stream',
+    };
+    const paths = [1, 2, 3, 4, 5, 6].map(n => `assets/copy${n}.bin`);
+    const files = readFiles(Object.fromEntries(paths.map(p => [p, big])), report);
+    expect(Object.keys(files)).toEqual(paths);
+    expect(report).toEqual([]);
+    expect(totalBytes(files)).toBe(WORK_LIMITS.fileBytes);
+  });
+
   it("takes a file den-kit ships only at a path on den-kit's own origin, never another host", () => {
     const report: Issue[] = [];
     const files = readFiles(

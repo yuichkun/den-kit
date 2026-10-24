@@ -8,7 +8,9 @@ import { fail } from './op-error.ts';
 import type { ResolvedOp } from './ops.ts';
 import { checkFace } from './face.ts';
 import { assetFile, assetsOf, checkAsset } from './ui.ts';
-import { checkBundle, type PartBundle } from './library.ts';
+import { usesOfAsset } from './asset-uses.ts';
+import { overLimits } from './files.ts';
+import { checkBundle, extractBundle, type PartBundle } from './library.ts';
 import {
   RANGE_UNITS,
   hasParts,
@@ -1040,19 +1042,34 @@ function addBundle(
   return def(bundle.part, ids.parts[bundle.part.id]!);
 }
 
-/** The assets a bundle uses come into the work's files (one already there is the same file). */
-function addAssets(draft: PartDraft, bundle: PartBundle) {
+/**
+ * The assets a bundle uses come into the work's files, within the work's limits; one already there is
+ * the same file. An update puts other contents in place of a file the part's earlier version used
+ * (`earlier`) when nothing else in the work uses it.
+ */
+function addAssets(
+  draft: PartDraft,
+  bundle: PartBundle,
+  update?: { part: string; earlier: ReadonlySet<string> },
+) {
   for (const asset of Object.values(bundle.assets ?? {}).sort(byId)) {
     const file = assetFile(checkAsset(asset));
     const here = draft.doc.files[asset.id];
     if (here && JSON.stringify(here) === JSON.stringify(file)) continue;
-    if (here)
-      fail(
-        'duplicate-id',
-        `This work already has a different file at ${asset.id}.`,
-        'Rename that asset, then place the part again.',
-      );
-    draft.apply({ op: 'setFile', path: asset.id, from: undefined, to: file });
+    if (here) {
+      const others = update?.earlier.has(asset.id)
+        ? usesOfAsset(draft.doc, asset.id, update.part)
+        : null;
+      if (!others || others.length)
+        fail(
+          'duplicate-id',
+          `This work already has a different file at ${asset.id}${others?.length ? `, used by ${others.join(', ')}` : ''}.`,
+          `Rename that asset, then ${update ? 'update' : 'place'} the part again.`,
+        );
+    }
+    const over = overLimits({ ...draft.doc.files, [asset.id]: file });
+    if (over) fail('too-large', over);
+    draft.apply({ op: 'setFile', path: asset.id, from: here, to: file });
   }
 }
 
@@ -1117,6 +1134,7 @@ export function replacePart(
   const def = requirePart(doc(), intent.part);
   const bundle = checkBundle(intent.bundle, catalog);
   if (typeof bundle === 'string') fail('bad-bundle', `This version cannot be used: ${bundle}.`);
+  const earlier = new Set(Object.keys(extractBundle(doc(), def.id).assets ?? {}));
   // Out with what is inside now (parts used only in there go when nothing uses them).
   const members = new Set(membersOf(doc(), def.id).map(n => n.id));
   for (const e of Object.values(doc().edges)
@@ -1125,7 +1143,7 @@ export function replacePart(
     draft.apply({ op: 'removeEdge', edge: e });
   for (const id of [...members].sort()) draft.apply({ op: 'removeNode', node: doc().nodes[id]! });
   const ids = bundleIds(doc(), bundle as PartBundle, {}, def.id);
-  addAssets(draft, bundle as PartBundle);
+  addAssets(draft, bundle as PartBundle, { part: def.id, earlier });
   const root = addBundle(draft, bundle as PartBundle, ids);
   root.id = def.id;
   if (intent.from) root.from = { ...intent.from };

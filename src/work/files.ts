@@ -254,6 +254,7 @@ export function shippedPath(url: string): string | null {
   return url.startsWith('/') ? url : `/${url}`;
 }
 
+/** What a work's files hold together: text by its bytes, and each contents once, as a work file keeps them. */
 export function totalBytes(files: Readonly<Record<string, WorkFile>>): number {
   let n = 0;
   const seen = new Set<string>();
@@ -265,6 +266,15 @@ export function totalBytes(files: Readonly<Record<string, WorkFile>>): number {
     }
   }
   return n;
+}
+
+/** Why `files` would not fit in a work (too many, or too much together), or null. */
+export function overLimits(files: Readonly<Record<string, WorkFile>>): string | null {
+  if (Object.keys(files).length > WORK_LIMITS.files)
+    return `A work holds at most ${WORK_LIMITS.files} files.`;
+  if (totalBytes(files) > WORK_LIMITS.workBytes)
+    return `A work's files hold at most ${WORK_LIMITS.workBytes / 1024 / 1024} MB.`;
+  return null;
 }
 
 /** The code parts the work offers (src/parts/<name>.ts or .tsx), by name. */
@@ -291,6 +301,7 @@ export function readFiles(raw: unknown, report: Issue[]): Record<string, WorkFil
   const out: Record<string, WorkFile> = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   let total = 0;
+  const counted = new Set<string>();
   const drop = (path: string, why: string) =>
     report.push({
       severity: 'warning',
@@ -314,9 +325,10 @@ export function readFiles(raw: unknown, report: Issue[]): Record<string, WorkFil
       drop(path, file);
       continue;
     }
+    // Counted as totalBytes() counts them.
     const bytes = isText(file)
       ? new TextEncoder().encode(file.text).length
-      : file.url
+      : file.url || !file.hash || counted.has(file.hash)
         ? 0
         : file.bytes;
     if (isText(file) && bytes > WORK_LIMITS.textBytes) {
@@ -328,6 +340,7 @@ export function readFiles(raw: unknown, report: Issue[]): Record<string, WorkFil
       continue;
     }
     total += bytes;
+    if (!isText(file) && file.hash) counted.add(file.hash);
     out[path] = file;
   }
   return out;

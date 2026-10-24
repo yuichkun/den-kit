@@ -497,7 +497,7 @@ export class PodSession {
         if (text === null) continue;
         if (binary(text)) {
           skipped.push(
-            `${path} (not text: pictures and fonts go in den-kit's assets, kit.asset(id) reads them)`,
+            `${path} (not text: pictures, fonts and sounds go in den-kit's assets, kit.asset(id) reads them)`,
           );
           continue;
         }
