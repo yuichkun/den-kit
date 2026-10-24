@@ -4,14 +4,14 @@
 // inside a voice. Rendered offline; audio is CANDIDATE, never golden.
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
-import { catalog } from '../../src/blocks/index.ts';
-import { generate } from '../../src/core/codegen.ts';
-import { applyIntents, type Intent } from '../../src/core/ops.ts';
-import { flatten } from '../../src/core/parts.ts';
-import { PHRASES, phraseEvents } from '../../src/core/phrases.ts';
-import { emptyDocument, type PatchDocument } from '../../src/core/schema.ts';
-import { validate } from '../../src/core/validate.ts';
-import { evaluate } from '../../src/compile/evaluate.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { applyIntents, type Intent } from '../../src/work/ops.ts';
+import { flatten } from '../../src/work/parts.ts';
+import { PHRASES, phraseEvents } from '../../src/sound/phrases.ts';
+import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
+import { validate } from '../../src/work/validate.ts';
+import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;

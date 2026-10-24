@@ -42,7 +42,7 @@ if (import.meta.main) {
   try {
     const args = process.argv.slice(2);
     if (args.some(arg => arg !== '--dry-run'))
-      throw new Error('Usage: npm run desktop:clean [-- --dry-run]');
+      throw new Error('Usage: vp run desktop:clean [--dry-run]');
     if (process.env.KIT_DESKTOP_USER_DATA)
       throw new Error('Unset KIT_DESKTOP_USER_DATA before cleaning the default den-kit profile.');
     const result = cleanDesktopData({

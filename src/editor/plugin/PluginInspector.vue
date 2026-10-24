@@ -4,15 +4,15 @@
 // theme, colours and fonts, background, default skins, CSS, reference picture);
 // then the assets and the layers.
 import { computed, ref, watch } from 'vue';
-import { THEMES, type PanelRect } from '../../core/schema.ts';
+import { THEMES, type PanelRect } from '../../work/schema.ts';
 import {
   CONTROL_KINDS,
   CONTROL_OF,
   DEFAULT_SKIN,
   type ControlKind,
   type Skin,
-} from '../../core/skins.ts';
-import { THEME_TOKENS } from '../../core/themes.ts';
+} from '../../work/skins.ts';
+import { THEME_TOKENS } from '../../work/themes.ts';
 import {
   COLOR_TOKENS,
   FONT_TOKENS,
@@ -26,9 +26,10 @@ import {
   type TextStyle,
   type UiElement,
   type WidgetStyle,
-} from '../../core/ui.ts';
-import type { Intent } from '../../core/ops.ts';
-import { partNames, partPath } from '../../core/project.ts';
+  assetsOf,
+} from '../../work/ui.ts';
+import type { Intent } from '../../work/ops.ts';
+import { partNames, partPath } from '../../work/files.ts';
 import { useSession } from '../context.ts';
 import AssetPanel from './AssetPanel.vue';
 import ColorField from './ColorField.vue';
@@ -48,7 +49,7 @@ const emit = defineEmits<{
 const session = useSession();
 const doc = computed(() => session.doc.value);
 const look = computed(() => doc.value.ui.look);
-const assets = computed(() => doc.value.assets);
+const assets = computed(() => assetsOf(doc.value.files));
 const onPlugin = (id: string) =>
   !!doc.value.ui.elements[id] ||
   (!!doc.value.nodes[id]?.panel && !!CONTROL_OF[doc.value.nodes[id]!.type]);
@@ -139,7 +140,7 @@ const setEl = (set: Record<string, unknown>, label = 'Change', key?: string) => 
 };
 function setWidget(patch: Partial<Record<keyof WidgetStyle, unknown>>, key?: string) {
   if (!node.value) return;
-  const next = { ...(node.value.style ?? {}) } as Record<string, unknown>;
+  const next = { ...node.value.style } as Record<string, unknown>;
   for (const [k, v] of Object.entries(patch)) {
     if (
       v === null ||
@@ -162,7 +163,7 @@ function setWidget(patch: Partial<Record<keyof WidgetStyle, unknown>>, key?: str
   );
 }
 const widgetToken = (token: string, color: string | null, done: boolean) => {
-  const tokens = { ...(node.value?.style?.tokens ?? {}) } as Record<string, string>;
+  const tokens = { ...node.value?.style?.tokens } as Record<string, string>;
   if (color) tokens[token] = color;
   else delete tokens[token];
   setWidget({ tokens }, done ? undefined : `wt-${token}`);
@@ -213,7 +214,7 @@ type PropSpec =
   | { type: 'boolean'; default: boolean; label?: string }
   | { type: 'text' | 'color'; default: string; label?: string }
   | { type: 'select'; default: string; options: string[]; label?: string };
-const partList = computed(() => partNames(doc.value.project));
+const partList = computed(() => partNames(doc.value.files));
 const codeReport = computed(() =>
   element.value?.kind === 'code' ? session.pod?.parts.value[element.value.id] : undefined,
 );
@@ -982,7 +983,7 @@ input[type='range'] {
   min-width: 0;
 }
 .code-error {
-  color: #ffb3b3;
+  color: var(--red-light);
   white-space: pre-wrap;
   font-family: ui-monospace, Menlo, monospace;
 }

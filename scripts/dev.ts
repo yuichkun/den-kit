@@ -1,4 +1,4 @@
-// `npm run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
+// `vp run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
 // for the editor (127.0.0.1:5180), in one process. The bridge starts first and the
 // page receives its per-launch token through virtual:kit-bridge.
 import { createServer } from 'vite';
@@ -9,6 +9,7 @@ import { loadEnvFile, maskSecret } from '../bridge/env.ts';
 import { createBridge } from '../bridge/server.ts';
 import { Telemetry } from '../bridge/telemetry.ts';
 import { CodexClient } from '../bridge/codex/client.ts';
+import { SandboxServer } from '../desktop/sandbox.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 loadEnvFile(join(root, '.env'));
@@ -16,6 +17,14 @@ const port = Number(process.env.KIT_PORT ?? 5180);
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
 
 const telemetry = new Telemetry(join(root, '.logs'));
+/** The development host's sandbox: a browser cannot add the secret header, and its contents stay in the page. */
+const devSandbox = () =>
+  new SandboxServer({
+    port: 0,
+    requireSecret: false,
+    content: () => null,
+    refused: () => undefined,
+  });
 // The LLM path: the pinned Codex app-server (KIT_CODEX=off to run without it).
 const codex =
   process.env.KIT_CODEX === 'off'
@@ -24,7 +33,6 @@ const codex =
         kitRoot: root,
         model: process.env.KIT_CODEX_MODEL,
         effort: process.env.KIT_CODEX_EFFORT,
-        fork: process.env.KIT_CODEX_FORK === '1',
         telemetry,
         log: line => console.log(`  [bridge] ${line}`),
       });
@@ -37,13 +45,16 @@ try {
     origins: [`http://127.0.0.1:${port}`],
     telemetry,
     codex,
+    // The works' code parts load from the bridge's port under each work's own host name.
+    sandbox: devSandbox(),
+    sandboxControl: true,
     log: line => console.log(`  [bridge] ${line}`),
   });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     /EADDRINUSE/.test(message)
-      ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 npm run dev.`
+      ? `Bridge port ${bridgePort} is busy (another dev?). Stop it or run with KIT_BRIDGE_PORT=5191 vp run dev.`
       : `Could not start the AI bridge: ${message}`,
   );
   process.exit(1);
@@ -100,7 +111,7 @@ try {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     /EADDRINUSE|already in use/i.test(message)
-      ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 npm run dev.`
+      ? `Port ${port} is busy. Stop the other process or run with KIT_PORT=5190 vp run dev.`
       : message,
   );
   process.exit(1);

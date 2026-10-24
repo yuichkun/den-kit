@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
-import { POD } from '../plugin/code-frames.ts';
+import { POD } from '../screen/code-frames.ts';
 import { KitSession, MY_PARTS_KEY } from './session.ts';
-import { MAX_FILE_BYTES } from '../core/persistence.ts';
-import { COST_LIMITS, formatCpu } from '../core/cost.ts';
+import { WORK_FILE_EXTENSION } from '../work/work-file.ts';
+import { WORK_LIMITS } from '../work/files.ts';
+import { COST_LIMITS, formatCpu } from '../work/cost.ts';
 import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
@@ -17,8 +18,7 @@ import StartOverlay from './StartOverlay.vue';
 import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
-import DesktopSettings from './DesktopSettings.vue';
-import { desktop } from '../desktop/api.ts';
+import Settings from './Settings.vue';
 
 const props = defineProps<{
   session: KitSession;
@@ -26,8 +26,8 @@ const props = defineProps<{
 }>();
 const session = props.session;
 provide(SESSION, session);
-// Code parts on any plugin drawn in the editor come from the work's pod.
-provide(POD, session.pod);
+// Code parts on any plugin drawn in the editor come from the work's pod (through the host's sandbox when it has one).
+provide(POD, session.codeParts?.source ?? session.pod);
 const view = ref<'patch' | 'plugin' | 'code' | 'project'>('patch');
 /** A file of the screen project to open in the Project view. */
 const projectFile = ref<string | null>(null);
@@ -52,8 +52,11 @@ watch(
   },
 );
 const starting = ref(!!props.firstRun);
-const isDesktop = !!desktop();
+// What the host lets the person manage here: the AI account and model, and updates.
+const account = session.host?.ai?.account ?? null;
+const lifecycle = session.host?.lifecycle ?? null;
 const settingsOpen = ref(false);
+const stopHost: Array<() => void> = [];
 const openSettings = () => {
   settingsOpen.value = true;
 };
@@ -61,20 +64,12 @@ const openSettings = () => {
 const updateReady = ref<string | null>(null);
 async function refreshUpdate() {
   try {
-    const update = (await desktop()!.info()).update;
+    const update = (await lifecycle!.info()).update;
     updateReady.value = update?.state === 'ready' ? update.version : null;
   } catch {
     /* the next update event or Settings shows the state */
   }
 }
-// Desktop account/settings changes restart the native server and invalidate its conversation ids.
-watch(
-  () => session.bridge?.status.value?.codex.state,
-  state => {
-    if (isDesktop && state === 'starting' && !session.llm?.running) session.llm?.reset();
-  },
-);
-
 // ---- the AI panel: a column on the right, never over the canvas ---------------------
 const stored = (key: string) => {
   try {
@@ -128,7 +123,7 @@ function backToCanvas() {
 
 // ---- full screen: only the plugin -------------------------------------------------------
 const focusMode = ref(false);
-// What the person is looking at goes with every AI request (U8b).
+// What the person is looking at goes with every AI request.
 watchEffect(() => {
   props.session.seeing.value = { view: view.value, edit: pluginEdit.value, full: focusMode.value };
 });
@@ -260,20 +255,23 @@ function keys(e: KeyboardEvent) {
 function closeMenu(e: PointerEvent) {
   if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false;
 }
-/** My parts saved in another tab show up here too. */
+/** My parts saved in another window show up here too: a browser says when; the app's windows look again on focus. */
 function storageChanged(e: StorageEvent) {
-  if (e.key === MY_PARTS_KEY) session.reloadMyParts();
+  if (e.key === MY_PARTS_KEY) void session.reloadMyParts();
+}
+function focused() {
+  void session.reloadMyParts();
 }
 /**
- * With a BrowserPod key, the pod starts by itself the first time in this browser (after the start overlay):
- * that first start installs the project's packages (a minute or two), so it is out of the way before the AI
- * or a code part needs the pod. The pod check is a button in the Project view (run while working, its
+ * A pod whose first start takes minutes starts by itself the first time den-kit opens (after the start overlay):
+ * that first start installs the project's packages, so it is out of the way before the AI or a code part needs
+ * the pod. The pod check is a button in the Project view (run while working, its
  * commands would queue ahead of the AI's).
  */
 const POD_STARTED = 'den-kit:pod-started';
 function firstPodStart() {
   const pod = session.pod;
-  if (!pod || pod.kind !== 'browserpod' || pod.booted) return;
+  if (!pod || !pod.startsEarly || pod.booted) return;
   try {
     if (localStorage.getItem(POD_STARTED)) return;
     localStorage.setItem(POD_STARTED, String(Date.now()));
@@ -291,11 +289,12 @@ watch(
 );
 onMounted(() => {
   window.addEventListener('den-kit:open-settings', openSettings);
-  if (isDesktop) {
-    window.addEventListener('den-kit:update', refreshUpdate);
+  if (lifecycle) {
+    stopHost.push(lifecycle.onUpdate(refreshUpdate), lifecycle.onShowSettings(openSettings));
     void refreshUpdate();
   }
   window.addEventListener('storage', storageChanged);
+  window.addEventListener('focus', focused);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
   // The audio closes before the page goes away (unless it waits in the back/forward cache). Chrome can deadlock tearing
@@ -310,8 +309,9 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('den-kit:open-settings', openSettings);
-  window.removeEventListener('den-kit:update', refreshUpdate);
+  for (const stop of stopHost.splice(0)) stop();
   window.removeEventListener('storage', storageChanged);
+  window.removeEventListener('focus', focused);
   window.removeEventListener('keydown', keys);
   window.removeEventListener('pointerdown', closeMenu, true);
   document.removeEventListener('fullscreenchange', fullscreenChange);
@@ -331,10 +331,17 @@ function started(asked: boolean) {
 }
 async function exportPatch() {
   menu.value = false;
-  const blob = new Blob([await session.exportWithAssets()], { type: 'application/json' });
+  let bytes: Uint8Array;
+  try {
+    bytes = await session.exportWork();
+  } catch (error) {
+    session.toast('error', error instanceof Error ? error.message : String(error));
+    return;
+  }
+  const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${session.doc.value.name.replace(/[^\w-]+/g, '_') || 'patch'}.denkit.json`;
+  a.download = `${session.doc.value.name.replace(/[^\w-]+/g, '_') || 'work'}${WORK_FILE_EXTENSION}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -342,20 +349,26 @@ async function importPatch(e: Event) {
   menu.value = false;
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
-  if (file.size > MAX_FILE_BYTES) {
-    session.toast(
-      'error',
-      `Import refused: file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
-    );
+  // Read nothing larger than a work file can be (its files and its playable build).
+  if (file.size > WORK_LIMITS.workBytes * 2) {
+    session.toast('error', `Import refused: ${file.name} is larger than a work file can be.`);
     return;
   }
-  if (session.importText(await file.text())) name.value = session.doc.value.name;
+  if (await session.importWork(new Uint8Array(await file.arrayBuffer())))
+    name.value = session.doc.value.name;
   (e.target as HTMLInputElement).value = '';
 }
 </script>
 
 <template>
+  <div v-if="session.refused.value" class="refused" data-testid="work-refused" role="alert">
+    <p>
+      “{{ session.refused.value }}” is open in another den-kit window. A work opens in one window at
+      a time: go on there, or close that window and reload this one.
+    </p>
+  </div>
   <div
+    v-else
     class="kit-shell"
     :class="{ focus: focusMode }"
     :style="{ '--ai-w': aiOpen ? `${dockWidth}px` : '0px' }"
@@ -380,7 +393,7 @@ async function importPatch(e: Event) {
         <input
           ref="fileInput"
           type="file"
-          accept=".json,.denkit.json,application/json"
+          accept=".denkit,application/zip"
           hidden
           data-testid="import-file"
           @change="importPatch"
@@ -419,7 +432,7 @@ async function importPatch(e: Event) {
       <span class="spacer" />
       <slot name="toolbar" />
       <button
-        v-if="isDesktop && updateReady"
+        v-if="lifecycle && updateReady"
         class="update-ready"
         data-testid="desktop-update-ready"
         :title="`den-kit ${updateReady} is ready to install`"
@@ -428,7 +441,7 @@ async function importPatch(e: Event) {
         Update ready
       </button>
       <button
-        v-if="isDesktop"
+        v-if="account"
         data-testid="desktop-settings-open"
         title="Settings (⌘,)"
         @click="settingsOpen = true"
@@ -526,7 +539,12 @@ async function importPatch(e: Event) {
       :id="editing"
       @close="editing = null"
     />
-    <DesktopSettings v-if="settingsOpen" @close="settingsOpen = false" />
+    <Settings
+      v-if="settingsOpen && account"
+      :account="account"
+      :lifecycle="lifecycle"
+      @close="settingsOpen = false"
+    />
     <CanvasEditor
       v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]"
       :id="editingCanvas"

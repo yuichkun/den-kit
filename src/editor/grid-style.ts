@@ -1,7 +1,7 @@
 // Visual language modelled on Bitwig's The Grid: near-black blueprint canvas,
 // charcoal modules with a signal-coloured title, ring in-ports / dot out-ports
 // coloured by signal type, white knobs, thick coloured cables.
-import type { NodeDef, PortDef } from '../core/catalog.ts';
+import type { NodeDef, PortDef } from '../work/catalog.ts';
 
 /** Grid signal colours (Bitwig: untyped red, control turquoise, pitch orange, phase purple, logic yellow, secondary blue). */
 export const SIGNAL = {
@@ -76,7 +76,7 @@ export function portKind(
 export const portColor = (def: NodeDef | undefined, port: PortDef, direction: 'in' | 'out') =>
   SIGNAL[portKind(def, port, direction)];
 
-export { visibleInputs } from '../core/layout.ts';
+export { visibleInputs } from '../work/layout.ts';
 
 export const GRID = { cell: 120, snap: 12, gap: 6 } as const;
 

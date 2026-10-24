@@ -2,31 +2,40 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { sha256, textFiles } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
-import { catalog } from '../../src/blocks/index.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
 import {
   applyIntents,
   applyResolvedOps,
   invertAll,
   type Intent,
   type ResolvedOp,
-} from '../../src/core/ops.ts';
-import type { PatchDocument } from '../../src/core/schema.ts';
-import { starter } from '../../src/core/starters.ts';
+} from '../../src/work/ops.ts';
+import type { PatchDocument } from '../../src/work/schema.ts';
+import type { AssetMeta } from '../../src/work/ui.ts';
+import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
-import { connectFakePod } from '../../src/pod/fake-host.ts';
-import { PodSession } from '../../src/pod/pod-session.ts';
-import { starterPart, withTemplate } from '../../src/pod/template.ts';
+import { connectFakePod } from '../../dev/fake-pod.ts';
+import { PodSession } from '../../src/workspace/pod-session.ts';
+import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
+import { kitFiles } from '../../src/screen/kit-files.ts';
+import { throughSandbox } from '../helpers/sandboxed.ts';
 
-/** Just what the pod session uses of the editor's session: the document and commit. */
+/** Just what the pod session uses of the editor's session: the document, commit and the assets' contents. */
 function session(start: PatchDocument) {
   const doc = shallowRef(start);
   const steps: ResolvedOp[][] = [];
+  const contents = new Map<string, Uint8Array>();
   const s = {
     catalog,
     doc,
+    contents,
+    assets: { read: async (asset: AssetMeta) => contents.get(asset.hash ?? '') ?? null },
     commit(intents: Intent[]) {
       try {
         const r = applyIntents(doc.value, intents, catalog);
@@ -42,7 +51,7 @@ function session(start: PatchDocument) {
       if (ops) doc.value = applyResolvedOps(doc.value, invertAll(ops));
     },
   };
-  return s as unknown as KitSession & { undo(): void };
+  return s as unknown as KitSession & { undo(): void; contents: Map<string, Uint8Array> };
 }
 const settle = (ms = 300) => new Promise(r => setTimeout(r, ms));
 
@@ -69,7 +78,11 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
       catalog,
     ).doc;
     kit = session(doc);
-    pod = new PodSession(kit, { kind: 'fake', create: () => connectFakePod(fake.url) });
+    pod = new PodSession(
+      kit,
+      { kind: 'fake', create: work => connectFakePod(fake.url, work) },
+      kitFiles(),
+    );
   }, 30_000);
   afterAll(async () => {
     pod?.dispose();
@@ -143,18 +156,25 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await pod.readFile('src/kit/controls.ts')).not.toContain('// mine');
     const r = kit.commit([{ op: 'setProjectFiles', files }]);
     expect(r.ok).toBe(true);
-    expect(kit.doc.value.project!.files['src/parts/meter.ts']).toBeDefined();
+    expect(textFiles(kit.doc.value.files)['src/parts/meter.ts']).toBeDefined();
     await pod.bash('rm logo.bin', { who: 'ai' });
     // Nothing changed since: nothing to land.
     expect((await pod.collect()).files).toEqual({});
   }, 60_000);
 
-  it('the dev server serves a part page that den-kit may embed (cross-origin isolated page)', async () => {
-    const res = await fetch(`${pod.portal.value}?part=meter&el=e1&host=http://127.0.0.1:5180`);
+  it("the dev server serves a part page that den-kit may embed (cross-origin isolated page), with the sandbox's rules", async () => {
+    const res = await throughSandbox(
+      pod.portal.value!,
+      '/?part=meter&el=e1&host=http://127.0.0.1:5180',
+    );
     expect(res.status).toBe(200);
-    expect(res.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
-    expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
-    expect(await res.text()).toContain('/src/main.ts');
+    expect(res.headers['cross-origin-embedder-policy']).toBe('require-corp');
+    expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(res.headers['content-security-policy']).toContain("connect-src 'self';");
+    expect(res.text).toContain('/src/main.ts');
+    // The rules come from den-kit, not from the work's own files.
+    const direct = await fetch(`${pod.portal.value}?part=meter`);
+    expect(direct.headers.get('cross-origin-embedder-policy')).toBeNull();
     const part = await fetch(`${pod.portal.value}src/parts/meter.ts`);
     expect(part.status).toBe(200);
     expect(await part.text()).toContain('kit.frame');
@@ -166,11 +186,11 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await pod.readFile('src/parts/meter.ts')).toBeNull();
     expect(await pod.readFile('package.json')).toContain('den-kit-screen');
     // The work has no project again (the undo took it back): the template comes with the new part.
-    expect(kit.doc.value.project).toBeUndefined();
+    expect(textFiles(kit.doc.value.files)).toEqual({});
     kit.commit([
       {
         op: 'setProjectFiles',
-        files: withTemplate(kit.doc.value.project, { 'src/parts/dial.ts': starterPart('dial') }),
+        files: withTemplate(kit.doc.value.files, { 'src/parts/dial.ts': starterPart('dial') }),
       },
     ]);
     await settle(800);
@@ -182,7 +202,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
   }, 60_000);
 
   it('a changed package.json is installed; npm run build works (dist stays in the pod)', async () => {
-    const pkg = JSON.parse(kit.doc.value.project!.files['package.json']!);
+    const pkg = JSON.parse(textFiles(kit.doc.value.files)['package.json']!);
     pkg.dependencies = { ...pkg.dependencies, 'is-number': '7.0.0' };
     kit.commit([
       { op: 'setProjectFiles', files: { 'package.json': `${JSON.stringify(pkg, null, 2)}\n` } },
@@ -198,6 +218,12 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(
       (await pod.bash('test -d node_modules/is-number && echo yes', { who: 'den-kit' })).output,
     ).toContain('yes');
+    // Nothing else ran while the pod reached the network: the dev server stopped for the install and started again.
+    const installs = fake.runs.filter(r => r.script.includes('npm install --ignore-scripts'));
+    expect(installs.at(-1)!.alongside).toEqual([]);
+    const restarted = Date.now() + 60_000;
+    while (!pod.portal.value && Date.now() < restarted) await settle(200);
+    expect(pod.portal.value).toBeTruthy();
     const build = await pod.bash('npm run build', { who: 'ai', timeoutMs: 180_000 });
     expect(build.exitCode, build.output).toBe(0);
     // The install updated the lockfile (it lands with the next change read back); dist/ stays in the pod.
@@ -229,17 +255,152 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(pod.state.value).toBe('ready');
     expect((await fetch(pod.portal.value!)).status).toBe(200);
   }, 240_000);
+
+  it("the work's assets are in the project, its stored ones outside its git: code imports them, a replaced or removed one follows, and a text file under assets/ reads back like any other", async () => {
+    const add = async (path: string, bytes: Uint8Array, mime = 'image/png') => {
+      const hash = await sha256(bytes);
+      kit.contents.set(hash, bytes);
+      const asset = {
+        id: path,
+        name: path.split('/').at(-1)!,
+        mime,
+        bytes: bytes.length,
+        hash,
+        width: 1,
+        height: 1,
+      };
+      expect(kit.commit([{ op: 'addAsset', asset }]).ok).toBe(true);
+    };
+    const png = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      ),
+      c => c.charCodeAt(0),
+    );
+    await add('assets/dot.png', png);
+    kit.commit([
+      {
+        op: 'setProjectFiles',
+        files: {
+          'src/parts/dot.ts': "import dot from '../../assets/dot.png';\nexport const url = dot;\n",
+        },
+      },
+    ]);
+    await settle(800);
+    const head = await pod.bash('od -An -tx1 -N8 assets/dot.png', { who: 'den-kit' });
+    expect(head.output.replace(/\s+/g, ' ').trim()).toBe('89 50 4e 47 0d 0a 1a 0a');
+    const build = await pod.bash('npm run build', { who: 'den-kit', timeoutMs: 180_000 });
+    expect(build.exitCode, build.output).toBe(0);
+    const ignored = async (path: string) =>
+      (await pod.bash(`git check-ignore -q ${path} && echo ignored`, { who: 'den-kit' })).output;
+    expect(await ignored('assets/dot.png')).toContain('ignored');
+    // A text file under assets/ is a project file: a command leaves it, or changes it, and it reads back.
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': '{"a":1}\n' } }]);
+    await settle(800);
+    expect(await ignored('assets/curve.json')).not.toContain('ignored');
+    await pod.bash('true', { who: 'ai' });
+    expect((await pod.collect()).files).not.toHaveProperty(['assets/curve.json']);
+    await pod.bash(`printf '{"a":2}\\n' > assets/curve.json`, { who: 'ai' });
+    expect((await pod.collect()).files['assets/curve.json']).toBe('{"a":2}\n');
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': null } }]);
+    await settle(800);
+    // A text file that takes a stored asset's path stays in the project.
+    await add('assets/table.json', new TextEncoder().encode('{"stored":1}'), 'application/json');
+    await settle(800);
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': '{"text":1}\n' } }]);
+    await settle(800);
+    expect(await pod.readFile('assets/table.json')).toBe('{"text":1}\n');
+    expect((await pod.collect()).files).not.toHaveProperty(['assets/table.json']);
+    kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': null } }]);
+    await settle(800);
+    // Replaced at the same path, then removed.
+    kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
+    await add('assets/dot.png', new TextEncoder().encode('another picture'));
+    await settle(800);
+    expect(await pod.readFile('assets/dot.png')).toBe('another picture');
+    kit.commit([{ op: 'removeAsset', id: 'assets/dot.png' }]);
+    await settle(800);
+    expect(await pod.readFile('assets/dot.png')).toBeNull();
+    kit.commit([{ op: 'setProjectFiles', files: { 'src/parts/dot.ts': null } }]);
+    await settle(800);
+  }, 300_000);
+
+  it("builds a document's code parts only while the project holds that document's files", async () => {
+    const built = async (doc: PatchDocument) => {
+      const b = await pod.buildParts(doc);
+      return b && b !== 'changed' ? Object.keys(b) : b;
+    };
+    // What the commands so far changed lands in the work first.
+    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await settle(800);
+    expect(await built(kit.doc.value)).toContain('index.html');
+    // A command's change that is not read back yet is in the project, not in the work.
+    await pod.bash("printf '// more\\n' >> src/parts/dial.ts", { who: 'ai' });
+    const before = kit.doc.value;
+    expect(await built(before)).toBe('changed');
+    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await settle(800);
+    expect(textFiles(kit.doc.value.files)['src/parts/dial.ts']).toContain('// more');
+    expect(await built(before)).toBe('changed');
+    expect(await built(kit.doc.value)).toContain('index.html');
+    // An asset is part of what it is built from.
+    const bytes = new TextEncoder().encode('a picture');
+    const hash = await sha256(bytes);
+    kit.contents.set(hash, bytes);
+    const withAsset = kit.doc.value;
+    kit.commit([
+      {
+        op: 'addAsset',
+        asset: {
+          id: 'assets/late.png',
+          name: 'late.png',
+          mime: 'image/png',
+          bytes: bytes.length,
+          hash,
+          width: 1,
+          height: 1,
+        },
+      },
+    ]);
+    await settle(800);
+    expect(await built(withAsset)).toBe('changed');
+    expect(await built(kit.doc.value)).toContain('index.html');
+  }, 300_000);
+
+  it('puts back a stored asset that a command changed or removed, and says so', async () => {
+    // assets/late.png ("a picture") is one of the work's stored assets (the test before added it).
+    const after = async (command: string) => {
+      await pod.bash(command, { who: 'ai' });
+      const { skipped } = await pod.collect();
+      return {
+        said: skipped.filter(s => s.startsWith('assets/late.png')),
+        now: await pod.readFile('assets/late.png'),
+      };
+    };
+    const putBack = { said: [expect.stringContaining('put its contents back')], now: 'a picture' };
+    expect(await after("printf 'other' > assets/late.png")).toEqual(putBack);
+    expect(await after('rm assets/late.png')).toEqual(putBack);
+    // As large as before, in the same second den-kit put it back.
+    expect(await after("printf 'b picture' > assets/late.png")).toEqual(putBack);
+    expect(await after('true')).toEqual({ said: [], now: 'a picture' });
+    // The project holds the work again: its parts build.
+    expect(await pod.buildParts(kit.doc.value)).not.toBe('changed');
+  }, 300_000);
 });
 
 describe('pod session without a pod', () => {
   it('says why and how to fix it, and refuses commands', async () => {
     const kit = session(starter('bass', catalog));
-    const pod = new PodSession(kit, {
-      kind: null,
-      create: () => Promise.reject(new Error('no')),
-      reason: 'The pod (BrowserPod) is off: no API key.',
-      fix: 'Put BROWSERPOD_API_KEY=… in .env',
-    });
+    const pod = new PodSession(
+      kit,
+      {
+        kind: null,
+        create: () => Promise.reject(new Error('no')),
+        reason: 'The pod (BrowserPod) is off: no API key.',
+        fix: 'Put BROWSERPOD_API_KEY=… in .env',
+      },
+      kitFiles(),
+    );
     expect(pod.state.value).toBe('unavailable');
     expect(pod.fix.value).toContain('BROWSERPOD_API_KEY');
     await expect(pod.bash('ls', { who: 'ai' })).rejects.toThrow(/off: no API key/);
@@ -247,17 +408,126 @@ describe('pod session without a pod', () => {
   it('a pod that fails to start says so, and the next try starts again', async () => {
     const kit = session(starter('bass', catalog));
     let tries = 0;
-    const pod = new PodSession(kit, {
-      kind: 'fake',
-      create: () => {
-        tries++;
-        return Promise.reject(new Error('pod could not boot'));
+    const pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: () => {
+          tries++;
+          return Promise.reject(new Error('pod could not boot'));
+        },
       },
-    });
+      kitFiles(),
+    );
     await expect(pod.ensure()).rejects.toThrow('pod could not boot');
     expect(pod.state.value).toBe('unavailable');
     expect(pod.message.value).toContain('pod could not boot');
     await expect(pod.ensure()).rejects.toThrow();
     expect(tries).toBe(2);
   });
+});
+
+describe("each work's pod (test pod)", () => {
+  let fake: FakePod;
+  beforeAll(async () => {
+    fake = await startFakePod();
+  });
+  afterAll(async () => {
+    await fake?.close();
+  });
+
+  it('reaches the internet only while den-kit installs packages (npm, from the npm registry, no install scripts), and serves only the work it started for', async () => {
+    const kit = session(starter('bass', catalog));
+    const work = kit.doc.value.id;
+    const asked: string[] = [];
+    const pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: w => {
+          asked.push(w);
+          return connectFakePod(fake.url, w);
+        },
+      },
+      kitFiles(),
+    );
+    try {
+      await pod.ensure();
+      expect(pod.state.value).toBe('ready');
+      // The pod is the work's own: den-kit asked for this work's disk.
+      expect(asked).toEqual([work]);
+      const offline = async () => {
+        const curl = await pod.bash('curl -sS -m 10 -o /dev/null https://github.com', {
+          who: 'ai',
+        });
+        expect(curl.exitCode, curl.output).not.toBe(0);
+        const node = await pod.bash(
+          `node -e "fetch('https://github.com').then(()=>process.exit(0),()=>process.exit(3))"`,
+          { who: 'ai' },
+        );
+        expect(node.exitCode, node.output).toBe(3);
+      };
+      await offline();
+      // A command cannot install from the internet (with an empty cache, npm needs the registry); den-kit's install can.
+      expect(
+        (
+          await pod.bash('npm install --no-save --cache "$(mktemp -d)" is-number@7.0.0', {
+            who: 'ai',
+          })
+        ).exitCode,
+      ).not.toBe(0);
+      // A process a command left in the background stops before the pod reaches the network.
+      await pod.bash('sleep 300 > /dev/null 2>&1 & echo $! > .left-running', { who: 'ai' });
+      const installed = await pod.installPackages('is-number@7.0.0');
+      expect(installed.exitCode, installed.output).toBe(0);
+      expect(
+        (
+          await pod.bash(
+            'kill -0 "$(cat .left-running)" 2>/dev/null && echo running || echo gone',
+            {
+              who: 'den-kit',
+            },
+          )
+        ).output,
+      ).toContain('gone');
+      // den-kit's install ran with nothing else running (the AI's own try above ran beside the dev server, offline).
+      const ourInstall = fake.runs.find(
+        r => r.script.includes('--ignore-scripts') && r.script.includes('--no-save is-number'),
+      );
+      expect(ourInstall!.alongside).toEqual([]);
+      await offline();
+      // den-kit's installs: the boot's and the one above, from the npm registry, without install scripts.
+      const ours = fake.commands.filter(c => c.includes('--registry=https://registry.npmjs.org/'));
+      expect(ours.length).toBeGreaterThanOrEqual(2);
+      for (const c of ours) expect(c).toContain('npm install --ignore-scripts');
+      // Another work opened in the same window: the pod is not used for it, and its files do not go onto this disk.
+      const other = { ...starter('bass', catalog), id: 'another-work' };
+      kit.doc.value = applyIntents(
+        other,
+        [
+          {
+            op: 'setProjectFiles',
+            files: withTemplate(other.files, { 'src/parts/other.ts': starterPart('other') }),
+          },
+        ],
+        catalog,
+      ).doc;
+      await expect(pod.ensure()).rejects.toThrow(/belong to the work that started them/);
+      expect(pod.state.value).toBe('unavailable');
+      await settle(500);
+      expect(existsSync(join(fake.homeOf(work), 'work', 'src/parts/other.ts'))).toBe(false);
+    } finally {
+      pod.dispose();
+    }
+  }, 300_000);
+
+  it("a work's disk is its own: what one work leaves in its pod, another does not see", async () => {
+    const a = await connectFakePod(fake.url, 'work-a');
+    const b = await connectFakePod(fake.url, 'work-b');
+    expect((await a.run('echo secret > ~/left-by-a.txt')).exitCode).toBe(0);
+    expect((await a.run('test -e ~/left-by-a.txt')).exitCode).toBe(0);
+    expect((await b.run('test -e ~/left-by-a.txt')).exitCode).toBe(1);
+    a.dispose?.();
+    b.dispose?.();
+  }, 60_000);
 });

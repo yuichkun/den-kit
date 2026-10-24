@@ -12,8 +12,22 @@
 //     },
 //   });
 import { CONTROLS, type ControlId } from './controls';
+import type { BehaviorEvent } from './behaviors/index';
 
 export { CONTROLS, type ControlId };
+/**
+ * How den-kit's ready-made controls respond to input (knob, slider, button,
+ * switch, XY pad, keyboard, meter), without a look: draw your own control and it
+ * behaves like den-kit's. `behaviors.listen(element, behavior)` feeds it the
+ * element's pointer, wheel and keys; `kit.bind(behavior, id)` lets it move a control.
+ */
+export * as behaviors from './behaviors/index';
+
+/** A behavior that can move a control: it sends begin, value and end, and follows a value set elsewhere. */
+export interface Bindable<V extends ControlValue = ControlValue> {
+  readonly events: { on(listener: (event: BehaviorEvent<V>) => void): () => void };
+  set?(value: V): void;
+}
 
 /** A setting of the part, shown in den-kit's inspector (the person or the AI changes it there; no code needed). */
 export type PropSpec =
@@ -64,6 +78,12 @@ export interface Kit<P extends PropSpecs = PropSpecs> {
   setNorm(id: ControlId, n: number): void;
   begin(): void;
   end(): void;
+  /**
+   * Let a behavior move a control: its gestures become moves (one drag, one ⌘Z
+   * step), and it follows the control when something else moves it. Returns a
+   * function that lets go.
+   */
+  bind<V extends ControlValue>(behavior: Bindable<V>, id: ControlId): () => void;
   /** The plugin's sound, fresh every frame. */
   readonly audio: Audio;
   /** Called every animation frame (dt and t in seconds) after the sound and the values are fresh; returns a stop function. */
@@ -77,8 +97,8 @@ export interface Kit<P extends PropSpecs = PropSpecs> {
   /** 'play': the musician plays it. 'edit': it is being laid out (it gets no mouse then). */
   readonly mode: 'play' | 'edit';
   onMode(listener: (mode: 'play' | 'edit') => void): () => void;
-  /** A picture or font of the work (asset id) as a URL you can use, or null. */
-  asset(id: string): Promise<string | null>;
+  /** A file of the work, by its path (assets/…), as a URL you can use, or null when there is none. */
+  asset(path: string): Promise<string | null>;
 }
 
 export interface Part<P extends PropSpecs = PropSpecs> {

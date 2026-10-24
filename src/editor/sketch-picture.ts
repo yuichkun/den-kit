@@ -1,9 +1,9 @@
-// The sketch as a picture (U8c). For the AI: the marks drawn over the view they
+// The sketch as a picture. For the AI: the marks drawn over the view they
 // were made on, numbered as on screen — the plugin re-drawn at its design size,
 // the patch as the person sees it (a shared screen) or drawn plainly (modules as
 // named boxes, cables as lines). Alone, without numbers: a picture to lay under
 // the plugin and build on.
-import { MAX_TOOL_IMAGE } from '../ai/protocol.ts';
+import { MAX_TOOL_IMAGE } from '../host/ai.ts';
 import { markBox, type Box, type Mark, type Point, type Target } from '../ai/sketch.ts';
 
 /** Where the view's coordinates land on the picture: picture = (view − origin) × k. */

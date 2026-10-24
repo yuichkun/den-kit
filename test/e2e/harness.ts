@@ -11,6 +11,7 @@ import {
   type Request,
 } from 'playwright';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
+import { SandboxServer } from '../../desktop/sandbox.ts';
 import { fakeCodex, type FakeCodex } from '../helpers/fake-codex.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 
@@ -59,7 +60,17 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       });
       await codex.client.start();
     }
-    bridge = await createBridge({ codex: codex?.client });
+    bridge = await createBridge({
+      codex: codex?.client,
+      // As in `vp run dev`: code parts load from each work's own origin on the bridge's port.
+      sandbox: new SandboxServer({
+        port: 0,
+        requireSecret: false,
+        content: () => null,
+        refused: () => undefined,
+      }),
+      sandboxControl: true,
+    });
     process.env.KIT_BRIDGE_TOKEN = bridge.token;
     process.env.KIT_BRIDGE_PORT = String(bridge.port);
   } else {
@@ -117,6 +128,7 @@ export async function openKit(
     /** Click the start overlay (starts audio) like a user would. Default true. */ start?: boolean;
     /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean;
     viewport?: { width: number; height: number };
+    /** The page to open: the development host (default) or another host's page, such as desktop.html. */ path?: string;
   } = {},
 ): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
@@ -159,7 +171,7 @@ export async function openKit(
   const query = options.startScreen
     ? (options.query ?? '')
     : `${options.query ? `${options.query}&` : '?'}noStart`;
-  await page.goto(h.url + query);
+  await page.goto(h.url + (options.path ?? '') + query);
   await page.waitForFunction(
     () => (window as unknown as { __kit?: unknown }).__kit !== undefined,
     null,

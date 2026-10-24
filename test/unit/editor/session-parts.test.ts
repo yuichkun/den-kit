@@ -3,8 +3,8 @@
 // AudioParams it stands for without recompiling, hearing one part alone.
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession } from '../../../src/editor/session.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { catalog } from '../../../src/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
 
 function makeSession() {
   const set: Array<[string, number]> = [];
@@ -20,6 +20,7 @@ function makeSession() {
       }) as never,
     engine: {
       setParam: (name: string, value: number) => set.push([name, value]),
+      setAssets() {},
       unload() {},
       running: false,
     } as never,

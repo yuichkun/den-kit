@@ -2,7 +2,7 @@ import { defineConfig, lazyPlugins } from 'vite-plus';
 import type { Plugin } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'esbuild';
-import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,7 +49,7 @@ function typeFiles() {
     'utf8',
   );
   for (const entry of readdirSync(join(core, 'dist')))
-    if (/\.d\.mts$/.test(entry))
+    if (entry.endsWith('.d.mts'))
       files[`/project/node_modules/@unworklet/core/dist/${entry}`] = readFileSync(
         join(core, 'dist', entry),
         'utf8',
@@ -62,6 +62,44 @@ function typeFiles() {
         'utf8',
       );
   return { files, packages: { '@unworklet/core': { version: pkg.version as string } } };
+}
+
+/**
+ * The player den-kit puts in a work's playable build: its own build (vite.player.config.ts, made by vp run build),
+ * served at /player/ by the dev server too, so a playable build can be made there.
+ */
+function builtPlayer(): Plugin {
+  const folder = join(kit, 'dist/player');
+  const TYPES: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.wasm': 'application/wasm',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+  };
+  return {
+    name: 'den-kit-built-player',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/player/', (req, res, next) => {
+        const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+        const file = join(folder, path);
+        if (!file.startsWith(`${folder}/`) || !existsSync(file) || !statSync(file).isFile()) {
+          next();
+          return;
+        }
+        res.setHeader(
+          'content-type',
+          TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream',
+        );
+        res.end(readFileSync(file));
+      });
+    },
+  };
 }
 
 function kitVirtual(): Plugin {
@@ -88,7 +126,7 @@ function kitVirtual(): Plugin {
       if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
       // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
       if (id === '\0virtual:kit-bridge')
-        return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null })};`;
+        return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null, port: bridgePort })};`;
       // The pod (BrowserPod) boots in the page, so its key goes to the page (.env, read by scripts/dev.ts) — only
       // from the dev server: a build never carries it. KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in).
       if (id === '\0virtual:kit-pod')
@@ -98,8 +136,8 @@ function kitVirtual(): Plugin {
 }
 
 const alias = [
-  // See src/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
-  { find: /^wavefile$/, replacement: join(kit, 'src/compile/wavefile-default.ts') },
+  // See src/sound/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
+  { find: /^wavefile$/, replacement: join(kit, 'src/sound/compile/wavefile-default.ts') },
 ];
 
 const ISOLATION = {
@@ -111,6 +149,7 @@ export default defineConfig({
   root: kit,
   plugins: lazyPlugins(() => [
     kitVirtual(),
+    builtPlayer(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
@@ -125,6 +164,7 @@ export default defineConfig({
     proxy: {
       '/__kit/ws': { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
       '/__kit/token': { target: `http://127.0.0.1:${bridgePort}` },
+      '/__kit/sandbox': { target: `http://127.0.0.1:${bridgePort}` },
     },
   },
   // Pre-bundle up front so the first visit does not trigger a reload.
@@ -145,7 +185,13 @@ export default defineConfig({
     rolldownOptions: { transform: { target: 'es2022' } },
   },
   preview: { headers: ISOLATION },
-  build: { target: 'es2022', chunkSizeWarningLimit: 20000, reportCompressedSize: false },
+  build: {
+    target: 'es2022',
+    chunkSizeWarningLimit: 20000,
+    reportCompressedSize: false,
+    // The desktop app's page; index.html is the development host, served by `vp run dev` only.
+    rolldownOptions: { input: { desktop: join(kit, 'desktop.html') } },
+  },
   test: {
     projects: [
       {

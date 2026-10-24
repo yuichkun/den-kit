@@ -72,7 +72,7 @@ const arrow = computed(() => {
   cursor: pointer;
 }
 .shade {
-  stroke: #000;
+  stroke: var(--gray-0);
   stroke-opacity: 0.55;
   stroke-width: 5.5;
   fill: none;
@@ -90,7 +90,7 @@ const arrow = computed(() => {
   filter: drop-shadow(0 0 4px currentColor);
 }
 .selected .shade {
-  stroke: #fff;
+  stroke: var(--gray-19);
   stroke-opacity: 0.5;
   stroke-width: 7;
 }
@@ -101,7 +101,7 @@ const arrow = computed(() => {
   stroke-width: 10;
 }
 .thick .core {
-  stroke: #000;
+  stroke: var(--gray-0);
   stroke-opacity: 0.45;
   stroke-width: 1.6;
   fill: none;
@@ -118,7 +118,7 @@ const arrow = computed(() => {
     sans-serif;
   pointer-events: none;
   paint-order: stroke;
-  stroke: #1b1b1b;
+  stroke: var(--gray-3);
   stroke-width: 3px;
 }
 </style>

@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { accountActions, accountStatus, settingsError } from '../../../src/desktop/presentation.ts';
-import type { DesktopInfo } from '../../../src/desktop/api.ts';
+import {
+  accountActions,
+  accountStatus,
+  settingsError,
+} from '../../../src/editor/settings-presentation.ts';
+import type { AIAccountInfo } from '../../../src/host/ai.ts';
 
 const account = (
-  login: DesktopInfo['login'],
-  state: DesktopInfo['codex']['state'],
+  login: AIAccountInfo['login'],
+  state: AIAccountInfo['codex']['state'],
   signedIn = false,
-) => ({ login, codex: { state }, chatGPTSignedIn: signedIn, aiBusy: false });
+) => ({ login, codex: { state }, signedIn, aiBusy: false });
 
 describe('ChatGPT account presentation', () => {
   it.each(['starting', 'waiting', 'checking', 'canceling'] as const)(

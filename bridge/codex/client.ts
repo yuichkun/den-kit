@@ -1,14 +1,16 @@
 // The bridge's Codex app-server client. One app-server process for the whole
-// bridge; one ephemeral thread per conversation; one turn per LLM request.
+// bridge; one saved thread per conversation (Codex keeps it in CODEX_HOME, and a
+// later request opens it again by its id); one turn per LLM request.
 //
 // Lifecycle: start → initialize → account/read → model/list → ok. Not signed in
 // → `login` (the client watches CODEX_HOME/auth.json and restarts when it
 // appears). The process exiting → every running request fails with a clear
 // message and the process restarts with backoff.
 //
-// Every server request is answered (an unanswered one stalls the turn): kit_*
-// tool calls go to the browser that owns the turn (with a deadline), requests
+// Every server request is answered (an unanswered one stalls the turn): requests
 // for powers den-kit never grants are declined, anything unknown gets an error.
+// kit_* tool calls arrive through den-kit's MCP server (mcpCall) and go to the
+// browser that owns the turn (with a deadline).
 import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
@@ -16,12 +18,13 @@ import type {
   LlmError,
   LlmEvent,
   LlmQuestion,
-  LlmRole,
+  ConversationLine,
   TokenUsage,
   ToolOutput,
-} from '../../src/ai/protocol.ts';
+} from '../protocol.ts';
 import { toolDeadlineMs, toolsFor, type ToolSpec } from '../../src/ai/llm-spec.ts';
 import type { Telemetry } from '../telemetry.ts';
+import { MCP_TOKEN_ENV } from '../mcp.ts';
 import { RpcClosed, RpcError, RpcPeer, RpcTimeout } from './rpc.ts';
 import {
   codexHome,
@@ -40,8 +43,6 @@ import {
   RPC_METHOD_NOT_FOUND,
   explainCodexError,
   type AgentMessageDeltaNotification,
-  type DynamicToolCallParams,
-  type DynamicToolCallResponse,
   type ErrorNotification,
   type GetAccountRateLimitsResponse,
   type GetAccountResponse,
@@ -57,7 +58,8 @@ import {
   type ThreadStartParams,
   type ThreadStartResponse,
   type ToolRequestUserInputParams,
-  type ThreadForkParams,
+  type ThreadResumeParams,
+  type ThreadItemsListResponse,
   type ThreadTokenUsageUpdatedNotification,
   type TokenUsageBreakdown,
   type TurnError,
@@ -66,10 +68,13 @@ import {
   type UserInput,
 } from './protocol.ts';
 
-/** Where one request's progress goes (the bridge forwards it to the browser tab that asked). */
+/**
+ * Where one request's progress goes (the bridge forwards it to the browser tab that asked). `agent`: the
+ * sub-agent an event is about or that made a call (none: the request's own AI).
+ */
 export interface TurnSink {
-  event(event: LlmEvent): void;
-  toolCall(call: { callId: string; tool: string; args: unknown }): void;
+  event(event: LlmEvent, agent?: string): void;
+  toolCall(call: { callId: string; tool: string; args: unknown; agent?: string }): void;
 }
 
 export interface CodexClientOptions {
@@ -83,10 +88,8 @@ export interface CodexClientOptions {
   model?: string;
   /** KIT_CODEX_EFFORT (low, medium, high, …); default: the model's own. */
   effort?: string;
-  /** Tools registered on every thread instead of each role's own (doctor --deep uses a ping tool). */
-  tools?: ToolSpec[];
-  /** KIT_CODEX_FORK=1: a member asked for the lead's whole conversation starts from a copy of it (thread/fork); otherwise from den-kit's account of it. */
-  fork?: boolean;
+  /** den-kit's MCP server, where its tools are (the bridge sets it before Codex starts). */
+  mcp?: { url: string; token: string };
   telemetry?: Telemetry;
   log?: (line: string) => void;
   /** Every JSON-RPC line in and out (doctor --deep records the real conversation). */
@@ -98,7 +101,7 @@ export interface CodexClientOptions {
   loginTimeoutMs?: number;
   /** Desktop UI supplies its own sign-in instructions instead of a terminal command. */
   loginInstruction?: string;
-  /** Turns running at once across the bridge (a lead and its members count each). */
+  /** Turns running at once across the bridge (requests from several windows). */
   maxTurns?: number;
 }
 interface Timeouts {
@@ -120,7 +123,6 @@ interface ThreadState {
   id: string;
   turn: TurnState | null;
   generation: number;
-  /** The kit_* tools this conversation has. */ tools: Set<string>;
 }
 interface TurnState {
   retryTimer: ReturnType<typeof setTimeout> | null;
@@ -130,19 +132,46 @@ interface TurnState {
   thread: ThreadState | null;
   turnId: string | null;
   started: number;
+  /** Codex said the turn started (turn/started): only then can it be interrupted. */
+  begun: boolean;
   stopRequested: boolean;
   interruptSent: boolean;
   stopReason?: string;
-  steers: Array<{ key: string; text: string; images?: string[]; sink: TurnSink }>;
+  steers: Array<{
+    key: string;
+    text: string;
+    context?: string;
+    images?: string[];
+    sink: TurnSink;
+  }>;
+  /** Tool calls waiting for the tab, answered through `answer` (the MCP request waits for it). */
   calls: Map<
     string,
-    { rpcId: RequestId; timer: ReturnType<typeof setTimeout>; tool: string; args: unknown }
+    {
+      answer: (output: ToolOutput) => void;
+      timer: ReturnType<typeof setTimeout>;
+      tool: string;
+      args: unknown;
+      agent?: string;
+    }
   >;
+  /** The sub-agents the runtime started in this request, by their conversation's id. */
+  agents: Set<string>;
   questions: Set<string>;
   error: TurnError | null;
   tools: number;
   done: boolean;
   settleTimer: ReturnType<typeof setTimeout> | null;
+}
+/** A sub-agent the runtime started inside a request: a conversation of its own, with its own turn. */
+interface SubAgent {
+  id: string;
+  name: string;
+  turn: TurnState;
+  turnId: string | null;
+  begun: boolean;
+  ended: boolean;
+  interruptSent: boolean;
 }
 interface Question {
   key: string;
@@ -151,54 +180,73 @@ interface Question {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-/** Features that would give the model powers den-kit does not want (checked against the real 0.160.1 server). */
-export const THREAD_CONFIG = {
-  web_search: 'disabled',
-  features: Object.fromEntries(
-    [
-      'apps',
-      'browser_use',
-      'computer_use',
-      'goals',
-      'hooks',
-      'image_generation',
-      'in_app_browser',
-      'memories',
-      'multi_agent',
-      'plugins',
-      'remote_plugin',
-      'shell_tool',
-      'skill_search',
-      'sleep_tool',
-      'tool_suggest',
-      'unified_exec',
-      'view_image',
-    ].map(k => [k, false]),
-  ),
-};
+/** Conversations of one request running at once: its own and its sub-agents'. */
+export const MAX_AGENT_THREADS = 4;
+/** How long Codex waits for one of den-kit's tools: a command may run 10 minutes after the pod starts. */
+const MCP_TOOL_TIMEOUT_S = 21 * 60;
 
-/** The thread den-kit asks for: ephemeral, no environment (no shell, no files), read-only, never asks for approval, only kit_* tools. */
+/**
+ * The config of every conversation: web search on Codex's side, sub-agents with a limit, den-kit's tools from
+ * its MCP server (approved there: den-kit checks every call itself), and the features that would give the
+ * model powers den-kit does not want off (checked against the real 0.160.1 server).
+ */
+export function threadConfig(mcp?: { url: string } | null) {
+  return {
+    web_search: 'live',
+    features: { ...FEATURES_OFF, multi_agent: true },
+    agents: { max_concurrent_threads_per_session: MAX_AGENT_THREADS },
+    ...(mcp
+      ? {
+          mcp_servers: {
+            'den-kit': {
+              url: mcp.url,
+              bearer_token_env_var: MCP_TOKEN_ENV,
+              required: true,
+              tool_timeout_sec: MCP_TOOL_TIMEOUT_S,
+              default_tools_approval_mode: 'approve',
+            },
+          },
+        }
+      : {}),
+  };
+}
+const FEATURES_OFF: Record<string, boolean> = Object.fromEntries(
+  [
+    'apps',
+    'browser_use',
+    'computer_use',
+    'goals',
+    'hooks',
+    'image_generation',
+    'in_app_browser',
+    'memories',
+    'plugins',
+    'remote_plugin',
+    'shell_tool',
+    'skill_search',
+    'sleep_tool',
+    'tool_suggest',
+    'unified_exec',
+    'view_image',
+  ].map(k => [k, false]),
+);
+
+/** The thread den-kit asks for: saved, no environment (no shell, no files), read-only, never asks for approval, its tools from `mcp`. */
 export function threadStartParams(options: {
   model?: string | null;
   cwd: string;
   instructions: string;
-  tools: ToolSpec[];
+  mcp?: { url: string } | null;
 }): ThreadStartParams {
   return {
     ...(options.model ? { model: options.model } : {}),
     cwd: options.cwd,
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    ephemeral: true,
+    ephemeral: false,
     environments: [],
-    config: THREAD_CONFIG,
+    config: threadConfig(options.mcp),
     developerInstructions: options.instructions,
-    dynamicTools: options.tools.map(t => ({
-      type: 'function',
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
   };
 }
 
@@ -207,29 +255,38 @@ export const text = (value: string): UserInput => ({
   text: value,
   text_elements: [],
 });
-/** A request's input: its text, then its pictures (data: URLs). */
-export const userInput = (value: string, images?: readonly string[]): UserInput[] => [
+/**
+ * A request's input: den-kit's notes about the moment (when there are any), the person's words, then
+ * their pictures (data: URLs). The words are an input of their own, so a conversation read back later
+ * shows what the person said.
+ */
+export const userInput = (
+  value: string,
+  images?: readonly string[],
+  context?: string,
+): UserInput[] => [
+  ...(context ? [text(context)] : []),
   text(value),
   ...(images ?? []).map((url): UserInput => ({ type: 'image', url })),
 ];
-/** Turns running at once across the bridge: a lead and up to three members, or a few separate requests. */
+/** Turns running at once across the bridge (separate requests, from different windows). */
 export const MAX_TURNS = 4;
 
-/** A member's copy of the lead's conversation: the same isolation as a new thread (no shell, no files, no approvals), the member's rules. */
-export function forkParams(options: {
+/** Opening a saved conversation again: the same isolation as a new one (no shell, no files, no approvals). */
+export function resumeParams(options: {
   threadId: string;
   model?: string | null;
   cwd: string;
   instructions: string;
-}): ThreadForkParams {
+  mcp?: { url: string } | null;
+}): ThreadResumeParams {
   return {
     threadId: options.threadId,
     ...(options.model ? { model: options.model } : {}),
     cwd: options.cwd,
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    ephemeral: true,
-    config: THREAD_CONFIG,
+    config: threadConfig(options.mcp),
     developerInstructions: options.instructions,
   };
 }
@@ -244,10 +301,11 @@ function tokens(b: TokenUsageBreakdown): TokenUsage {
     total: count(b.totalTokens),
   };
 }
-const failure = (message: string): DynamicToolCallResponse => ({
-  contentItems: [{ type: 'inputText', text: message }],
-  success: false,
-});
+const failure = (message: string): ToolOutput => ({ success: false, text: message });
+
+/** A sub-agent's name: the last part of its path (/root/sound → sound). */
+const agentName = (path: unknown) =>
+  (typeof path === 'string' ? path.split('/').filter(Boolean).at(-1) : undefined) || 'sub-agent';
 
 export function describeRpcError(error: unknown): string {
   if (error instanceof RpcTimeout || error instanceof RpcClosed) return error.message;
@@ -271,12 +329,11 @@ export class CodexClient {
   private threads = new Map<string, ThreadState>();
   private turns = new Map<string, TurnState>();
   private calls = new Map<string, TurnState>();
+  private agents = new Map<string, SubAgent>();
   private questions = new Map<string, Question>();
   private serial = 0;
   readonly home: { path: string; isolated: boolean };
   readonly workdir: string;
-  /** Tools that replace each role's own (doctor --deep). */
-  private readonly toolOverride: ToolSpec[] | null;
   private readonly options: CodexClientOptions;
   private readonly timeouts: Timeouts;
   private readonly restartPolicy: { baseMs: number; maxMs: number; maxFailures: number };
@@ -315,7 +372,6 @@ export class CodexClient {
     this.home = options.home ?? codexHome(options.kitRoot, env);
     if (existsSync(this.cancellationFile)) this.pendingCancellation = { state: 'idle' };
     this.workdir = options.workdir ?? codexWorkdir(options.kitRoot);
-    this.toolOverride = options.tools ?? null;
     this.timeouts = {
       retryMs: 30000,
       idleMs: 180000,
@@ -529,13 +585,12 @@ export class CodexClient {
     await this.peer.request('account/logout', undefined, { timeoutMs: this.timeouts.requestMs });
     await this.retry();
   }
-  async configure(settings: { model: string; effort: string; fork: boolean }) {
+  async configure(settings: { model: string; effort: string }) {
     if (this.busy) throw new Error('Finish the current AI request before changing settings.');
     if (this.signingIn || this.canceling || this.pendingCancellation)
       throw new Error('Complete or cancel ChatGPT sign-in before changing settings.');
     this.options.model = settings.model || undefined;
     this.options.effort = settings.effort || undefined;
-    this.options.fork = settings.fork;
     await this.retry();
   }
   onStatus(listener: (status: CodexStatus) => void) {
@@ -755,17 +810,21 @@ export class CodexClient {
       this.setStatus({
         state: 'error',
         detail: `Codex ${command.version} is installed; den-kit is pinned to ${CODEX_VERSION}.`,
-        fix: 'Run `npm ci` from the repo root.',
+        fix: 'Run `vp install --frozen-lockfile` from the repo root.',
       });
       return;
     }
     const started = Date.now();
     let proc: AppServerProcess;
     try {
+      // The MCP token lives only in Codex's environment (its config names the variable).
+      const mcp = this.options.mcp;
       proc = spawnAppServer(command, {
         home: this.home.path,
         cwd: this.workdir,
-        env: this.options.env,
+        env: mcp
+          ? { ...(this.options.env ?? process.env), [MCP_TOKEN_ENV]: mcp.token }
+          : this.options.env,
       });
     } catch (error) {
       this.setStatus({
@@ -992,7 +1051,7 @@ export class CodexClient {
       this.setStatus({
         state: 'error',
         detail: `${detail}${last ? ` (${last.slice(0, 160)})` : ''}`,
-        fix: 'Run `npm run doctor` to see why, then click the Codex status to retry.',
+        fix: 'Run `vp run doctor` to see why, then click the Codex status to retry.',
       });
       return;
     }
@@ -1029,7 +1088,7 @@ export class CodexClient {
 
   /** End every running request and forget every thread (they belong to a process that is gone). */
   private failAll(error: LlmError) {
-    for (const turn of [...this.turns.values()]) this.finish(turn, 'failed', error);
+    for (const turn of Array.from(this.turns.values())) this.finish(turn, 'failed', error);
     for (const q of this.questions.values()) if (q.timer) clearTimeout(q.timer);
     this.questions.clear();
     this.threads.clear();
@@ -1046,19 +1105,17 @@ export class CodexClient {
   }
 
   /**
-   * Start a turn (in a new thread, or continuing `thread`). Progress and the final `done` go to `sink`.
-   * `role` picks the new thread's tools; `images` come with the text; `fork` starts a member from a copy
-   * of the lead's conversation (KIT_CODEX_FORK=1), or else from a new one that begins with `fallback`.
+   * Start a turn (in a new thread, or going on with the saved `thread`). Progress and the final `done` go to
+   * `sink`. `context` (den-kit's notes) and `images` come with the person's text.
    */
   startTurn(
     request: {
       key: string;
       text: string;
+      context?: string;
       thread?: string;
       instructions: string;
-      role?: LlmRole;
       images?: string[];
-      fork?: { thread: string; fallback: string };
     },
     sink: TurnSink,
   ) {
@@ -1087,10 +1144,12 @@ export class CodexClient {
       thread: null,
       turnId: null,
       started,
+      begun: false,
       stopRequested: false,
       interruptSent: false,
       steers: [],
       calls: new Map(),
+      agents: new Set(),
       questions: new Set(),
       error: null,
       tools: 0,
@@ -1103,43 +1162,39 @@ export class CodexClient {
     this.stats.turns++;
     void (async () => {
       try {
-        let input = request.text;
-        if (!thread) {
-          const tools = this.toolOverride ?? toolsFor(request.role);
-          const source = request.fork ? this.threads.get(request.fork.thread) : undefined;
-          let forked: boolean | undefined;
-          let r: ThreadStartResponse | null = null;
-          if (request.fork) {
-            forked = false;
-            if (this.options.fork && source) {
-              try {
-                r = await peer.request<ThreadStartResponse>(
-                  'thread/fork',
-                  forkParams({
-                    threadId: source.id,
-                    model: this.modelId,
-                    cwd: this.workdir,
-                    instructions: request.instructions,
-                  }),
-                  { timeoutMs: this.timeouts.requestMs },
-                );
-                forked = true;
-              } catch (error) {
-                this.log(
-                  `codex: thread/fork failed (${describeRpcError(error)}); the member starts from den-kit's account of the conversation`,
-                );
-                this.record('fork-failed', { message: describeRpcError(error) });
-              }
-            }
-            if (!forked) input = `${request.fork.fallback}\n\n${request.text}`;
+        // A saved conversation that is not open here (the app restarted): open it again.
+        if (!thread && request.thread) {
+          try {
+            const r = await peer.request<ThreadStartResponse>(
+              'thread/resume',
+              resumeParams({
+                threadId: request.thread,
+                model: this.modelId,
+                cwd: this.workdir,
+                instructions: request.instructions,
+                mcp: this.options.mcp,
+              }),
+              { timeoutMs: this.timeouts.requestMs },
+            );
+            thread = { id: r.thread.id, turn: null, generation: this.generation };
+            this.threads.set(thread.id, thread);
+            sink.event({ kind: 'thread', thread: thread.id, fresh: false });
+          } catch (error) {
+            this.log(
+              `codex: thread/resume failed (${describeRpcError(error)}); a new conversation starts`,
+            );
+            this.record('resume-failed', { message: describeRpcError(error) });
           }
-          r ??= await peer.request<ThreadStartResponse>(
+          if (turn.done) return;
+        }
+        if (!thread) {
+          const r = await peer.request<ThreadStartResponse>(
             'thread/start',
             threadStartParams({
               model: this.modelId,
               cwd: this.workdir,
               instructions: request.instructions,
-              tools,
+              mcp: this.options.mcp,
             }),
             { timeoutMs: this.timeouts.requestMs },
           );
@@ -1153,13 +1208,7 @@ export class CodexClient {
               .catch(() => {});
             return;
           }
-          // A copy keeps the lead's tools (lead tools too: den-kit refuses those from a member).
-          thread = {
-            id: r.thread.id,
-            turn: null,
-            generation: this.generation,
-            tools: new Set(forked && source ? [...source.tools] : tools.map(t => t.name)),
-          };
+          thread = { id: r.thread.id, turn: null, generation: this.generation };
           this.threads.set(thread.id, thread);
           if (r.instructionSources?.length) {
             this.log(`codex: instruction files were loaded: ${r.instructionSources.join(', ')}`);
@@ -1170,12 +1219,7 @@ export class CodexClient {
               detail: `Codex also loaded ${r.instructionSources.length} instruction file(s) from CODEX_HOME.`,
             });
           }
-          sink.event({
-            kind: 'thread',
-            thread: thread.id,
-            fresh: !!request.thread,
-            ...(forked !== undefined ? { forked } : {}),
-          });
+          sink.event({ kind: 'thread', thread: thread.id, fresh: !!request.thread });
         }
         if (turn.stopRequested) {
           this.finish(turn, 'interrupted');
@@ -1189,7 +1233,7 @@ export class CodexClient {
           'turn/start',
           {
             threadId: thread.id,
-            input: userInput(input, request.images),
+            input: userInput(request.text, request.images, request.context),
             ...(effort ? { effort } : {}),
           },
           { timeoutMs: this.timeouts.requestMs },
@@ -1208,7 +1252,10 @@ export class CodexClient {
   }
 
   /** Add text (and pictures) to a running request's turn. The steer request ends with `steered`, or a failed `done` (then send it as a new request). */
-  steer(request: { key: string; target: string; text: string; images?: string[] }, sink: TurnSink) {
+  steer(
+    request: { key: string; target: string; text: string; context?: string; images?: string[] },
+    sink: TurnSink,
+  ) {
     const turn = this.turns.get(request.target);
     if (!turn || turn.done || turn.stopRequested || !this.peer) {
       sink.event({
@@ -1219,7 +1266,13 @@ export class CodexClient {
       });
       return;
     }
-    const steer = { key: request.key, text: request.text, images: request.images, sink };
+    const steer = {
+      key: request.key,
+      text: request.text,
+      context: request.context,
+      images: request.images,
+      sink,
+    };
     if (!turn.turnId) {
       turn.steers.push(steer);
       return;
@@ -1229,7 +1282,7 @@ export class CodexClient {
 
   private sendSteer(
     turn: TurnState,
-    steer: { key: string; text: string; images?: string[]; sink: TurnSink },
+    steer: { key: string; text: string; context?: string; images?: string[]; sink: TurnSink },
   ) {
     const peer = this.peer;
     if (!peer || !turn.thread || !turn.turnId || turn.done) {
@@ -1246,7 +1299,7 @@ export class CodexClient {
         'turn/steer',
         {
           threadId: turn.thread.id,
-          input: userInput(steer.text, steer.images),
+          input: userInput(steer.text, steer.images, steer.context),
           expectedTurnId: turn.turnId,
         },
         { timeoutMs: this.timeouts.requestMs },
@@ -1269,14 +1322,18 @@ export class CodexClient {
     turn.stopRequested = true;
     this.clearTurnWait(turn);
     turn.stopReason = reason;
-    // Answer waiting tool calls first: stdin is ordered, so Codex sees these replies before the interrupt.
     for (const [callId, call] of turn.calls) {
       clearTimeout(call.timer);
       this.calls.delete(callId);
-      this.peer?.respond(call.rpcId, failure('The user stopped this request.'));
+      call.answer(failure('The user stopped this request.'));
     }
     turn.calls.clear();
-    if (turn.turnId) this.interrupt(turn);
+    // The request's own turn and each sub-agent's: interrupting one does not stop the others.
+    this.interrupt(turn);
+    for (const id of turn.agents) {
+      const agent = this.agents.get(id);
+      if (agent) this.interruptAgent(agent);
+    }
     turn.settleTimer = setTimeout(() => {
       if (turn.done) return;
       // Codex did not confirm: do not reuse the thread (a new turn/start would steer the old turn).
@@ -1287,7 +1344,7 @@ export class CodexClient {
   }
 
   private interrupt(turn: TurnState) {
-    if (turn.interruptSent || !turn.thread || !turn.turnId || !this.peer) return;
+    if (turn.interruptSent || !turn.thread || !turn.turnId || !turn.begun || !this.peer) return;
     turn.interruptSent = true;
     // Never awaited for flow: interrupting a turn that has just ended can take ~10 s to answer.
     this.peer
@@ -1297,6 +1354,18 @@ export class CodexClient {
         { timeoutMs: this.timeouts.interruptMs },
       )
       .catch(error => this.log(`codex: turn/interrupt: ${describeRpcError(error)}`));
+  }
+
+  private interruptAgent(agent: SubAgent) {
+    if (agent.ended || agent.interruptSent || !agent.begun || !agent.turnId || !this.peer) return;
+    agent.interruptSent = true;
+    this.peer
+      .request(
+        'turn/interrupt',
+        { threadId: agent.id, turnId: agent.turnId },
+        { timeoutMs: this.timeouts.interruptMs },
+      )
+      .catch(error => this.log(`codex: turn/interrupt (sub-agent): ${describeRpcError(error)}`));
   }
 
   /** The answer to a Codex question (item/tool/requestUserInput). `owner` limits it to the asking tab's requests. */
@@ -1328,30 +1397,119 @@ export class CodexClient {
     this.calls.delete(callId);
     turn.calls.delete(callId);
     clearTimeout(call.timer);
-    const content: DynamicToolCallResponse['contentItems'] = [
-      { type: 'inputText', text: output.text || (output.success ? 'OK' : 'Failed.') },
-    ];
-    if (output.imageDataUrl && this.statusValue.images)
-      content.push({ type: 'inputImage', imageUrl: output.imageDataUrl });
-    this.peer?.respond(call.rpcId, {
-      contentItems: content,
+    call.answer({
       success: output.success,
-    } satisfies DynamicToolCallResponse);
+      text: output.text || (output.success ? 'OK' : 'Failed.'),
+      // Pictures go only to a model that takes them.
+      ...(output.imageDataUrl && this.statusValue.images
+        ? { imageDataUrl: output.imageDataUrl }
+        : {}),
+    });
     this.armIdleWait(turn);
     return true;
   }
 
   /** Tool calls still waiting for the browser (re-sent after the tab reconnects). */
-  pendingToolCalls(key: string): Array<{ callId: string; tool: string; args: unknown }> {
+  pendingToolCalls(
+    key: string,
+  ): Array<{ callId: string; tool: string; args: unknown; agent?: string }> {
     const turn = this.turns.get(key);
     return turn
-      ? [...turn.calls].map(([callId, c]) => ({ callId, tool: c.tool, args: c.args }))
+      ? [...turn.calls].map(([callId, c]) => ({
+          callId,
+          tool: c.tool,
+          args: c.args,
+          ...(c.agent ? { agent: c.agent } : {}),
+        }))
       : [];
+  }
+
+  /** den-kit's tools, as its MCP server offers them. */
+  tools(): ToolSpec[] {
+    return toolsFor();
+  }
+
+  /** Where den-kit's MCP server is; a change restarts Codex, which reads the token at start. */
+  useMcp(mcp: { url: string; token: string }) {
+    const changed = this.options.mcp?.url !== mcp.url || this.options.mcp?.token !== mcp.token;
+    this.options.mcp = mcp;
+    if (changed && this.peer) void this.retry();
+  }
+
+  /**
+   * One of den-kit's tools, called through MCP by the agent whose conversation is `thread`: the request's own
+   * AI or one of its sub-agents. It runs in the tab that started the request; the answer goes back to MCP.
+   */
+  mcpCall(thread: string | undefined, tool: string, args: unknown): Promise<ToolOutput> {
+    const agent = thread ? this.agents.get(thread) : undefined;
+    const turn = agent ? agent.turn : thread ? this.turnOf(thread) : null;
+    if (!turn || turn.done || agent?.ended)
+      return Promise.resolve(failure('This request is over; the tool was not run.'));
+    if (turn.stopRequested)
+      return Promise.resolve(failure('The user stopped this request; do not continue.'));
+    this.progress(turn);
+    const names = this.tools().map(t => t.name);
+    if (!names.includes(tool))
+      return Promise.resolve(failure(`Unknown tool "${tool}". Use only: ${names.join(', ')}.`));
+    const callId = `call-${++this.serial}`;
+    turn.tools++;
+    this.stats.toolCalls++;
+    return new Promise<ToolOutput>(answer => {
+      const timer = setTimeout(
+        () => {
+          if (!turn.calls.has(callId)) return;
+          turn.calls.delete(callId);
+          this.calls.delete(callId);
+          answer(failure('den-kit did not answer in time (is the editor tab still open?).'));
+          this.stopTurn(turn.key, 'The editor did not answer a tool call in time.');
+        },
+        toolDeadlineMs(tool, args, this.timeouts.toolMs),
+      );
+      timer.unref?.();
+      const by = agent ? { agent: agent.id } : {};
+      turn.calls.set(callId, { answer, timer, tool, args, ...by });
+      this.calls.set(callId, turn);
+      turn.sink.toolCall({ callId, tool, args, ...by });
+    });
   }
 
   /** Whether a request is still running. */
   running(key: string) {
     return this.turns.has(key);
+  }
+
+  /** What was said in a saved conversation (the person's words and the AI's messages); null when it cannot be read. */
+  async conversation(threadId: string): Promise<ConversationLine[] | null> {
+    const peer = this.peer;
+    if (!this.ready || !peer) return null;
+    const lines: ConversationLine[] = [];
+    try {
+      let cursor: string | null = null;
+      for (let page = 0; page < 50; page++) {
+        const r: ThreadItemsListResponse = await peer.request<ThreadItemsListResponse>(
+          'thread/items/list',
+          { threadId, cursor, limit: 200 },
+          { timeoutMs: this.timeouts.requestMs },
+        );
+        for (const { item } of r.data) {
+          if (item.type === 'userMessage') {
+            // The person's words are the last text input (den-kit's notes come first).
+            const texts = ((item.content as UserInput[] | undefined) ?? []).filter(
+              (c): c is Extract<UserInput, { type: 'text' }> => c.type === 'text',
+            );
+            const words = texts.at(-1)?.text;
+            if (words) lines.push({ who: 'person', text: words });
+          } else if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text)
+            lines.push({ who: 'ai', text: item.text });
+        }
+        cursor = r.nextCursor;
+        if (!cursor) break;
+      }
+      return lines;
+    } catch (error) {
+      this.log(`codex: thread/items/list failed (${describeRpcError(error)})`);
+      return null;
+    }
   }
 
   /** Forget a conversation (new patch, or the tab went away). */
@@ -1389,8 +1547,15 @@ export class CodexClient {
     for (const [callId, call] of turn.calls) {
       clearTimeout(call.timer);
       this.calls.delete(callId);
+      call.answer(failure('This request is over; the tool was not run.'));
     }
     turn.calls.clear();
+    // Its sub-agents end with it.
+    for (const id of turn.agents) {
+      const agent = this.agents.get(id);
+      if (agent) this.interruptAgent(agent);
+      this.agents.delete(id);
+    }
     for (const key of turn.questions) {
       const q = this.questions.get(key);
       if (q?.timer) clearTimeout(q.timer);
@@ -1417,7 +1582,7 @@ export class CodexClient {
     turn.sink.event({ kind: 'done', status, ...(error ? { error } : {}), ms });
   }
 
-  /** KIT_CODEX_EFFORT, except "ultra": that turns on Codex's own sub-agents, and den-kit runs its own members. */
+  /** KIT_CODEX_EFFORT, except "ultra": that runs sub-agents by Codex's own rules, outside den-kit's limits. */
   private effort(): string | undefined {
     const effort = this.options.effort?.trim();
     if (!effort) return undefined;
@@ -1425,7 +1590,7 @@ export class CodexClient {
       if (!this.warnedUltra) {
         this.warnedUltra = true;
         this.log(
-          "codex: KIT_CODEX_EFFORT=ultra is not sent (it starts Codex's own sub-agents; den-kit has its own members). Using the model's default effort.",
+          "codex: KIT_CODEX_EFFORT=ultra is not sent (it runs sub-agents by Codex's own rules, outside den-kit's limits). Using the model's default effort.",
         );
       }
       return undefined;
@@ -1495,15 +1660,110 @@ export class CodexClient {
     return typeof threadId === 'string' ? (this.threads.get(threadId)?.turn ?? null) : null;
   }
 
+  /** The request's AI started a sub-agent, or one finished (subAgentActivity items on the request's conversation). */
+  private subAgentActivity(turn: TurnState, item: Record<string, unknown>) {
+    const id = item.agentThreadId;
+    if (typeof id !== 'string' || !id) return;
+    const known = this.agents.get(id);
+    if (item.kind === 'started' && !known) {
+      const agent: SubAgent = {
+        id,
+        name: agentName(item.agentPath),
+        turn,
+        turnId: null,
+        begun: false,
+        ended: false,
+        interruptSent: false,
+      };
+      this.agents.set(id, agent);
+      turn.agents.add(id);
+      this.record('sub-agent', { key: turn.key, agent: id, name: agent.name });
+      turn.sink.event({ kind: 'agent', agent: id, name: agent.name, state: 'started' }, id);
+    } else if (known && (item.kind === 'completed' || item.kind === 'interrupted'))
+      this.endAgent(known, item.kind);
+  }
+
+  private endAgent(agent: SubAgent, status: 'completed' | 'interrupted' | 'failed') {
+    if (agent.ended) return;
+    agent.ended = true;
+    agent.turn.sink.event(
+      { kind: 'agent', agent: agent.id, name: agent.name, state: 'ended', status },
+      agent.id,
+    );
+  }
+
+  /** What happens in a sub-agent's own conversation: its turn, its messages, its tokens. */
+  private onAgentNotification(agent: SubAgent, method: string, p: Record<string, unknown>) {
+    const turn = agent.turn;
+    if (turn.done) return;
+    switch (method) {
+      case 'turn/started': {
+        const id = (p as unknown as TurnNotification).turn?.id;
+        if (!id) return;
+        agent.turnId = id;
+        agent.begun = true;
+        // Esc before the sub-agent started: stop it now.
+        if (turn.stopRequested) this.interruptAgent(agent);
+        return;
+      }
+      case 'turn/completed': {
+        const n = p as unknown as TurnNotification;
+        if (agent.turnId && n.turn?.id && n.turn.id !== agent.turnId) return;
+        this.progress(turn);
+        this.endAgent(
+          agent,
+          n.turn?.status === 'interrupted'
+            ? 'interrupted'
+            : n.turn?.status === 'failed'
+              ? 'failed'
+              : 'completed',
+        );
+        return;
+      }
+      case 'item/started': {
+        this.progress(turn);
+        if ((p as unknown as ItemNotification).item?.type === 'reasoning')
+          turn.sink.event({ kind: 'activity', what: 'thinking' }, agent.id);
+        return;
+      }
+      case 'item/completed': {
+        this.progress(turn);
+        const item = (p as unknown as ItemNotification).item as { type?: string; text?: unknown };
+        if (item?.type === 'agentMessage' && typeof item.text === 'string')
+          turn.sink.event({ kind: 'message', text: item.text }, agent.id);
+        return;
+      }
+      case 'item/agentMessage/delta':
+      case 'item/reasoning/summaryTextDelta':
+      case 'item/reasoning/textDelta':
+        this.progress(turn);
+        return;
+      case 'thread/tokenUsage/updated': {
+        const n = p as unknown as ThreadTokenUsageUpdatedNotification;
+        if (n.tokenUsage?.total && n.tokenUsage.last)
+          turn.sink.event(
+            {
+              kind: 'usage',
+              total: tokens(n.tokenUsage.total),
+              last: tokens(n.tokenUsage.last),
+              window:
+                typeof n.tokenUsage.modelContextWindow === 'number'
+                  ? n.tokenUsage.modelContextWindow
+                  : null,
+            },
+            agent.id,
+          );
+        return;
+      }
+    }
+  }
+
   private onRequest(peer: RpcPeer, request: RpcRequest) {
     if (peer !== this.peer) return;
     const params = (
       request.params && typeof request.params === 'object' ? request.params : {}
     ) as Record<string, unknown>;
     switch (request.method) {
-      case 'item/tool/call':
-        this.onToolCall(peer, request.id, params as unknown as DynamicToolCallParams);
-        return;
       case 'item/tool/requestUserInput':
         this.onQuestion(peer, request.id, params as unknown as ToolRequestUserInputParams);
         return;
@@ -1540,52 +1800,6 @@ export class CodexClient {
     );
   }
 
-  private onToolCall(peer: RpcPeer, rpcId: RequestId, params: DynamicToolCallParams) {
-    const turn = this.turnOf(params.threadId);
-    if (!turn || turn.done || (turn.turnId && params.turnId !== turn.turnId)) {
-      peer.respond(rpcId, failure('This request is over; the tool was not run.'));
-      return;
-    }
-    if (turn.stopRequested) {
-      peer.respond(rpcId, failure('The user stopped this request; do not continue.'));
-      return;
-    }
-    this.progress(turn);
-    const names = turn.thread?.tools ?? new Set<string>();
-    if (params.namespace || !names.has(params.tool)) {
-      peer.respond(
-        rpcId,
-        failure(`Unknown tool "${params.tool}". Use only: ${[...names].join(', ')}.`),
-      );
-      return;
-    }
-    const callId =
-      typeof params.callId === 'string' && params.callId ? params.callId : `call-${++this.serial}`;
-    if (this.calls.has(callId)) {
-      peer.respond(rpcId, failure('Duplicate tool call id.'));
-      return;
-    }
-    turn.tools++;
-    this.stats.toolCalls++;
-    const timer = setTimeout(
-      () => {
-        if (!turn.calls.has(callId)) return;
-        turn.calls.delete(callId);
-        this.calls.delete(callId);
-        peer.respond(
-          rpcId,
-          failure('den-kit did not answer in time (is the editor tab still open?).'),
-        );
-        this.stopTurn(turn.key, 'The editor did not answer a tool call in time.');
-      },
-      toolDeadlineMs(params.tool, params.arguments, this.timeouts.toolMs),
-    );
-    timer.unref?.();
-    turn.calls.set(callId, { rpcId, timer, tool: params.tool, args: params.arguments });
-    this.calls.set(callId, turn);
-    turn.sink.toolCall({ callId, tool: params.tool, args: params.arguments });
-  }
-
   private onQuestion(peer: RpcPeer, rpcId: RequestId, params: ToolRequestUserInputParams) {
     const turn = this.turnOf(params.threadId);
     if (!turn || turn.done || (turn.turnId && params.turnId !== turn.turnId)) {
@@ -1617,6 +1831,11 @@ export class CodexClient {
     const p = (
       notification.params && typeof notification.params === 'object' ? notification.params : {}
     ) as Record<string, unknown>;
+    const agent = typeof p.threadId === 'string' ? this.agents.get(p.threadId) : undefined;
+    if (agent) {
+      this.onAgentNotification(agent, notification.method, p);
+      return;
+    }
     const currentTurn = this.turnOf(p.threadId);
     if (typeof p.turnId === 'string' && currentTurn?.turnId && p.turnId !== currentTurn.turnId)
       return;
@@ -1624,7 +1843,12 @@ export class CodexClient {
       case 'turn/started': {
         const t = this.turnOf(p.threadId);
         const n = p as unknown as TurnNotification;
-        if (t && !t.turnId && n.turn?.id) t.turnId = n.turn.id;
+        if (!t || !n.turn?.id) return;
+        t.turnId ??= n.turn.id;
+        if (n.turn.id !== t.turnId) return;
+        t.begun = true;
+        // Esc before Codex started the turn: interrupt it now.
+        if (t.stopRequested) this.interrupt(t);
         return;
       }
       case 'turn/completed': {
@@ -1659,7 +1883,8 @@ export class CodexClient {
         const t = this.turnOf(n.threadId);
         if (!t || !n.item) return;
         if (n.item.type !== 'userMessage') this.progress(t);
-        if (n.item.type === 'reasoning') t.sink.event({ kind: 'activity', what: 'thinking' });
+        if (n.item.type === 'subAgentActivity') this.subAgentActivity(t, n.item);
+        else if (n.item.type === 'reasoning') t.sink.event({ kind: 'activity', what: 'thinking' });
         else if (!EXPECTED_ITEMS.has(n.item.type)) {
           this.stats.unexpectedItems++;
           this.record('unexpected-item', { type: n.item.type });
@@ -1721,14 +1946,6 @@ export class CodexClient {
             if (q.timer) clearTimeout(q.timer);
             q.turn.sink.event({ kind: 'question.resolved', question: q.key });
           }
-        for (const [callId, turn] of this.calls) {
-          const c = turn.calls.get(callId);
-          if (c && c.rpcId === n.requestId) {
-            clearTimeout(c.timer);
-            turn.calls.delete(callId);
-            this.calls.delete(callId);
-          }
-        }
         return;
       }
       case 'thread/tokenUsage/updated': {

@@ -1,6 +1,6 @@
-// Who is working where (U8): when an LLM request has members, what an AI just
-// changed is outlined in its colour with its name for a moment, in the patch
-// and on the plugin, so the person sees the team at work.
+// Who is working where: what an agent of a request (the AI or one of its
+// sub-agents) just changed is outlined in its colour with its name for a
+// moment, in the patch and on the plugin, so the person sees them at work.
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef } from 'vue';
 import { TOUCH_MS } from '../ai/llm.ts';
 import type { KitSession } from './session.ts';

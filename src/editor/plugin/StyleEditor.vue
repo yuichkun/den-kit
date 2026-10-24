@@ -7,7 +7,7 @@ import {
   type ElementStyle,
   type Fill,
   type Shadow,
-} from '../../core/ui.ts';
+} from '../../work/ui.ts';
 import ColorField from './ColorField.vue';
 import FillList from './FillList.vue';
 import NumberField from './NumberField.vue';
@@ -239,7 +239,7 @@ const addShadow = (glow: boolean) =>
   gap: 4px;
 }
 .shadow {
-  border-left: 2px solid #333;
+  border-left: 2px solid var(--gray-6);
   padding-left: 6px;
   margin: 4px 0;
 }

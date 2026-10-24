@@ -1,4 +1,4 @@
-// U6: the AI's free environment. The (fake) model works in the pod like in any
+// The AI's free environment. The (fake) model works in the pod like in any
 // web project — reads the guide, writes a code part with bash, runs TypeScript
 // and ESLint on it — and the part shows on the plugin from the pod's dev server,
 // reads and moves a knob, and undoes with the request. The pod here is the test
@@ -18,7 +18,7 @@ const snapshot = (page: Page) =>
       ui: k.doc.value.ui,
       nodes: Object.keys(k.doc.value.nodes).sort(),
       edges: Object.keys(k.doc.value.edges).sort(),
-      project: k.doc.value.project ?? null,
+      files: k.doc.value.files,
     }),
   );
 
@@ -64,6 +64,61 @@ async function ask(page: Page, text: string, timeout = 300000) {
     return { status: o.status, label: o.label, steps: o.steps, message: o.message };
   });
 }
+/** Wait until a code part on the plugin is ready; when it is not in time, say what it and the pod were doing. */
+async function partReady(page: Page, element: string, timeout: number) {
+  try {
+    await page.waitForSelector(`[data-element=${element}] [data-code-state=ready]`, { timeout });
+  } catch (error) {
+    const seen = await page
+      .evaluate(id => {
+        const k = (window as any).__kit;
+        const box = document.querySelector(`[data-element=${id}] [data-code-part]`);
+        return {
+          part: box?.getAttribute('data-code-state'),
+          error: box?.getAttribute('data-code-error'),
+          status: document.querySelector(`[data-element=${id}] [data-testid=code-status]`)
+            ?.textContent,
+          pod: `${k.pod.state.value}: ${k.pod.message.value}`,
+          portal: k.pod.portal.value,
+          log: k.pod.log.value
+            .slice(-6)
+            .map(
+              (e: any) =>
+                `${e.who} ${e.command.slice(0, 60)} → ${e.running ? 'running' : e.exitCode} (${e.ms} ms)`,
+            ),
+          // What the part's page told den-kit (its console lines included), and what the dev server printed.
+          report: k.pod.parts.value[id] ?? null,
+          dev: k.pod.log.value
+            .filter((e: any) => e.command === 'npm run dev')
+            .at(-1)
+            ?.output.slice(-1500),
+        };
+      }, element)
+      .catch(() => null);
+    // How far the part's page got: its frame's address and the files it has loaded.
+    const frames = await Promise.all(
+      page
+        .frames()
+        .filter(f => f.url().includes(`el=${element}`))
+        .map(async f => ({
+          url: f.url(),
+          page: await f
+            .evaluate(() => ({
+              readyState: document.readyState,
+              loaded: performance
+                .getEntriesByType('resource')
+                .map(e => e.name.replace(location.origin, ''))
+                .slice(-12),
+            }))
+            .catch((e: Error) => e.message),
+        })),
+    );
+    throw new Error(
+      `${(error as Error).message.split('\n')[0]}\n${JSON.stringify({ ...seen, frames }, null, 1)}`,
+    );
+  }
+}
+
 async function partFrame(page: Page, part: string, timeout = 60000): Promise<Frame> {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
@@ -115,14 +170,12 @@ describe('the pod: a free environment for the AI', () => {
       );
       // The work keeps the project (the template, the part); node_modules and dist stay in the pod.
       const doc = await kit(page, k => k.doc.value);
-      assert.match(doc.project.files['src/parts/meter.ts'], /kit\.norm\('knob1'\)/);
+      assert.match(doc.files['src/parts/meter.ts'].text, /kit\.norm\('knob1'\)/);
       assert.ok(
-        doc.project.files['package.json'] &&
-          doc.project.files['AGENTS.md'] &&
-          doc.project.files['src/kit/index.ts'],
+        doc.files['package.json'] && doc.files['AGENTS.md'] && doc.files['src/kit/index.ts'],
       );
       assert.ok(
-        !Object.keys(doc.project.files).some(
+        !Object.keys(doc.files).some(
           (p: string) => /^(node_modules|dist|\.git)\//.test(p) || p === 'src/kit/controls.ts',
         ),
       );
@@ -131,10 +184,10 @@ describe('the pod: a free environment for the AI', () => {
         { kind: 'code', part: 'meter' },
       );
       // What the model got back: the guide, real tool output with exit statuses, the look with the part drawn.
-      const replies = JSON.stringify(h.codex!.replies());
-      assert.match(replies, /## Code parts/);
-      assert.match(replies, /\[exit 0/);
-      assert.doesNotMatch(replies, /code part meter1[^"]*fails/);
+      const replies = h.codex!.mcpCalls().map(c => c.text);
+      assert.ok(replies.some(r => /## Code parts/.test(r)));
+      assert.ok(replies.some(r => /\[exit 0/.test(r)));
+      assert.ok(!replies.some(r => /code part meter1[^"]*fails/.test(r)));
       // The pod's git has the request as a commit.
       await page.waitForFunction(() => (window as any).__kit.pod.log.value.length > 0);
       const gitLog = await kit(
@@ -145,9 +198,7 @@ describe('the pod: a free environment for the AI', () => {
 
       // On the plugin: the part's page from the pod's dev server, drawing the knob.
       await page.click('[data-testid=ai-show-plugin]');
-      await page.waitForSelector('[data-element=meter1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'meter1', 60000);
       const frame = await partFrame(page, 'meter');
       const height = () => frame.evaluate(() => document.getElementById('meter-bar')!.style.height);
       const norm = () =>
@@ -210,8 +261,12 @@ describe('the pod: a free environment for the AI', () => {
       const { page, errors } = await openKit(h);
       await waitCompiled(page);
       const created = await kit(page, k => {
-        const files = Object.fromEntries(k.pod.wanted());
-        delete files['src/kit/controls.ts'];
+        // den-kit's own files (the controls list, the kit's behaviors) are not kept in the work.
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
         const result = k.commit([
           {
             op: 'addNode',
@@ -255,9 +310,7 @@ export default part({ mount(root, kit) {
       });
       assert.equal(created.ok, true, JSON.stringify(created.error));
       await page.click('[data-testid=view-plugin]');
-      await page.waitForSelector('[data-element=subscribe1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'subscribe1', 60000);
       const f = await partFrame(page, 'subscribed');
       const displayed = async (value: number, norm: number, calls: number) => {
         await f.waitForFunction(
@@ -297,6 +350,111 @@ export default part({ mount(root, kit) {
   );
 
   it(
+    "a code part's own knob uses den-kit's knob behavior: same drag and keys, one drag one undo step; messages from anywhere but its frame are ignored",
+    { timeout: 120000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      const created = await kit(page, k => {
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
+        const result = k.commit([
+          {
+            op: 'addNode',
+            node: {
+              id: 'ownknob',
+              type: 'ui.knob',
+              config: { min: 0, max: 100, scale: 'linear' },
+              values: { value: 50 },
+            },
+          },
+          {
+            op: 'setProjectFiles',
+            files: {
+              ...files,
+              'src/parts/own.ts': `import { CONTROLS, behaviors, part } from '../kit';
+export default part({ mount(root, kit) {
+  const pad = root.appendChild(document.createElement('div'));
+  pad.id = 'own-knob';
+  Object.assign(pad.style, { position: 'absolute', inset: '0' });
+  const knob = behaviors.createKnob(CONTROLS.ownknob);
+  const unbind = kit.bind(knob, 'ownknob');
+  const unlisten = behaviors.listen(pad, knob);
+  return () => { unbind(); unlisten(); };
+} });\n`,
+            },
+          },
+          {
+            op: 'addElement',
+            element: {
+              id: 'own1',
+              kind: 'code',
+              part: 'own',
+              rect: { x: 20, y: 20, w: 240, h: 240 },
+              props: {},
+            },
+          },
+        ]);
+        return { ok: result.ok, error: result.error?.message };
+      });
+      assert.equal(created.ok, true, JSON.stringify(created.error));
+      // The kit the part imports carries den-kit's behaviors, and the part type-checks against it.
+      const check = await kit(page, k => k.pod.bash('npm run check', { who: 'ai' }));
+      assert.equal(check.exitCode, 0, check.output);
+      await page.click('[data-testid=view-plugin]');
+      await partReady(page, 'own1', 60000);
+      const f = await partFrame(page, 'own');
+      const value = () => kit(page, k => k.doc.value.nodes.ownknob.values.value);
+      const steps = () => kit(page, k => k.history.size);
+      const before = await steps();
+      // Rule 1: 200 px of drag is the whole range, so 40 px up is 20 of 0–100, wherever it was grabbed.
+      // The plugin is drawn scaled to fit: 40 of the part's pixels are 40 × scale on screen.
+      const pad = await f.locator('#own-knob').boundingBox();
+      assert.ok(pad);
+      const scale = pad.height / 240;
+      const x = pad.x + pad.width / 2,
+        y = pad.y + pad.height * 0.7;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (const dy of [10, 20, 30, 40]) await page.mouse.move(x, y - dy * scale);
+      await page.mouse.up();
+      const near = (v: number) =>
+        page.waitForFunction(
+          v => Math.abs((window as any).__kit.doc.value.nodes.ownknob.values.value - v) < 0.5,
+          v,
+        );
+      await near(70);
+      assert.equal(await steps(), before + 1, 'one drag is one undo step');
+      // The code part made that move: it is the step's author.
+      assert.deepEqual(await kit(page, k => k.history.peek()?.author), {
+        kind: 'part',
+        element: 'own1',
+      });
+      // Rule 4: the arrow keys move 1% of the range.
+      await f.focus('#own-knob');
+      await page.keyboard.press('ArrowUp');
+      await near(71);
+      await kit(page, k => k.undo());
+      await kit(page, k => k.undo());
+      assert.equal(await value(), 50);
+      // A message that does not come from the part's frame, or not from its origin, is ignored.
+      await page.evaluate(() => {
+        const forged = { denkit: 1, type: 'set', id: 'ownknob', value: 5, gesture: 'forged' };
+        window.postMessage(forged, '*');
+        const other = document.body.appendChild(document.createElement('iframe'));
+        other.srcdoc = `<script>parent.postMessage(${JSON.stringify(forged)}, '*')</script>`;
+      });
+      await page.waitForTimeout(500);
+      assert.equal(await value(), 50);
+      assert.deepEqual(errors, []);
+      await page.close();
+    },
+  );
+
+  it(
     'a broken part: the plugin shows its error, the AI sees it in kit_look, fixes the file, and the part runs',
     { timeout: 300000 },
     async () => {
@@ -309,23 +467,95 @@ export default part({ mount(root, kit) {
       assert.equal(line.status, 'applied', JSON.stringify(line));
       assert.equal(line.label, 'Fixed the broken part', JSON.stringify(line));
       const looks = h
-        .codex!.replies()
-        .filter(r => /Looked at the plugin/.test(JSON.stringify(r)))
-        .map(r => JSON.stringify(r));
+        .codex!.mcpCalls()
+        .filter(c => /Looked at the plugin/.test(c.text))
+        .map(c => c.text);
       assert.match(
         looks.at(-2)!,
         /The code part oops1 fails: mount: Error: oops: the canvas is missing/,
       );
       assert.doesNotMatch(looks.at(-1)!, /oops1 fails/);
       await page.click('[data-testid=ai-show-plugin]');
-      await page.waitForSelector('[data-element=oops1] [data-code-state=ready]', {
-        timeout: 60000,
-      });
+      await partReady(page, 'oops1', 60000);
       const frame = await partFrame(page, 'oops');
       assert.equal(
         await frame.evaluate(() => document.getElementById('root')!.textContent),
         'fixed',
       );
+      assert.deepEqual(errors, []);
+      await page.close();
+    },
+  );
+
+  it(
+    'a code part comes back when the dev server starts again (as after an install)',
+    { timeout: 180000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      const created = await kit(page, k => {
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
+        const result = k.commit([
+          {
+            op: 'setProjectFiles',
+            files: {
+              ...files,
+              'src/parts/again.ts': `import { part } from '../kit';\nexport default part({ mount(root) { root.textContent = 'again'; } });\n`,
+            },
+          },
+          {
+            op: 'addElement',
+            element: {
+              id: 'again1',
+              kind: 'code',
+              part: 'again',
+              rect: { x: 20, y: 20, w: 200, h: 80 },
+              props: {},
+            },
+          },
+        ]);
+        return { ok: result.ok, error: result.error?.message };
+      });
+      assert.equal(created.ok, true, JSON.stringify(created.error));
+      await page.click('[data-testid=view-plugin]');
+      await partReady(page, 'again1', 60000);
+      const hello = () => kit(page, k => k.pod.parts.value.again1.at as number);
+      const helloAgain = async (after: number) => {
+        await page.waitForFunction(
+          at => ((window as any).__kit.pod.parts.value.again1?.at ?? 0) > at,
+          after,
+          { timeout: 60000 },
+        );
+        await partReady(page, 'again1', 60000);
+      };
+      // The dev server's address goes and comes back the same, as BrowserPod's does (its dev server keeps its
+      // port) while the dev server's own page keeps running: den-kit loads the part's page again.
+      const first = await hello();
+      const portal: string = await kit(page, k => {
+        const p = k.pod.portal.value;
+        k.pod.portal.value = null;
+        return p;
+      });
+      // Meanwhile nothing serves the part: its page goes, and it waits.
+      await page.waitForSelector('[data-element=again1] [data-code-state=waiting]');
+      assert.equal(
+        await page.locator('[data-element=again1] iframe').getAttribute('src'),
+        'about:blank',
+      );
+      await page.evaluate(p => {
+        (window as any).__kit.pod.portal.value = p;
+      }, portal);
+      await helloAgain(first);
+      // Only this pod's dev server stops (HOME is the pod's own folder); den-kit starts it again.
+      const second = await hello();
+      await kit(page, k =>
+        k.pod.bash('pkill -f "$HOME/work/node_modules/.bin/vite" || true; sleep 1', { who: 'ai' }),
+      );
+      await helloAgain(second);
       assert.deepEqual(errors, []);
       await page.close();
     },
@@ -351,12 +581,10 @@ export default part({ mount(root, kit) {
       );
       assert.ok(id);
       assert.equal(
-        await kit(page, k => typeof k.doc.value.project.files['src/parts/wave.ts']),
+        await kit(page, k => typeof k.doc.value.files['src/parts/wave.ts']?.text),
         'string',
       );
-      await page.waitForSelector(`[data-element=${id}] [data-code-state=ready]`, {
-        timeout: 120000,
-      });
+      await partReady(page, id, 120000);
       // The inspector shows the setting the part declares (its colour).
       await page.waitForSelector('[data-testid=code-part-state]');
       await page.waitForSelector('[data-prop=color]', { timeout: 20000 });
@@ -369,7 +597,7 @@ export default part({ mount(root, kit) {
       });
       assert.deepEqual(r, { exit: 0, output: '1', changed: ['src/parts/wave.ts'] });
       assert.match(
-        await kit(page, k => k.doc.value.project.files['src/parts/wave.ts']),
+        await kit(page, k => k.doc.value.files['src/parts/wave.ts'].text),
         /label: 'Color'/,
       );
       assert.equal(
@@ -384,7 +612,7 @@ export default part({ mount(root, kit) {
         k.undo();
         k.undo();
       });
-      assert.equal(await kit(page, k => k.doc.value.project ?? null), null);
+      assert.deepEqual(await kit(page, k => k.doc.value.files), {});
       assert.deepEqual(errors, []);
       await page.close();
     },
@@ -411,7 +639,7 @@ describe('the Project view', () => {
       await page.fill('[data-testid=pod-command]', 'echo hello > note.txt && cat note.txt');
       await page.press('[data-testid=pod-command]', 'Enter');
       await page.waitForFunction(
-        () => (window as any).__kit.doc.value.project?.files['note.txt'] === 'hello\n',
+        () => (window as any).__kit.doc.value.files['note.txt']?.text === 'hello\n',
         null,
         { timeout: 30000 },
       );
@@ -425,7 +653,7 @@ describe('the Project view', () => {
         output: 'hello',
       });
       assert.ok(
-        await kit(page, k => !!k.doc.value.project.files['package.json']),
+        await kit(page, k => !!k.doc.value.files['package.json']),
         "the template became the work's",
       );
       // Edit the file in den-kit: ⌘S keeps it in the work, and the pod gets it.
@@ -433,7 +661,7 @@ describe('the Project view', () => {
       await page.fill('[data-testid=file-text]', 'hello again\n');
       await page.press('[data-testid=file-text]', 'Control+s');
       await page.waitForFunction(
-        () => (window as any).__kit.doc.value.project.files['note.txt'] === 'hello again\n',
+        () => (window as any).__kit.doc.value.files['note.txt']?.text === 'hello again\n',
       );
       await waitForPodFile(page, 'note.txt', 'hello again\n', { interval: 300 });
       // Code is coloured by its kind of file (a text file is not).
@@ -453,7 +681,7 @@ describe('the Project view', () => {
           !document.querySelector('[data-testid=pod-check]')?.hasAttribute('disabled') &&
           document.querySelectorAll(
             '[data-testid=pod-check-panel] .step.ok, [data-testid=pod-check-panel] .step.failed, [data-testid=pod-check-panel] .step.skipped',
-          ).length === 9,
+          ).length === 10,
         null,
         { timeout: 300000 },
       );
@@ -468,6 +696,7 @@ describe('the Project view', () => {
           'check:ok',
           'lint:ok',
           'install:ok',
+          'offline:ok',
           'build:ok',
           'git:ok',
           'part:ok',
@@ -478,7 +707,7 @@ describe('the Project view', () => {
       // The check changed nothing in the work (its scratch part stayed in the pod and is gone).
       assert.equal(
         await kit(page, k =>
-          Object.keys(k.doc.value.project.files).some((p: string) => p.includes('_den-kit-check')),
+          Object.keys(k.doc.value.files).some((p: string) => p.includes('_den-kit-check')),
         ),
         false,
       );
@@ -536,7 +765,7 @@ describe('without a pod (no BrowserPod key)', () => {
       await page.click('[data-testid=view-project]');
       assert.match(
         await page.locator('[data-testid=pod-fix]').innerText(),
-        /BROWSERPOD_API_KEY=.*\.env.*restart `npm run dev`/s,
+        /BROWSERPOD_API_KEY=.*\.env.*restart `vp run dev`/s,
       );
       assert.equal((await waitCompiled(page)).status, 'ok');
       assert.deepEqual(errors, []);

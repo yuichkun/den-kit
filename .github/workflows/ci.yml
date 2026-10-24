@@ -59,3 +59,6 @@ jobs:
           vp exec electron-builder --config electron-builder.yml --mac --publish never -c.mac.identity=null
       - name: Check both architectures, the update feed and the bundled Codex CLI
         run: vp run desktop:check-artifacts release
+      # The works' sandbox in Electron: what a code part can reach, its frame, WebRTC, DNS prefetching, devices.
+      - name: Check the sandbox in Electron
+        run: vp run test:desktop

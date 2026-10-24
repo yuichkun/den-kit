@@ -1,4 +1,4 @@
-// Rough sketches for the AI (U8c): what each mark is about (loops and boxes go
+// Rough sketches for the AI: what each mark is about (loops and boxes go
 // around things, strokes cross them, arrows join them, notes sit on them or in
 // empty space), and the marks in words.
 import { describe, expect, it } from 'vite-plus/test';

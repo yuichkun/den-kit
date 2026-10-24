@@ -1,3 +1,6 @@
+// den-kit's built page on the app's local server: only for 127.0.0.1 on the app's
+// port, cross-origin isolated (COOP, COEP), with frames only from the works'
+// sandbox origins.
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
@@ -47,7 +50,7 @@ export function rendererServer(root: string) {
         res.writeHead(400).end();
         return;
       }
-      const file = resolve(base, `.${name === '/' ? '/index.html' : name}`);
+      const file = resolve(base, `.${name === '/' ? '/desktop.html' : name}`);
       if (!file.startsWith(base + sep)) {
         res.writeHead(403).end();
         return;
@@ -66,6 +69,8 @@ export function rendererServer(root: string) {
         'content-length': size,
         'cross-origin-opener-policy': 'same-origin',
         'cross-origin-embedder-policy': 'require-corp',
+        // Frames come only from the works' sandbox origins (desktop/sandbox.ts).
+        'content-security-policy': `frame-src http://*.localhost:${APP_PORT}`,
         'x-content-type-options': 'nosniff',
         'cache-control': 'no-cache',
       });

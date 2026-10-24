@@ -38,7 +38,7 @@ export function lockedCodex(
   const entry = lock.packages?.[`node_modules/@openai/codex-darwin-${arch}`];
   if (!base || !entry?.version || !entry.resolved || !entry.integrity)
     throw new Error(
-      `package-lock.json does not pin the Codex CLI for macOS ${arch}. Run npm install and commit the lockfile.`,
+      `package-lock.json does not pin the Codex CLI for macOS ${arch}. Run vp install and commit the lockfile.`,
     );
   if (entry.version !== `${base}-darwin-${arch}`)
     throw new Error(

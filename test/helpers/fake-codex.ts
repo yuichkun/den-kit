@@ -12,6 +12,16 @@ export const FAKE_SCENARIOS = fileURLToPath(
 );
 export const KIT_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
+/** A tool call through MCP and what came back: the text, and the pictures (their type and first characters). */
+export interface McpCall {
+  thread: string;
+  tool: string;
+  success: boolean;
+  types: string[];
+  text: string;
+  images: Array<{ mimeType: string; prefix: string; length: number }>;
+}
+
 export interface FakeCodex {
   client: CodexClient;
   home: string;
@@ -23,6 +33,10 @@ export interface FakeCodex {
   sent(method: string): Array<Record<string, unknown>>;
   /** Replies den-kit gave to the fake's requests (tool calls, approvals, …). */
   replies(): Array<Record<string, unknown>>;
+  /** Each thread's MCP session with den-kit's server: the tools it listed. */
+  mcpSessions(): Array<{ thread: string; tools: string[] }>;
+  /** Tool calls through MCP, with what came back. */
+  mcpCalls(): McpCall[];
   signIn(): void;
   cleanup(): Promise<void>;
 }
@@ -91,6 +105,14 @@ export function fakeCodex(
     violations: () => records().filter(r => 'violation' in r),
     sent: method => inbound().filter(m => m.method === method),
     replies: () => inbound().filter(m => !('method' in m)),
+    mcpSessions: () =>
+      records()
+        .map(r => r.mcpSession as { thread: string; tools: string[] } | undefined)
+        .filter(s => !!s),
+    mcpCalls: () =>
+      records()
+        .map(r => r.mcpCall as McpCall | undefined)
+        .filter(c => !!c),
     signIn: () => writeFileSync(join(home, 'auth.json'), '{"fake":true}'),
     async cleanup() {
       await client.stop();

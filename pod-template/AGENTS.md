@@ -20,7 +20,7 @@ A code part is a file `src/parts/<name>.ts` (name: lowercase letters, digits,
 dashes) whose default export is `part({...})`:
 
 ```ts
-import { part } from '../kit';
+import { CONTROLS, behaviors, part } from '../kit';
 
 export default part({
   // Settings shown in den-kit's inspector (the musician changes them without code).
@@ -59,16 +59,16 @@ export default part({
       g.stroke();
       // … kit.audio.wave, kit.audio.spectrum, kit.value('kcut') …
     });
-    // Dragging up and down turns a knob: one drag is one ⌘Z step.
-    canvas.addEventListener('pointerdown', e => {
-      canvas.setPointerCapture(e.pointerId);
-      kit.begin();
-    });
-    canvas.addEventListener('pointermove', e => {
-      if (e.buttons) kit.setNorm('kcut', kit.norm('kcut') - e.movementY / 200);
-    });
-    canvas.addEventListener('pointerup', () => kit.end());
-    return stop;
+    // The canvas is a knob with den-kit's knob behavior: drag up and down, the
+    // wheel, the arrow keys, a double-click for the default; one drag is one ⌘Z step.
+    const knob = behaviors.createKnob(CONTROLS.kcut);
+    const unbind = kit.bind(knob, 'kcut');
+    const unlisten = behaviors.listen(canvas, knob);
+    return () => {
+      stop();
+      unbind();
+      unlisten();
+    };
   },
 });
 ```
@@ -87,6 +87,12 @@ The same part can be placed several times with different props.
   control; the sound follows at once and the musician can undo it. To move a
   sound parameter that has no control yet, add one in the patch first (a knob
   wired to that input; it need not be on the plugin).
+- `behaviors` — how den-kit's own controls respond to input, without their look:
+  `createKnob`, `createSlider`, `createButton`, `createSwitch`, `createXYPad`,
+  `createKeyboard`, `createMeter`. `behaviors.listen(element, behavior)` feeds a
+  behavior the element's pointer, wheel and keys, and `kit.bind(behavior, id)`
+  lets it move a control. A control drawn this way behaves like den-kit's (same
+  drag, wheel and keys, one drag one ⌘Z step); prefer it to handling input by hand.
 - `kit.audio` — the plugin's output now: `level`, `peak`, `wave` (256 samples),
   `spectrum` (64 bands, low to high, 0..1). Read it in `kit.frame(...)`.
 - `kit.props` / `kit.onProps(fn)` — this part's settings.
@@ -97,21 +103,33 @@ The same part can be placed several times with different props.
 - `kit.size`, `kit.onResize(fn)` — the box in design pixels (draw for
   `devicePixelRatio`).
 - `kit.mode` — `'play'` or `'edit'` (being laid out; no mouse then).
-- `kit.asset(id)` — a picture or font of the work, as a URL.
+- `await kit.asset(path)` — a file of the work (assets/…) as a URL you can use,
+  or null when there is none.
+- A code part reaches only its own origin and the origins the musician allowed
+  for this work. To need one (an API, a live stream), list it with its reason:
+  kit_apply_ops `{"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"…"}]}`;
+  den-kit asks the musician, and until they allow it, requests to it fail. Code
+  never loads from those origins: bundle libraries with npm.
 
 ## Tools
 
-- Any npm package: `npm install three`, `gsap`, `d3`, `pixi.js`, … Packages
-  that ship native binaries do not run here; most have a WebAssembly build
-  (see the `overrides` in package.json for esbuild and rollup).
+- Any npm package (`three`, `gsap`, `d3`, `pixi.js`, …): add it with a version to
+  `dependencies` in package.json, and den-kit installs it from the npm registry
+  (packages' install scripts do not run). Packages that ship native binaries do
+  not run here; most have a WebAssembly build (see the `overrides` in
+  package.json for esbuild and rollup).
 - `npm run check` (TypeScript), `npm run lint` (ESLint), `npm run build` (Vite):
   run them before you finish. ESLint cannot search folders in this pod (its
   Node has a fault there), so `npm run lint` hands it the files; to lint a few,
   name them: `npx eslint src/parts/meter.ts`.
 - The dev server is already running (den-kit starts it and shows the parts from
   it); do not start another. Saving a file updates the plugin.
+- When the work is exported, den-kit builds this project (`npm run build`) into
+  the work's playable build, where the parts load from a folder of their own:
+  reach files by import or `kit.asset`, never by an absolute path.
 - git works as usual. den-kit also commits after each request.
-- The network inside reaches the npm registry and GitHub, not arbitrary sites.
+- The pod has no network: only den-kit's installs reach the npm registry, so
+  `npm install <name>`, curl and fetch to the internet fail here.
 
 ## Making it good
 

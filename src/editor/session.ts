@@ -1,10 +1,18 @@
 // The editing session: the one document the browser owns, its history, the
-// compile→audio pipeline and the hooks CP2 (AI) plugs into. Every change goes
+// compile→audio pipeline and the hooks the AI plugs into. Every change goes
 // through commit() with an author, so humans and AI edit the same way.
 import { shallowRef, ref, computed, markRaw, triggerRef, watch } from 'vue';
-import { catalog } from '../blocks/index.ts';
-import { currentValues, generate, type Generated } from '../core/codegen.ts';
-import { History, type Author, type Transaction } from '../core/history.ts';
+import { catalog } from '../sound/blocks/index.ts';
+import { currentAssets, currentValues, generate, type Generated } from '../sound/codegen.ts';
+import type { AssetLoad } from '../sound/assets.ts';
+import {
+  History,
+  commit as commitWork,
+  type Author,
+  type CommitOptions,
+  type Transaction,
+} from '../work/history.ts';
+import { describeKey } from '../work/changes.ts';
 import {
   applyIntents,
   isStructural,
@@ -12,17 +20,17 @@ import {
   replaceOps,
   type Intent,
   type ResolvedOp,
-} from '../core/ops.ts';
-import { emptyDocument, randomId, type PatchDocument, type XY } from '../core/schema.ts';
-import { faceGroup } from '../core/face.ts';
-import { usesOf } from '../core/parts.ts';
+} from '../work/ops.ts';
+import { emptyDocument, randomId, type PatchDocument, type XY } from '../work/schema.ts';
+import { faceGroup } from '../work/face.ts';
+import { usesOf } from '../work/parts.ts';
 import {
   FaceError,
   faceFromPlugin,
   faceIntents,
   faceOnPlugin,
   screenPartIntents,
-} from '../plugin/faces.ts';
+} from '../screen/faces.ts';
 import {
   bundleHash,
   diffBundles,
@@ -40,25 +48,41 @@ import {
   type Library,
   type MyPart,
   type MyPartVersion,
-} from '../core/library.ts';
-import { validate } from '../core/validate.ts';
-import type { Issue } from '../core/issues.ts';
-import { starter, type StarterId } from '../core/starters.ts';
-import { lookIntents, type Work } from '../showcase/index.ts';
-import { CompileClient, CompileFailure, compileInputs } from '../compile/compile-client.ts';
-import type { Artifact } from '../compile/protocol.ts';
-import { AudioEngine, type EngineState, type TestSignal } from '../engine/audio-engine.ts';
+} from '../work/library.ts';
+import { validate } from '../work/validate.ts';
+import type { Issue } from '../work/issues.ts';
+import { starter, type StarterId } from '../work/starters.ts';
+import { lookIntents, type Work } from '../screen/showcase/index.ts';
+import {
+  CompileClient,
+  CompileFailure,
+  compileInputs,
+  type CompileClientOptions,
+} from '../sound/compile/compile-client.ts';
+import type { Artifact } from '../sound/compile/protocol.ts';
+import { AudioEngine, type EngineState, type TestSignal } from '../sound/audio-engine.ts';
 import {
   makeSaveRecord,
   readSaveRecord,
   parseDocument,
   serializeDocument,
-} from '../core/persistence.ts';
-import CompilerWorker from '../compile/compiler.worker.ts?worker';
-import { AssetStore } from '../plugin/asset-store.ts';
-import { lookAt, type LookResult } from '../plugin/look.ts';
-import { assetFontFamily, isFontAsset, type AssetMeta } from '../core/ui.ts';
-import type { BridgeClient } from '../ai/bridge-client.ts';
+} from '../work/persistence.ts';
+import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
+import { AssetStore } from '../work/asset-store.ts';
+import { readWorkFile, writeWorkFile, type PlayableBuild } from '../work/work-file.ts';
+import { buildPlayable } from './playable.ts';
+import { PARTS_FOLDER } from '../work/playable.ts';
+import { lookAt, type LookResult } from '../screen/look.ts';
+import {
+  assetFontFamily,
+  assetSource,
+  isFontAsset,
+  MAX_ASSET_BYTES,
+  type AssetMeta,
+  assetsOf,
+} from '../work/ui.ts';
+import type { Host } from '../host/index.ts';
+import type { AI } from '../host/ai.ts';
 import type { AiRequests } from '../ai/requests.ts';
 import type { LlmController } from '../ai/llm.ts';
 import type { Seeing } from '../ai/seeing.ts';
@@ -66,7 +90,9 @@ import { MARK_COLORS, type Box, type Mark, type SketchView } from '../ai/sketch.
 /** What drawing on a view does: a mark kind, or rubbing marks out. */
 export type InkTool = Mark['kind'] | 'eraser';
 import { ScreenShare } from './screen-share.ts';
-import type { PodSession } from '../pod/pod-session.ts';
+import { WorkLock } from './work-lock.ts';
+import type { PodSession } from '../workspace/pod-session.ts';
+import type { CodeParts } from './code-parts.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast {
@@ -81,36 +107,40 @@ export interface HistoryListener {
   (kind: 'undo' | 'redo', tx: Transaction): void;
 }
 
-const AUTOSAVE_KEY = 'den-kit:autosave';
-/** The AI conversation about the patch being worked on (kept with the autosave). */
-const CONVERSATION_KEY = 'den-kit:conversation';
+/** The editor's own records in the host's storage (the work, the person's parts, the stylus setting). */
+export const RECORD_PREFIX = 'den-kit:editor:';
+const AUTOSAVE_KEY = `${RECORD_PREFIX}work`;
+/** Which conversation (the runtime's id) is a work's: the host keeps that, never what was said. */
+const CONVERSATION_KEY = 'den-kit:conversation:';
 /** My parts: saved parts every patch can place (kept apart from any one patch). */
-export const MY_PARTS_KEY = 'den-kit:my-parts';
+export const MY_PARTS_KEY = `${RECORD_PREFIX}my-parts`;
 /** Whether a stylus draws where it touches nothing ("off" when the person turned it off). */
-const STYLUS_KEY = 'den-kit:stylus-draws';
+const STYLUS_KEY = `${RECORD_PREFIX}stylus-draws`;
 
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /** Read a key again, when another window may have changed it. */
+  refresh?(key: string): Promise<void>;
 }
 
 export class KitSession {
   readonly catalog = catalog;
   readonly doc = shallowRef<PatchDocument>(emptyDocument('Untitled'));
   readonly history = markRaw(new History());
+  /** The open work is this window's alone (another window holding it is refused). */
+  readonly lock = new WorkLock();
+  /** Set when the work this window would open is open in another window: the window shows that instead, and saves nothing. */
+  readonly refused = ref<string | null>(null);
   readonly historyVersion = ref(0);
   /** My parts, as last read from storage. */
   readonly myParts = shallowRef<Library>(emptyLibrary());
   readonly selection = ref<string[]>([]);
+  /** The runtime's id of the open work's AI conversation (null: none yet). */
+  readonly conversation = ref<string | null>(null);
   /** Cables selected in the patch view (they can be attached to an AI request too). */
   readonly edgeSelection = ref<string[]>([]);
-  /**
-   * The AI conversation the requests belong to. A patch someone opens (a starter, a work,
-   * an import, a new patch) starts a new one; what the AI itself puts in place (a template)
-   * stays in the conversation that asked for it.
-   */
-  readonly conversation = ref(randomId('conv'));
   /** The person is editing the plugin screen (so "darker" means the screen, not the sound). */
   readonly screenFocus = ref(false);
   /** The part being edited: the chain of uses entered from the main patch (empty: the main patch). */
@@ -146,23 +176,28 @@ export class KitSession {
   ]);
   readonly engine: AudioEngine;
   readonly compiler: CompileClient;
-  /** The local AI bridge (CP2); null when the editor runs without one (tests, builds). */
-  bridge: BridgeClient | null = null;
+  private readonly compilerOptions: CompileClientOptions;
+  /** The host's AI; null when the editor runs without one (tests). */
+  bridge: AI | null = null;
+  /** What the host provides (src/host); null in unit tests. */
+  readonly host: Host | null;
   /** The LLM request history; null when not wired (unit tests). */
   requests: AiRequests | null = null;
   /** The LLM path (Codex through the bridge); null when not wired. */
   llm: LlmController | null = null;
   /** The pod (BrowserPod): the screen project's workbench for the AI and the person; null when not wired (unit tests). */
   pod: PodSession | null = null;
-  /** What the person is looking at (U8b): the view and the plugin's mode (the editor keeps it up to date). */
+  /** Where the code parts run and what the person allowed them; null when not wired (unit tests). */
+  codeParts: CodeParts | null = null;
+  /** What the person is looking at: the view and the plugin's mode (the editor keeps it up to date). */
   readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
   /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
   viewDetails: (() => Partial<Seeing>) | null = null;
-  /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches (U8c). */
+  /** The patch view adds where its modules are drawn (boxes in the patch's positions), for reading sketches. */
   patchBoxes: (() => Record<string, Box>) | null = null;
-  /** Pictures of den-kit as the person sees it, once they let the AI see the screen (U8b). */
-  readonly screen = markRaw(new ScreenShare());
-  /** The person's rough sketch over each view (U8c): marks for the AI, not part of the work and not in the undo history. */
+  /** Pictures of den-kit as the person sees it, once they let the AI see the screen. */
+  readonly screen: ScreenShare;
+  /** The person's rough sketch over each view: marks for the AI, not part of the work and not in the undo history. */
   readonly sketch = shallowRef<Record<SketchView, Mark[]>>({ plugin: [], patch: [] });
   /** Drawing on the view: the tool in hand (null: not drawing). */
   readonly inking = ref<InkTool | null>(null);
@@ -176,10 +211,13 @@ export class KitSession {
   readonly sentMarks = shallowRef<Record<string, string>>({});
   /** Increments whenever the whole document is replaced (load, import, recall) so views can re-fit. */
   readonly loadEpoch = ref(0);
-  /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
+  /** Where the bytes of the work's assets are kept (the host's storage), and the URLs the page shows them with. */
   readonly assets: AssetStore;
   readonly assetUrls = shallowRef<Record<string, string>>({});
-  private fontFaces = new Set<string>();
+  /** What each path's URL was made from: its contents' hash, or where den-kit ships the file. */
+  private assetSources = new Map<string, string>();
+  /** The font face each path has registered with the page. */
+  private fontFaces = new Map<string, FontFace>();
   private listeners = new Set<TransactionListener>();
   private historyListeners = new Set<HistoryListener>();
   private compileSerial = 0;
@@ -196,10 +234,13 @@ export class KitSession {
       compileTimeoutMs?: number;
       rotateAfter?: number;
       assets?: AssetStore;
+      host?: Host | null;
     } = {},
   ) {
+    this.host = options.host ?? null;
+    this.screen = markRaw(new ScreenShare(this.host?.screenCapture ?? null));
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
-    this.assets = markRaw(options.assets ?? new AssetStore());
+    this.assets = markRaw(options.assets ?? new AssetStore(this.host?.storage ?? null));
     this.engine = markRaw(
       options.engine ??
         new AudioEngine(
@@ -218,13 +259,12 @@ export class KitSession {
           { rotateAfter: options.rotateAfter },
         ),
     );
-    this.compiler = markRaw(
-      new CompileClient({
-        createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never,
-        timeoutMs: options.compileTimeoutMs,
-      }),
-    );
-    this.reloadMyParts();
+    this.compilerOptions = {
+      createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never,
+      timeoutMs: options.compileTimeoutMs,
+    };
+    this.compiler = markRaw(new CompileClient(this.compilerOptions));
+    this.readMyParts();
     if (this.storage?.getItem(STYLUS_KEY) === 'off') this.stylusDraws.value = false;
     watch(this.stylusDraws, on => {
       try {
@@ -249,9 +289,6 @@ export class KitSession {
       const read = readSaveRecord(record, catalog);
       if (read.ok) {
         this.replace(read.doc, 'Restored autosave', false);
-        // The conversation about this patch goes on after a reload.
-        const saved = this.loadConversation();
-        if (saved && saved.docId === read.doc.id) this.conversation.value = saved.id;
         for (const i of read.report) this.toast('warn', i.message);
         return true;
       }
@@ -262,12 +299,20 @@ export class KitSession {
         `Autosave could not be read (${read.error}); a copy was kept and a starter patch was loaded.`,
       );
     }
-    this.replace(starter(fallback, catalog), 'Starter', false);
+    this.replace({ ...starter(fallback, catalog), id: randomId('patch') }, 'Starter', false);
     return false;
   }
 
   replace(doc: PatchDocument, label: string, undoable = true, author: Author = { kind: 'human' }) {
     const previous = this.doc.value;
+    // An undoable replacement (the person loads a starter, an example, an import) keeps the work.
+    const id = undoable ? previous.id : doc.id;
+    // Another work: this window holds it now (and lets go of the one before), and its conversation is read.
+    if (id !== previous.id) {
+      void this.lock.claim(id);
+      this.conversation.value = null;
+      void this.readConversation(id);
+    } else if (undoable && author.kind === 'human') this.keepConversation(null); // a fresh start talks afresh
     if (undoable)
       this.history.record({
         id: randomId('tx'),
@@ -283,14 +328,14 @@ export class KitSession {
     this.doc.value = {
       ...doc,
       panel: { ...doc.panel },
-      revision: previous.revision + 1,
-      id: undoable ? previous.id : doc.id,
+      // A work opened as it was saved keeps its revision; within a session the revision only goes up.
+      revision: undoable ? previous.revision + 1 : Math.max(doc.revision, previous.revision + 1),
+      id,
     };
     this.selection.value = [];
     this.edgeSelection.value = [];
     this.partPath.value = [];
     this.solo.value = null;
-    if (author.kind === 'human') this.conversation.value = randomId('conv');
     // Marks were about the patch that was there.
     this.sketch.value = { plugin: [], patch: [] };
     this.sentMarks.value = {};
@@ -300,8 +345,12 @@ export class KitSession {
   }
 
   // ---- My parts: saved parts every patch can place -----------------------------------------
-  /** Read My parts from storage again (another tab may have saved one). */
-  reloadMyParts() {
+  /** Read My parts from storage again (another window may have saved one). */
+  async reloadMyParts() {
+    await this.storage?.refresh?.(MY_PARTS_KEY);
+    this.readMyParts();
+  }
+  private readMyParts() {
     const raw = this.storage?.getItem(MY_PARTS_KEY);
     if (!raw) {
       this.myParts.value = emptyLibrary();
@@ -450,7 +499,7 @@ export class KitSession {
     if (!this.myParts.value.parts[id]) return false;
     return this.storeMyParts(removeFromLibrary(this.myParts.value, id));
   }
-  /** My parts as a file, with the pictures and fonts their faces use inside (so it opens on another machine). */
+  /** My parts as a file, with the assets they use inside (so it opens on another machine). */
   async exportMyParts(ids?: readonly string[]): Promise<string> {
     const assetData: Record<string, string> = {};
     for (const asset of libraryAssets(this.myParts.value, ids)) {
@@ -460,7 +509,7 @@ export class KitSession {
       } catch {
         /* said below */
       }
-      if (data) assetData[asset.id] = data;
+      if (data) assetData[assetSource(asset)] = data;
       else this.toast('warn', `"${asset.name}" is missing; the file only names it.`);
     }
     return serializeLibrary(this.myParts.value, ids, { assetData });
@@ -475,11 +524,11 @@ export class KitSession {
         message: 'My parts could not be saved: the browser storage is full.',
         report: read.report,
       };
-    const carried = Object.entries(read.assetData);
+    const carried = Object.values(read.assetData);
     if (carried.length)
-      void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(
+      void Promise.all(carried.map(data => this.assets.putDataUrl(data))).then(
         () => this.syncAssets(),
-        () => this.toast('warn', 'Some pictures in that file could not be kept.'),
+        () => this.toast('warn', 'Some assets in that file could not be kept.'),
       );
     const bits = [
       merged.added.length ? `added ${merged.added.length}` : '',
@@ -647,7 +696,7 @@ export class KitSession {
     );
   }
 
-  // ---- the sketch (U8c) ----
+  // ---- the sketch ----
   /** The first stroke a stylus draws by itself says so (someone using a pen as their mouse may not want it). */
   stylusNoticed() {
     if (this.stylusTold) return;
@@ -744,7 +793,7 @@ export class KitSession {
 
   /** What the person is looking at now. */
   seeingNow(): Seeing {
-    return { ...this.seeing.value, ...(this.viewDetails?.() ?? {}) };
+    return { ...this.seeing.value, ...this.viewDetails?.() };
   }
 
   /** Where a view is on the page (CSS pixels): the plugin, the patch, the whole working area, or the window. */
@@ -779,66 +828,46 @@ export class KitSession {
       analyser: probe =>
         probe >= 0 ? (this.engine.probeAnalysers[probe] ?? null) : this.engine.outAnalyser,
       picture: options.picture,
-      pod: this.pod,
+      pod: this.codeParts?.source ?? this.pod,
     });
   }
 
-  /** Apply intents as one transaction. Returns the resolved ops, or the error. */
+  /** Apply intents as one transaction (work's commit()). Returns the resolved ops, or the error. */
   commit(
     intents: Intent[],
-    options: {
-      author?: Author;
-      label?: string;
-      gesture?: string;
-      /** Steps of one request that undo together (see History). */ group?: string;
-      /** Refuse when the document moved on (AI answers computed on an older revision). */ expectRevision?: number;
-    } = {},
+    options: CommitOptions = {},
   ): { ok: true; ops: ResolvedOp[]; created: string[] } | { ok: false; error: OpError } {
-    const before = this.doc.value;
-    if (options.expectRevision !== undefined && before.revision !== options.expectRevision)
-      return {
-        ok: false,
-        error: new OpError(
-          `The patch changed (revision ${before.revision}, expected ${options.expectRevision}).`,
-          0,
-          'stale',
-        ),
-      };
-    let result;
-    try {
-      result = applyIntents(before, intents, catalog);
-    } catch (error) {
-      if (error instanceof OpError) return { ok: false, error };
-      throw error;
-    }
-    if (!result.ops.length) return { ok: true, ops: [], created: result.created };
-    const tx: Transaction = {
-      id: randomId('tx'),
-      author: options.author ?? { kind: 'human' },
-      label: options.label ?? describeIntents(intents),
-      ops: result.ops,
-      at: Date.now(),
-      gesture: options.gesture,
-      group: options.group,
-      baseRevision: before.revision,
-    };
-    this.history.record(tx);
+    const r = commitWork(this.history, this.doc.value, intents, catalog, options);
+    if (!r.ok) return r;
+    if (!r.tx) return { ok: true, ops: [], created: r.created };
     this.historyVersion.value++;
-    this.doc.value = result.doc;
-    this.afterChange(result.ops.some(isStructural), result.ops);
-    for (const listener of this.listeners) listener(tx, result.doc);
-    return { ok: true, ops: result.ops, created: result.created };
+    this.doc.value = r.doc;
+    this.afterChange(r.ops.some(isStructural), r.ops);
+    for (const listener of this.listeners) listener(r.tx, r.doc);
+    return { ok: true, ops: r.ops, created: r.created };
   }
 
+  /** Undo the last step; what someone else changed after it stays (and is said in a toast). */
   undo() {
-    const r = this.history.undo(this.doc.value);
-    if (r) {
-      this.doc.value = r.doc;
-      this.historyVersion.value++;
-      this.afterChange(r.tx.ops.some(isStructural), r.tx.ops);
-      for (const l of this.historyListeners) l('undo', r.tx);
+    const r = this.history.undo(this.doc.value, {
+      check: doc =>
+        validate(doc, catalog).issues.some(i => i.code === 'dangling-edge') ? 'x' : null,
+    });
+    if (!r) return null;
+    if ('error' in r) {
+      this.toast('warn', r.error);
+      return null;
     }
-    return r?.tx ?? null;
+    this.doc.value = r.doc;
+    this.historyVersion.value++;
+    this.afterChange(r.tx.ops.some(isStructural), r.tx.ops);
+    if (r.kept.length)
+      this.toast(
+        'info',
+        `Undone, except what was changed after it: ${r.kept.map(k => describeKey(k.key)).join(', ')}.`,
+      );
+    for (const l of this.historyListeners) l('undo', r.tx);
+    return r.tx;
   }
   redo() {
     const r = this.history.redo(this.doc.value);
@@ -863,7 +892,10 @@ export class KitSession {
   private afterChange(structural: boolean, ops: readonly ResolvedOp[] = []) {
     this.scheduleSave();
     this.keepPathsValid();
-    if (!ops.length || ops.some(op => op.op === 'addAsset')) void this.syncAssets();
+    if (!ops.length || ops.some(op => op.op === 'setFile' && op.path.startsWith('assets/'))) {
+      void this.syncAssets();
+      if (ops.length) this.engine.setAssets(this.assetLoads());
+    }
     // Value-only edits go straight to AudioParams, and the plugin's screen never touches the sound: no codegen, no recompile.
     // A knob may stand for several AudioParams (each use of a part, each copy of a spread knob) or none (a use's parameter
     // sets it): the patch is expanded again and every AudioParam whose value moved is sent.
@@ -896,9 +928,30 @@ export class KitSession {
     if (same) {
       for (const [name, value] of Object.entries(generated.values))
         this.engine.setParam(name, value);
+      // A sampler pointed at another sound, or an asset replaced: new samples, no recompile.
+      this.engine.setAssets(this.assetLoads());
       return;
     }
     this.scheduleCompile();
+  }
+
+  /** What the sound's asset slots hold: each sampler's sound and each asset a codebox reads. */
+  private assetLoads(): AssetLoad[] {
+    const files = this.doc.value.files;
+    return currentAssets(
+      this.doc.value,
+      catalog,
+      this.generated.value,
+      this.solo.value ? { solo: this.solo.value } : {},
+    ).map(({ slot, path }) => {
+      const meta = path ? assetsOf(files)[path] : undefined;
+      return {
+        event: slot.event,
+        kind: slot.kind,
+        key: meta ? (meta.hash ?? meta.url ?? '') : '',
+        read: () => (meta ? this.assets.read(meta) : Promise.resolve(null)),
+      };
+    });
   }
 
   private scheduleCompile() {
@@ -908,6 +961,20 @@ export class KitSession {
       this.compileTimer = null;
       void this.compileNow();
     }, 120);
+  }
+
+  /** Compile a sound on a compiler of its own: the live work's compiles neither replace it nor are replaced by it. */
+  async compileApart(doc: PatchDocument, generated: Generated): Promise<Artifact> {
+    const hit = this.compiler.cached(generated.hash);
+    if (hit) return hit;
+    const compiler = new CompileClient(this.compilerOptions);
+    try {
+      const artifact = await compiler.compile(generated, compileInputs(doc, generated));
+      this.compiler.prime(artifact);
+      return artifact;
+    } finally {
+      compiler.dispose();
+    }
   }
 
   /** Compile the current document and swap it in. Old sound keeps playing on failure. */
@@ -979,6 +1046,7 @@ export class KitSession {
         voices: !!g.voices,
         audioIn: g.audioIn,
         probes: g.probes.length,
+        assets: this.assetLoads(),
       });
     } catch (error) {
       this.toast(
@@ -1060,44 +1128,64 @@ export class KitSession {
   }
 
   // ---- Assets ---------------------------------------------------------------------
-  /** Find a URL for every asset of the patch that has none yet; fonts get registered with the page. */
+  /**
+   * Find a URL for every asset of the patch whose contents have none yet: a path that holds other contents gets
+   * theirs, and a font is registered with the page again under its path's family.
+   */
   async syncAssets() {
-    const doc = this.doc.value;
-    const missing = Object.values(doc.assets).filter(a => !this.assetUrls.value[a.id]);
-    if (!missing.length) return;
-    const found: Record<string, string> = {};
-    for (const asset of missing) {
-      const url = await this.assets.url(asset);
-      if (url) found[asset.id] = url;
-    }
-    if (Object.keys(found).length) this.assetUrls.value = { ...this.assetUrls.value, ...found };
-    for (const asset of missing)
-      if (
-        isFontAsset(asset) &&
-        found[asset.id] &&
-        !this.fontFaces.has(asset.id) &&
-        typeof FontFace !== 'undefined'
-      ) {
-        this.fontFaces.add(asset.id);
-        try {
-          const face = new FontFace(assetFontFamily(asset.id), `url("${found[asset.id]}")`);
-          document.fonts.add(await face.load());
-        } catch {
-          this.toast('warn', `The font "${asset.name}" could not be read.`);
-        }
+    const stale = Object.values(assetsOf(this.doc.value.files)).filter(
+      a => this.assetSources.get(a.id) !== assetSource(a),
+    );
+    if (!stale.length) return;
+    const urls = await Promise.all(stale.map(a => this.assets.url(a).catch(() => null)));
+    // A path that changed again meanwhile is left to the call that change made.
+    const now = assetsOf(this.doc.value.files);
+    const next = { ...this.assetUrls.value };
+    const fonts: AssetMeta[] = [];
+    stale.forEach((asset, i) => {
+      if (!now[asset.id] || assetSource(now[asset.id]!) !== assetSource(asset)) return;
+      const url = urls[i];
+      // Contents not here (yet) show nothing rather than what the path held before.
+      if (!url) {
+        delete next[asset.id];
+        return;
       }
+      next[asset.id] = url;
+      this.assetSources.set(asset.id, assetSource(asset));
+      if (isFontAsset(asset)) fonts.push(asset);
+    });
+    this.assetUrls.value = next;
+    for (const asset of fonts) await this.registerFont(asset, next[asset.id]!);
+  }
+  /** Register a font asset with the page under its path's family, in place of what the path held before. */
+  private async registerFont(asset: AssetMeta, url: string) {
+    if (typeof FontFace === 'undefined') return;
+    let face: FontFace | null = new FontFace(assetFontFamily(asset.id), `url("${url}")`);
+    try {
+      await face.load();
+    } catch {
+      face = null;
+      this.toast('warn', `The font "${asset.name}" could not be read.`);
+    }
+    if (this.assetSources.get(asset.id) !== assetSource(asset)) return;
+    const old = this.fontFaces.get(asset.id);
+    if (old) document.fonts.delete(old);
+    if (face) {
+      document.fonts.add(face);
+      this.fontFaces.set(asset.id, face);
+    } else this.fontFaces.delete(asset.id);
   }
 
   /** Add a dropped file as an asset of the patch (one undo step); null when it is refused. */
   async addAssetFile(file: Blob & { name?: string }): Promise<AssetMeta | null> {
     let meta: AssetMeta;
     try {
-      meta = await this.assets.add(file);
+      meta = await this.assets.add(file, path => !!this.doc.value.files[path]);
     } catch (error) {
       this.toast('warn', error instanceof Error ? error.message : String(error));
       return null;
     }
-    if (!this.doc.value.assets[meta.id]) {
+    if (!assetsOf(this.doc.value.files)[meta.id]) {
       const r = this.commit([{ op: 'addAsset', asset: meta }], { label: `Add ${meta.name}` });
       if (!r.ok) {
         this.toast('warn', r.error.message);
@@ -1105,18 +1193,34 @@ export class KitSession {
       }
     }
     await this.syncAssets();
-    return this.doc.value.assets[meta.id] ?? meta;
+    return assetsOf(this.doc.value.files)[meta.id] ?? meta;
+  }
+
+  /**
+   * A file from a public URL, fetched by the host and kept as an asset would be when dropped (its type and size
+   * checked); not yet in the work (the caller adds it). Throws with the reason it cannot.
+   */
+  async importFromUrl(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }> {
+    const fetcher = this.host?.fetch;
+    if (!fetcher) throw new Error('den-kit cannot fetch files here.');
+    const got = await fetcher.get(url, MAX_ASSET_BYTES);
+    const fromUrl = decodeURIComponent(new URL(got.url).pathname.split('/').at(-1) ?? '');
+    const file = new File([got.bytes as BlobPart], name || fromUrl || 'imported', {
+      type: got.type,
+    });
+    const asset = await this.assets.add(file, path => !!this.doc.value.files[path]);
+    return { asset, url: got.url };
   }
 
   // ---- Persistence --------------------------------------------------------------
   private scheduleSave() {
-    if (!this.storage) return;
+    if (!this.storage || this.refused.value) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.saveNow(), 800);
+    // After each change (a drag's moves coalesce): the host keeps the record.
+    this.saveTimer = setTimeout(() => this.saveNow(), 250);
   }
   saveNow() {
-    this.requests?.persist();
-    if (!this.storage) return;
+    if (this.refused.value || !this.storage) return;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
@@ -1130,43 +1234,67 @@ export class KitSession {
       );
     }
   }
-  /** The saved AI conversation (null when there is none or it cannot be read). */
-  loadConversation(): { id: string; docId: string; lines: unknown[] } | null {
+  /** Read which conversation is a work's, from the host's storage. */
+  private async readConversation(work: string) {
+    let thread: string | null = null;
     try {
-      const raw = this.storage?.getItem(CONVERSATION_KEY);
-      if (!raw) return null;
-      const data = JSON.parse(raw) as { id?: unknown; docId?: unknown; lines?: unknown };
-      return typeof data.id === 'string' &&
-        typeof data.docId === 'string' &&
-        Array.isArray(data.lines)
-        ? { id: data.id, docId: data.docId, lines: data.lines }
-        : null;
+      thread = (await this.host?.storage.read(`${CONVERSATION_KEY}${work}`)) ?? null;
     } catch {
-      return null;
+      thread = null;
     }
+    if (this.doc.value.id === work) this.conversation.value = thread;
   }
-  saveConversation(lines: unknown[]) {
-    try {
-      this.storage?.setItem(
-        CONVERSATION_KEY,
-        JSON.stringify({ id: this.conversation.value, docId: this.doc.value.id, lines }),
-      );
-    } catch {
-      /* a full storage loses the conversation, never the patch */
-    }
+  /** Keep which conversation is the open work's (null: none, the next request starts one). */
+  keepConversation(thread: string | null) {
+    this.conversation.value = thread;
+    if (this.refused.value || !this.host) return;
+    const key = `${CONVERSATION_KEY}${this.doc.value.id}`;
+    void (thread ? this.host.storage.write(key, thread) : this.host.storage.remove(key)).catch(
+      () => {
+        /* a full storage loses the conversation, never the work */
+      },
+    );
   }
   exportText() {
     return serializeDocument(this.doc.value);
   }
-  /** The patch with its pictures and fonts inside (a file that opens anywhere). */
-  async exportWithAssets(): Promise<string> {
-    const assetData: Record<string, string> = {};
-    for (const asset of Object.values(this.doc.value.assets)) {
-      const data = await this.assets.dataUrl(asset);
-      if (data) assetData[asset.id] = data;
-      else this.toast('warn', `"${asset.name}" is missing; the export only names it.`);
+  /**
+   * The work as a work file: its record, the contents of its files (a file that opens anywhere) and its playable
+   * build when it can be made (what is left out of it is said), all as the work was when the export started.
+   */
+  async exportWork(): Promise<Uint8Array> {
+    const doc = this.doc.value;
+    let build: PlayableBuild | undefined;
+    try {
+      const made = await buildPlayable(this, doc);
+      build = made.build;
+      for (const note of made.notes) this.toast('warn', note);
+    } catch (error) {
+      this.toast(
+        'warn',
+        `The work file has no playable build: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
-    return serializeDocument(this.doc.value, { assetData });
+    return writeWorkFile(doc, hash => this.assets.bytes(hash), build);
+  }
+  /** Open a work file in place of this work (one undo step); false when it is refused. */
+  async importWork(bytes: Uint8Array): Promise<boolean> {
+    const read = await readWorkFile(bytes, catalog);
+    if (!read.ok) {
+      this.toast('error', `Import refused: ${read.error}`);
+      return false;
+    }
+    for (const data of read.contents.values()) await this.assets.put(data);
+    this.replace(read.doc, 'Import');
+    this.report(read.report);
+    // The code parts as the work file has them built show until the workspace runs them.
+    const parts = Object.entries(read.build).filter(([path]) => path.startsWith(PARTS_FOLDER));
+    if (parts.length && this.codeParts)
+      await this.codeParts.keep(
+        Object.fromEntries(parts.map(([path, data]) => [path.slice(PARTS_FOLDER.length), data])),
+        this.codeParts.builtFrom(),
+      );
+    return true;
   }
   importText(text: string): boolean {
     const parsed = parseDocument(text, catalog);
@@ -1174,17 +1302,14 @@ export class KitSession {
       this.toast('error', `Import refused: ${parsed.error}`);
       return false;
     }
-    const carried = Object.entries(parsed.assetData);
     this.replace(parsed.doc, 'Import');
-    if (carried.length)
-      void Promise.all(carried.map(([id, data]) => this.assets.putDataUrl(id, data))).then(() =>
-        this.syncAssets(),
-      );
-    for (const issue of parsed.report.slice(0, 6))
-      this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
-    if (parsed.report.length > 6)
-      this.toast('warn', `…and ${parsed.report.length - 6} more repairs.`);
+    this.report(parsed.report);
     return true;
+  }
+  private report(report: readonly Issue[]) {
+    for (const issue of report.slice(0, 6))
+      this.toast(issue.severity === 'error' ? 'error' : 'warn', issue.message);
+    if (report.length > 6) this.toast('warn', `…and ${report.length - 6} more repairs.`);
   }
 
   // ---- Misc ------------------------------------------------------------------------
@@ -1207,37 +1332,6 @@ export class KitSession {
   touch() {
     triggerRef(this.doc);
   }
-}
-
-function describeIntents(intents: Intent[]): string {
-  if (intents.length === 1) {
-    const i = intents[0]!;
-    switch (i.op) {
-      case 'setValue':
-        return `Set ${i.node}.${i.port}`;
-      case 'connect':
-        return `Connect ${i.from.node} → ${i.to.node}`;
-      case 'addNode':
-        return `Add ${i.node.type.split('.').pop()}`;
-      case 'removeNode':
-        return `Delete ${i.id}`;
-      case 'makePart':
-        return 'Make a part';
-      case 'unpackPart':
-        return 'Unpack a part';
-      case 'detachPart':
-        return 'Own copy of a part';
-      case 'addParam':
-        return `Show ${i.node}.${i.port} on the part`;
-      case 'removeParam':
-        return `Hide ${i.id} from the part`;
-      case 'updatePart':
-        return i.name !== undefined ? 'Rename a part' : 'Describe a part';
-      default:
-        return i.op;
-    }
-  }
-  return `${intents.length} edits`;
 }
 
 function safeStorage(): StorageLike | null {

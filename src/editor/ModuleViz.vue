@@ -3,7 +3,7 @@
 // graph with handles, oscillator/LFO waveforms, filter response, drive curve,
 // delay taps, compressor curve. They follow the current knob values.
 import { computed } from 'vue';
-import type { PatchNode } from '../core/schema.ts';
+import type { PatchNode } from '../work/schema.ts';
 
 const props = withDefaults(
   defineProps<{ node: PatchNode; color: string; width?: number; height?: number }>(),
@@ -330,7 +330,7 @@ const shape = computed<{
   overflow: visible;
 }
 .grid {
-  stroke: #ffffff10;
+  stroke: color-mix(in srgb, var(--gray-19) 6%, transparent);
   stroke-width: 1;
 }
 </style>

@@ -161,65 +161,8 @@ const scenarios: Scenario[] = [
       await t.call('kit_finish', { summary: 'Built a bass patch.' });
     },
   },
-  // Members first: their text quotes the person's request, which other scenarios would match.
   {
-    name: 'team-sound',
-    match: /Your name: Sound \(m1\)/,
-    async run(t) {
-      await t.think();
-      await t.sleep(300); // long enough for the person to see both lanes working
-      await t.call('kit_apply_ops', {
-        ops: [
-          { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
-          { op: 'addNode', node: { id: 'lfo2', type: 'den.lfo', values: { rate: 4 } } },
-          {
-            op: 'connect',
-            from: { node: 'lfo2', port: 'out' },
-            to: { node: 'cut1', port: 'octaves' },
-            replace: true,
-          },
-        ],
-      });
-      const wrong = await t.call('kit_apply_ops', {
-        ops: [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }],
-      });
-      await t.call('kit_listen', { phrase: 'bass', seconds: 1 });
-      t.usage(8000, 600, 6000);
-      await t.call('kit_finish', {
-        summary: 'Squelchy bass',
-        names: ['lfo2 wobbles cut1'],
-        needs: [],
-        problems: wrong.success ? ['an edit outside my scope was not refused'] : [],
-      });
-    },
-  },
-  {
-    name: 'team-screen',
-    match: /Your name: Screen \(m2\)/,
-    async run(t) {
-      await t.think();
-      await t.call('kit_apply_ops', {
-        ops: [
-          { op: 'setLook', look: { tokens: { bg: '#000000', fg: '#39ff14', accent: '#39ff14' } } },
-          {
-            op: 'addElement',
-            element: {
-              kind: 'text',
-              text: 'ACID',
-              rect: { x: 40, y: 24, w: 300, h: 56 },
-              textStyle: { font: 'orbitron', size: 40, color: 'accent' },
-            },
-          },
-        ],
-      });
-      await t.sleep(400);
-      await t.call('kit_look', {});
-      t.usage(3000, 300);
-      await t.call('kit_finish', { summary: 'Neon screen' });
-    },
-  },
-  {
-    // U8b: the model asks to see what the person sees.
+    // The model asks to see what the person sees.
     name: 'see',
     match: /what do you see/i,
     async run(t) {
@@ -229,7 +172,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // U8c: a request with the person's sketch: what came (pictures, the marks in words), and an edit on what was circled.
+    // A request with the person's sketch: what came (pictures, the marks in words), and an edit on what was circled.
     name: 'sketch',
     // The person's words come last (the recap of earlier requests may quote an older sketch request).
     match: text => /Do what my sketch shows|sketch test/i.test(text.split('\n\n').at(-1) ?? ''),
@@ -244,16 +187,6 @@ const scenarios: Scenario[] = [
         });
       await t.say(
         `pictures ${t.images.length} [${sizes.join(', ')}]; ${marks.length} marks: ${marks.join(' | ')}`,
-      );
-    },
-  },
-  {
-    name: 'member-start',
-    match: /\[den-kit\] You are a member/,
-    async run(t) {
-      // A member says whether it started from a copy of the lead's conversation and what its first text began with.
-      await t.say(
-        `forked=${t.forkedFrom ? 'yes' : 'no'}; begins: ${t.text.slice(0, 60).replace(/\n/g, ' ')}`,
       );
     },
   },
@@ -363,7 +296,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run doctor -- --deep
+    // vp run doctor --deep
     name: 'doctor-ping',
     match: /connectivity check/i,
     async run(t) {
@@ -374,7 +307,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    // npm run doctor -- --deep: a picture with the request, another added (turn/steer) while the ping is out.
+    // vp run doctor --deep: a picture with the request, another added (turn/steer) while the ping is out.
     name: 'doctor-picture',
     match: /den-kit picture check/i,
     async run(t) {
@@ -382,6 +315,21 @@ const scenarios: Scenario[] = [
       await t.call('kit_ping', {});
       t.usage(2400, 6, 0);
       await t.say(t.images.map(colourOf).join(' '));
+    },
+  },
+  {
+    // vp run doctor --deep: a sub-agent calls den-kit's tool from its own conversation.
+    name: 'doctor-subagent',
+    match: /den-kit sub-agent check/i,
+    async run(t) {
+      await t.think();
+      void t.spawn('ping', async a => {
+        const r = await a.call('kit_ping', {});
+        await a.say(r.text.includes('pong') ? 'pong' : 'no pong');
+      });
+      await t.waitAgents();
+      t.usage(1200, 8, 900);
+      await t.say('pong');
     },
   },
   {
@@ -931,7 +879,7 @@ const scenarios: Scenario[] = [
       await t.say('ok');
     },
   },
-  // ---- U8: members, pictures, token counts ------------------------------------------------
+  // ---- Pictures and token counts ---------------------------------------------------------
   {
     name: 'tokens',
     match: /count my tokens/i,
@@ -950,10 +898,11 @@ const scenarios: Scenario[] = [
       await t.say(`after "${more ?? ''}": pictures ${t.images.length}`);
     },
   },
-  // A team (U8): the lead lands the seam, starts a sound member and a screen member, waits for their reports,
-  // looks once and finishes. Each member works in its own scope (an edit outside it is refused).
+  // Sub-agents: the request's AI lands the controls both sides share, starts a sound sub-agent and a screen
+  // sub-agent that work at once, each in the scope it claims (an edit outside it is refused), waits for them,
+  // looks once and finishes.
   {
-    name: 'team-lead',
+    name: 'team',
     match: /acid team/i,
     async run(t) {
       await t.think();
@@ -978,39 +927,91 @@ const scenarios: Scenario[] = [
         await t.say(`seam failed: ${seam.text.slice(0, 200)}`);
         return { status: 'failed', message: 'scenario: seam failed', info: 'other' };
       }
-      const started = await t.call('kit_delegate', {
-        members: [
-          {
-            name: 'Sound',
-            goal: 'A squelchy acid bass',
-            why: 'The person wants it to bite',
-            scope: { sound: 'all' },
-            done: 'kit_listen says it is not silent',
-          },
-          {
-            name: 'Screen',
-            goal: 'A black screen with neon green type',
-            why: 'Neon, 303 style',
-            scope: { screen: 'all' },
-            done: 'kit_look finds nothing serious',
-          },
-        ],
+      const reports: string[] = [];
+      void t.spawn('sound', async a => {
+        await a.think();
+        const claim = await a.call('kit_claim_scope', { scope: { sound: 'all' }, name: 'Sound' });
+        if (!claim.success) {
+          reports.push(`sound: claim refused (${claim.text.slice(0, 120)})`);
+          return;
+        }
+        await a.sleep(300); // long enough for the person to see both lanes working
+        await a.call('kit_apply_ops', {
+          ops: [
+            { op: 'setValue', node: 'filter1', port: 'resonance', value: 3 },
+            { op: 'addNode', node: { id: 'lfo2', type: 'den.lfo', values: { rate: 4 } } },
+            {
+              op: 'connect',
+              from: { node: 'lfo2', port: 'out' },
+              to: { node: 'cut1', port: 'octaves' },
+              replace: true,
+            },
+          ],
+        });
+        const wrong = await a.call('kit_apply_ops', {
+          ops: [{ op: 'setLook', look: { tokens: { accent: '#ff0000' } } }],
+        });
+        await a.call('kit_listen', { phrase: 'bass', seconds: 1 });
+        a.usage(8000, 600, 6000);
+        reports.push(
+          wrong.success ? 'sound: an edit outside my scope was not refused' : 'sound: done',
+        );
+        await a.say('Squelchy bass: lfo2 wobbles cut1.');
       });
-      if (!started.success) {
-        await t.say(`delegate failed: ${started.text.slice(0, 300)}`);
-        return { status: 'failed', message: 'scenario: delegate failed', info: 'other' };
-      }
+      void t.spawn('screen', async a => {
+        await a.think();
+        const claim = await a.call('kit_claim_scope', { scope: { screen: 'all' }, name: 'Screen' });
+        if (!claim.success) {
+          reports.push(`screen: claim refused (${claim.text.slice(0, 120)})`);
+          return;
+        }
+        await a.call('kit_apply_ops', {
+          ops: [
+            {
+              op: 'setLook',
+              look: { tokens: { bg: '#000000', fg: '#39ff14', accent: '#39ff14' } },
+            },
+            {
+              op: 'addElement',
+              element: {
+                kind: 'text',
+                text: 'ACID',
+                rect: { x: 40, y: 24, w: 300, h: 56 },
+                textStyle: { font: 'orbitron', size: 40, color: 'accent' },
+              },
+            },
+          ],
+        });
+        await a.sleep(400);
+        await a.call('kit_look', {});
+        a.usage(3000, 300);
+        reports.push('screen: done');
+        await a.say('Neon screen.');
+      });
       t.usage(6000, 400, 2000);
-      let waited = await t.call('kit_wait', {});
-      for (let i = 0; i < 6 && /Still working/.test(waited.text); i++)
-        waited = await t.call('kit_wait', {});
+      await t.waitAgents();
       await t.call('kit_look', {});
       await t.call('kit_finish', {
-        summary: /m1 “Sound” — done[\s\S]*m2 “Screen” — done/.test(waited.text)
-          ? 'Built an acid bass and a neon screen'
-          : `members did not both finish: ${waited.text.slice(0, 200)}`,
+        summary:
+          reports.length === 2 && reports.every(r => r.endsWith(': done'))
+            ? 'Built an acid bass and a neon screen'
+            : `sub-agents: ${reports.join('; ')}`,
       });
       await t.say('Done.');
+    },
+  },
+  {
+    // Esc while sub-agents work: each has to be stopped on its own thread.
+    name: 'team-waits',
+    match: /team that waits/i,
+    async run(t) {
+      void t.spawn('one', async a => {
+        for (let i = 0; i < 200 && !a.interrupted; i++) await a.sleep(20);
+      });
+      void t.spawn('two', async a => {
+        for (let i = 0; i < 200 && !a.interrupted; i++) await a.sleep(20);
+      });
+      for (let i = 0; i < 200 && !t.interrupted; i++) await t.sleep(20);
     },
   },
   {

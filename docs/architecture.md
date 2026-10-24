@@ -158,7 +158,7 @@ the sound to `screen`.
   the list. The person allows them for that work, and the host keeps that permission in its
   settings, never in the work, so a work never arrives with network access already allowed.
   Outside den-kit, the host that plays the work decides whether to let them through. An
-  allowed origin opens connections only: code is never loaded from it.
+  allowed origin opens connections only: the frame loads scripts only from its own origin.
 
 ## AI
 

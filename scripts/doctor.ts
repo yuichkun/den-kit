@@ -1,10 +1,13 @@
-// `npm run doctor`: checks the local setup step by step and says how to fix each problem.
+// `vp run doctor`: checks the local setup step by step and says how to fix each problem.
 //   Node, dependencies, ports ·
 //   Codex (pinned CLI, isolated CODEX_HOME, sign-in, app-server, thread isolation).
-// `npm run doctor -- --deep` also makes one real Codex request with a ping tool, then
-// tries what members, sketches and shared screens need (U8): two requests at once, a tool
-// call held as long as kit_wait may hold one, pictures with a request and added while it
-// works, a copy of a conversation (thread/fork) and token counts (about two minutes in all).
+// `vp run doctor --deep` also makes one real Codex request with a ping tool, then
+// tries what den-kit needs beyond one request: a sub-agent calling den-kit's tool from its
+// own conversation, two requests at once (two windows), a tool call held as long as a
+// kit_bash command may run, pictures with a request and added while it works (sketches,
+// shared screens), a saved conversation read back (thread/items/list) and token counts
+// (about two minutes in all). Codex reaches the tools as in the app: from an MCP server
+// with a per-launch token (bridge/mcp.ts).
 // It records the whole JSON-RPC conversation to .logs/codex-deep-*.jsonl.
 // Every run writes its results to .logs/doctor-*.json (secrets masked).
 import { execFile } from 'node:child_process';
@@ -12,6 +15,8 @@ import { findPackageJSON } from 'node:module';
 import { crc32, deflateSync } from 'node:zlib';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { loadEnvFile } from '../bridge/env.ts';
@@ -26,26 +31,28 @@ import {
   spawnAppServer,
   type CodexCommand,
 } from '../bridge/codex/process.ts';
-import { describeRpcError, forkParams, text, threadStartParams } from '../bridge/codex/client.ts';
+import { describeRpcError, text, threadStartParams } from '../bridge/codex/client.ts';
+import { MCP_PATH, MCP_TOKEN_ENV, mcpHandler } from '../bridge/mcp.ts';
+import type { ToolOutput } from '../bridge/protocol.ts';
 import {
   CODEX_VERSION,
   DECLINE,
   EXPECTED_ITEMS,
   explainCodexError,
-  type DynamicToolCallParams,
   type GetAccountResponse,
   type InitializeResponse,
   type ModelListResponse,
   type RpcNotification,
-  type RpcRequest,
   type ThreadStartResponse,
   type TurnError,
   type UserInput,
 } from '../bridge/codex/protocol.ts';
-import { KIT_TOOLS, type ToolSpec } from '../src/ai/llm-spec.ts';
+import { toolsFor, type ToolSpec } from '../src/ai/llm-spec.ts';
 import { inNodeRange } from './node-range.ts';
 
 type Status = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
+/** What den-kit's ping tool answers. */
+const PONG: ToolOutput = { success: true, text: 'pong-from-den-kit' };
 const deep = process.argv.includes('--deep');
 const kit = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 loadEnvFile(join(kit, '.env'));
@@ -74,7 +81,7 @@ if (!existsSync(core))
     'FAIL',
     'den-kit dependencies',
     'missing node_modules at the repo root',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 else {
   const v = json(core).version;
@@ -84,7 +91,7 @@ else {
     v,
     v === '0.4.1'
       ? undefined
-      : 'den-kit is pinned to unworklet 0.4.1: run `npm ci` at the repo root.',
+      : 'den-kit is pinned to unworklet 0.4.1: run `vp install --frozen-lockfile` at the repo root.',
   );
 }
 try {
@@ -94,7 +101,7 @@ try {
     denPackage.version === '0.1.0' ? 'PASS' : 'FAIL',
     '@denaudio/den',
     denPackage.version,
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
   const ownCore = realpathSync(findPackageJSON('@unworklet/core', import.meta.url)!);
   const denCore = realpathSync(
@@ -106,14 +113,14 @@ try {
     ownCore === denCore
       ? 'den and den-kit resolve the same installed module'
       : 'den and den-kit resolve different copies',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 } catch {
   report(
     'FAIL',
     '@denaudio/den',
     'the npm package or its core dependency is missing',
-    'Run `npm ci` in the den-kit repo root.',
+    'Run `vp install --frozen-lockfile` in the den-kit repo root.',
   );
 }
 for (const [name, path] of [
@@ -125,7 +132,7 @@ for (const [name, path] of [
     existsSync(join(kit, path)) ? 'PASS' : 'FAIL',
     name,
     existsSync(join(kit, path)) ? json(join(kit, path)).version : 'not installed',
-    'Run `npm ci` from the repo root.',
+    'Run `vp install --frozen-lockfile` from the repo root.',
   );
 }
 
@@ -183,7 +190,7 @@ try {
 console.log(
   failed
     ? `\n${failed} problem(s) to fix.`
-    : `\nAll checks passed. Start with \`npm run dev\`.${deep ? '' : ' (Add `-- --deep` to try one real Codex request.)'}`,
+    : `\nAll checks passed. Start with \`vp run dev\`.${deep ? '' : ' (Add `--deep` to try one real Codex request.)'}`,
 );
 process.exit(failed ? 1 : 0);
 
@@ -232,7 +239,7 @@ async function checkCodex() {
       'FAIL',
       'Codex CLI',
       version.out.split('\n')[0] || `exit ${version.code}`,
-      `den-kit is pinned to ${CODEX_VERSION}: run \`npm ci\`.`,
+      `den-kit is pinned to ${CODEX_VERSION}: run \`vp install --frozen-lockfile\`.`,
     );
     return;
   }
@@ -262,10 +269,7 @@ async function checkCodex() {
   else report('PASS', 'Codex sign-in', login.out.split('\n')[0]!);
 
   const workdir = codexWorkdir(kit);
-  const proc = spawnAppServer(command, { home: home.path, cwd: workdir });
-  const notes: RpcNotification[] = [];
-  const recording: Array<{ at: number; dir: string; line: string }> = [];
-  /** The U8 checks' threads (their tool calls and turns), and the tokens each thread used so far. */
+  /** The deep checks' threads (their tool calls and turns), and the tokens each thread used so far. */
   const watches = new Map<string, Watch>();
   const usage = new Map<string, number>();
   const live = {
@@ -276,29 +280,43 @@ async function checkCodex() {
     error: null as TurnError | null,
     done: null as null | ((status: string) => void),
   };
+  const ping: ToolSpec = {
+    name: 'kit_ping',
+    description: 'Connectivity check: call this once, with no arguments.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  };
+  const mcp = mcpHandler({
+    token: randomBytes(32).toString('hex'),
+    version: 'den-kit-doctor',
+    tools: () => (deep ? [ping] : toolsFor()),
+    call: async (thread, tool, args) => {
+      const watched = thread ? (watches.get(thread) ?? subAgentWatch(watches, thread)) : undefined;
+      if (watched) return watched.tool(tool, args, thread!);
+      if (tool !== 'kit_ping') return { success: false, text: 'Only kit_ping is available.' };
+      live.pinged++;
+      return PONG;
+    },
+  });
+  const mcpServer = createHttpServer((req, res) => {
+    if (!mcp.handle(req, res)) res.writeHead(404).end();
+  });
+  await new Promise<void>(resolve => mcpServer.listen(0, '127.0.0.1', resolve));
+  const mcpAt = {
+    url: `http://127.0.0.1:${(mcpServer.address() as { port: number }).port}${MCP_PATH}`,
+  };
+  const proc = spawnAppServer(command, {
+    home: home.path,
+    cwd: workdir,
+    env: { ...process.env, [MCP_TOKEN_ENV]: mcp.token },
+  });
+  const notes: RpcNotification[] = [];
+  const recording: Array<{ at: number; dir: string; line: string }> = [];
   const peer: RpcPeer = new RpcPeer(
     proc.child.stdout,
     proc.child.stdin,
     {
       onRequest: r => {
-        const params = (r.params ?? {}) as { tool?: string; threadId?: string };
-        const watched = params.threadId ? watches.get(params.threadId) : undefined;
-        if (watched && r.method === 'item/tool/call') {
-          watched.tool(r);
-          return;
-        }
-        if (r.method === 'item/tool/call' && params.tool === 'kit_ping') {
-          live.pinged++;
-          peer.respond(r.id, {
-            contentItems: [{ type: 'inputText', text: 'pong-from-den-kit' }],
-            success: true,
-          });
-        } else if (r.method === 'item/tool/call')
-          peer.respond(r.id, {
-            contentItems: [{ type: 'inputText', text: 'Only kit_ping is available.' }],
-            success: false,
-          });
-        else if (Object.hasOwn(DECLINE, r.method)) {
+        if (Object.hasOwn(DECLINE, r.method)) {
           live.declined.push(r.method);
           peer.respond(r.id, DECLINE[r.method]);
         } else if (r.method === 'currentTime/read')
@@ -310,7 +328,10 @@ async function checkCodex() {
         const p = (n.params ?? {}) as Record<string, any>;
         if (n.method === 'thread/tokenUsage/updated' && typeof p.threadId === 'string')
           usage.set(p.threadId, Number(p.tokenUsage?.total?.totalTokens) || 0);
-        const watched = typeof p.threadId === 'string' ? watches.get(p.threadId) : undefined;
+        const watched =
+          typeof p.threadId === 'string'
+            ? (watches.get(p.threadId) ?? subAgentWatch(watches, p.threadId))
+            : undefined;
         if (watched) {
           watched.note(n.method, p);
           return;
@@ -367,11 +388,6 @@ async function checkCodex() {
       'Codex app-server',
       `${init.userAgent.split(' ')[0]} · ${who} · ${model?.displayName ?? wanted ?? 'default model'}${model?.inputModalities.includes('image') ? ' (sees images)' : ''}`,
     );
-    const ping: ToolSpec = {
-      name: 'kit_ping',
-      description: 'Connectivity check: call this once, with no arguments.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    };
     const started = await peer.request<ThreadStartResponse>(
       'thread/start',
       threadStartParams({
@@ -380,7 +396,7 @@ async function checkCodex() {
         instructions: deep
           ? 'This is a den-kit connectivity check. Call the kit_ping tool exactly once (no arguments), then reply with the single word: pong.'
           : 'den-kit doctor',
-        tools: deep ? [ping] : KIT_TOOLS,
+        mcp: mcpAt,
       }),
       { timeoutMs: 20000 },
     );
@@ -409,7 +425,7 @@ async function checkCodex() {
       report(
         'SKIP',
         'Codex live request',
-        'run `npm run doctor -- --deep` to make one real request (uses a little of your ChatGPT usage)',
+        'run `vp run doctor --deep` to make one real request (uses a little of your ChatGPT usage)',
       );
     else {
       const t0 = Date.now();
@@ -457,12 +473,13 @@ async function checkCodex() {
           `${(ms / 1000).toFixed(1)} s · kit_ping round trip · reply “${live.reply.slice(0, 40)}”`,
         );
       if (status === 'completed')
-        await teamChecks({
+        await deepChecks({
           peer,
           workdir,
+          mcp: mcpAt,
           model: wanted || null,
           images: !!model?.inputModalities.includes('image'),
-          lead: started.thread.id,
+          live: started.thread.id,
           watches,
           usage,
         });
@@ -480,6 +497,7 @@ async function checkCodex() {
   } finally {
     peer.close('doctor done');
     await proc.stop();
+    mcpServer.close();
     if (deep && recording.length) {
       const file = join(
         kit,
@@ -497,15 +515,20 @@ async function checkCodex() {
   }
 }
 
-// ---- What members, sketches and shared screens need (U8) ---------------------------------------
+// ---- What den-kit needs beyond one request ---------------------------------------------------
 interface Watch {
-  tool(r: RpcRequest): void;
+  /** Answers a tool call made in this thread or by one of its sub-agents (`thread` says which). */
+  tool(tool: string, args: unknown, thread: string): Promise<ToolOutput>;
   note(method: string, p: Record<string, any>): void;
   ended: Promise<string>;
   status: string | null;
   reply: string;
   error: TurnError | null;
   items: string[];
+  /** The turn running now (turn/started). */
+  turnId: string | null;
+  /** The sub-agents it started, by their own thread id. */
+  agents: Set<string>;
 }
 function watching(watches: Map<string, Watch>, id: string, tool: Watch['tool']): Watch {
   let end!: (status: string) => void;
@@ -518,7 +541,18 @@ function watching(watches: Map<string, Watch>, id: string, tool: Watch['tool']):
     reply: '',
     error: null,
     items: [],
+    turnId: null,
+    agents: new Set(),
     note(method, p) {
+      // A sub-agent's own thread: its tool calls count for this one, its turns do not.
+      if (p.threadId !== id) return;
+      if (method === 'turn/started' && p.turn?.id) w.turnId = String(p.turn.id);
+      if (
+        method === 'item/started' &&
+        p.item?.type === 'subAgentActivity' &&
+        p.item.kind === 'started'
+      )
+        w.agents.add(String(p.item.agentThreadId));
       if (method === 'item/started' && p.item?.type) w.items.push(p.item.type);
       if (method === 'item/completed' && p.item?.type === 'agentMessage')
         w.reply = String(p.item.text ?? '');
@@ -532,6 +566,11 @@ function watching(watches: Map<string, Watch>, id: string, tool: Watch['tool']):
   };
   watches.set(id, w);
   return w;
+}
+/** The watch of the thread that started this sub-agent. */
+function subAgentWatch(watches: Map<string, Watch>, thread: string): Watch | undefined {
+  for (const w of watches.values()) if (w.agents.has(thread)) return w;
+  return undefined;
 }
 /** A one-colour PNG (the picture check). */
 function solidPng([r, g, b]: [number, number, number], size = 32): string {
@@ -559,37 +598,31 @@ function solidPng([r, g, b]: [number, number, number], size = 32): string {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
-async function teamChecks(c: {
+async function deepChecks(c: {
   peer: RpcPeer;
   workdir: string;
+  mcp: { url: string };
   model: string | null;
   images: boolean;
-  lead: string;
+  /** The live request's conversation (saved): the one read back. */
+  live: string;
   watches: Map<string, Watch>;
   usage: Map<string, number>;
 }) {
   const { peer } = c;
-  /** How long the held tool call waits (kit_wait may hold one up to 75 s). */
+  /** How long the held tool call waits (a kit_bash command runs up to 2 minutes unless it asks for more). */
   const WAIT_MS = Number(process.env.KIT_DOCTOR_TOOL_WAIT_MS) || 75000;
   const PING_RULE =
     'This is a den-kit check. Call the kit_ping tool exactly once (no arguments), then reply with the single word: pong.';
   const PICTURE_RULE =
     'This is a den-kit picture check. Call the kit_ping tool exactly once (no arguments). Then reply with the colours of all the pictures you were given, as lowercase colour words separated by spaces (for example: green yellow).';
-  const ping: ToolSpec = {
-    name: 'kit_ping',
-    description: 'Connectivity check: call this once, with no arguments.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  };
-  const pong = (r: RpcRequest) =>
-    peer.respond(r.id, {
-      contentItems: [{ type: 'inputText', text: 'pong-from-den-kit' }],
-      success: true,
-    });
+  const SUB_AGENT_RULE =
+    'This is a den-kit sub-agent check. Do not call kit_ping yourself. Start exactly one sub-agent whose only task is to call the kit_ping tool exactly once (no arguments) and then finish. Wait for it to finish, then reply with the single word: pong.';
   const thread = async (instructions: string) =>
     (
       await peer.request<ThreadStartResponse>(
         'thread/start',
-        threadStartParams({ model: c.model, cwd: c.workdir, instructions, tools: [ping] }),
+        threadStartParams({ model: c.model, cwd: c.workdir, instructions, mcp: c.mcp }),
         { timeoutMs: 20000 },
       )
     ).thread.id;
@@ -604,17 +637,62 @@ async function teamChecks(c: {
   const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
   const opened: string[] = [];
   try {
-    // Members: two requests at once; one holds its tool call as long as a lead waiting for its members may.
+    // A sub-agent gets den-kit's tools from the MCP server, and its calls say which conversation made them.
+    const s = await thread(SUB_AGENT_RULE);
+    opened.push(s);
+    const from: string[] = [];
+    const team = watching(c.watches, s, async (_tool, _args, caller) => {
+      from.push(caller);
+      return PONG;
+    });
+    await turn(s, [
+      text(
+        'den-kit sub-agent check: start one sub-agent that calls kit_ping once, wait for it, then reply pong.',
+      ),
+    ]);
+    const teamDone = await within(team.ended, 180000);
+    const child = [...team.agents][0];
+    if (teamDone !== 'completed')
+      report(
+        'FAIL',
+        'Codex sub-agents',
+        why(team, teamDone),
+        'Sub-agents cannot work: send .logs/codex-deep-*.jsonl to the developer.',
+      );
+    else if (!child)
+      report(
+        'WARN',
+        'Codex sub-agents',
+        'the model did not start a sub-agent',
+        'Requests still work; they run without sub-agents.',
+      );
+    else if (!from.includes(child))
+      report(
+        'FAIL',
+        'Codex sub-agents',
+        `the sub-agent's tool call ${from.length ? 'came from another conversation' : 'did not arrive'}`,
+        'den-kit cannot hold a sub-agent to its scope: send .logs/codex-deep-*.jsonl to the developer.',
+      );
+    else
+      report(
+        'PASS',
+        'Codex sub-agents',
+        "a sub-agent called den-kit's tool from its own conversation",
+      );
+
+    // Two requests at once (two windows); one holds its tool call as a long kit_bash command does.
     const [a, b] = await Promise.all([thread(PING_RULE), thread(PING_RULE)]);
     opened.push(a, b);
-    const held = watching(c.watches, a, r => {
-      setTimeout(() => pong(r), WAIT_MS);
-    });
-    const quick = watching(c.watches, b, r => pong(r));
+    const held = watching(
+      c.watches,
+      a,
+      () => new Promise<ToolOutput>(resolve => setTimeout(() => resolve(PONG), WAIT_MS)),
+    );
+    const quick = watching(c.watches, b, async () => PONG);
     const t0 = Date.now();
     await Promise.all([
-      turn(a, [text('den-kit connectivity check (member A): please ping.')]),
-      turn(b, [text('den-kit connectivity check (member B): please ping.')]),
+      turn(a, [text('den-kit connectivity check (request A): please ping.')]),
+      turn(b, [text('den-kit connectivity check (request B): please ping.')]),
     ]);
     const first = await within(quick.ended, 180000);
     const odd = () => [
@@ -623,21 +701,21 @@ async function teamChecks(c: {
     if (first !== 'completed')
       report(
         'FAIL',
-        'Codex members',
+        'Codex two requests',
         `the second of two requests at once: ${why(quick, first)}`,
-        'Members cannot work at the same time: set Members to off in the AI panel (⚙) and tell the developer.',
+        'Two windows cannot ask the AI at the same time: ask in one window at a time and tell the developer.',
       );
     else if (held.status)
       report(
         'WARN',
-        'Codex members',
+        'Codex two requests',
         'the second request ended only after the first: they took turns',
-        'Members would work one after another; den-kit still works (Members off in ⚙ compares).',
+        'Requests from two windows run one after another; den-kit still works.',
       );
     else
       report(
         'PASS',
-        'Codex members',
+        'Codex two requests',
         `two requests at once: one finished in ${seconds(Date.now() - t0)} while the other's tool call was held`,
       );
 
@@ -652,10 +730,9 @@ async function teamChecks(c: {
       const p = await thread(PICTURE_RULE);
       opened.push(p);
       let steered: string | null = null;
-      const pictures = watching(c.watches, p, r => {
-        const call = r.params as DynamicToolCallParams;
-        peer
-          .request(
+      const pictures: Watch = watching(c.watches, p, async () => {
+        try {
+          await peer.request(
             'turn/steer',
             {
               threadId: p,
@@ -663,19 +740,15 @@ async function teamChecks(c: {
                 text('Here is one more picture.'),
                 { type: 'image', url: solidPng([0, 0, 255]) },
               ],
-              expectedTurnId: call.turnId,
+              expectedTurnId: pictures.turnId,
             },
             { timeoutMs: 20000 },
-          )
-          .then(
-            () => {
-              steered = 'ok';
-            },
-            error => {
-              steered = describeRpcError(error);
-            },
-          )
-          .finally(() => pong(r));
+          );
+          steered = 'ok';
+        } catch (error) {
+          steered = describeRpcError(error);
+        }
+        return PONG;
       });
       await turn(p, [
         text('den-kit picture check: what colour is this picture?'),
@@ -712,30 +785,27 @@ async function teamChecks(c: {
         );
     }
 
-    // A copy of a conversation (members that get the whole conversation, with KIT_CODEX_FORK=1).
+    // A saved conversation reads back: den-kit shows it again after a restart.
     try {
-      const copy = await peer.request<ThreadStartResponse>(
-        'thread/fork',
-        forkParams({
-          threadId: c.lead,
-          model: c.model,
-          cwd: c.workdir,
-          instructions: 'den-kit fork check',
-        }),
+      const items = await peer.request<{ data: unknown[] }>(
+        'thread/items/list',
+        { threadId: c.live, limit: 50 },
         { timeoutMs: 20000 },
       );
-      opened.push(copy.thread.id);
       report(
-        'PASS',
-        'Codex fork',
-        "copies a conversation: KIT_CODEX_FORK=1 lets members that need the whole conversation start from a copy of the lead's",
+        items.data.length ? 'PASS' : 'WARN',
+        'Codex conversation',
+        items.data.length
+          ? `a saved conversation reads back (${items.data.length} items)`
+          : 'the conversation read back empty',
+        'An earlier conversation may not show again after a restart; requests still work.',
       );
     } catch (error) {
       report(
         'WARN',
-        'Codex fork',
-        `cannot copy the conversation (${describeRpcError(error)})`,
-        "Nothing to do: such members start from den-kit's account of the conversation (leave KIT_CODEX_FORK unset).",
+        'Codex conversation',
+        `a saved conversation cannot be read back (${describeRpcError(error)})`,
+        'An earlier conversation does not show again after a restart; requests still work.',
       );
     }
 
@@ -746,23 +816,23 @@ async function teamChecks(c: {
         'FAIL',
         'Codex long tool wait',
         `a tool call answered after ${seconds(WAIT_MS)}: ${why(held, last)}`,
-        'A lead waiting for its members could lose its request: set Members to off (⚙) and tell the developer.',
+        'A request could end while a long kit_bash command runs: tell the developer.',
       );
     else
       report(
         'PASS',
         'Codex long tool wait',
-        `a tool call answered after ${seconds(WAIT_MS)}; the request went on (kit_wait holds one up to 75 s)`,
+        `a tool call answered after ${seconds(WAIT_MS)}; the request went on (a kit_bash command holds one while it runs)`,
       );
     if (odd().length)
       report(
         'FAIL',
-        'Codex members',
+        'Codex two requests',
         `Codex tried other tools: ${odd().join(', ')}`,
         'den-kit allows only its own tools; send .logs/codex-deep-*.jsonl to the developer.',
       );
 
-    // Token counts (per request and per member in the AI panel).
+    // Token counts (per request in the AI panel).
     const total = [...c.usage.values()].reduce((sum, n) => sum + n, 0);
     report(
       total ? 'PASS' : 'WARN',
@@ -773,7 +843,7 @@ async function teamChecks(c: {
       total ? undefined : 'The AI panel cannot show tokens per request; everything else works.',
     );
   } catch (error) {
-    report('FAIL', 'Codex members', describeRpcError(error));
+    report('FAIL', 'Codex two requests', describeRpcError(error));
   } finally {
     for (const id of opened)
       peer.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 5000 }).catch(() => {});

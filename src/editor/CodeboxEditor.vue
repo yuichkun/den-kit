@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { CODEBOX_TEMPLATE } from '../core/codebox.ts';
-import type { PortSpec } from '../core/schema.ts';
+import { CODEBOX_TEMPLATE } from '../work/codebox-template.ts';
+import type { PortSpec } from '../work/schema.ts';
 import { useSession } from './context.ts';
 import CodeArea from './CodeArea.vue';
 

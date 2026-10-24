@@ -1,0 +1,88 @@
+/*
+ * The look of den-kit's own screens, as provisional tokens until the design system
+ * replaces this file. The editor's styles take every color from here (a test keeps
+ * colors out of them): neutral steps from black to white, the hues, the colors of
+ * highlighted code, and, last, what each is for. The patch's signal colors
+ * (grid-style.ts) and the colors drawn in SVG and canvas are named in the code.
+ */
+:root {
+  --gray-0: #000;
+  --gray-1: #0e0e0e;
+  --gray-2: #161616;
+  --gray-3: #1d1d1d;
+  --gray-4: #232323;
+  --gray-5: #2a2a2a;
+  --gray-6: #333;
+  --gray-7: #3a3a3a;
+  --gray-8: #444;
+  --gray-9: #555;
+  --gray-10: #6a6a6a;
+  --gray-11: #7a7a7a;
+  --gray-12: #8a8a8a;
+  --gray-13: #9a9a9a;
+  --gray-14: #aaa;
+  --gray-15: #bbb;
+  --gray-16: #d4d4d4;
+  --gray-17: #ddd;
+  --gray-18: #eee;
+  --gray-19: #fff;
+
+  --orange: #ff9c1a;
+  --orange-light: #ffb02e;
+  --orange-dark: #3a2a14;
+  --orange-darker: #241c12;
+  --sand: #ffd27a;
+  --cream: #fff8d6;
+  --peach: #e6cdbe;
+  --brown: #3f312a;
+  --olive: #3b3a2e;
+  --yellow: #ffd43b;
+  --yellow-dark: #6b5a1e;
+  --red: #ff3a5c;
+  --red-soft: #ff6b5b;
+  --red-light: #ffafa5;
+  --blue: #5ec4ff;
+  --blue-light: #cfe9ff;
+  --blue-deep: #6aa8e8;
+  --cyan: #3cc6ff;
+  --teal: #24d3a8;
+  --teal-light: #9ee6cf;
+  --green: #45d16b;
+  --purple: #b26bff;
+  --slate-0: #1a1d22;
+  --slate-1: #2a2d33;
+  --slate-2: #28313d;
+  --slate-3: #455163;
+  --slate-4: #9db0c0;
+  --slate-5: #dde4ec;
+
+  --code-comment: #6a8a5a;
+  --code-keyword: #c792ea;
+  --code-type: #4ec9b0;
+  --code-function: #dcdcaa;
+  --code-string: #e2a47a;
+  --code-number: #b5cea8;
+  --code-variable: #9cdcfe;
+  --code-tag: #6aa8e8;
+  --code-selector: #d7ba7d;
+  --code-meta: #c586c0;
+  --code-link: #4fc1ff;
+  --code-deletion: #f48771;
+
+  --bg: var(--gray-1);
+  --panel: var(--gray-4);
+  --panel-2: var(--gray-6);
+  --panel-3: var(--gray-7);
+  --line: var(--gray-1);
+  --line-2: var(--gray-7);
+  --fg: var(--gray-16);
+  --muted: var(--gray-12);
+  --accent: var(--orange);
+  --accent-2: var(--cyan);
+  --warn: var(--yellow);
+  --error: var(--red);
+  --ok: var(--teal);
+  --ghost: var(--purple);
+  --signal: var(--red);
+  --gate: var(--yellow);
+}

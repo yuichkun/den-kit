@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The person's rough sketch over a view (U8c): pen and marker strokes, boxes,
+// The person's rough sketch over a view: pen and marker strokes, boxes,
 // arrows, sticky notes and texts, kept in the view's own coordinates (the
 // plugin's design pixels, the patch's positions) so they stay put when the
 // view zooms, scrolls or scales. Marks are for the AI: not part of the work,
@@ -343,15 +343,15 @@ defineExpose({ finishText });
   overflow-wrap: anywhere;
 }
 .note.note {
-  background: color-mix(in srgb, var(--ink) 28%, #fff8d6);
-  color: #1b1b1b;
+  background: color-mix(in srgb, var(--ink) 28%, var(--cream));
+  color: var(--gray-3);
   border: 2px solid var(--ink);
   border-radius: 4px;
-  box-shadow: 0 3px 8px #0006;
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--gray-0) 40%, transparent);
 }
 .note.text {
   color: currentColor;
-  text-shadow: 0 1px 3px #000c;
+  text-shadow: 0 1px 3px color-mix(in srgb, var(--gray-0) 80%, transparent);
   font-weight: 700;
 }
 .note textarea {

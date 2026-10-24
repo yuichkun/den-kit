@@ -1,6 +1,6 @@
-// A1 in a real browser: the page connects to the bridge through the Vite proxy,
-// shows the AI status, survives the bridge going away and coming back, and the
-// editor keeps working (CP1) when there is no bridge at all.
+// The AI bridge in a real browser: the page connects to the bridge through the
+// Vite proxy, shows the AI status, survives the bridge going away and coming
+// back, and the editor keeps working when there is no bridge at all.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -85,7 +85,7 @@ describe('without a bridge', () => {
     await h?.close();
   });
 
-  it('the editor works as in CP1 and says AI offline', async () => {
+  it('the editor works without the AI and says AI offline', async () => {
     const { page, errors } = await openKit(h);
     assert.equal((await waitCompiled(page)).status, 'ok');
     assert.equal(await bridgeState(page), 'disabled');

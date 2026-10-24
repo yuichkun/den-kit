@@ -5,19 +5,21 @@
 // keyboard: type what you want and press Enter, or pick a work from the
 // showcase (arrows) and, the Subway way, the look it should wear (Tab to the
 // looks, arrows, Enter). Sounds without a screen are at the bottom.
+import { assetsOf } from '../work/ui.ts';
+import { shippedPath } from '../work/files.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { STARTERS, partStarter, type StarterId } from '../core/starters.ts';
-import { emptyDocument, type PatchDocument } from '../core/schema.ts';
-import { generate } from '../core/codegen.ts';
-import { pluginSpec } from '../plugin/build.ts';
-import PluginWindow from '../plugin/PluginWindow.vue';
-import { WORKS, type Work } from '../showcase/index.ts';
+import { STARTERS, partStarter, type StarterId } from '../work/starters.ts';
+import { emptyDocument, type PatchDocument } from '../work/schema.ts';
+import { generate } from '../sound/codegen.ts';
+import { pluginSpec } from '../screen/build.ts';
+import PluginWindow from '../screen/PluginWindow.vue';
+import { WORKS, type Work } from '../screen/showcase/index.ts';
 import { useSession } from './context.ts';
-import { desktop } from '../desktop/api.ts';
 
 const emit = defineEmits<{ (e: 'close', asked: boolean): void; (e: 'settings'): void }>();
-const isDesktop = !!desktop();
 const session = useSession();
+// Settings open from here when the host lets the person manage the AI account in den-kit.
+const hasSettings = !!session.host?.ai?.account;
 const SOUNDS: Record<StarterId, string> = {
   bass: 'Bass',
   percussion: 'Percussion',
@@ -38,9 +40,10 @@ const built = computed(() =>
   WORKS.map(w => {
     const doc: PatchDocument = w.build(session.catalog);
     const urls = Object.fromEntries(
-      Object.values(doc.assets)
-        .filter(a => a.url)
-        .map(a => [a.id, a.url!.startsWith('/') ? a.url! : `/${a.url}`]),
+      Object.values(assetsOf(doc.files)).flatMap(a => {
+        const at = a.url ? shippedPath(a.url) : null;
+        return at ? [[a.id, at]] : [];
+      }),
     );
     return {
       work: w,
@@ -182,7 +185,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
         <span class="logo"><i v-for="k in 8" :key="k" /></span>den-kit
       </div>
       <button
-        v-if="isDesktop"
+        v-if="hasSettings"
         class="start-settings"
         data-testid="start-settings"
         @click="emit('settings')"
@@ -314,7 +317,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   z-index: 1100;
   display: grid;
   place-items: start center;
-  background: #0b0b0bf2;
+  background: color-mix(in srgb, var(--gray-1) 95%, transparent);
   backdrop-filter: blur(4px);
   overflow: auto;
 }
@@ -326,16 +329,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #ddd;
+  color: var(--gray-17);
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 12px;
 }
 .start-settings {
   float: right;
-  color: #bbb;
-  border: 1px solid #444;
-  background: #222;
+  color: var(--gray-15);
+  border: 1px solid var(--gray-8);
+  background: var(--gray-4);
   padding: 7px 12px;
   border-radius: 6px;
 }
@@ -343,33 +346,33 @@ h1 {
   margin: 0 0 16px;
   font-size: 30px;
   font-weight: 400;
-  color: #f4f4f4;
+  color: var(--gray-18);
 }
 .describe {
   width: 100%;
   font-size: 18px;
   padding: 13px 16px;
   border-radius: 10px;
-  border: 1px solid #4a4a4a;
-  background: #141414;
-  color: #f4f4f4;
+  border: 1px solid var(--gray-8);
+  background: var(--gray-2);
+  color: var(--gray-18);
   outline: none;
 }
 .describe:focus,
 .describe.current {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #ff9c1a26;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--orange) 15%, transparent);
 }
 .or {
   margin: 20px 0 10px;
-  color: #a0a0a0;
+  color: var(--gray-13);
   font-size: 14.5px;
   display: flex;
   gap: 14px;
   align-items: baseline;
 }
 .hint {
-  color: #6f6f6f;
+  color: var(--gray-10);
   font-size: 13px;
 }
 .works {
@@ -384,24 +387,24 @@ h1 {
   text-align: left;
   padding: 7px 7px 10px;
   border-radius: 12px;
-  background: #1b1b1b;
-  border: 1px solid #333;
+  background: var(--gray-3);
+  border: 1px solid var(--gray-6);
   box-shadow: none;
 }
 .work.picked {
-  border-color: #5a5a5a;
+  border-color: var(--gray-9);
 }
 .work:hover,
 .work.current {
   border-color: var(--accent);
-  background: #222;
+  background: var(--gray-4);
 }
 .preview {
   position: relative;
   height: 128px;
   border-radius: 8px;
   overflow: hidden;
-  background: #000;
+  background: var(--gray-0);
 }
 .meta {
   display: flex;
@@ -414,15 +417,15 @@ h1 {
   font-size: 11.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8e8e8e;
+  color: var(--gray-12);
 }
 .title {
   font-size: 16.5px;
-  color: #f2f2f2;
+  color: var(--gray-18);
 }
 .prompt {
   font-size: 13px;
-  color: #b5b5b5;
+  color: var(--gray-15);
   line-height: 1.45;
   padding: 0 3px;
   display: -webkit-box;
@@ -441,12 +444,12 @@ h1 {
   border: 1px solid transparent;
 }
 .row.current {
-  border-color: #ff9c1a66;
-  background: #ff9c1a0d;
+  border-color: color-mix(in srgb, var(--orange) 40%, transparent);
+  background: color-mix(in srgb, var(--orange) 5%, transparent);
 }
 .label {
   width: 92px;
-  color: #a0a0a0;
+  color: var(--gray-13);
   font-size: 14px;
 }
 .chip {
@@ -455,8 +458,8 @@ h1 {
   align-items: center;
   padding: 6px 12px;
   border-radius: 16px;
-  background: #1d1d1d;
-  border: 1px solid #3a3a3a;
+  background: var(--gray-3);
+  border: 1px solid var(--gray-7);
   box-shadow: none;
   font-size: 14px;
 }
@@ -469,12 +472,12 @@ h1 {
 }
 .chip.on {
   border-color: var(--accent);
-  background: #2a2216;
-  color: #fff;
+  background: var(--orange-darker);
+  color: var(--gray-19);
 }
 .keys {
   margin-top: 16px;
-  color: #8c8c8c;
+  color: var(--gray-12);
   font-size: 13.5px;
 }
 kbd {
@@ -482,11 +485,11 @@ kbd {
   min-width: 18px;
   padding: 0 6px;
   margin: 0 2px;
-  border: 1px solid #555;
+  border: 1px solid var(--gray-9);
   border-bottom-width: 2px;
   border-radius: 4px;
-  background: #222;
-  color: #eee;
+  background: var(--gray-4);
+  color: var(--gray-18);
   font:
     12px/1.6 Lato,
     system-ui,

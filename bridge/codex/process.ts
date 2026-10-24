@@ -53,7 +53,7 @@ export function resolveCodex(
   if (!existsSync(pkg))
     return {
       error: 'Codex is not installed in node_modules.',
-      fix: 'Run `npm ci` from the repo root (it installs the pinned @openai/codex).',
+      fix: 'Run `vp install --frozen-lockfile` from the repo root (it installs the pinned @openai/codex).',
     };
   const version = String(JSON.parse(readFileSync(pkg, 'utf8')).version);
   const key = `${process.platform}-${process.arch}`;
@@ -76,7 +76,7 @@ export function resolveCodex(
   if (!existsSync(binary))
     return {
       error: `The Codex binary for ${key} is missing (optional dependency @openai/codex-${key}).`,
-      fix: 'Run `npm ci` again (npm must install optional dependencies; do not use --omit=optional).',
+      fix: 'Run `vp install --frozen-lockfile` again, with optional dependencies (the Codex CLI for this Mac is one).',
     };
   return { command: binary, args: [], source: 'kit', version };
 }
@@ -107,7 +107,7 @@ export function codexWorkdir(kitRoot: string): string {
 }
 
 /** How the user signs Codex in for den-kit (scripts/codex-login.ts creates CODEX_HOME first; Codex refuses a missing one). */
-export const LOGIN_COMMAND = 'npm run codex:login';
+export const LOGIN_COMMAND = 'vp run codex:login';
 
 /** The environment Codex runs with: the user's (network, proxies, HOME) minus den-kit's own secrets. */
 export function codexEnv(home: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -145,6 +145,7 @@ export function spawnAppServer(
     partial = lines.pop() ?? '';
     for (const line of lines) {
       // Codex logs with ANSI colours; keep the text.
+      // eslint-disable-next-line no-control-regex -- the colour codes are what this takes out
       const clean = line.replace(/\u001b\[[0-9;]*m/g, '').trim();
       if (clean) {
         tail.push(clean);

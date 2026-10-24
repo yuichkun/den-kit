@@ -1,21 +1,22 @@
 // The showcase works are ordinary patches: each one builds from den-kit edits,
-// validates, compiles and renders finite, audible, unclipped audio; its custom
-// parts load and draw a frame; its look can be put on another work. And each
+// validates, compiles and renders finite, audible, unclipped audio; its
+// canvases load and draw a frame; its look can be put on another work. And each
 // does what its controls say (measured on the rendered sound, not assumed).
+import { assetsOf } from '../../src/work/ui.ts';
 import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { compile } from '@unworklet/core';
-import { catalog } from '../../src/blocks/index.ts';
-import { analyse, testSignal } from '../../src/core/analysis.ts';
-import { generate } from '../../src/core/codegen.ts';
-import { applyIntents, type Intent } from '../../src/core/ops.ts';
-import { documentHash, parseDocument, serializeDocument } from '../../src/core/persistence.ts';
-import { emptyDocument, type PatchDocument } from '../../src/core/schema.ts';
-import { validate } from '../../src/core/validate.ts';
-import { evaluate } from '../../src/compile/evaluate.ts';
-import { WORKS, lookIntents } from '../../src/showcase/index.ts';
-import { CRUSHER } from '../../src/showcase/lofi.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { analyse, testSignal } from '../../src/sound/analysis.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { applyIntents, type Intent } from '../../src/work/ops.ts';
+import { documentHash, parseDocument, serializeDocument } from '../../src/work/persistence.ts';
+import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
+import { validate } from '../../src/work/validate.ts';
+import { evaluate } from '../../src/sound/compile/evaluate.ts';
+import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
+import { CRUSHER } from '../../src/screen/showcase/lofi.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -202,7 +203,7 @@ describe('showcase works', () => {
     const acid = WORKS.find(w => w.id === 'acid')!.build(catalog);
     const pad = WORKS.find(w => w.id === 'pad')!.build(catalog);
     const r = applyIntents(acid, lookIntents(acid, pad), catalog);
-    expect(Object.keys(r.doc.assets)).toContain('sc-sunset');
+    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/sunset-sky.jpg');
   });
 });
 
@@ -275,7 +276,7 @@ describe('every work is a finished first version', () => {
 
     it(`${w.id}: its pictures exist as described, with a licence den can ship`, () => {
       const doc = w.build(catalog);
-      for (const a of Object.values(doc.assets)) {
+      for (const a of Object.values(assetsOf(doc.files))) {
         expect(a.url, a.id).toMatch(/^\/showcase\/[a-z-]+\.(jpg|svg)$/);
         const file = `public${a.url}`;
         expect(statSync(file).size, `${a.id} bytes`).toBe(a.bytes);

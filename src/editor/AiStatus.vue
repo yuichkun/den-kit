@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { BridgeClient } from '../ai/bridge-client.ts';
-import { desktop } from '../desktop/api.ts';
+import type { AI } from '../host/ai.ts';
 
-const props = defineProps<{ bridge: BridgeClient }>();
+const props = defineProps<{ bridge: AI }>();
 const b = props.bridge;
-const isDesktop = !!desktop();
+// The host words the status for the people who use it (src/host/ai.ts).
+const technical = b.wording.technical;
 const bridgeTitle = computed(() =>
-  isDesktop
+  !technical
     ? 'The AI connection was lost. Click to reconnect.'
     : b.state.value === 'online'
       ? 'AI bridge connected'
@@ -17,7 +17,7 @@ const bridgeTitle = computed(() =>
 const codex = computed(() => {
   const c = b.status.value?.codex;
   if (b.state.value !== 'online' || !c) return null;
-  const why = isDesktop ? '' : [c.detail, c.fix].filter(Boolean).join('\n');
+  const why = technical ? [c.detail, c.fix].filter(Boolean).join('\n') : '';
   if (c.state === 'off')
     return {
       cls: 'off',
@@ -29,7 +29,7 @@ const codex = computed(() => {
     return {
       cls: 'wait',
       text: 'AI starting…',
-      title: isDesktop ? 'AI is starting. Try again in a moment.' : (c.detail ?? 'Starting AI…'),
+      title: technical ? (c.detail ?? 'Starting AI…') : 'AI is starting. Try again in a moment.',
     };
   if (c.state === 'login')
     return {
@@ -42,7 +42,7 @@ const codex = computed(() => {
     return {
       cls: 'error',
       text: 'AI disconnected',
-      title: isDesktop ? 'AI could not connect. Click to reconnect.' : `${why}\n(click to retry)`,
+      title: technical ? `${why}\n(click to retry)` : 'AI could not connect. Click to reconnect.',
       retry: true,
     };
   const usage = c.rateLimit?.usedPercent ?? 0;
@@ -56,7 +56,7 @@ const codex = computed(() => {
   };
 });
 function retryCodex() {
-  if (desktop() && b.status.value?.codex.state === 'login') {
+  if (b.account && b.status.value?.codex.state === 'login') {
     window.dispatchEvent(new Event('den-kit:open-settings'));
     return;
   }
@@ -97,7 +97,7 @@ function retryCodex() {
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 4px;
-  background: #161616;
+  background: var(--gray-2);
   white-space: nowrap;
   cursor: default;
   font-variant-numeric: tabular-nums;

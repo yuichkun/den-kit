@@ -2,12 +2,12 @@
 // No Electron instance, external account, or BrowserPod service is used here.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { DesktopInfo } from '../../src/desktop/api.ts';
+import type { DesktopInfo } from '../../desktop/page/api.ts';
 import { openKit, startAudio, startHarness, type Harness } from './harness.ts';
 
 const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
   version: '0.1.0',
-  settings: { model: '', effort: '', fork: true },
+  settings: { model: '', effort: '' },
   models: [
     {
       id: 'gpt-6.1-sol',
@@ -17,7 +17,7 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
     },
     { id: 'gpt-6-luna', name: 'GPT-6-Luna', isDefault: false, efforts: ['low', 'medium'] },
   ],
-  codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run npm run codex:login.' },
+  codex: { state: 'login', detail: 'Codex is not signed in.', fix: 'Run vp run codex:login.' },
   podConfigured: true,
   login: 'idle',
   aiBusy: false,
@@ -52,6 +52,23 @@ function nativeAPI(token: string, initial: DesktopInfo): string {
         return structuredClone(fixture.info);
       },
       installUpdate: async () => { fixture.calls.push('installUpdate'); },
+      // The app's storage, its works' sandbox origins and files from URLs, kept in the page here.
+      storage: (() => {
+        const records = new Map(), contents = new Map();
+        return async r => {
+          switch (r.op) {
+            case 'read': return records.get(r.key) ?? null;
+            case 'write': records.set(r.key, r.value); return;
+            case 'remove': records.delete(r.key); return;
+            case 'keys': return [...records.keys()].filter(k => k.startsWith(r.prefix));
+            case 'readContent': return contents.get(r.hash) ?? null;
+            case 'writeContent': contents.set(r.hash, r.bytes); return;
+          }
+        };
+      })(),
+      sandbox: async r => { (fixture.sandbox ??= []).push(r.op); },
+      onSandboxRefused: () => () => {},
+      fetch: async () => { throw new Error('No network in this test.'); },
       capturePage: async rect => {
         fixture.captures.push(structuredClone(rect));
         const canvas = document.createElement('canvas');
@@ -77,6 +94,7 @@ describe('desktop interface', () => {
 
   it('shows sign-in states honestly, keeps connection plumbing out of settings, and offers no voice input', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       start: false,
       initScript: nativeAPI(h.bridge!.token, info()),
     });
@@ -99,7 +117,7 @@ describe('desktop interface', () => {
       assert.equal(await page.getByRole('button', { name: 'Manage usage' }).count(), 0);
       assert.doesNotMatch(
         await dialog.innerText(),
-        /BrowserPod|Escentier|Codex is|Starting Codex|Codex crashed|\bLLM\b|copy the conversation|fork|npm run|API key/i,
+        /BrowserPod|Escentier|Codex is|Starting Codex|Codex crashed|\bLLM\b|copy the conversation|fork|npm (run|ci)|vp (run|install)|API key/i,
       );
       assert.equal(
         await page.locator('[data-testid=desktop-model] option[value="gpt-6.1-sol"]').textContent(),
@@ -142,7 +160,7 @@ describe('desktop interface', () => {
         (window as any).__desktopTest.info.codex = {
           state: 'error',
           detail: 'Codex crashed at /private/auth.json.',
-          fix: 'Run npm ci in .desktop-build.',
+          fix: 'Run vp install --frozen-lockfile in .desktop-build.',
         };
       });
       await page.waitForFunction(() =>
@@ -152,7 +170,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         await dialog.innerText(),
-        /Codex crashed|\/private\/auth|npm ci|\.desktop-build/,
+        /Codex crashed|\/private\/auth|npm ci|vp install|\.desktop-build/,
       );
       assert.equal(await page.locator('[data-testid=desktop-sign-in]').count(), 0);
       assert.equal(await page.locator('[data-testid=desktop-reconnect]').isEnabled(), true);
@@ -176,6 +194,7 @@ describe('desktop interface', () => {
 
   it('saves chosen model and effort without resetting an existing conversation setting', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok', plan: 'plus', model: 'GPT-6.1-Sol' }, chatGPTSignedIn: true }),
@@ -196,7 +215,7 @@ describe('desktop interface', () => {
           ?.textContent?.includes('Saved'),
       );
       assert.deepEqual(await page.evaluate(() => (window as any).__desktopTest.saved), [
-        { model: 'gpt-6-luna', effort: 'low', fork: true },
+        { model: 'gpt-6-luna', effort: 'low' },
       ]);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await page.click('[data-testid=desktop-settings-open]');
@@ -218,6 +237,7 @@ describe('desktop interface', () => {
 
   it('does not call a ready transport a signed-in ChatGPT account or offer account actions for it', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok', plan: 'plus' }, chatGPTSignedIn: false }),
@@ -245,6 +265,7 @@ describe('desktop interface', () => {
 
   it('reconnects a failed AI connection without signing out or starting authentication again', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({
@@ -274,6 +295,7 @@ describe('desktop interface', () => {
 
   it('prevents settings changes during an AI request and enables them after it ends', async () => {
     const { page } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(h.bridge!.token, info({ codex: { state: 'ok' }, aiBusy: true })),
     });
     try {
@@ -298,7 +320,10 @@ describe('desktop interface', () => {
   });
 
   it('routes a sign-in-required request to actionable desktop settings without terminal instructions', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       await page.waitForFunction(
         () =>
@@ -311,7 +336,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         (await page.locator('[data-testid=ai-status-codex]').getAttribute('title')) ?? '',
-        /Codex|npm run|\.env|app-server/,
+        /Codex|npm run|vp run|\.env|app-server/,
       );
       await page.fill('[data-testid=ai-input]', 'add reverb');
       await page.press('[data-testid=ai-input]', 'Enter');
@@ -324,7 +349,7 @@ describe('desktop interface', () => {
       );
       assert.doesNotMatch(
         await page.locator('[data-testid=ai-panel]').innerText(),
-        /Codex|\bLLM\b|npm run|\.env|app-server/,
+        /Codex|\bLLM\b|npm run|vp run|\.env|app-server/,
       );
       await page.click('[data-testid=ai-status-codex]');
       await page.locator('[data-testid=desktop-settings]').waitFor();
@@ -336,7 +361,10 @@ describe('desktop interface', () => {
   });
 
   it('shares the app window only after the eye is enabled and discards a capture stopped in flight', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       const requestsBefore = h.codex!.sent('turn/start').length;
       const sharing = () =>
@@ -435,6 +463,7 @@ describe('desktop interface', () => {
 
   it('shows update progress, offers a restart only for a staged update and never during an AI request', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(
         h.bridge!.token,
         info({ codex: { state: 'ok' }, update: { state: 'idle' } }),
@@ -523,6 +552,7 @@ describe('desktop interface', () => {
 
   it('asks for the Applications folder instead of offering update checks that cannot install', async () => {
     const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
       initScript: nativeAPI(h.bridge!.token, info({ update: { state: 'move' } })),
     });
     try {
@@ -541,7 +571,10 @@ describe('desktop interface', () => {
   });
 
   it('offers reopening instead of a retry after a live preview startup timeout', async () => {
-    const { page, errors } = await openKit(h, { initScript: nativeAPI(h.bridge!.token, info()) });
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript: nativeAPI(h.bridge!.token, info()),
+    });
     try {
       await page.evaluate(() => {
         const pod = (window as any).__kit.pod;

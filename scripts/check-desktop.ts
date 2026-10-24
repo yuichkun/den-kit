@@ -85,6 +85,47 @@ const launch = () =>
     },
     timeout: 60000,
   });
+/** A code part's frame: from its work's own origin (the sandbox), showing `part`. */
+const partFrame = (page: import('playwright').Page, part: string) =>
+  page
+    .frames()
+    .find(
+      f =>
+        /^http:\/\/[a-z0-9-]+\.localhost:\d+\//.test(f.url()) && f.url().includes(`part=${part}`),
+    );
+/** Every step fails with what it waited for instead of waiting forever. */
+const STEP_TIMEOUT = 180000;
+/** Send a request in the page and wait for it to end; its line in the history. */
+async function askAI(page: import('playwright').Page, request: string, timeout: number) {
+  const id = await page.evaluate(
+    text =>
+      (
+        window as unknown as { __kit: import('../src/editor/session.ts').KitSession }
+      ).__kit.requests!.run(text).id,
+    request,
+  );
+  await page.waitForFunction(
+    id => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+        .__kit;
+      return k.requests!.history.value.some(
+        o => o.id === id && !o.live && !['thinking', 'working'].includes(o.status),
+      );
+    },
+    id,
+    { timeout },
+  );
+  return page.evaluate(id => {
+    const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
+    const o = k.requests!.history.value.find(o => o.id === id)!;
+    return {
+      status: o.status,
+      reply: o.reply,
+      agents: o.agents?.map(a => ({ name: a.name, status: a.status, scope: a.scope })),
+      ms: o.ms,
+    };
+  }, id);
+}
 let app = await launch().catch(error => {
   rmSync(join(profile, 'codex/auth.json'), { force: true });
   throw error;
@@ -96,6 +137,7 @@ app.process().stderr?.on('data', data => {
 });
 try {
   let page = await app.firstWindow();
+  page.setDefaultTimeout(STEP_TIMEOUT);
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, {
     timeout: 60000,
@@ -194,10 +236,8 @@ try {
     });
     console.log(JSON.stringify({ nativeSignIn: 'started and canceled' }));
   }
-  // Seed a previously saved advanced setting, then save only the ordinary settings through the UI.
-  await page.evaluate(() =>
-    window.denKitShell!.saveSettings({ model: '', effort: '', fork: true }),
-  );
+  // Seed a previously saved setting, then save the settings through the UI.
+  await page.evaluate(() => window.denKitShell!.saveSettings({ model: '', effort: 'low' }));
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.click('[data-testid=desktop-settings-open]');
   await waitForShell(page, info => !info.aiBusy);
@@ -212,7 +252,7 @@ try {
       .querySelector('[data-testid=desktop-settings] .actions [role=status]')
       ?.textContent?.includes('Saved'),
   );
-  assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.fork, true);
+  assert.equal((await page.evaluate(() => window.denKitShell!.info())).settings.effort, 'low');
   await page.getByRole('button', { name: 'Close settings' }).click();
   const offCapture = () =>
     page.evaluate(async () => {
@@ -241,11 +281,13 @@ try {
       width: image.width,
       height: image.height,
       bytes: image.data.length,
+      density: devicePixelRatio,
     };
   });
+  // The window's own pixels: twice the area's size on a high-density screen.
   assert.equal(picture.source, 'shell');
-  assert.equal(picture.width, 400);
-  assert.equal(picture.height, 300);
+  assert.equal(picture.width, Math.round(400 * picture.density));
+  assert.equal(picture.height, Math.round(300 * picture.density));
   assert.ok(picture.bytes > 0);
   await page.click('[data-testid=ai-screen]');
   assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'false');
@@ -295,7 +337,6 @@ try {
       image => {
         const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
           .__kit;
-        k.llm!.settings.members = 'off';
         return k.requests!.run(
           'Read the attached test screenshot. What number is displayed on the small rectangular light-grey button in the plugin canvas? Answer only with the number. Use the supplied image; do not inspect or edit the current work or delegate.',
           {
@@ -399,6 +440,40 @@ try {
       before,
     );
     console.log(JSON.stringify({ aiUndo: 'passed' }));
+    // Sub-agents, asked for: two work at once, each in its scope; one undo takes the request back.
+    const shape = () =>
+      page.evaluate(() => {
+        const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+          .__kit;
+        return JSON.stringify({
+          nodes: Object.keys(k.doc.value.nodes).sort(),
+          elements: Object.keys(k.doc.value.ui.elements).sort(),
+        });
+      });
+    const beforeTeam = await shape();
+    const team = await askAI(
+      page,
+      'Use two sub-agents that work at the same time: one adds a slow LFO that moves the filter cutoff (the sound only), the other adds a title text "AGENTS" at the top of the plugin screen (the screen only). Wait for both, then finish.',
+      600000,
+    );
+    console.log(JSON.stringify({ aiSubAgents: team }));
+    assert.equal(team.status, 'applied', JSON.stringify(team));
+    assert.ok(
+      (team.agents ?? []).filter(a => a.status === 'done').length >= 2,
+      'two sub-agents worked and finished',
+    );
+    await page.evaluate(() =>
+      (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit.undo(),
+    );
+    assert.equal(await shape(), beforeTeam, 'one undo takes the whole request back');
+    // A URL pasted into a request: the AI reads it (web search on Codex's side).
+    const url = await askAI(
+      page,
+      'What is the title of the page at https://example.com ? Answer with the title only, and change nothing.',
+      180000,
+    );
+    console.log(JSON.stringify({ aiUrl: url }));
+    assert.match(url.reply ?? '', /Example Domain/i);
   }
   if (real && !quick) {
     await page.keyboard.press('Escape');
@@ -457,12 +532,31 @@ try {
     }
     const check = await page.locator('[data-testid=pod-check-panel]').innerText();
     console.log(JSON.stringify({ podCheck: check }));
+    // What the pod's commands said (an install's npm output, for one), when a step did not pass.
+    if (!/Every step passed/.test(check))
+      console.log(
+        JSON.stringify({
+          podLog: await page.evaluate(() =>
+            (
+              window as unknown as { __kit: import('../src/editor/session.ts').KitSession }
+            ).__kit.pod!.log.value.map(e => ({
+              who: e.who,
+              command: e.command.slice(0, 160),
+              exitCode: e.running ? 'running' : e.exitCode,
+              timedOut: e.timedOut,
+              ms: e.ms,
+              output: e.output.slice(-1500),
+            })),
+          ),
+        }),
+      );
     assert.match(check, /Every step passed/);
     const previewBeforeReopen = await page.evaluate(async marker => {
       const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
         .__kit;
       const pod = k.pod!;
-      const current = (pod as unknown as { dev: import('../src/pod/host.ts').PodProcess }).dev;
+      const current = (pod as unknown as { dev: import('../src/host/workspace.ts').PodProcess })
+        .dev;
       if (!current.running)
         throw new Error('The recovery check requires a running isolated preview.');
       const host = await pod.ensure();
@@ -475,7 +569,8 @@ try {
       const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
       const before = {
         document: JSON.stringify(k.doc.value),
-        requests: k.requests!.history.value.length,
+        // The work's conversation (the runtime keeps what was said; this session's request lines are not kept).
+        conversation: k.conversation.value,
         disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut },
       };
       // Simulate a preview startup timeout on the isolated running process.
@@ -499,6 +594,7 @@ try {
       if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000));
     });
     page = await app.firstWindow();
+    page.setDefaultTimeout(STEP_TIMEOUT);
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(
       () => !!(window as unknown as { __kit?: unknown }).__kit,
@@ -527,7 +623,7 @@ try {
       const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
       return {
         document: JSON.stringify(k.doc.value),
-        requests: k.requests!.history.value.length,
+        conversation: k.conversation.value,
         ready: k.pod!.state.value === 'ready',
         persistent: disk.exitCode === 0 && disk.output.trim() === marker,
         disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut },
@@ -547,7 +643,7 @@ try {
           workMatches:
             JSON.stringify(JSON.parse(previewAfterReopen.document)) ===
             JSON.stringify(JSON.parse(previewBeforeReopen.document)),
-          requests: previewAfterReopen.requests,
+          conversationKept: previewAfterReopen.conversation === previewBeforeReopen.conversation,
         },
       }),
     );
@@ -555,7 +651,7 @@ try {
       JSON.parse(previewAfterReopen.document),
       JSON.parse(previewBeforeReopen.document),
     );
-    assert.equal(previewAfterReopen.requests, previewBeforeReopen.requests);
+    assert.equal(previewAfterReopen.conversation, previewBeforeReopen.conversation);
     assert.equal(previewAfterReopen.ready, true);
     assert.equal(previewAfterReopen.persistent, true);
     assert.equal(previewAfterReopen.packagesReused, true);
@@ -596,9 +692,7 @@ try {
     await page.waitForSelector(`[data-element=${partId}] [data-code-state=ready]`, {
       timeout: 60000,
     });
-    const frame = page
-      .frames()
-      .find(f => f.url().includes('browserportal.io') && f.url().includes('part=wave'))!;
+    const frame = partFrame(page, 'wave')!;
     assert.ok(frame);
     const powers = await frame.evaluate(() => ({
       node: typeof (window as unknown as { require?: unknown }).require,
@@ -654,7 +748,6 @@ try {
       const requestId = await page.evaluate(knob => {
         const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
           .__kit;
-        k.llm!.settings.members = 'off';
         return k.requests!.run(
           `Create one code part named electron-check beside the existing wave part. Its only button has id electron-ai-button, displays AI pod followed by the current value of knob ${knob}, and on click sets that knob to 750. Use the pod tools, run TypeScript, ESLint and the production build and fix errors. Add it at x360 y180 width180 height60. Do not change other files, elements or the sound, and do not delegate. Finish once it is live.`,
         ).id;
@@ -682,7 +775,7 @@ try {
           part: Object.values(k.doc.value.ui.elements).find(
             e => e.kind === 'code' && e.part === 'electron-check',
           ),
-          file: !!k.doc.value.project?.files['src/parts/electron-check.ts'],
+          file: !!k.doc.value.files['src/parts/electron-check.ts'],
           checks: k
             .pod!.log.value.filter(l => l.who === 'ai' && l.exitCode === 0)
             .map(l => l.command),
@@ -700,11 +793,7 @@ try {
       await page.waitForSelector(`[data-element=${made.part.id}] [data-code-state=ready]`, {
         timeout: 60000,
       });
-      const aiFrame = page
-        .frames()
-        .find(
-          f => f.url().includes('browserportal.io') && f.url().includes('part=electron-check'),
-        )!;
+      const aiFrame = partFrame(page, 'electron-check')!;
       assert.ok(aiFrame);
       await aiFrame.waitForFunction(() =>
         /AI pod.*200/.test(document.getElementById('electron-ai-button')?.textContent ?? ''),
@@ -757,17 +846,26 @@ try {
     );
   });
   assert.ok(asset);
+  // den-kit keeps only which conversation is the work's (the runtime keeps what was said). With the
+  // real AI it is the conversation of the requests above; otherwise one is set here.
+  const realConversation = real && !skipAI;
+  const conversation = await page.evaluate(
+    async seed => {
+      const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
+        .__kit;
+      if (seed) k.keepConversation(seed);
+      const thread = k.conversation.value;
+      const key = `den-kit:conversation:${k.doc.value.id}`;
+      while ((await k.host!.storage.read(key)) !== thread)
+        await new Promise(r => setTimeout(r, 20));
+      return thread;
+    },
+    realConversation ? null : 'native-close-check',
+  );
+  assert.ok(conversation, 'the work has a conversation');
   const saved = await page.evaluate(() => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
     k.doc.value = { ...k.doc.value, name: 'Electron persistence check' };
-    k.requests!.upsert({
-      id: 'native-close-check',
-      text: 'Keep this conversation on native close',
-      route: 'llm',
-      status: 'reply',
-      reply: 'Saved without waiting for the debounce.',
-      ms: 0,
-    });
     return k.doc.value.id;
   });
   // Closing the native window must flush even a change made before the autosave debounce.
@@ -778,29 +876,63 @@ try {
   await closed;
   app = await launch();
   const reopened = await app.firstWindow();
+  reopened.setDefaultTimeout(STEP_TIMEOUT);
   await reopened.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit);
+  // The work's conversation is read from the host's storage once the work is open.
+  await reopened
+    .waitForFunction(
+      () =>
+        (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit
+          .conversation.value !== null,
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {});
   const restored = await reopened.evaluate(async () => {
     const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit;
     return {
       settings: (await window.denKitShell!.info()).settings,
       doc: k.doc.value,
-      conversation: k.requests!.history.value,
+      conversation: k.conversation.value,
     };
   });
-  assert.equal(restored.settings.fork, true);
+  assert.equal(restored.settings.effort, 'low');
   assert.equal(restored.doc.name, 'Electron persistence check');
   assert.equal(restored.doc.id, saved);
-  assert.ok(
-    restored.conversation.some(
-      o => o.id === 'native-close-check' && o.reply === 'Saved without waiting for the debounce.',
-    ),
-  );
-  assert.ok(restored.doc.assets[asset.id]);
+  assert.equal(restored.conversation, conversation);
+  if (realConversation) {
+    // After the restart the conversation goes on: what was said shows, and the AI remembers it.
+    await reopened.waitForFunction(
+      () =>
+        (window as unknown as { __kit: import('../src/editor/session.ts').KitSession }).__kit
+          .requests!.earlier.value.length > 0,
+      null,
+      { timeout: 120000 },
+    );
+    await waitForShell(reopened, info => info.codex.state === 'ok');
+    const followUp = await askAI(
+      reopened,
+      'Earlier in this conversation you added a title text to the plugin. What did it say? Answer with that text only, and change nothing.',
+      180000,
+    );
+    console.log(JSON.stringify({ aiResumed: followUp }));
+    assert.match(followUp.reply ?? '', /AGENTS/);
+  }
+  assert.ok(restored.doc.files[asset.id]);
   assert.ok(
     await reopened.evaluate(async id => {
       const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
         .__kit;
-      return (await k.assets.dataUrl(k.doc.value.assets[id]!))?.startsWith('data:image/svg+xml');
+      const file = k.doc.value.files[id] as { hash?: string; bytes: number; type: string };
+      return (
+        await k.assets.dataUrl({
+          id,
+          name: id,
+          mime: file.type,
+          bytes: file.bytes,
+          hash: file.hash,
+        })
+      )?.startsWith('data:image/svg+xml');
     }, asset.id),
   );
   if (real && !quick) {

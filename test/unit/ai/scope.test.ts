@@ -1,16 +1,17 @@
-// Members' scopes (U8): what a member may change, what the lead may not change
-// while members work, and the seam (the controls and their cables) nobody but
-// the lead removes or rewires. Edits are written the way the LLM sends them.
+// Sub-agents' scopes: what a sub-agent may change, what no other agent may
+// change while it works, and the seam (the controls and their cables) nobody but
+// the agent the person asked removes or rewires. Edits are written the way the
+// LLM sends them.
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents } from '../../../src/core/ops.ts';
-import type { PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents } from '../../../src/work/ops.ts';
+import type { PatchDocument } from '../../../src/work/schema.ts';
 import { expandOps } from '../../../src/ai/plugin-tools.ts';
 import {
   changes,
   describeScope,
-  heldByMembers,
+  heldByOthers,
   made,
   outside,
   parseScope,
@@ -67,7 +68,7 @@ const scopeOf = (doc: PatchDocument, value: unknown) => {
   return r.scope;
 };
 
-describe('a scope as the lead writes it', () => {
+describe('a scope as an agent writes it', () => {
   it('reads the forms and refuses unknown ids, empty scopes and bad areas', () => {
     const doc = base();
     expect(scopeOf(doc, { sound: 'all' })).toEqual({ sound: 'all' });
@@ -154,7 +155,7 @@ describe('scopes held at the same time', () => {
   });
 });
 
-describe('what a sound member may change', () => {
+describe('what a sound sub-agent may change', () => {
   const doc = base();
   const h = () => hold(doc, { sound: 'all' });
   it('modules, cables and knob values, the values of controls too', () => {
@@ -210,8 +211,8 @@ describe('what a sound member may change', () => {
     const knob = controls(doc)[0]!;
     // Removing the control takes its cable with it: both are the seam.
     expect(outside(doc, edit(doc, [{ op: 'removeNode', id: knob }]), catalog, h())).toEqual([
-      `${knob} “Cutoff” is a control the others rely on (only the lead removes it)`,
-      `the cable ${knob} → cut1 carries a control the others rely on (only the lead rewires it)`,
+      `${knob} “Cutoff” is a control the others rely on (only the agent the person asked removes it)`,
+      `the cable ${knob} → cut1 carries a control the others rely on (only the agent the person asked rewires it)`,
     ]);
     const reason = outside(
       doc,
@@ -220,10 +221,10 @@ describe('what a sound member may change', () => {
       h(),
     );
     expect(reason).toEqual([
-      `the cable ${knob} → cut1 carries a control the others rely on (only the lead rewires it)`,
+      `the cable ${knob} → cut1 carries a control the others rely on (only the agent the person asked rewires it)`,
     ]);
   });
-  it('a member with some modules: those, what it adds and cables into them', () => {
+  it('a sub-agent with some modules: those, what it adds and cables into them', () => {
     const narrow = hold(doc, { sound: { nodes: ['filter1'] } });
     expect(
       outside(
@@ -255,7 +256,7 @@ describe('what a sound member may change', () => {
   });
 });
 
-describe('what a screen member may change', () => {
+describe('what a screen sub-agent may change', () => {
   const doc = base();
   const h = () => hold(doc, { screen: 'all' });
   it("the look, the brief, decorations, controls' places and styles, new controls wired to the sound", () => {
@@ -284,7 +285,7 @@ describe('what a screen member may change', () => {
       ),
     ).toEqual(['filter1 is outside your scope']);
     expect(outside(doc, edit(doc, [{ op: 'removeNode', id: knob }]), catalog, h())[0]).toBe(
-      `${knob} “Cutoff” is a control the others rely on (only the lead removes it)`,
+      `${knob} “Cutoff” is a control the others rely on (only the agent the person asked removes it)`,
     );
     expect(
       outside(
@@ -295,7 +296,7 @@ describe('what a screen member may change', () => {
       ),
     ).toEqual(['the screen project is held by someone else']);
   });
-  it('a member with an area: what lies in it and what it adds there, nothing that leaves it', () => {
+  it('a sub-agent with an area: what lies in it and what it adds there, nothing that leaves it', () => {
     const area = hold(doc, { screen: { area: { x: 360, y: 60, w: 280, h: 200 } } });
     const q = controls(doc)[1]!;
     expect(
@@ -385,35 +386,34 @@ describe('what a screen member may change', () => {
   });
 });
 
-describe('the lead while members work', () => {
+describe('another agent while sub-agents work', () => {
   const doc = base();
-  const members = [
-    { id: 'm1', name: 'Sound', holding: hold(doc, { sound: 'all' }) },
+  const others = [
+    { name: 'Sound', holding: hold(doc, { sound: 'all' }) },
     {
-      id: 'm2',
       name: 'Screen',
       holding: hold(doc, { screen: { area: { x: 360, y: 60, w: 280, h: 200 } } }),
     },
   ];
-  it('may not change what a member holds', () => {
+  it('may not change what a sub-agent holds', () => {
     expect(
-      heldByMembers(
+      heldByOthers(
         doc,
         edit(doc, [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]),
         catalog,
-        members,
+        others,
       ),
-    ).toEqual(['filter1 is held by m1 “Sound” while it works']);
+    ).toEqual(['filter1 is held by “Sound” while it works']);
     expect(
-      heldByMembers(
+      heldByOthers(
         doc,
         edit(doc, [{ op: 'updateElement', id: 'plate1', set: { name: 'Back plate' } }]),
         catalog,
-        members,
+        others,
       ),
-    ).toEqual(['plate1 is held by m2 “Screen” while it works']);
+    ).toEqual(['plate1 is held by “Screen” while it works']);
     expect(
-      heldByMembers(
+      heldByOthers(
         doc,
         edit(doc, [
           {
@@ -422,7 +422,7 @@ describe('the lead while members work', () => {
           },
         ]),
         catalog,
-        members,
+        others,
       ),
     ).toHaveLength(1);
   });
@@ -438,18 +438,18 @@ describe('the lead while members work', () => {
         element: { kind: 'shape', shape: 'rect', rect: { x: 40, y: 220, w: 10, h: 10 } },
       },
     ]);
-    expect(heldByMembers(doc, after, catalog, members)).toEqual([]);
+    expect(heldByOthers(doc, after, catalog, others)).toEqual([]);
   });
-  it("the screen project, held by a member, is not the lead's meanwhile", () => {
-    const withProject = [{ id: 'm3', name: 'Code', holding: hold(doc, { project: 'all' }) }];
+  it("the screen project, held by a sub-agent, is not anyone else's meanwhile", () => {
+    const withProject = [{ name: 'Code', holding: hold(doc, { project: 'all' }) }];
     expect(
-      heldByMembers(
+      heldByOthers(
         doc,
         edit(doc, [{ op: 'setProjectFiles', files: { 'src/parts/x.ts': 'export {}' } }]),
         catalog,
         withProject,
       ),
-    ).toEqual(['the screen project is held by m3 “Code” while it works']);
+    ).toEqual(['the screen project is held by “Code” while it works']);
   });
 });
 

@@ -9,7 +9,7 @@ import {
   type AssetMeta,
   type TextShadow,
   type TextStyle,
-} from '../../core/ui.ts';
+} from '../../work/ui.ts';
 import ColorField from './ColorField.vue';
 import NumberField from './NumberField.vue';
 

@@ -76,7 +76,7 @@ pre {
     SFMono-Regular,
     Menlo,
     monospace;
-  color: #d6d6d6;
+  color: var(--gray-16);
 }
 .line {
   display: block;
@@ -84,14 +84,14 @@ pre {
   padding-right: 16px;
 }
 .line.hl {
-  background: #5ec4ff22;
+  background: color-mix(in srgb, var(--blue) 13%, transparent);
 }
 .n {
   display: inline-block;
   width: 44px;
   padding-right: 10px;
   text-align: right;
-  color: #555d6b;
+  color: var(--slate-3);
   user-select: none;
 }
 .empty {

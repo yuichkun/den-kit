@@ -170,32 +170,32 @@ function reset() {
   opacity: 0.4;
 }
 .track {
-  stroke: #444;
+  stroke: var(--gray-8);
   fill: none;
 }
 .disc-big {
   fill: url(#kit-knob-face);
-  fill: #ececec;
-  filter: drop-shadow(0 1px 1px #0009);
+  fill: var(--gray-18);
+  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--gray-0) 60%, transparent));
 }
 .disc-small {
-  fill: #3d3d3d;
-  stroke: #4a4a4a;
+  fill: var(--gray-7);
+  stroke: var(--gray-8);
   stroke-width: 1;
 }
 .ptr-big {
-  stroke: #111;
+  stroke: var(--gray-1);
   stroke-width: 3;
   stroke-linecap: round;
 }
 .ptr-small {
-  stroke: #bdbdbd;
+  stroke: var(--gray-15);
   stroke-width: 2;
   stroke-linecap: round;
 }
 .label {
   font-size: 12px;
-  color: #cfcfcf;
+  color: var(--gray-16);
   white-space: nowrap;
   line-height: 14px;
   min-width: 40px;
@@ -203,6 +203,6 @@ function reset() {
   font-variant-numeric: tabular-nums;
 }
 .active .disc-big {
-  fill: #fff;
+  fill: var(--gray-19);
 }
 </style>

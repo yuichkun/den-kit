@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The sketch's tools (U8c), over the view while drawing: pen, marker, box,
+// The sketch's tools, over the view while drawing: pen, marker, box,
 // arrow, sticky note, text, eraser; four colours; undo the last mark, rub all
 // out, keep marks after the AI is done; on the plugin, lay the sketch under it.
 // Esc (or Done) puts the pen down; the marks stay for the next request.
@@ -133,10 +133,10 @@ const all = computed(() => session.marksHere(props.view).length);
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  background: #1b1b1bf2;
-  border: 1px solid #3a3a3a;
+  background: color-mix(in srgb, var(--gray-3) 95%, transparent);
+  border: 1px solid var(--gray-7);
   border-radius: 10px;
-  box-shadow: 0 6px 20px #000a;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--gray-0) 67%, transparent);
   font-size: 13px;
   white-space: nowrap;
   max-width: calc(100% - 16px);
@@ -146,7 +146,7 @@ const all = computed(() => session.marksHere(props.view).length);
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: #cfcfcf;
+  color: var(--gray-16);
   font-size: 16px;
   width: 30px;
   height: 28px;
@@ -154,8 +154,8 @@ const all = computed(() => session.marksHere(props.view).length);
   border-radius: 6px;
 }
 .tool.on {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--gray-7);
+  color: var(--gray-19);
 }
 .tool:disabled {
   opacity: 0.35;
@@ -169,20 +169,20 @@ const all = computed(() => session.marksHere(props.view).length);
   box-shadow: none;
 }
 .swatch.on {
-  border-color: #fff;
+  border-color: var(--gray-19);
 }
 .sep {
   width: 1px;
   height: 20px;
-  background: #3a3a3a;
+  background: var(--gray-7);
   margin: 0 4px;
 }
 .text-btn {
   font-size: 12px;
   padding: 3px 8px;
-  background: #2c2c2c;
-  border: 1px solid #444;
-  color: #ddd;
+  background: var(--gray-5);
+  border: 1px solid var(--gray-8);
+  color: var(--gray-17);
   border-radius: 6px;
   box-shadow: none;
 }
@@ -190,7 +190,7 @@ const all = computed(() => session.marksHere(props.view).length);
   opacity: 0.4;
 }
 .stylus {
-  color: #9a9a9a;
+  color: var(--gray-13);
   font-size: 12px;
   display: inline-flex;
   align-items: center;
@@ -198,7 +198,7 @@ const all = computed(() => session.marksHere(props.view).length);
   margin-left: 6px;
 }
 .count {
-  color: #9a9a9a;
+  color: var(--gray-13);
   font-size: 12px;
   margin: 0 6px;
 }
