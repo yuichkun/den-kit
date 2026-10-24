@@ -263,15 +263,15 @@ function focused() {
   void session.reloadMyParts();
 }
 /**
- * With a BrowserPod key, the pod starts by itself the first time in this browser (after the start overlay):
- * that first start installs the project's packages (a minute or two), so it is out of the way before the AI
- * or a code part needs the pod. The pod check is a button in the Project view (run while working, its
+ * A pod whose first start takes minutes starts by itself the first time den-kit opens (after the start overlay):
+ * that first start installs the project's packages, so it is out of the way before the AI or a code part needs
+ * the pod. The pod check is a button in the Project view (run while working, its
  * commands would queue ahead of the AI's).
  */
 const POD_STARTED = 'den-kit:pod-started';
 function firstPodStart() {
   const pod = session.pod;
-  if (!pod || pod.kind !== 'browserpod' || pod.booted) return;
+  if (!pod || !pod.startsEarly || pod.booted) return;
   try {
     if (localStorage.getItem(POD_STARTED)) return;
     localStorage.setItem(POD_STARTED, String(Date.now()));

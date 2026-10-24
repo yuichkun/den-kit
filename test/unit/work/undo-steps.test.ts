@@ -64,7 +64,7 @@ describe('history', () => {
       h,
       doc,
       [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }],
-      { kind: 'ai-fast', handler: 'intent' },
+      { kind: 'part', element: 'reels1' },
       { gesture: 'g', at: 10 },
     );
     doc = commit(
@@ -91,10 +91,10 @@ describe('history', () => {
         { op: 'setValue', node: 'cut1', port: 'hz', value: 2000 },
         { op: 'addNode', node: { type: 'den.drive' } },
       ],
-      { kind: 'ai-fast', handler: 'brighter' },
+      { kind: 'ai-llm', take: 'brighter' },
     );
     const undone = undoOk(h, doc);
-    expect(undone.tx.author.kind).toBe('ai-fast');
+    expect(undone.tx.author.kind).toBe('ai-llm');
     expect({ ...undone.doc, revision: 0 }).toEqual({ ...before, revision: 0 });
     expect(h.canRedo).toBe(true);
     commit(h, undone.doc, [{ op: 'move', node: 'osc1', pos: { x: 1, y: 1 } }]);

@@ -1,6 +1,6 @@
 // sound: the patch as audio. It describes the den blocks, wires and compiles a
 // patch, codebox code included, into WebAssembly with unworklet in a disposable
-// worker, and plays it in an AudioWorklet. A new parameter value reaches the
+// worker that has no network or storage, and plays it in an AudioWorklet. A new parameter value reaches the
 // running audio without recompiling; a changed patch replaces it with a short
 // crossfade. Audio assets reach the patch as samples the page decodes and sends:
 // a sampler's sound, and what a codebox reads through `@den-kit/assets`;

@@ -261,6 +261,35 @@ describe('audio engine', () => {
     await page.close();
   });
 
+  it("a codebox's code has no network or storage while the sound is built", async () => {
+    const { page } = await ready();
+    const before = await kit(page, k => k.engine.currentHash);
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'addNode',
+          node: {
+            id: 'box1',
+            type: 'kit.codebox',
+            code: "import { defineSubgraph, type Node } from '@unworklet/core';\nexport default defineSubgraph(() => { const g = globalThis as unknown as Record<string, unknown>; const reach = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts', 'indexedDB', 'caches'].filter(name => g[name] !== undefined); if (reach.length) throw new Error(`reachable: ${reach.join(', ')}`); if (Date.now() > 0) throw new Error('nothing reachable'); return { tick(i: { in: Node<'f32'> }) { return { out: i.in }; } }; });",
+          },
+        },
+        { op: 'connect', from: { node: 'gain1', port: 'out' }, to: { node: 'box1', port: 'in' } },
+        {
+          op: 'connect',
+          from: { node: 'box1', port: 'out' },
+          to: { node: 'out1', port: 'left' },
+          replace: true,
+        },
+      ]),
+    );
+    const status = await waitCompiled(page, 30000);
+    assert.equal(status.status, 'error');
+    assert.match(status.message, /nothing reachable/);
+    assert.equal(await kit(page, k => k.engine.currentHash), before);
+    await page.close();
+  });
+
   it('opens behind a start overlay: the first key press starts audio and that note sounds; the bottom is just the keyboard', async () => {
     const { page, errors } = await openKit(h, { start: false });
     await waitCompiled(page);

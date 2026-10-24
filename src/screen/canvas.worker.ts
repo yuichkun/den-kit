@@ -82,6 +82,7 @@ for (const name of [
   'fetch',
   'XMLHttpRequest',
   'WebSocket',
+  'WebTransport',
   'EventSource',
   'importScripts',
   'Worker',

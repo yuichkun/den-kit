@@ -1,10 +1,10 @@
-// Where the open work's code parts run, and what they may use. With the host's
-// sandbox, their frames load from the work's own origin, with the origins and
-// devices the person allowed for that work: it passes requests through to the
-// workspace's dev server while that runs, and otherwise serves the code parts as
-// last built (when the work was exported or imported), if that build was made from
-// the files the work has now. Without a sandbox, the frames load straight from the
-// dev server. What the person allowed, and the last build, are kept in the host's
+// Where the open work's code parts run, and what they may use. Their frames load
+// from the work's own origin, the host's sandbox, with the origins and devices the
+// person allowed for that work: it passes requests through to the workspace's dev
+// server while that runs, and otherwise serves the code parts as last built (when
+// the work was exported or imported), if that build was made from the files the
+// work has now. A host without a sandbox cannot isolate code parts, so they do not
+// run there. What the person allowed, and the last build, are kept in the host's
 // storage by work, never in the work, so a work never arrives with network access
 // already allowed.
 import { computed, ref, shallowRef, watch } from 'vue';
@@ -108,17 +108,18 @@ export class CodeParts {
     );
     this.source = {
       get available() {
-        return pod.available || fromBuild.value;
+        return !!sandbox && (pod.available || fromBuild.value);
       },
       portal: computed(() =>
-        !pod.portal.value && !fromBuild.value
-          ? null
-          : sandbox
-            ? `${sandbox.origin(work())}/`
-            : pod.portal.value,
+        sandbox && (pod.portal.value || fromBuild.value) ? `${sandbox.origin(work())}/` : null,
       ),
       state: pod.state,
-      message: pod.message,
+      // Without a pod, what to set up first; with one, why its parts still do not run here.
+      message: computed(() =>
+        !sandbox && pod.available
+          ? 'this den-kit cannot keep code parts apart from it'
+          : pod.message.value,
+      ),
       reloads: computed(() => pod.reloads.value + this.switches.value),
       devices: computed(() => this.allowed.value.devices),
       ensure: () => pod.ensure(),

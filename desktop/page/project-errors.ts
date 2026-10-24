@@ -1,3 +1,5 @@
+// What app users read when the project tools fail: what they can do about it,
+// never developer setup.
 import { PodUnavailable } from '../../src/workspace/pod-io.ts';
 
 /** An installed-app failure with an action the person can actually take. */

@@ -1,3 +1,5 @@
+// The app's settings (the AI model and reasoning effort), checked and kept in the
+// app's data folder.
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DesktopSettings } from './page/api.ts';

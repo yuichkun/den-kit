@@ -1,3 +1,7 @@
+// The desktop app's main process: one window on the app's local server, which
+// serves den-kit's page, runs the AI bridge (with Codex) and the works' sandbox;
+// the host interfaces the page asks for over IPC (storage, fetch, the sandbox,
+// settings, updates); the window's rules; and saving before the app quits.
 import {
   app,
   autoUpdater as squirrel,

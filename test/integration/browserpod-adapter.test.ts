@@ -255,7 +255,10 @@ describe('the pod session through the BrowserPod adapter', () => {
         dev!.args.find(a => a.endsWith('dev.sh'))!,
         'utf8',
       ),
-    ).toMatch(/^mkdir -p src\/parts && npm run dev/);
+      // The script records its process (so den-kit can stop it) and runs as npm (stopping npm stops the dev server).
+    ).toMatch(
+      /^echo \$\$ > '[^']*\/\.den-kit\/run\/dev\.pid'\nmkdir -p src\/parts && exec npm run dev\n/,
+    );
     // A part in a folder made after the server started is served, and so is its change.
     await pod.bash("mkdir -p src/lib && echo 'export const n = 1;' > src/lib/n.ts", { who: 'ai' });
     expect(await (await fetch(`${pod.portal.value}src/lib/n.ts`)).text()).toContain('n = 1');

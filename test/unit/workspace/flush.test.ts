@@ -51,6 +51,10 @@ function harness(sync: () => Promise<PodRunResult> = async () => success()) {
           return previewRunning;
         },
         output: () => '',
+        stop: async () => {
+          previewRunning = false;
+          finishPreview?.();
+        },
       };
     },
     async writeFile(path, text) {

@@ -28,6 +28,9 @@ class PreviewProcess implements PodProcess {
       this.finish();
     }
   }
+  async stop() {
+    this.crash();
+  }
 }
 
 function harness(initial: 'ready' | 'hang' = 'ready') {
@@ -209,7 +212,7 @@ describe('explicit project preview retry', () => {
     expect(JSON.stringify(h.session.doc.value)).toBe(before);
   });
 
-  it('keeps dependency repair guidance while a live preview survives an installation failure', async () => {
+  it('keeps dependency repair guidance after an installation failure; the preview, stopped while installing, runs again', async () => {
     const h = harness();
     await boot(h);
     const preview = h.starts[0]!;
@@ -231,15 +234,18 @@ describe('explicit project preview retry', () => {
     expect(h.pod.message.value).toMatch(/dependency installation failed/i);
     expect(h.pod.fix.value).toMatch(/internet connection.*project dependencies/i);
     expect(h.pod.fix.value).not.toMatch(/reopen/i);
-    expect(preview.running).toBe(true);
+    // Nothing else runs while the pod installs: the preview stopped for the install, and a new one runs.
+    expect(preview.running).toBe(false);
+    expect(h.starts).toHaveLength(2);
+    expect(h.starts[1]!.running).toBe(true);
     expect(h.pod.retryable).toBe(false);
-    expect(h.starts).toHaveLength(1);
     h.failInstallation(false);
     changePackage('installation-repaired');
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.pod.state.value).toBe('ready');
     expect(h.pod.fix.value).toBeUndefined();
-    expect(h.starts).toEqual([preview]);
+    expect(h.starts).toHaveLength(3);
+    expect(h.starts[2]!.running).toBe(true);
     expect(h.create).toHaveBeenCalledTimes(1);
   });
 });

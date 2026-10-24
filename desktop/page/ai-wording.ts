@@ -1,3 +1,5 @@
+// What app users read about the AI: what they can do to recover, never service
+// details or developer commands.
 import type { AIWording, CodexStatus, LlmError } from '../../src/host/ai.ts';
 
 /** Desktop recovery instructions, separate from service diagnostics. */

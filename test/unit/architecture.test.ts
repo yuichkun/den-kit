@@ -97,12 +97,14 @@ function violations(): string[] {
   return found;
 }
 
-/** Ways page code has told hosts apart: the desktop app's preload API, and checks for it. */
+/** Ways page code has told hosts apart: the desktop app's preload API, checks for it, and checks of which pod it has. */
 const HOST_CHECKS = [
   /\bdenKitShell\b/,
   /\bisDesktop\b/,
   /\bdesktop\(\)/,
   /process\.versions\.electron/,
+  /\bkind\s*[!=]==?\s*['"](browserpod|fake)['"]/,
+  /['"](browserpod|fake)['"]\s*[!=]==?\s*[\w.?]*\bkind\b/,
 ];
 
 function hostChecks(): string[] {

@@ -7,9 +7,10 @@
 // appears). The process exiting → every running request fails with a clear
 // message and the process restarts with backoff.
 //
-// Every server request is answered (an unanswered one stalls the turn): kit_*
-// tool calls go to the browser that owns the turn (with a deadline), requests
+// Every server request is answered (an unanswered one stalls the turn): requests
 // for powers den-kit never grants are declined, anything unknown gets an error.
+// kit_* tool calls arrive through den-kit's MCP server (mcpCall) and go to the
+// browser that owns the turn (with a deadline).
 import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {

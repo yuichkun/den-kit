@@ -6,7 +6,7 @@
 // same behaviors through the kit; `listen` feeds an element's pointer, wheel and
 // keys to a behavior for both. Imports nothing.
 //
-// The rules (decided 2026-10-24; test/unit/behaviors checks each):
+// The rules (test/unit/behaviors checks each):
 //  1. A knob turns by dragging up and down. Its sensitivity is the same wherever
 //     it is grabbed: 200 px of travel is its whole range. Holding Shift makes it
 //     ten times finer.

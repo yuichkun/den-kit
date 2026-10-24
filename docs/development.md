@@ -47,6 +47,9 @@ Development settings in a local `.env` file:
 | `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
 | `KIT_PORT`         | Editor port; defaults to `5180`.                        |
 | `KIT_BRIDGE_PORT`  | Local AI bridge port; defaults to `5181`.               |
+| `KIT_CODEX`        | `off` runs without the AI.                              |
+| `KIT_CODEX_HOME`   | Use another Codex home, such as `~/.codex`.             |
+| `KIT_CODEX_BIN`    | Run another Codex binary than the pinned one.           |
 
 ### Project workspace
 

@@ -24,7 +24,7 @@ function hostStorage(): Storage & { data: Map<string, string> } {
   };
 }
 
-function setup(storage = hostStorage(), work = 'work-a') {
+function setup(storage = hostStorage(), work = 'work-a', isolated = true) {
   const opened: Array<Parameters<Sandbox['open']>[1]> = [];
   const sandbox: Sandbox = {
     open: (_, settings) => opened.push(settings),
@@ -34,7 +34,7 @@ function setup(storage = hostStorage(), work = 'work-a') {
     fileUrl: (id, path) => `http://${id}.localhost:5247/__den-kit/files/${path}`,
     onRefused: () => () => undefined,
   };
-  const host = { storage, sandbox } as unknown as Host;
+  const host = { storage, sandbox: isolated ? sandbox : null } as unknown as Host;
   const session = new KitSession({
     host,
     createWorker: () =>
@@ -119,6 +119,15 @@ describe("the editor's code parts", () => {
     ]);
     await settled();
     expect(parts.source.portal.value).toBeNull();
+  });
+
+  it('do not run where the host cannot keep them apart (no sandbox), and say so', async () => {
+    const { pod, parts } = setup(hostStorage(), 'work-a', false);
+    pod.portal.value = 'https://p-5173.portal.example';
+    await settled();
+    expect(parts.source.available).toBe(false);
+    expect(parts.source.portal.value).toBeNull();
+    expect(parts.source.message.value).toMatch(/cannot keep code parts apart/);
   });
 
   it('keep the build by work in the host storage: it is there after a restart, and not for another work', async () => {

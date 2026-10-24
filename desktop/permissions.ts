@@ -1,3 +1,5 @@
+// What a page in the app may use: den-kit's own page what its screens use, and a
+// work's code part only the devices the person allowed for that work.
 import { APP_ORIGIN } from './renderer-server.ts';
 import type { Device } from './sandbox.ts';
 

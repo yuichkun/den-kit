@@ -1,7 +1,8 @@
+// The bridge between den-kit's page and the main process: only the app's
+// top-level page receives the API; code-part iframes receive no Node/IPC powers.
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopAPI, DesktopRuntime } from './page/api.ts';
 
-// Only the app's top-level page receives the API; code-part iframes receive no Node/IPC powers.
 const originArgument = process.argv
   .find(arg => arg.startsWith('--den-kit-origin='))
   ?.slice('--den-kit-origin='.length);

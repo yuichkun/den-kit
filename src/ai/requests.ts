@@ -1,7 +1,6 @@
 // The prompt and the requests of this session; what was said earlier in the
-// work's conversation is read from the runtime, which keeps it. Every new
-// request goes to the LLM; there is no local phrase interpreter or separate
-// classification service.
+// work's conversation is read from the runtime, which keeps it. Every request
+// goes to the LLM.
 import { shallowRef, watch } from 'vue';
 import type { AiSession } from './session.ts';
 import { randomId } from '../work/schema.ts';
@@ -113,7 +112,7 @@ export class AiRequests {
     });
     void this.readEarlier();
     session.onHistory((kind, tx) => {
-      if (tx.author.kind !== 'ai-fast' && tx.author.kind !== 'ai-llm') return;
+      if (tx.author.kind !== 'ai-llm') return;
       const past = this.history.value.find(
         o => o.txId === tx.id || (tx.author.kind === 'ai-llm' && o.id === tx.author.take),
       );

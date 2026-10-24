@@ -2,11 +2,11 @@
 // to WebAssembly that runs inside this browser tab, with bash, git, Node and npm.
 // Its runtime loads from rt.browserpod.io when the first pod boots; nothing of it
 // is fetched when no API key is set. The page must be cross-origin isolated
-// (vite.config.ts sends COOP and COEP).
+// (COOP and COEP: desktop/renderer-server.ts in the app, vite.config.ts in development).
 //
 // BrowserPod's API runs a program with a terminal and reports nothing back but
 // what the terminal shows, so each command runs as a script file followed by a
-// line that prints its exit status (host.ts); output is read from a terminal of
+// line that prints its exit status (src/workspace/pod-io.ts); output is read from a terminal of
 // our own (createCustomTerminal), one per command.
 import type { BrowserPod as Pod } from '@leaningtech/browserpod';
 import { desktopProjectError } from './project-errors.ts';
@@ -499,6 +499,7 @@ export class BrowserPodHost implements PodHost {
    * wait for that: a write made just before quitting was lost, one 0.5 s before kept.
    */
   readonly settleMs = 1000;
+  readonly watchMissesNewFolders = true;
   /** The pod's own environment (PATH, HOME…), read once without passing any (see init). */
   private base: Record<string, string> = {};
   private readonly portals = new Map<number, string>();
@@ -637,9 +638,11 @@ export class BrowserPodHost implements PodHost {
     let out = '',
       running = true;
     const decoder = new TextDecoder();
+    const file = `${this.home}/.den-kit/run/${name.replace(/[^a-z0-9-]/gi, '')}`;
     const done = (async () => {
-      const path = `${this.home}/.den-kit/run/${name.replace(/[^a-z0-9-]/gi, '')}.sh`;
-      await this.writeFile(path, `${script.replace(/\s+$/, '')}\n`);
+      const path = `${file}.sh`;
+      // The script says which process it runs as, so stop() can end it.
+      await this.writeFile(path, `echo $$ > '${file}.pid'\n${script.replace(/\s+$/, '')}\n`);
       const terminal = await this.pod.createCustomTerminal({
         cols: 200,
         rows: 50,
@@ -670,6 +673,14 @@ export class BrowserPodHost implements PodHost {
         return running;
       },
       output: () => out,
+      stop: async () => {
+        if (!running) return;
+        await this.run(`kill "$(cat '${file}.pid')" 2>/dev/null; true`, {
+          cwd: this.home,
+          timeoutMs: 10_000,
+        });
+        await Promise.race([done, new Promise(r => setTimeout(r, 10_000))]);
+      },
     };
   }
 

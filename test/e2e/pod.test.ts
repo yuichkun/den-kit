@@ -377,6 +377,11 @@ export default part({ mount(root, kit) {
         );
       await near(70);
       assert.equal(await steps(), before + 1, 'one drag is one undo step');
+      // The code part made that move: it is the step's author.
+      assert.deepEqual(await kit(page, k => k.history.peek()?.author), {
+        kind: 'part',
+        element: 'own1',
+      });
       // Rule 4: the arrow keys move 1% of the range.
       await f.focus('#own-knob');
       await page.keyboard.press('ArrowUp');

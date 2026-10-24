@@ -52,7 +52,9 @@ These shortcuts apply outside text inputs. The table uses macOS key names.
 | `⌥⌘E`                             | Switch between Patch and Plugin.              |
 | `⌘E`                              | Switch the Plugin view between Play and Edit. |
 | `⇧⌘F`                             | Toggle the full-screen Plugin view.           |
-| `⌘Z` / `⇧⌘Z`                      | Undo / redo.                                  |
+| `⌘Z` / `⇧⌘Z` or `⌘Y`              | Undo / redo.                                  |
+| `⌥⌘N`                             | Open the start screen for a new work.         |
+| `⌥⌘K` in Plugin Edit mode         | Look the plugin over (✓ Check).               |
 | `⌘A`                              | Select all.                                   |
 | Arrow keys / `Shift` + arrow keys | Move the selection / use larger steps.        |
 | `⌘C` / `⌘V` / `⌘D`                | Copy / paste / duplicate.                     |
@@ -76,7 +78,7 @@ Works and assets autosave locally. Use the **Patch** menu to export a work file
 (`.denkit`) or import one. A work file carries the work and the contents of its
 files, so it opens on another computer; use it for backups. It also carries the
 work's playable build when den-kit can make one. A file may hold at most 100 MB
-and a work's files 500 MB together.
+(a text file 1 MB), and a work at most 2,000 files and 500 MB together.
 
 The macOS app stores its data in
 `~/Library/Application Support/den-kit/`. Its local server uses port `5247`;
@@ -119,6 +121,9 @@ files have not changed since.
   them with another work, reopen den-kit with that work open.
 - The project tools reach the internet only while den-kit installs the packages
   in `package.json`; commands in the project have no network.
+- A code part loads scripts only from its work's own address, but what it fetches
+  from an address you allowed it can still run as WebAssembly or in a worker of its
+  own.
 - Canvas drawing code runs in a Worker with APIs such as `fetch` disabled, but
   dynamic `import()` still loads code from the network: in the macOS app only
   from BrowserPod's hosts and the addresses allowed for the work, in a browser

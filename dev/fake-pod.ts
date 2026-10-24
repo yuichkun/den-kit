@@ -165,6 +165,10 @@ class FakePodHost implements PodHost {
         return running;
       },
       output: () => out,
+      stop: async () => {
+        if (running) this.send({ t: 'stop', id });
+        await done;
+      },
     };
   }
 

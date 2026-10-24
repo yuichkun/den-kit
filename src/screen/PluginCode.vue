@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // A code part: a part of the work's screen project (src/parts/<name>.ts), shown
-// in its own frame from the pod's dev server (src/workspace). den-kit and the part's
-// page talk by postMessage only (pod-template/src/kit/runtime.ts is the other
-// side): den-kit sends the part its settings, the look, its size and whether the
-// plugin plays, and every frame the sound and the controls' values; the part
-// sends back the controls it moves (one drag, or one burst of moves, is one ⌘Z
-// step, as with a canvas), its errors and console lines (the AI reads them), and
-// a picture of itself when den-kit looks at the plugin. A broken part shows its
-// error in its box; the rest of the plugin keeps playing. The frame runs scripts
+// in its own frame from the address the host gives it (the work's own origin).
+// den-kit and the part's page talk by postMessage only (the other side is
+// pod-template/src/kit/runtime.ts): den-kit sends the part its settings, the look,
+// its size and whether the plugin plays, and every frame the sound and the
+// controls' values; the part sends back the controls it moves (one drag, or one
+// burst of moves, is one ⌘Z step, as with a canvas), its errors and console lines
+// (the AI reads them), and a picture of itself when den-kit looks at the plugin. A
+// broken part shows its error in its box; the rest of the plugin keeps playing. The frame runs scripts
 // on its own origin and nothing more (no popups, forms or leaving the frame), and
 // may use only the devices the person allowed for this work. Messages count only
 // from that frame's window and origin.
@@ -47,7 +47,11 @@ const interactive = ref(true);
 const generation = ref(0);
 let hello = 0,
   changedAt = 0,
-  reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  reloadTimer: ReturnType<typeof setTimeout> | null = null,
+  missingTimer: ReturnType<typeof setTimeout> | null = null,
+  missingLooks = 0;
+/** A part reported missing may only not have reached the dev server yet: it is looked for again this many times. */
+const MISSING_LOOKS = 5;
 let raf = 0,
   lookAt = 0,
   look: Record<string, string> = {},
@@ -152,6 +156,7 @@ function onMessage(e: MessageEvent) {
       return;
     }
     case 'ready':
+      missingLooks = 0;
       state.value = 'ready';
       error.value = null;
       report({ state: 'ready', error: undefined });
@@ -161,6 +166,14 @@ function onMessage(e: MessageEvent) {
       state.value = 'missing';
       error.value = `No part "${props.element.part}" (src/parts/${props.element.part}.ts).${parts.length ? ` Parts: ${parts.join(', ')}.` : ''}`;
       report({ state: 'missing', error: error.value });
+      // The page may have loaded just before the part's file reached the dev server: look again shortly.
+      if (missingLooks < MISSING_LOOKS && !missingTimer) {
+        missingLooks++;
+        missingTimer = setTimeout(() => {
+          missingTimer = null;
+          if (state.value === 'missing' && src.value) generation.value++;
+        }, 2000);
+      }
       return;
     }
     case 'error': {
@@ -316,6 +329,7 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(raf);
   window.removeEventListener('message', onMessage);
   if (reloadTimer) clearTimeout(reloadTimer);
+  if (missingTimer) clearTimeout(missingTimer);
   for (const done of waits.values()) done(null);
   waits.clear();
 });
@@ -348,13 +362,21 @@ watch(
   () => pod?.reloads.value,
   () => {
     changedAt = Date.now();
+    // A missing part may be among the changed files: look for it again.
+    missingLooks = 0;
     if (reloadTimer) clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => {
       reloadTimer = null;
-      if (hello < changedAt && src.value) {
+      if ((hello < changedAt || state.value === 'missing') && src.value) {
         generation.value++;
       }
     }, 2500);
+  },
+);
+watch(
+  () => props.element.part,
+  () => {
+    missingLooks = 0;
   },
 );
 defineExpose({ state, error });

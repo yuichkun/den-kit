@@ -1,3 +1,6 @@
+// den-kit's built page on the app's local server: only for 127.0.0.1 on the app's
+// port, cross-origin isolated (COOP, COEP), with frames only from the works'
+// sandbox origins.
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';

@@ -30,6 +30,8 @@ export interface PodProcess {
   readonly running: boolean;
   /** The end of what it printed. */
   output(): string;
+  /** Stop it (the process its script runs as, which stops what it started); settles when it has ended. */
+  stop(): Promise<void>;
 }
 export interface Portal {
   url: string;
@@ -53,6 +55,8 @@ export interface PodHost {
   network(open: boolean): void;
   /** How long after `sync` the pod's disk takes to keep what was written (none: sync is enough). */
   readonly settleMs?: number;
+  /** Its file watching does not see folders made after a watcher started. */
+  readonly watchMissesNewFolders?: boolean;
   dispose?(): void;
 }
 
@@ -69,4 +73,6 @@ export interface PodFactory {
   fix?: string;
   /** The error the person sees when the pod fails, with what they can do about it. */
   explain?(error: unknown): unknown;
+  /** Its first start takes minutes (packages to install): start it as soon as den-kit first opens. */
+  startEarly?: boolean;
 }

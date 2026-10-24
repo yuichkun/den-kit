@@ -4,7 +4,9 @@
 // server and runs commands for the person and the AI, one after another. Files a
 // command changed return to the work as operations made by whoever ran it; the
 // record stays in the work. The pod reaches the internet only while den-kit
-// installs the packages in package.json (npm, from the npm registry, without
-// install scripts). Whether there is a pod at all is the host's decision.
+// installs packages (those in package.json, and one the pod check installs
+// without keeping it): npm alone, from the npm registry, without install scripts,
+// with the dev server stopped until it is done. Whether there is a pod at all is
+// the host's decision.
 // workspace imports work and host only.
 export {};

@@ -20,6 +20,8 @@ export interface FakePod {
   homeOf(disk: string): string;
   close(): Promise<void>;
   /** Commands the page ran (scripts), for tests to inspect. */ commands: string[];
+  /** Each command the page ran, with the long-running processes (by name) still going when it began. */
+  runs: Array<{ script: string; alongside: string[] }>;
 }
 
 async function freePort(): Promise<number> {
@@ -41,6 +43,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
   mkdirSync(join(home, '.den-kit', 'run'), { recursive: true });
   const children = new Set<ChildProcess>();
   const commands: string[] = [];
+  const runs: Array<{ script: string; alongside: string[] }> = [];
+  const names = new WeakMap<ChildProcess, string>();
   let scripts = 0;
   const env = {
     ...process.env,
@@ -51,6 +55,9 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
     npm_config_fund: 'false',
     npm_config_audit: 'false',
     npm_config_update_notifier: 'false',
+    // One download cache for every disk and run (each work's disk installs the template's packages): the test
+    // machine's network decides how long a fresh install takes, which is not what the tests check.
+    npm_config_cache: join(tmpdir(), 'den-kit-fake-pod-npm-cache'),
   };
 
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -71,6 +78,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
     };
     // Like BrowserPod, whose pod lives in the tab: the page going away stops what it started.
     const mine = new Set<ChildProcess>();
+    /** What the page started, by its id (to stop it). */
+    const started = new Map<string, ChildProcess>();
     socket.on('close', () => {
       for (const c of mine) {
         try {
@@ -90,6 +99,17 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
       }
       const id = String(m.id ?? '');
       try {
+        if (m.t === 'stop') {
+          // The process group: the script and what it started.
+          const child = started.get(id);
+          if (child)
+            try {
+              process.kill(-child.pid!, 'SIGTERM');
+            } catch {
+              /* gone */
+            }
+          return;
+        }
         if (m.t === 'write') {
           const p = inside(String(m.path));
           if (!p) throw new Error(`${m.path} is outside the pod's home.`);
@@ -106,6 +126,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
         if (m.t === 'run' || m.t === 'start') {
           const script = String(m.script ?? '');
           commands.push(script);
+          if (m.t === 'run')
+            runs.push({ script, alongside: [...started.values()].map(c => names.get(c) ?? '') });
           const file = join(
             home,
             '.den-kit',
@@ -130,6 +152,10 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           });
           children.add(child);
           mine.add(child);
+          if (m.t === 'start') {
+            started.set(id, child);
+            names.set(child, String(m.name ?? 'proc'));
+          }
           let portalSent = false,
             timedOut = false;
           const onData = (b: Buffer) => {
@@ -174,6 +200,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
             if (timer) clearTimeout(timer);
             children.delete(child);
             mine.delete(child);
+            started.delete(id);
             send({ t: 'exit', id, code: timedOut ? null : code, timedOut });
           });
           return;
@@ -189,6 +216,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
     home,
     homeOf,
     commands,
+    runs,
     async close() {
       for (const c of children) {
         try {

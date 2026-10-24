@@ -69,6 +69,7 @@ const apiKey = shell.runtime.apiKey;
 const workspace: PodFactory = apiKey
   ? {
       kind: 'browserpod',
+      startEarly: true,
       create: async (work, progress) =>
         (await import('./browserpod.ts')).bootBrowserPod({
           apiKey,

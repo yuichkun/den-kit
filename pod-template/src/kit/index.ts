@@ -97,8 +97,8 @@ export interface Kit<P extends PropSpecs = PropSpecs> {
   /** 'play': the musician plays it. 'edit': it is being laid out (it gets no mouse then). */
   readonly mode: 'play' | 'edit';
   onMode(listener: (mode: 'play' | 'edit') => void): () => void;
-  /** A picture or font of the work (asset id) as a URL you can use, or null. */
-  asset(id: string): Promise<string | null>;
+  /** A file of the work, by its path (assets/…), as a URL you can use, or null when there is none. */
+  asset(path: string): Promise<string | null>;
 }
 
 export interface Part<P extends PropSpecs = PropSpecs> {

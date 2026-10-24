@@ -141,6 +141,10 @@ export class PodSession {
   private installedFor: string | null = null;
   private dev: PodProcess | null = null;
   private devStart: Promise<void> | null = null;
+  /** The dev server stopped for an install (its end is not a crash). */
+  private paused: PodProcess | null = null;
+  /** The last install failed: its guidance stays when the dev server is ready again. */
+  private installFailed = false;
   /** The dev server stopped soon after starting this many times in a row (den-kit stops restarting it at 3). */
   private crashes = 0;
   private disposed = false;
@@ -175,6 +179,10 @@ export class PodSession {
   }
   get booted(): boolean {
     return !!this.host;
+  }
+  /** Its first start takes minutes: start it as soon as den-kit first opens. */
+  get startsEarly(): boolean {
+    return !!this.factory.startEarly;
   }
   get retryable(): boolean {
     return (
@@ -618,11 +626,14 @@ export class PodSession {
     if (!first && pkg === this.installedFor) return;
     const started = performance.now();
     const ready = this.state.value === 'ready';
+    const paused = !first && !!this.dev?.running;
     this.set('installing', 'Installing project dependencies…');
-    const r = await this.npm(
-      `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
-      'npm install',
-      600_000,
+    const r = await this.withoutDev(() =>
+      this.npm(
+        `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
+        'npm install',
+        600_000,
+      ),
     );
     this.timings.value = {
       ...this.timings.value,
@@ -634,10 +645,32 @@ export class PodSession {
         `Project dependency installation failed${r.timedOut ? ' (it took too long)' : ''}.`,
         'Check your internet connection, or ask the AI to check the project dependencies. The terminal has the error details.',
       );
+      this.installFailed = true;
       throw new Error(`npm install failed:\n${r.output.slice(-2000)}`);
     }
+    this.installFailed = false;
     this.installedFor = pkg;
-    if (ready || this.portal.value) this.set('ready', 'Ready.');
+    // A dev server stopped for the install is starting again, and says when it is ready.
+    if (!paused && (ready || this.portal.value)) this.set('ready', 'Ready.');
+  }
+
+  /**
+   * Run an install with nothing else running: the dev server (it runs the work's own
+   * code, such as vite.config.ts) stops while the pod reaches the network, and starts
+   * again after.
+   */
+  private async withoutDev<T>(install: () => Promise<T>): Promise<T> {
+    const dev = this.dev;
+    if (!dev?.running) return install();
+    this.paused = dev;
+    this.portal.value = null;
+    await dev.stop();
+    try {
+      return await install();
+    } finally {
+      this.paused = null;
+      void this.restartDev();
+    }
   }
 
   /**
@@ -659,7 +692,9 @@ export class PodSession {
   installPackages(specs: string): Promise<PodRunResult> {
     return this.enqueue(async () => {
       await this.ensure();
-      return this.npm(`${NPM_INSTALL} --no-save ${specs}`, `npm install ${specs}`, 300_000);
+      return this.withoutDev(() =>
+        this.npm(`${NPM_INSTALL} --no-save ${specs}`, `npm install ${specs}`, 300_000),
+      );
     });
   }
 
@@ -679,12 +714,13 @@ export class PodSession {
     this.set('starting', 'Starting the project preview…');
     this.portal.value = null;
     const env: Record<string, string> = { PORT: String(DEV_PORT) };
-    // BrowserPod's file watching does not see folders made after the server started: src/parts is made before it
+    // Where file watching does not see folders made after the server started: src/parts is made before it
     // starts, and the template's vite.config.ts looks for other new folders (KIT_WATCH_NEW_FOLDERS).
-    if (host.kind === 'browserpod') env.KIT_WATCH_NEW_FOLDERS = '1';
+    if (host.watchMissesNewFolders) env.KIT_WATCH_NEW_FOLDERS = '1';
     this.devOutput.value = '';
     const entry = this.begin('den-kit', 'npm run dev');
-    const dev = host.start('dev', 'mkdir -p src/parts && npm run dev', {
+    // exec: the script runs as npm, so stopping it stops the dev server too.
+    const dev = host.start('dev', 'mkdir -p src/parts && exec npm run dev', {
       cwd: this.projectDir,
       env,
       onOutput: text => {
@@ -699,7 +735,7 @@ export class PodSession {
         timedOut: false,
         ms: Math.round(performance.now() - started),
       });
-      if (this.dev !== dev || this.disposed) return;
+      if (this.dev !== dev || this.disposed || this.paused === dev) return;
       // It stopped by itself (a crash, a broken config, a command that killed it): start it again, but not forever.
       this.crashes = performance.now() - started < 15_000 ? this.crashes + 1 : 0;
       if (this.crashes >= 3) {
@@ -717,10 +753,11 @@ export class PodSession {
     const deadline = Date.now() + 180_000;
     while (!this.portal.value && dev.running && Date.now() < deadline)
       await new Promise(r => setTimeout(r, 200));
-    if (this.dev !== dev || this.disposed) return;
+    if (this.dev !== dev || this.disposed || this.paused === dev) return;
     this.timings.value = { ...this.timings.value, devMs: Math.round(performance.now() - started) };
     if (this.portal.value) {
-      this.set('ready', 'Ready.');
+      // After a failed install the preview runs again, and the install's guidance stays.
+      if (!this.installFailed) this.set('ready', 'Ready.');
       this.progress(entry, `\n(dev server at ${this.portal.value})\n`);
     } else if (!dev.running)
       this.set(

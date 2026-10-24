@@ -8,7 +8,7 @@
 // tab id (the browser ignores repeats). A tab that stays away for `llmGraceMs`
 // has its requests stopped and its conversations closed.
 //
-// Trust model: a connection must come from the Vite page's Origin and present
+// Trust model: a connection must come from den-kit's page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
 // is closed with a code that says why (see CLOSE in bridge/protocol.ts).
 //

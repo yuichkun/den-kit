@@ -1,3 +1,5 @@
+// In-app updates with electron-updater: downloaded in the background, installed
+// when den-kit quits or when the person chooses Restart now (see docs/usage.md).
 import type { UpdateStatus } from './page/api.ts';
 
 /** The part of electron-updater's AppUpdater that den-kit uses. */

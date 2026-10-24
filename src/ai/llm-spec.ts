@@ -1,6 +1,6 @@
 // What the LLM is told and which tools it gets. Dependency-free: the Node bridge
-// registers these tools with Codex (dynamicTools) and the browser executes them
-// against the live patch (src/ai/llm-workspace.ts).
+// offers these tools to Codex (as an MCP server, bridge/mcp.ts) and the browser
+// executes them against the live patch (src/ai/llm-workspace.ts).
 
 export interface ToolSpec {
   name: string;

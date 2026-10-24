@@ -28,13 +28,17 @@ const props = defineProps<{
   preview?: boolean;
 }>();
 const emit = defineEmits<{
-  /** A control moved; `done` when the gesture ends (release, or a click that sets it at once). A canvas names its gesture (one press can move several controls). */
+  /**
+   * A control moved; `done` when the gesture ends (release, or a click that sets it at once). A canvas or code
+   * part names its gesture (one press can move several controls) and itself (`by`, its element).
+   */
   (
     e: 'change',
     widget: string,
     values: Record<string, number | boolean>,
     done: boolean,
     gesture?: string,
+    by?: string,
   ): void;
   (e: 'note', note: number, on: boolean, velocity: number): void;
 }>();
@@ -260,7 +264,7 @@ onBeforeUnmount(() => {
             :editing="editing"
             :play="!editing && !preview"
             :preview="preview"
-            @set="(id, values, gesture) => emit('change', id, values, false, gesture)"
+            @set="(id, values, gesture) => emit('change', id, values, false, gesture, item.id)"
           />
           <slot name="cell" :item="item" :scale="scale" />
         </div>

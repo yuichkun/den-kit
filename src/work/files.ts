@@ -36,7 +36,7 @@ export type WorkFile = TextFile | ContentFile;
 export const isText = (f: WorkFile | undefined): f is TextFile => !!f && 'text' in f;
 export const isContent = (f: WorkFile | undefined): f is ContentFile => !!f && !('text' in f);
 
-/** Size limits of a work (decided 2026-10-24; to be revisited). */
+/** Size limits of a work. */
 export const WORK_LIMITS = {
   /** One file's contents. */
   fileBytes: 100 * 1024 * 1024,

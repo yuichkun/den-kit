@@ -1,6 +1,9 @@
 // Disposable compile worker: codebox type check → evaluate → unworklet compile →
 // WebAssembly validation → worklet module source. The client terminates it on
-// timeout (a codebox loop cannot be interrupted any other way).
+// timeout (a codebox loop cannot be interrupted any other way). A codebox's code
+// runs here while the sound is built, on den-kit's own origin, so the worker has
+// no network or storage before it runs any: code in a work stays away from
+// den-kit's server and the person's accounts.
 import { compile, emitWorkletModuleSource, extractWorkletMeta } from '@unworklet/core';
 import { renderOffline } from '@unworklet/offline';
 import registry from 'virtual:kit-modules';
@@ -11,6 +14,33 @@ import { evaluate, EvaluationError } from './evaluate.ts';
 import { attributeError } from './compile-errors.ts';
 import type { CompileRequest, CompileResponse, RenderRequest, RenderResponse } from './protocol.ts';
 import { analyse, spectrogramPng, testSignal } from '../analysis.ts';
+
+for (const name of [
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'WebTransport',
+  'EventSource',
+  'importScripts',
+  'Worker',
+  'SharedWorker',
+  'indexedDB',
+  'caches',
+  'BroadcastChannel',
+]) {
+  for (let o: object | null = self; o; o = Object.getPrototypeOf(o)) {
+    try {
+      delete (o as Record<string, unknown>)[name];
+    } catch {
+      /* not ours to delete */
+    }
+  }
+  try {
+    Object.defineProperty(self, name, { value: undefined, configurable: false, writable: false });
+  } catch {
+    /* already gone */
+  }
+}
 
 const worker = globalThis as unknown as {
   onmessage: ((event: MessageEvent<CompileRequest | RenderRequest>) => void) | null;

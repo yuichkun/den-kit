@@ -214,6 +214,12 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(
       (await pod.bash('test -d node_modules/is-number && echo yes', { who: 'den-kit' })).output,
     ).toContain('yes');
+    // Nothing else ran while the pod reached the network: the dev server stopped for the install and started again.
+    const installs = fake.runs.filter(r => r.script.includes('npm install --ignore-scripts'));
+    expect(installs.at(-1)!.alongside).toEqual([]);
+    const restarted = Date.now() + 60_000;
+    while (!pod.portal.value && Date.now() < restarted) await settle(200);
+    expect(pod.portal.value).toBeTruthy();
     const build = await pod.bash('npm run build', { who: 'ai', timeoutMs: 180_000 });
     expect(build.exitCode, build.output).toBe(0);
     // The install updated the lockfile (it lands with the next change read back); dist/ stays in the pod.
@@ -327,12 +333,21 @@ describe("each work's pod (test pod)", () => {
         expect(node.exitCode, node.output).toBe(3);
       };
       await offline();
-      // A command cannot install from the internet; den-kit's install can.
+      // A command cannot install from the internet (with an empty cache, npm needs the registry); den-kit's install can.
       expect(
-        (await pod.bash('npm install --no-save is-number@7.0.0', { who: 'ai' })).exitCode,
+        (
+          await pod.bash('npm install --no-save --cache "$(mktemp -d)" is-number@7.0.0', {
+            who: 'ai',
+          })
+        ).exitCode,
       ).not.toBe(0);
       const installed = await pod.installPackages('is-number@7.0.0');
       expect(installed.exitCode, installed.output).toBe(0);
+      // den-kit's install ran with nothing else running (the AI's own try above ran beside the dev server, offline).
+      const ourInstall = fake.runs.find(
+        r => r.script.includes('--ignore-scripts') && r.script.includes('--no-save is-number'),
+      );
+      expect(ourInstall!.alongside).toEqual([]);
       await offline();
       // den-kit's installs: the boot's and the one above, from the npm registry, without install scripts.
       const ours = fake.commands.filter(c => c.includes('--registry=https://registry.npmjs.org/'));

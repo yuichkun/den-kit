@@ -13,7 +13,7 @@
 // connect only to its own origin and the origins the person allowed for the work
 // (and run nothing from elsewhere), COEP and CORP for den-kit's cross-origin
 // isolated page, nosniff. What headers do not cover is set on the window
-// (applySandbox): DNS prefetching off, WebRTC only through the proxy, a proxy rule
+// (window-rules.ts): DNS prefetching off, WebRTC only through the proxy, a proxy rule
 // that sends every connection except den-kit's own hosts and the open works'
 // allowed ones to a port that closes at once, frames that cannot navigate away,
 // devices by the frame's work, and no sound before the person touches it.

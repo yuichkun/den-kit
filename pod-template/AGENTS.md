@@ -103,7 +103,8 @@ The same part can be placed several times with different props.
 - `kit.size`, `kit.onResize(fn)` — the box in design pixels (draw for
   `devicePixelRatio`).
 - `kit.mode` — `'play'` or `'edit'` (being laid out; no mouse then).
-- `kit.asset(id)` — a file of the work (assets/…), as a URL.
+- `await kit.asset(path)` — a file of the work (assets/…) as a URL you can use,
+  or null when there is none.
 - A code part reaches only its own origin and the origins the musician allowed
   for this work. To need one (an API, a live stream), list it with its reason:
   kit_apply_ops `{"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"…"}]}`;

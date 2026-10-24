@@ -21,9 +21,9 @@ import { randomId, type PatchDocument } from './schema.ts';
 
 export type Author =
   | { kind: 'human' }
-  /** Legacy attribution retained for edits made before the phrase interpreter was removed. */
-  | { kind: 'ai-fast'; handler: string; trace?: string }
   | { kind: 'ai-llm'; take: string; trace?: string }
+  /** A code part or a canvas on the plugin (its element) moved a control: by itself, or as the person played it. */
+  | { kind: 'part'; element: string }
   | { kind: 'system'; reason: string };
 
 export interface Transaction {
@@ -45,10 +45,10 @@ export interface Transaction {
 export const authorLabel = (a: Author) =>
   a.kind === 'human'
     ? 'you'
-    : a.kind === 'ai-fast'
-      ? `fast:${a.handler}`
-      : a.kind === 'ai-llm'
-        ? `llm:${a.take}`
+    : a.kind === 'ai-llm'
+      ? `llm:${a.take}`
+      : a.kind === 'part'
+        ? `part:${a.element}`
         : `system:${a.reason}`;
 
 const sameAuthor = (a: Author, b: Author) => authorLabel(a) === authorLabel(b);

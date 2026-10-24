@@ -149,4 +149,16 @@ describe('what the AI is told when a request goes on', () => {
     ).toBe('Panel Cutoff ×2, Move');
     expect(handEditsSince([tx('Move', 5)], 10)).toBeNull();
   });
+
+  it('what a code part or canvas moved, with its element', () => {
+    const moved = (at: number): Transaction =>
+      ({
+        id: `p${at}`,
+        label: 'Panel Cutoff',
+        at,
+        author: { kind: 'part', element: 'reels1' },
+        ops: [],
+      }) as unknown as Transaction;
+    expect(handEditsSince([moved(20), moved(30)], 10)).toBe('Panel Cutoff by reels1 ×2');
+  });
 });

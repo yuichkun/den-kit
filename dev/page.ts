@@ -29,6 +29,7 @@ const workspace: PodFactory = podConfig.fakeUrl
   : apiKey
     ? {
         kind: 'browserpod',
+        startEarly: true,
         create: async (work, progress) =>
           (await import('../desktop/page/browserpod.ts')).bootBrowserPod({
             apiKey,
