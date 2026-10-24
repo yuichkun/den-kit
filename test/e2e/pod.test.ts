@@ -535,12 +535,20 @@ export default part({ mount(root, kit) {
       // The dev server's address goes and comes back the same, as BrowserPod's does (its dev server keeps its
       // port) while the dev server's own page keeps running: den-kit loads the part's page again.
       const first = await hello();
-      await kit(page, async k => {
-        const portal = k.pod.portal.value;
+      const portal: string = await kit(page, k => {
+        const p = k.pod.portal.value;
         k.pod.portal.value = null;
-        await new Promise(r => setTimeout(r, 500));
-        k.pod.portal.value = portal;
+        return p;
       });
+      // Meanwhile nothing serves the part: its page goes, and it waits.
+      await page.waitForSelector('[data-element=again1] [data-code-state=waiting]');
+      assert.equal(
+        await page.locator('[data-element=again1] iframe').getAttribute('src'),
+        'about:blank',
+      );
+      await page.evaluate(p => {
+        (window as any).__kit.pod.portal.value = p;
+      }, portal);
       await helloAgain(first);
       // Only this pod's dev server stops (HOME is the pod's own folder); den-kit starts it again.
       const second = await hello();

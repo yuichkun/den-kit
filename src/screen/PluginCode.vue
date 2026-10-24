@@ -308,7 +308,16 @@ function tick(t: number) {
 function load() {
   const f = frame.value,
     s = src.value;
-  if (!f || !s) return;
+  if (!f) return;
+  if (!s) {
+    // Nothing serves the part now (no workspace, or its last build is not of these files): its page goes.
+    if (f.getAttribute('src') && f.getAttribute('src') !== 'about:blank') {
+      f.src = 'about:blank';
+      hello = 0;
+      state.value = pod?.state.value === 'unavailable' ? 'off' : 'waiting';
+    }
+    return;
+  }
   hello = 0;
   state.value = 'loading';
   error.value = null;

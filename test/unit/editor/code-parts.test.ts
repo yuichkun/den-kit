@@ -150,6 +150,8 @@ describe("the editor's code parts", () => {
     ]);
     await settled();
     expect(parts.source.portal.value).toBeNull();
+    // Nor does the sandbox keep serving it.
+    expect(opened.at(-1)!.build).toEqual({});
   });
 
   it('do not run where the host cannot keep them apart (no sandbox), and say so', async () => {

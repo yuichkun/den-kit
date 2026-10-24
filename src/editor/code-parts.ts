@@ -177,7 +177,8 @@ export class CodeParts {
           pod.portal.value,
           this.allowed.value,
           served(session.doc.value.files),
-          sandbox.servesContents ? (this.built.value?.files ?? {}) : {},
+          // Only a build of the files the work has now: an older one would run old code.
+          sandbox.servesContents && fromBuild.value ? (this.built.value?.files ?? {}) : {},
         ] as const,
       ([id, devServer, allowed, files, build]) => {
         if (open && open !== id) sandbox.close(open);
