@@ -1,8 +1,9 @@
-// The open work's playable build (src/work/playable.ts), made from what the editor
-// has: the work's document, its compiled sound, its assets, the player den-kit was
-// built with (player/ next to den-kit's page), and, when the work has code parts,
-// their build from the workspace (npm run build). A part that cannot be made is
-// left out and said so; the rest still plays.
+// The open work's playable build (src/work/playable.ts), made from one document of
+// it and what the editor has: that document's compiled sound (nothing soloed), its
+// assets, the player den-kit was built with (player/ next to den-kit's page), and,
+// when the work has code parts, their build from the workspace (npm run build) while
+// it holds that document's files. A part that cannot be made is left out and said
+// so; the rest still plays.
 import { serializeDocument } from '../work/persistence.ts';
 import {
   PARTS_FOLDER,
@@ -15,7 +16,9 @@ import {
 } from '../work/playable.ts';
 import type { PlayableBuild } from '../work/work-file.ts';
 import { isContent, textFiles } from '../work/files.ts';
+import type { PatchDocument } from '../work/schema.ts';
 import { assetsOf } from '../work/ui.ts';
+import { generate } from '../sound/codegen.ts';
 import type { KitSession } from './session.ts';
 
 /** The player's files, from den-kit's own player/ folder (its build manifest lists them). */
@@ -57,11 +60,13 @@ async function playerFiles(): Promise<PlayableBuild | null> {
 
 export async function buildPlayable(
   session: KitSession,
+  doc: PatchDocument,
 ): Promise<{ build: PlayableBuild; notes: string[] }> {
   const notes: string[] = [];
-  const doc = session.doc.value;
-  const artifact =
-    session.compiler.cached(session.generated.value.hash) ?? (await session.compileNow());
+  const generated = generate(doc, session.catalog);
+  const artifact = generated.source
+    ? await session.compileApart(doc, generated).catch(() => null)
+    : null;
   if (!artifact) throw new Error('The sound does not compile; fix it to make a playable build.');
   const player = await playerFiles();
   if (!player) throw new Error('This den-kit has no player to put in a playable build.');
@@ -77,16 +82,17 @@ export async function buildPlayable(
   }
   let parts = false;
   if (Object.keys(textFiles(doc.files)).some(p => p.startsWith('src/parts/'))) {
-    const from = session.codeParts?.builtFrom();
-    const built = await session.pod?.buildParts().catch(() => null);
-    if (built) {
+    const built = await session.pod?.buildParts(doc).catch(() => null);
+    if (built && built !== 'changed') {
       for (const [path, bytes] of Object.entries(built)) build[PARTS_FOLDER + path] = bytes;
       parts = true;
       // The editor shows them from this build too while the workspace does not run them.
-      if (from) await session.codeParts?.keep(built, from);
+      await session.codeParts?.keep(built, session.codeParts.builtFrom(doc), doc.id);
     } else
       notes.push(
-        'The code parts are not in the playable build: they could not be built (start the project tools, then export again).',
+        built === 'changed'
+          ? 'The code parts are not in the playable build: the project changed while it was made (export again).'
+          : 'The code parts are not in the playable build: they could not be built (start the project tools, then export again).',
       );
   }
   const manifest: PlayableManifest = {

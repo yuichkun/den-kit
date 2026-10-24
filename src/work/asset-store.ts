@@ -61,7 +61,7 @@ export class AssetError extends Error {}
 export class AssetStore {
   private readonly storage: ContentStorage | null;
   private memory = new Map<string, Uint8Array>();
-  private urls = new Map<string, string>();
+  private urls = new Map<string, Promise<string | null>>();
 
   constructor(storage: ContentStorage | null = null) {
     this.storage = storage;
@@ -135,16 +135,21 @@ export class AssetStore {
     }
   }
 
-  /** A URL the page can show the asset with; null when its contents are not here. */
+  /** A URL the page can show the asset with (one per contents); null when its contents are not here. */
   async url(meta: AssetMeta): Promise<string | null> {
     if (meta.url) return meta.url.startsWith('/') ? meta.url : `/${meta.url}`;
-    if (!meta.hash) return null;
-    const known = this.urls.get(meta.hash);
-    if (known) return known;
-    const bytes = await this.bytes(meta.hash);
-    if (!bytes) return null;
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: meta.mime }));
-    this.urls.set(meta.hash, url);
+    const hash = meta.hash;
+    if (!hash) return null;
+    let url = this.urls.get(hash);
+    if (!url) {
+      url = this.bytes(hash).then(bytes =>
+        bytes ? URL.createObjectURL(new Blob([bytes as BlobPart], { type: meta.mime })) : null,
+      );
+      this.urls.set(hash, url);
+      // Contents that are not here yet may come later: they are looked for again then.
+      const forget = () => void this.urls.delete(hash);
+      url.then(made => made || forget(), forget);
+    }
     return url;
   }
 

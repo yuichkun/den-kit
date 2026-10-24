@@ -13,6 +13,7 @@ import type { CodePartSource } from '../screen/code-frames.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
 import { isContent, typeOfPath, type WorkFile } from '../work/files.ts';
 import { canonicalJson, hashString } from '../work/hash.ts';
+import type { PatchDocument } from '../work/schema.ts';
 import { networkOrigin } from '../work/ui.ts';
 import type { KitSession } from './session.ts';
 
@@ -195,19 +196,22 @@ export class CodeParts {
     });
   }
 
-  /** What the code parts are built from now: the files the workspace gets, and the work's stored contents. */
-  builtFrom(): string {
+  /** What the code parts of `doc` (the open work's) are built from: the files the workspace gets, and its stored contents. */
+  builtFrom(doc: PatchDocument = this.session.doc.value): string {
     return hashString(
       canonicalJson({
-        files: Object.fromEntries(this.pod.wanted()),
-        contents: served(this.session.doc.value.files),
+        files: Object.fromEntries(this.pod.wanted(doc)),
+        contents: served(doc.files),
       }),
     );
   }
 
-  /** Keep the open work's code parts as built from `from` (builtFrom() when the build started). */
-  async keep(files: Record<string, Uint8Array>, from: string): Promise<void> {
-    const id = this.session.doc.value.id;
+  /** Keep a work's code parts (the open work's) as built from `from`, what builtFrom() said of the files built. */
+  async keep(
+    files: Record<string, Uint8Array>,
+    from: string,
+    id = this.session.doc.value.id,
+  ): Promise<void> {
     this.builtVersion++;
     const built: Built = { from, files: {} };
     for (const [path, bytes] of Object.entries(files))

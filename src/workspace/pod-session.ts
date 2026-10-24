@@ -138,6 +138,8 @@ export class PodSession {
   private retrying: Promise<PodHost> | null = null;
   /** The pod's files as den-kit last wrote or read them (path → text). */
   private known = new Map<string, string>();
+  /** A command or the AI wrote in the project after it was last read back. */
+  private unread = false;
   private installedFor: string | null = null;
   private dev: PodProcess | null = null;
   private devStart: Promise<void> | null = null;
@@ -366,8 +368,7 @@ export class PodSession {
 
   // ---- files ------------------------------------------------------------------------------------
   /** The document's files (or the template, while the work has no project) plus den-kit's generated ones. */
-  wanted(): Map<string, string> {
-    const doc = this.session.doc.value;
+  wanted(doc: PatchDocument = this.session.doc.value): Map<string, string> {
     const own = textFiles(doc.files);
     const files = new Map(Object.entries(Object.keys(own).length ? own : templateFiles()));
     for (const [path, text] of Object.entries(this.kit)) files.set(path, text);
@@ -427,6 +428,7 @@ export class PodSession {
     const host = this.host;
     if (!host) return { files: {}, skipped: [] };
     return this.enqueue(async () => {
+      this.unread = false;
       const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
       // While the work has no sources, the pod holds the template: it all becomes the work's.
       const base = textFiles(this.session.doc.value.files);
@@ -490,6 +492,7 @@ export class PodSession {
   async writeFile(path: string, text: string): Promise<void> {
     const host = await this.ensure();
     await this.enqueue(async () => {
+      this.unread = true;
       await host.writeFile(`${this.projectDir}/${path}`, text);
     });
   }
@@ -506,13 +509,15 @@ export class PodSession {
       Math.max(1000, options.timeoutMs ?? COMMAND_TIMEOUT),
     );
     const entry = this.begin(options.who, command);
-    const result = await this.enqueue(() =>
-      host.run(command, {
+    const result = await this.enqueue(() => {
+      // den-kit's own commands put back what they change; others are read back after them.
+      if (options.who !== 'den-kit') this.unread = true;
+      return host.run(command, {
         cwd: this.projectDir,
         timeoutMs,
         onOutput: text => this.progress(entry, text),
-      }),
-    );
+      });
+    });
     this.end(entry, result);
     // A command may have stopped the dev server, or fixed what kept it from starting: start it again.
     if (!this.dev?.running) {
@@ -552,36 +557,48 @@ export class PodSession {
     return result;
   }
   /**
-   * The code parts built for a playable build (npm run build in the project): the built files by path, or null
-   * when there is no pod or the build fails (the log shows why).
+   * The code parts of `doc` built for a playable build (npm run build in the project, in turn with the file
+   * writes and commands): the built files by path; 'changed' when the project does not hold `doc`'s files (they
+   * changed since, or what a command changed is not read back yet); null when there is no pod or the build
+   * fails (the log shows why).
    */
-  async buildParts(): Promise<Record<string, Uint8Array> | null> {
+  async buildParts(doc: PatchDocument): Promise<Record<string, Uint8Array> | 'changed' | null> {
     try {
       await this.ensure();
     } catch {
       return null;
     }
     const host = this.host!;
-    // Relative addresses: the built pages work from any folder they are served from.
-    const build = 'npm run build -- --base ./';
-    if ((await this.system(build, `${build} (for the playable build)`)).exitCode !== 0) return null;
-    // The pod reads files back as text: each built file goes as base64, one per line,
-    // in den-kit's own folder of the pod's home (outside the project).
-    const listing = `${host.home}/.den-kit/built-parts.txt`;
-    const dump = await host.run(
-      `mkdir -p "${host.home}/.den-kit" && cd dist && find . -type f | sort | while IFS= read -r f; do printf '%s\\t' "\${f#./}"; base64 < "$f" | tr -d '\\n'; printf '\\n'; done > "${listing}"`,
-      { cwd: this.projectDir, timeoutMs: 120_000 },
-    );
-    const text = dump.exitCode === 0 ? await host.readFile(listing) : null;
-    if (text === null) return null;
-    const files: Record<string, Uint8Array> = {};
-    for (const line of text.split('\n')) {
-      const tab = line.indexOf('\t');
-      if (tab <= 0) continue;
-      const bytes = atob(line.slice(tab + 1));
-      files[line.slice(0, tab)] = Uint8Array.from(bytes, c => c.charCodeAt(0));
-    }
-    return files;
+    return this.enqueue(async () => {
+      const wanted = this.wanted(doc);
+      if (
+        this.unread ||
+        wanted.size !== this.known.size ||
+        [...wanted].some(([path, text]) => this.known.get(path) !== text)
+      )
+        return 'changed';
+      // Relative addresses: the built pages work from any folder they are served from.
+      const build = 'npm run build -- --base ./';
+      if ((await this.system(build, `${build} (for the playable build)`)).exitCode !== 0)
+        return null;
+      // The pod reads files back as text: each built file goes as base64, one per line,
+      // in den-kit's own folder of the pod's home (outside the project).
+      const listing = `${host.home}/.den-kit/built-parts.txt`;
+      const dump = await host.run(
+        `mkdir -p "${host.home}/.den-kit" && cd dist && find . -type f | sort | while IFS= read -r f; do printf '%s\\t' "\${f#./}"; base64 < "$f" | tr -d '\\n'; printf '\\n'; done > "${listing}"`,
+        { cwd: this.projectDir, timeoutMs: 120_000 },
+      );
+      const text = dump.exitCode === 0 ? await host.readFile(listing) : null;
+      if (text === null) return null;
+      const files: Record<string, Uint8Array> = {};
+      for (const line of text.split('\n')) {
+        const tab = line.indexOf('\t');
+        if (tab <= 0) continue;
+        const bytes = atob(line.slice(tab + 1));
+        files[line.slice(0, tab)] = Uint8Array.from(bytes, c => c.charCodeAt(0));
+      }
+      return files;
+    });
   }
 
   /** A line in the log from den-kit itself (no command). */

@@ -2,13 +2,18 @@
 // static server serves it, another one on a second origin serves the built code
 // parts. The player plays when clicked, the computer keys play notes, a code part
 // shows from its own origin, and moving a control changes only the player's own
-// state. Needs den-kit's player build (vp run build makes dist/player/).
+// state. The record and the build are of the work as it was when the export
+// started, and the build plays the whole sound, whatever the editor has soloed.
+// Needs den-kit's player build (vp run build makes dist/player/).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join } from 'node:path';
 import { kitRoot, openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { parseDocument } from '../../src/work/persistence.ts';
 import { readZip } from '../../src/work/zip.ts';
 
 const TYPES: Record<string, string> = {
@@ -30,6 +35,16 @@ export default part({ mount(root, kit) {
   return kit.frame(() => { bar.dataset.level = String(kit.audio.level); });
 } });
 `;
+/** A work file's entries by path. */
+const entriesOf = (bytes: number[]) =>
+  new Map(
+    readZip(new Uint8Array(bytes), {
+      maxEntryBytes: 100 * 1024 * 1024,
+      maxTotalBytes: 1024 * 1024 * 1024,
+      maxEntries: 10000,
+    }).map(e => [e.path, e.data] as const),
+  );
+const json = (data: Uint8Array | undefined) => JSON.parse(new TextDecoder().decode(data));
 const servers: Server[] = [];
 async function serve(files: Map<string, Uint8Array>, headers: Record<string, string>) {
   const server = createServer((req, res) => {
@@ -205,6 +220,75 @@ describe('the playable build', () => {
         0,
       );
       await same.close();
+      await page.close();
+    },
+  );
+
+  it(
+    'is of the work as it was when the export started, edits made meanwhile in neither the record nor the build, and plays the whole sound while the editor solos a part',
+    { timeout: 300000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      // A code part, a part of the sound soloed in the editor, then a change to what the solo leaves out.
+      const soloed: string = await page.evaluate(async part => {
+        const k = (window as any).__kit;
+        const files = Object.fromEntries(
+          [...k.pod.wanted()].filter(
+            ([p]: [string]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+          ),
+        );
+        if (
+          !k.commit([{ op: 'setProjectFiles', files: { ...files, 'src/parts/meter.ts': part } }]).ok
+        )
+          throw new Error('the code part was not added');
+        const made = k.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]);
+        k.setSolo([made.created[0]]);
+        k.commit([{ op: 'setConfig', node: 'osc1', key: 'waveform', value: 'square' }]);
+        return k.generated.value.hash;
+      }, METER);
+      await waitCompiled(page);
+      const exported = await page.evaluate(async () => {
+        const k = (window as any).__kit;
+        const name = k.doc.value.name;
+        const making = k.exportWork();
+        k.commit([{ op: 'setName', name: 'Renamed while exporting' }]);
+        const meter = k.doc.value.files['src/parts/meter.ts'].text;
+        k.commit([
+          { op: 'setProjectFiles', files: { 'src/parts/meter.ts': `// changed\n${meter}` } },
+        ]);
+        const bytes = Array.from((await making) as Uint8Array);
+        return { name, bytes, toasts: k.toasts.value.map((t: { text: string }) => t.text) };
+      });
+      const file = entriesOf(exported.bytes);
+      const record = json(file.get('work.json')).document;
+      const manifest = json(file.get('build/build.json'));
+      assert.equal(record.name, exported.name);
+      assert.doesNotMatch(JSON.stringify(record), /\/\/ changed/);
+      assert.deepEqual(manifest.document, record);
+      const read = parseDocument(record, catalog);
+      assert.ok(read.ok);
+      const whole = generate(read.doc, catalog).hash;
+      assert.notEqual(whole, soloed);
+      assert.equal(manifest.processor.hash, whole, "the build plays the record's whole sound");
+      assert.equal(manifest.parts, false);
+      assert.ok(![...file.keys()].some(p => p.startsWith('build/parts/')));
+      assert.ok(
+        exported.toasts.some((t: string) => /the project changed while it was made/.test(t)),
+        JSON.stringify(exported.toasts),
+      );
+      // Exported again, with nothing changing meanwhile: the edits are in it, the code parts built from them.
+      const again = entriesOf(
+        await page.evaluate(async () =>
+          Array.from((await (window as any).__kit.exportWork()) as Uint8Array),
+        ),
+      );
+      const record2 = json(again.get('work.json')).document;
+      assert.equal(record2.name, 'Renamed while exporting');
+      assert.match(JSON.stringify(record2), /\/\/ changed/);
+      assert.deepEqual(json(again.get('build/build.json')).document, record2);
+      assert.ok(again.has('build/parts/index.html'), 'the code parts were built');
+      assert.deepEqual(errors, []);
       await page.close();
     },
   );

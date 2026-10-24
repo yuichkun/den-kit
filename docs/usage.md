@@ -95,8 +95,8 @@ that page, never the work.
 Code parts run from another origin than the page, so that a part cannot reach the page.
 Serve `build/parts/` from a second origin, such as another host name or port, and add its
 address to the page's address: `index.html?parts=https://parts.example.com/`. den-kit builds
-the code parts when it exports the work; when the project tools cannot run, the work file
-has no code parts and den-kit says so.
+the code parts when it exports the work; when the project tools cannot run, or the project
+changes while den-kit builds them, the work file has no code parts and den-kit says so.
 
 ## Custom code parts
 

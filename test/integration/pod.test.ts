@@ -251,6 +251,26 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(pod.state.value).toBe('ready');
     expect((await fetch(pod.portal.value!)).status).toBe(200);
   }, 240_000);
+
+  it("builds a document's code parts only while the project holds that document's files", async () => {
+    const built = async (doc: PatchDocument) => {
+      const b = await pod.buildParts(doc);
+      return b && b !== 'changed' ? Object.keys(b) : b;
+    };
+    // What the commands so far changed lands in the work first.
+    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await settle(800);
+    expect(await built(kit.doc.value)).toContain('index.html');
+    // A command's change that is not read back yet is in the project, not in the work.
+    await pod.bash("printf '// more\\n' >> src/parts/dial.ts", { who: 'ai' });
+    const before = kit.doc.value;
+    expect(await built(before)).toBe('changed');
+    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await settle(800);
+    expect(textFiles(kit.doc.value.files)['src/parts/dial.ts']).toContain('// more');
+    expect(await built(before)).toBe('changed');
+    expect(await built(kit.doc.value)).toContain('index.html');
+  }, 300_000);
 });
 
 describe('pod session without a pod', () => {

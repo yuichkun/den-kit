@@ -53,7 +53,12 @@ import { validate } from '../work/validate.ts';
 import type { Issue } from '../work/issues.ts';
 import { starter, type StarterId } from '../work/starters.ts';
 import { lookIntents, type Work } from '../screen/showcase/index.ts';
-import { CompileClient, CompileFailure, compileInputs } from '../sound/compile/compile-client.ts';
+import {
+  CompileClient,
+  CompileFailure,
+  compileInputs,
+  type CompileClientOptions,
+} from '../sound/compile/compile-client.ts';
 import type { Artifact } from '../sound/compile/protocol.ts';
 import { AudioEngine, type EngineState, type TestSignal } from '../sound/audio-engine.ts';
 import {
@@ -170,6 +175,7 @@ export class KitSession {
   ]);
   readonly engine: AudioEngine;
   readonly compiler: CompileClient;
+  private readonly compilerOptions: CompileClientOptions;
   /** The host's AI; null when the editor runs without one (tests). */
   bridge: AI | null = null;
   /** What the host provides (src/host); null in unit tests. */
@@ -207,7 +213,10 @@ export class KitSession {
   /** Where the bytes of pictures and fonts live (IndexedDB), and the URLs the page shows them with. */
   readonly assets: AssetStore;
   readonly assetUrls = shallowRef<Record<string, string>>({});
-  private fontFaces = new Set<string>();
+  /** What each path's URL was made from: its contents' hash, or where den-kit ships the file. */
+  private assetSources = new Map<string, string>();
+  /** The font face each path has registered with the page. */
+  private fontFaces = new Map<string, FontFace>();
   private listeners = new Set<TransactionListener>();
   private historyListeners = new Set<HistoryListener>();
   private compileSerial = 0;
@@ -249,12 +258,11 @@ export class KitSession {
           { rotateAfter: options.rotateAfter },
         ),
     );
-    this.compiler = markRaw(
-      new CompileClient({
-        createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never,
-        timeoutMs: options.compileTimeoutMs,
-      }),
-    );
+    this.compilerOptions = {
+      createWorker: () => (options.createWorker ?? (() => new CompilerWorker()))() as never,
+      timeoutMs: options.compileTimeoutMs,
+    };
+    this.compiler = markRaw(new CompileClient(this.compilerOptions));
     this.readMyParts();
     if (this.storage?.getItem(STYLUS_KEY) === 'off') this.stylusDraws.value = false;
     watch(this.stylusDraws, on => {
@@ -954,6 +962,20 @@ export class KitSession {
     }, 120);
   }
 
+  /** Compile a sound on a compiler of its own: the live work's compiles neither replace it nor are replaced by it. */
+  async compileApart(doc: PatchDocument, generated: Generated): Promise<Artifact> {
+    const hit = this.compiler.cached(generated.hash);
+    if (hit) return hit;
+    const compiler = new CompileClient(this.compilerOptions);
+    try {
+      const artifact = await compiler.compile(generated, compileInputs(doc, generated));
+      this.compiler.prime(artifact);
+      return artifact;
+    } finally {
+      compiler.dispose();
+    }
+  }
+
   /** Compile the current document and swap it in. Old sound keeps playing on failure. */
   async compileNow(): Promise<Artifact | null> {
     const doc = this.doc.value,
@@ -1105,32 +1127,52 @@ export class KitSession {
   }
 
   // ---- Assets ---------------------------------------------------------------------
-  /** Find a URL for every asset of the patch that has none yet; fonts get registered with the page. */
+  /**
+   * Find a URL for every asset of the patch whose contents have none yet: a path that holds other contents gets
+   * theirs, and a font is registered with the page again under its path's family.
+   */
   async syncAssets() {
-    const doc = this.doc.value;
-    const missing = Object.values(assetsOf(doc.files)).filter(a => !this.assetUrls.value[a.id]);
-    if (!missing.length) return;
-    const found: Record<string, string> = {};
-    for (const asset of missing) {
-      const url = await this.assets.url(asset);
-      if (url) found[asset.id] = url;
-    }
-    if (Object.keys(found).length) this.assetUrls.value = { ...this.assetUrls.value, ...found };
-    for (const asset of missing)
-      if (
-        isFontAsset(asset) &&
-        found[asset.id] &&
-        !this.fontFaces.has(asset.id) &&
-        typeof FontFace !== 'undefined'
-      ) {
-        this.fontFaces.add(asset.id);
-        try {
-          const face = new FontFace(assetFontFamily(asset.id), `url("${found[asset.id]}")`);
-          document.fonts.add(await face.load());
-        } catch {
-          this.toast('warn', `The font "${asset.name}" could not be read.`);
-        }
+    const stale = Object.values(assetsOf(this.doc.value.files)).filter(
+      a => this.assetSources.get(a.id) !== assetSource(a),
+    );
+    if (!stale.length) return;
+    const urls = await Promise.all(stale.map(a => this.assets.url(a).catch(() => null)));
+    // A path that changed again meanwhile is left to the call that change made.
+    const now = assetsOf(this.doc.value.files);
+    const next = { ...this.assetUrls.value };
+    const fonts: AssetMeta[] = [];
+    stale.forEach((asset, i) => {
+      if (!now[asset.id] || assetSource(now[asset.id]!) !== assetSource(asset)) return;
+      const url = urls[i];
+      // Contents not here (yet) show nothing rather than what the path held before.
+      if (!url) {
+        delete next[asset.id];
+        return;
       }
+      next[asset.id] = url;
+      this.assetSources.set(asset.id, assetSource(asset));
+      if (isFontAsset(asset)) fonts.push(asset);
+    });
+    this.assetUrls.value = next;
+    for (const asset of fonts) await this.registerFont(asset, next[asset.id]!);
+  }
+  /** Register a font asset with the page under its path's family, in place of what the path held before. */
+  private async registerFont(asset: AssetMeta, url: string) {
+    if (typeof FontFace === 'undefined') return;
+    let face: FontFace | null = new FontFace(assetFontFamily(asset.id), `url("${url}")`);
+    try {
+      await face.load();
+    } catch {
+      face = null;
+      this.toast('warn', `The font "${asset.name}" could not be read.`);
+    }
+    if (this.assetSources.get(asset.id) !== assetSource(asset)) return;
+    const old = this.fontFaces.get(asset.id);
+    if (old) document.fonts.delete(old);
+    if (face) {
+      document.fonts.add(face);
+      this.fontFaces.set(asset.id, face);
+    } else this.fontFaces.delete(asset.id);
   }
 
   /** Add a dropped file as an asset of the patch (one undo step); null when it is refused. */
@@ -1217,12 +1259,13 @@ export class KitSession {
   }
   /**
    * The work as a work file: its record, the contents of its files (a file that opens anywhere) and its playable
-   * build when it can be made (what is left out of it is said).
+   * build when it can be made (what is left out of it is said), all as the work was when the export started.
    */
   async exportWork(): Promise<Uint8Array> {
+    const doc = this.doc.value;
     let build: PlayableBuild | undefined;
     try {
-      const made = await buildPlayable(this);
+      const made = await buildPlayable(this, doc);
       build = made.build;
       for (const note of made.notes) this.toast('warn', note);
     } catch (error) {
@@ -1231,7 +1274,7 @@ export class KitSession {
         `The work file has no playable build: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    return writeWorkFile(this.doc.value, hash => this.assets.bytes(hash), build);
+    return writeWorkFile(doc, hash => this.assets.bytes(hash), build);
   }
   /** Open a work file in place of this work (one undo step); false when it is refused. */
   async importWork(bytes: Uint8Array): Promise<boolean> {
@@ -1289,6 +1332,9 @@ export class KitSession {
     triggerRef(this.doc);
   }
 }
+
+/** What an asset's URL is made from: its contents, or where den-kit ships it. */
+const assetSource = (asset: AssetMeta) => asset.hash ?? asset.url ?? '';
 
 function safeStorage(): StorageLike | null {
   try {
