@@ -2,8 +2,10 @@
 // its own host name, http://<work id>.localhost:<port> (Chromium sends *.localhost
 // to this machine without DNS), and serves the work's code parts and assets there:
 // while the person edits, it passes requests and WebSockets through to the
-// workspace's dev server (BrowserPod's portal), and it serves the work's files by
-// path from the host's storage. The desktop app runs it on its local server; the
+// workspace's dev server (BrowserPod's portal), and otherwise it serves the code
+// parts as last built; it serves the work's files by path. Both come from the
+// host's storage. The portal adds Cloudflare's analytics script to the pages it
+// serves; the sandbox takes it out (the work never asked for it). The desktop app runs it on its local server; the
 // development host on the AI bridge's.
 //
 // The rules sit in this server's own responses, so nothing in the work's files
@@ -63,6 +65,10 @@ const KEEP = [
   'vary',
 ];
 
+/** The analytics script BrowserPod's portal adds to every page it serves. */
+const PORTAL_BEACON =
+  /<script\b[^>]*\bsrc=["']https:\/\/static\.cloudflareinsights\.com\/[^>]*>\s*<\/script>/gi;
+
 export interface SandboxWork {
   /** The workspace's dev server while the person edits (its https origin), or null. */
   portal: string | null;
@@ -72,6 +78,29 @@ export interface SandboxWork {
   devices: Device[];
   /** The work's files: path → content hash and media type. */
   files: Record<string, { hash: string; type: string }>;
+  /** The code parts as last built (path → content hash and media type), served while there is no dev server. */
+  build?: Record<string, { hash: string; type: string }>;
+}
+
+/** A path from a URL, or null when it does not decode. */
+function decoded(path: string): string | null {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Contents by path, as the page sent them: entries that name a hash and a type. */
+function contents(value: unknown): Record<string, { hash: string; type: string }> {
+  const out: Record<string, { hash: string; type: string }> = {};
+  if (!value || typeof value !== 'object') return out;
+  for (const [path, entry] of Object.entries(value as Record<string, unknown>)) {
+    const e = entry as { hash?: unknown; type?: unknown } | null;
+    if (typeof e?.hash === 'string' && typeof e.type === 'string')
+      out[path] = { hash: e.hash, type: e.type };
+  }
+  return out;
 }
 
 export interface SandboxOptions {
@@ -101,6 +130,8 @@ export class SandboxServer {
   readonly secret = randomBytes(32).toString('hex');
   private readonly works = new Map<string, SandboxWork>();
   private readonly listeners = new Set<() => void>();
+  /** The WebSockets it passes through (the frames' live reload), ended when the server it runs on closes. */
+  private readonly relays = new Set<{ socket: Duplex; upstream: WebSocket }>();
   private readonly options: SandboxOptions;
 
   constructor(options: SandboxOptions) {
@@ -138,7 +169,8 @@ export class SandboxServer {
       portal: settings.portal ? new URL(settings.portal).origin : null,
       origins: [...new Set(settings.origins.map(validOrigin).filter((o): o is string => !!o))],
       devices: settings.devices.filter(d => (DEVICES as readonly string[]).includes(d)),
-      files: settings.files,
+      files: contents(settings.files),
+      build: contents(settings.build),
     });
     for (const l of this.listeners) l();
   }
@@ -229,17 +261,22 @@ export class SandboxServer {
       return true;
     }
     if (url.pathname.startsWith(FILES_PATH)) {
-      this.file(
-        work,
-        settings,
-        decodeURIComponent(url.pathname.slice(FILES_PATH.length)),
-        req,
-        res,
-      );
+      this.file(work, settings.files, decoded(url.pathname.slice(FILES_PATH.length)), req, res);
       return true;
     }
     if (settings.portal) {
       this.relay(work, settings.portal, req, res);
+      return true;
+    }
+    if (Object.keys(settings.build ?? {}).length) {
+      const path = decoded(url.pathname.slice(1));
+      this.file(
+        work,
+        settings.build ?? {},
+        path === '' || path?.endsWith('/') ? `${path}index.html` : path,
+        req,
+        res,
+      );
       return true;
     }
     res
@@ -276,12 +313,12 @@ export class SandboxServer {
 
   private file(
     work: string,
-    settings: SandboxWork,
-    path: string,
+    files: Record<string, { hash: string; type: string }>,
+    path: string | null,
     req: IncomingMessage,
     res: ServerResponse,
   ) {
-    const entry = Object.hasOwn(settings.files, path) ? settings.files[path] : undefined;
+    const entry = path !== null && Object.hasOwn(files, path) ? files[path] : undefined;
     const bytes = entry ? this.options.content(entry.hash) : null;
     if (!entry || !bytes || !['GET', 'HEAD'].includes(req.method ?? '')) {
       res.writeHead(404, this.headers(work)).end();
@@ -314,8 +351,24 @@ export class SandboxServer {
           const to = new URL(location, target);
           if (to.origin === target.origin) out.location = `${to.pathname}${to.search}${to.hash}`;
         }
-        res.writeHead(answer.statusCode ?? 502, out);
-        answer.pipe(res);
+        const page =
+          /^text\/html\b/i.test(String(answer.headers['content-type'] ?? '')) &&
+          !answer.headers['content-encoding'];
+        if (!page) {
+          res.writeHead(answer.statusCode ?? 502, out);
+          answer.pipe(res);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        answer.on('data', (chunk: Buffer) => chunks.push(chunk));
+        answer.on('error', () => res.destroy());
+        answer.on('end', () => {
+          const body = Buffer.from(
+            Buffer.concat(chunks).toString('utf8').replace(PORTAL_BEACON, ''),
+          );
+          res.writeHead(answer.statusCode ?? 502, { ...out, 'content-length': body.length });
+          res.end(body);
+        });
       },
     );
     upstream.on('error', () => {
@@ -341,6 +394,9 @@ export class SandboxServer {
       .map(p => p.trim())
       .filter(Boolean);
     const upstream = new WebSocket(target, protocols, { origin: portal });
+    const relay = { socket, upstream };
+    this.relays.add(relay);
+    socket.once('close', () => this.relays.delete(relay));
     const fail = () => {
       if (!socket.destroyed) socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     };
@@ -367,6 +423,15 @@ export class SandboxServer {
       });
     });
     return true;
+  }
+
+  /** End every WebSocket it passes through: the server it runs on is closing, and waits for them. */
+  closeConnections() {
+    for (const { socket, upstream } of this.relays) {
+      upstream.terminate();
+      socket.destroy();
+    }
+    this.relays.clear();
   }
 }
 

@@ -106,10 +106,10 @@ const ICON: Record<string, string> = {
   font-size: 13px;
 }
 .layer:hover {
-  background: #2c2c2c;
+  background: var(--gray-5);
 }
 .layer.selected {
-  background: #3a2a14;
+  background: var(--orange-dark);
   outline: 1px solid var(--accent);
 }
 .layer.hidden .name {
@@ -131,7 +131,7 @@ const ICON: Record<string, string> = {
 .group {
   font-size: 11px;
   color: var(--muted);
-  border: 1px solid #444;
+  border: 1px solid var(--gray-8);
   border-radius: 3px;
   padding: 0 4px;
 }

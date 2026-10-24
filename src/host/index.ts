@@ -62,17 +62,23 @@ export type Device = 'microphone' | 'camera' | 'midi';
  * frames from navigating away, and lets through only the origins and devices the person allowed for the work.
  */
 export interface Sandbox {
-  /** Serve a work: its code parts from `devServer` (the workspace's, while it runs), its files by path. */
+  /**
+   * Serve a work: its code parts from `devServer` (the workspace's, while it runs), or else from `build`
+   * (the code parts as last built), and its files by path. `files` and `build` name contents in the host's storage.
+   */
   open(
     work: string,
     settings: Allowed & {
       devServer: string | null;
       files: Record<string, { hash: string; type: string }>;
+      build: Record<string, { hash: string; type: string }>;
     },
   ): void;
   close(work: string): void;
   /** The work's own origin, where its frames load from. */
   origin(work: string): string;
+  /** Whether it serves contents from the host's storage (`files` and `build`), or only the dev server. */
+  readonly servesContents: boolean;
   /** Where a work's file is served under its origin, or null when this host serves none. */
   fileUrl(work: string, path: string): string | null;
   /** A work's code part tried to reach something it may not. */

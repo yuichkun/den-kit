@@ -85,6 +85,16 @@ const launch = () =>
     },
     timeout: 60000,
   });
+/** A code part's frame: from its work's own origin (the sandbox), showing `part`. */
+const partFrame = (page: import('playwright').Page, part: string) =>
+  page
+    .frames()
+    .find(
+      f =>
+        /^http:\/\/[a-z0-9-]+\.localhost:\d+\//.test(f.url()) && f.url().includes(`part=${part}`),
+    );
+/** Every step fails with what it waited for instead of waiting forever. */
+const STEP_TIMEOUT = 180000;
 /** Send a request in the page and wait for it to end; its line in the history. */
 async function askAI(page: import('playwright').Page, request: string, timeout: number) {
   const id = await page.evaluate(
@@ -127,6 +137,7 @@ app.process().stderr?.on('data', data => {
 });
 try {
   let page = await app.firstWindow();
+  page.setDefaultTimeout(STEP_TIMEOUT);
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, {
     timeout: 60000,
@@ -538,7 +549,8 @@ try {
       const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
       const before = {
         document: JSON.stringify(k.doc.value),
-        requests: k.requests!.history.value.length,
+        // The work's conversation (the runtime keeps what was said; this session's request lines are not kept).
+        conversation: k.conversation.value,
         disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut },
       };
       // Simulate a preview startup timeout on the isolated running process.
@@ -562,6 +574,7 @@ try {
       if (/Uncaught|ERR_FAILED/.test(line)) errors.push(line.slice(0, 1000));
     });
     page = await app.firstWindow();
+    page.setDefaultTimeout(STEP_TIMEOUT);
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(
       () => !!(window as unknown as { __kit?: unknown }).__kit,
@@ -590,7 +603,7 @@ try {
       const disk = await host.run('cat .den-kit-electron-check', { cwd: host.home });
       return {
         document: JSON.stringify(k.doc.value),
-        requests: k.requests!.history.value.length,
+        conversation: k.conversation.value,
         ready: k.pod!.state.value === 'ready',
         persistent: disk.exitCode === 0 && disk.output.trim() === marker,
         disk: { exitCode: disk.exitCode, output: disk.output.trim(), timedOut: disk.timedOut },
@@ -610,7 +623,7 @@ try {
           workMatches:
             JSON.stringify(JSON.parse(previewAfterReopen.document)) ===
             JSON.stringify(JSON.parse(previewBeforeReopen.document)),
-          requests: previewAfterReopen.requests,
+          conversationKept: previewAfterReopen.conversation === previewBeforeReopen.conversation,
         },
       }),
     );
@@ -618,7 +631,7 @@ try {
       JSON.parse(previewAfterReopen.document),
       JSON.parse(previewBeforeReopen.document),
     );
-    assert.equal(previewAfterReopen.requests, previewBeforeReopen.requests);
+    assert.equal(previewAfterReopen.conversation, previewBeforeReopen.conversation);
     assert.equal(previewAfterReopen.ready, true);
     assert.equal(previewAfterReopen.persistent, true);
     assert.equal(previewAfterReopen.packagesReused, true);
@@ -659,9 +672,7 @@ try {
     await page.waitForSelector(`[data-element=${partId}] [data-code-state=ready]`, {
       timeout: 60000,
     });
-    const frame = page
-      .frames()
-      .find(f => f.url().includes('browserportal.io') && f.url().includes('part=wave'))!;
+    const frame = partFrame(page, 'wave')!;
     assert.ok(frame);
     const powers = await frame.evaluate(() => ({
       node: typeof (window as unknown as { require?: unknown }).require,
@@ -762,11 +773,7 @@ try {
       await page.waitForSelector(`[data-element=${made.part.id}] [data-code-state=ready]`, {
         timeout: 60000,
       });
-      const aiFrame = page
-        .frames()
-        .find(
-          f => f.url().includes('browserportal.io') && f.url().includes('part=electron-check'),
-        )!;
+      const aiFrame = partFrame(page, 'electron-check')!;
       assert.ok(aiFrame);
       await aiFrame.waitForFunction(() =>
         /AI pod.*200/.test(document.getElementById('electron-ai-button')?.textContent ?? ''),
@@ -849,6 +856,7 @@ try {
   await closed;
   app = await launch();
   const reopened = await app.firstWindow();
+  reopened.setDefaultTimeout(STEP_TIMEOUT);
   await reopened.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit);
   // The work's conversation is read from the host's storage once the work is open.
   await reopened

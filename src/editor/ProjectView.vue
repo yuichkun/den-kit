@@ -426,15 +426,15 @@ export function podCheck(): PodCheck {
   inset: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto 38%;
-  background: #1b1b1b;
-  color: #ddd;
+  background: var(--gray-3);
+  color: var(--gray-17);
 }
 .head {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--gray-6);
   font-size: 13px;
   flex-wrap: wrap;
 }
@@ -442,23 +442,23 @@ export function podCheck(): PodCheck {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #666;
+  background: var(--gray-10);
 }
 .dot.ready {
-  background: #45d16b;
+  background: var(--green);
 }
 .dot.failed {
-  background: #ff5b5b;
+  background: var(--red-soft);
 }
 .dot.unavailable,
 .dot.off {
-  background: #666;
+  background: var(--gray-10);
 }
 .dot.booting,
 .dot.syncing,
 .dot.installing,
 .dot.starting {
-  background: #ffb02e;
+  background: var(--orange-light);
   animation: blink 1s infinite;
 }
 @keyframes blink {
@@ -467,13 +467,13 @@ export function podCheck(): PodCheck {
   }
 }
 .state {
-  color: #aaa;
+  color: var(--gray-14);
 }
 .message {
-  color: #ccc;
+  color: var(--gray-16);
 }
 .fix {
-  color: #ffcf7a;
+  color: var(--sand);
 }
 .spacer {
   flex: 1;
@@ -484,7 +484,7 @@ export function podCheck(): PodCheck {
   min-height: 0;
 }
 .files {
-  border-right: 1px solid #333;
+  border-right: 1px solid var(--gray-6);
   overflow: auto;
   padding: 6px;
   display: flex;
@@ -503,15 +503,15 @@ export function podCheck(): PodCheck {
     12px ui-monospace,
     Menlo,
     monospace;
-  color: #ccc;
+  color: var(--gray-16);
   border-radius: 4px;
 }
 .file.current {
-  background: #3a2a14;
-  color: #fff;
+  background: var(--orange-dark);
+  color: var(--gray-19);
 }
 .file.made {
-  color: #8a8a8a;
+  color: var(--gray-12);
   font-style: italic;
 }
 .new {
@@ -538,21 +538,21 @@ export function podCheck(): PodCheck {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid #2c2c2c;
+  border-bottom: 1px solid var(--gray-5);
   font-size: 12.5px;
 }
 .code {
-  --code-bg: #141414;
-  --code-fg: #e6e6e6;
+  --code-bg: var(--gray-2);
+  --code-fg: var(--gray-18);
   --code-font: 12.5px/1.45 ui-monospace, Menlo, monospace;
   --code-pad: 10px 12px;
 }
 .diagnostics {
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--gray-6);
 }
 .diagnostics summary {
   padding: 7px 12px;
-  color: #aaa;
+  color: var(--gray-14);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -561,7 +561,7 @@ export function podCheck(): PodCheck {
   grid-template-columns: minmax(220px, 1fr) 2fr;
   max-height: 240px;
   overflow: auto;
-  border-top: 1px solid #2c2c2c;
+  border-top: 1px solid var(--gray-5);
 }
 .diagnostic-tools {
   padding: 8px 12px;
@@ -570,7 +570,7 @@ export function podCheck(): PodCheck {
   margin: 0 0 8px;
 }
 .check {
-  border-left: 1px solid #333;
+  border-left: 1px solid var(--gray-6);
   padding: 8px 10px;
   font-size: 12.5px;
 }
@@ -583,27 +583,27 @@ export function podCheck(): PodCheck {
   grid-template-columns: 14px 1fr auto;
   gap: 4px;
   padding: 4px 0;
-  border-bottom: 1px solid #262626;
+  border-bottom: 1px solid var(--gray-4);
 }
 .step .mark {
-  color: #888;
+  color: var(--gray-12);
 }
 .step.ok .mark {
-  color: #45d16b;
+  color: var(--green);
 }
 .step.failed .mark {
-  color: #ff5b5b;
+  color: var(--red-soft);
 }
 .step.running .mark {
-  color: #ffb02e;
+  color: var(--orange-light);
 }
 .step .ms {
-  color: #aaa;
+  color: var(--gray-14);
   font-variant-numeric: tabular-nums;
 }
 .step .detail {
   grid-column: 2 / 4;
-  color: #8f8f8f;
+  color: var(--gray-12);
   font-size: 11.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -611,9 +611,9 @@ export function podCheck(): PodCheck {
 .terminal {
   display: grid;
   grid-template-rows: 1fr auto;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--gray-6);
   min-height: 0;
-  background: #111;
+  background: var(--gray-1);
 }
 .lines {
   overflow: auto;
@@ -627,32 +627,32 @@ export function podCheck(): PodCheck {
   margin-bottom: 6px;
 }
 .cmd {
-  color: #e6e6e6;
+  color: var(--gray-18);
 }
 .who {
   display: inline-block;
   min-width: 54px;
-  color: #7aa7ff;
+  color: var(--blue-deep);
 }
 .entry.ai .who {
-  color: #ffb02e;
+  color: var(--orange-light);
 }
 .entry.you .who {
-  color: #45d16b;
+  color: var(--green);
 }
 .prompt {
-  color: #777;
+  color: var(--gray-11);
 }
 .exit {
-  color: #888;
+  color: var(--gray-12);
   margin-left: 6px;
 }
 .entry.failed .exit {
-  color: #ff7b7b;
+  color: var(--red-soft);
 }
 .out {
   margin: 2px 0 0 60px;
-  color: #bdbdbd;
+  color: var(--gray-15);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 260px;
@@ -663,7 +663,7 @@ export function podCheck(): PodCheck {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--gray-5);
   font:
     12.5px ui-monospace,
     Menlo,
@@ -672,6 +672,6 @@ export function podCheck(): PodCheck {
 .input input {
   flex: 1;
   font: inherit;
-  background: #0c0c0c;
+  background: var(--gray-1);
 }
 </style>

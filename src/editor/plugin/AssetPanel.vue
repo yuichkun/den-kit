@@ -250,7 +250,7 @@ function remove(a: AssetMeta) {
 }
 .assets.over {
   outline-color: var(--accent);
-  background: #ff9c1a10;
+  background: color-mix(in srgb, var(--orange) 6%, transparent);
 }
 .grid {
   display: grid;
@@ -263,8 +263,8 @@ function remove(a: AssetMeta) {
   overflow: hidden;
   display: grid;
   place-items: center;
-  background: #161616;
-  border: 1px solid #333;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-6);
   box-shadow: none;
 }
 .thumb img {

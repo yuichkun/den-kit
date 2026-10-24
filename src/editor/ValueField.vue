@@ -104,8 +104,8 @@ function finish() {
   text-align: right;
   padding: 2px 8px;
   border-radius: 3px;
-  background: #161616;
-  color: #ff9c1a;
+  background: var(--gray-2);
+  color: var(--orange);
   cursor: ew-resize;
   font-variant-numeric: tabular-nums;
   font-size: 12px;

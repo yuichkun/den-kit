@@ -2,7 +2,7 @@ import { defineConfig, lazyPlugins } from 'vite-plus';
 import type { Plugin } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'esbuild';
-import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,6 +64,44 @@ function typeFiles() {
   return { files, packages: { '@unworklet/core': { version: pkg.version as string } } };
 }
 
+/**
+ * The player den-kit puts in a work's playable build: its own build (vite.player.config.ts, made by vp run build),
+ * served at /player/ by the dev server too, so a playable build can be made there.
+ */
+function builtPlayer(): Plugin {
+  const folder = join(kit, 'dist/player');
+  const TYPES: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.wasm': 'application/wasm',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+  };
+  return {
+    name: 'den-kit-built-player',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/player/', (req, res, next) => {
+        const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+        const file = join(folder, path);
+        if (!file.startsWith(`${folder}/`) || !existsSync(file) || !statSync(file).isFile()) {
+          next();
+          return;
+        }
+        res.setHeader(
+          'content-type',
+          TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream',
+        );
+        res.end(readFileSync(file));
+      });
+    },
+  };
+}
+
 function kitVirtual(): Plugin {
   let serving = false;
   return {
@@ -111,6 +149,7 @@ export default defineConfig({
   root: kit,
   plugins: lazyPlugins(() => [
     kitVirtual(),
+    builtPlayer(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },

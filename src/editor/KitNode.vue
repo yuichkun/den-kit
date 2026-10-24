@@ -426,26 +426,26 @@ const voiceText = computed(() =>
 <style scoped>
 .mod {
   position: relative;
-  background: #2c2c2c;
+  background: var(--gray-5);
   border-radius: 6px;
-  color: #d6d6d6;
+  color: var(--gray-16);
   font-family: Lato, system-ui, sans-serif;
   font-size: 11px;
-  box-shadow: 0 1px 0 #ffffff08 inset;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--gray-19) 3%, transparent) inset;
 }
 .mod.selected {
-  box-shadow: 0 0 0 2px #d9d9d9;
+  box-shadow: 0 0 0 2px var(--gray-17);
 }
 .mod.error {
-  box-shadow: 0 0 0 2px #ff3a5c;
+  box-shadow: 0 0 0 2px var(--red);
 }
 .mod.warning {
-  box-shadow: 0 0 0 1px #ffd43b99;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--yellow) 60%, transparent);
 }
 .mod.selected.error {
   box-shadow:
-    0 0 0 2px #d9d9d9,
-    0 0 0 4px #ff3a5c;
+    0 0 0 2px var(--gray-17),
+    0 0 0 4px var(--red);
 }
 header {
   position: relative;
@@ -466,7 +466,7 @@ header {
   position: absolute;
   left: 8px;
   top: 8px;
-  fill: #ff8c1a;
+  fill: var(--orange);
   opacity: 0.55;
 }
 .modarrow {
@@ -512,7 +512,7 @@ header {
   justify-content: flex-end;
 }
 .plabel {
-  color: #767676;
+  color: var(--gray-11);
   font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
@@ -538,7 +538,7 @@ header {
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: #6a6a6a;
+  color: var(--gray-10);
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 3px;
@@ -548,10 +548,10 @@ header {
 }
 .seg button.on {
   color: var(--c);
-  background: #ffffff0d;
+  background: color-mix(in srgb, var(--gray-19) 5%, transparent);
 }
 .voicetext {
-  color: #ff8c1a;
+  color: var(--orange);
   font-size: 12px;
   letter-spacing: 0.04em;
 }
@@ -563,31 +563,31 @@ header {
   font-size: 10px;
 }
 .tgl {
-  background: #3a3a3a;
+  background: var(--gray-7);
   border: 0;
-  color: #9a9a9a;
+  color: var(--gray-13);
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 3px;
   cursor: pointer;
 }
 .tgl.on {
-  background: #ffd43b;
-  color: #1a1a1a;
+  background: var(--yellow);
+  color: var(--gray-3);
 }
 .more {
   margin: 2px 0 0 14px;
   align-self: flex-start;
   background: transparent;
-  border: 1px solid #444;
-  color: #999;
+  border: 1px solid var(--gray-8);
+  color: var(--gray-13);
   font-size: 10px;
   padding: 0 5px;
   border-radius: 8px;
   cursor: pointer;
 }
 .code {
-  background: #3a3a3a;
+  background: var(--gray-7);
   border: 0;
   color: var(--c);
   font:
@@ -599,45 +599,45 @@ header {
 }
 .note {
   white-space: pre-wrap;
-  color: #e8e8e8;
+  color: var(--gray-18);
   font-size: 12px;
   padding: 4px 6px;
   max-width: 220px;
 }
 .mod.comment {
-  background: #3b3a2e;
+  background: var(--olive);
 }
 /* A part: a double edge, its contents on the face. Its inputs and outputs inside: a dashed edge. */
 .mod.part {
-  background: #262a30;
+  background: var(--slate-1);
   box-shadow:
-    0 0 0 1px #5ec4ff55,
-    0 0 0 4px #262a30,
-    0 0 0 5px #5ec4ff33;
+    0 0 0 1px color-mix(in srgb, var(--blue) 33%, transparent),
+    0 0 0 4px var(--slate-1),
+    0 0 0 5px color-mix(in srgb, var(--blue) 20%, transparent);
 }
 .mod.part.selected {
   box-shadow:
-    0 0 0 2px #d9d9d9,
-    0 0 0 4px #262a30,
-    0 0 0 5px #5ec4ff66;
+    0 0 0 2px var(--gray-17),
+    0 0 0 4px var(--slate-1),
+    0 0 0 5px color-mix(in srgb, var(--blue) 40%, transparent);
 }
 .mod.port {
-  background: #232323;
-  outline: 1px dashed #5ec4ff66;
+  background: var(--gray-4);
+  outline: 1px dashed color-mix(in srgb, var(--blue) 40%, transparent);
   outline-offset: -1px;
 }
 .partmark {
   position: absolute;
   left: 8px;
   top: 5px;
-  color: #5ec4ff;
+  color: var(--blue);
   font-size: 12px;
 }
 .mod.voice .partmark {
   left: 24px;
 }
 .contents {
-  color: #cfe9ff;
+  color: var(--blue-light);
   font-size: 11.5px;
   text-align: center;
   max-width: 100%;
@@ -647,19 +647,19 @@ header {
   padding: 0 4px;
 }
 .partinfo {
-  color: #777;
+  color: var(--gray-11);
   font-size: 10px;
 }
 .alone {
-  color: #ffd43b;
+  color: var(--yellow);
 }
 :deep(.param) {
-  outline: 1px solid #5ec4ff88;
+  outline: 1px solid color-mix(in srgb, var(--blue) 53%, transparent);
   border-radius: 50%;
 }
 .missing {
   padding: 8px;
-  color: #ff3a5c;
+  color: var(--red);
   text-align: center;
 }
 /* ×N: copies stacked behind the box, the count in the corner, the load under it. */
@@ -669,8 +669,8 @@ header {
   position: absolute;
   inset: 0;
   border-radius: 6px;
-  background: #262626;
-  border: 1px solid #4a4a4a;
+  background: var(--gray-4);
+  border: 1px solid var(--gray-8);
   z-index: -1;
   pointer-events: none;
 }
@@ -688,7 +688,7 @@ header {
   position: absolute;
   right: 6px;
   top: 5px;
-  color: #5ec4ff;
+  color: var(--blue);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -697,7 +697,7 @@ header {
   position: absolute;
   right: 6px;
   bottom: 2px;
-  color: #8a8a8a;
+  color: var(--gray-12);
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -709,16 +709,16 @@ header {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #ff3a5c;
-  color: #fff;
+  background: var(--red);
+  color: var(--gray-19);
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 11px;
 }
 .warning .badge {
-  background: #ffd43b;
-  color: #111;
+  background: var(--yellow);
+  color: var(--gray-1);
 }
 /* Ports: rings for inputs, filled dots for outputs, coloured by signal type. */
 .port :deep(.vue-flow__handle) {
@@ -728,7 +728,7 @@ header {
   min-height: 0;
   border-radius: 50%;
   border: 2px solid var(--pc);
-  background: #2c2c2c;
+  background: var(--gray-5);
   top: 50%;
 }
 .port.in :deep(.vue-flow__handle) {
@@ -745,7 +745,7 @@ header {
   background: var(--pc);
 }
 .port :deep(.vue-flow__handle:hover) {
-  box-shadow: 0 0 0 3px #ffffff30;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gray-19) 19%, transparent);
 }
 .mod.touched {
   box-shadow:
@@ -760,7 +760,7 @@ header {
   padding: 0 6px;
   border-radius: 4px 4px 0 0;
   background: var(--touch);
-  color: #000;
+  color: var(--gray-0);
   font:
     600 11px/16px Lato,
     system-ui,

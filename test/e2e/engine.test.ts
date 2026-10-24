@@ -334,14 +334,23 @@ describe('audio engine', () => {
   it('F1/F7 autosave restores after reload; a corrupted autosave falls back with a warning', async () => {
     const { page } = await openKit(h);
     await waitCompiled(page);
-    const record = await kit(page, k => {
+    await kit(page, k => {
       k.commit([
         { op: 'setName', name: 'Persist me' },
         { op: 'setValue', node: 'filter1', port: 'resonance', value: 2.5 },
       ]);
       k.saveNow();
-      return localStorage.getItem('den-kit:autosave');
     });
+    // The host keeps the record (here: the page's own storage), written through after each change.
+    const kept = await page.waitForFunction(
+      () => {
+        const r = localStorage.getItem('den-kit:editor:work');
+        return r && r.includes('Persist me') ? r : null;
+      },
+      null,
+      { timeout: 10000 },
+    );
+    const written = (await kept.jsonValue()) as string;
     await page.evaluate(() => sessionStorage.setItem('kit-e2e-keep', '1'));
     await reloadKit(page);
     await page.waitForFunction(
@@ -354,13 +363,13 @@ describe('audio engine', () => {
     // A torn write: the checksum no longer matches. Inject it before the app starts.
     const context = await h.browser.newContext();
     const broken = JSON.stringify({
-      ...JSON.parse(record as string),
-      text: (JSON.parse(record as string).text as string).replace('Persist', 'Broken'),
+      ...JSON.parse(written),
+      text: (JSON.parse(written).text as string).replace('Persist', 'Broken'),
     });
     await context.addInitScript(value => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
-        localStorage.setItem('den-kit:autosave', value);
+        localStorage.setItem('den-kit:editor:work', value);
       }
     }, broken);
     const second = await context.newPage();
@@ -376,10 +385,11 @@ describe('audio engine', () => {
       ),
     );
     assert.equal(await kit(second, k => k.doc.value.name), 'Bass');
-    assert.ok(
-      await second.evaluate(() =>
-        Object.keys(localStorage).some(key => key.startsWith('den-kit:autosave:broken')),
-      ),
+    // The broken record is kept next to the record, written through to the host.
+    await second.waitForFunction(
+      () => Object.keys(localStorage).some(key => key.startsWith('den-kit:editor:work:broken:')),
+      null,
+      { timeout: 10000 },
     );
     await context.close();
   });

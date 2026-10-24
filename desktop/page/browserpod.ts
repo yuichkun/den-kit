@@ -494,6 +494,11 @@ function claimPod(work: string): Promise<boolean> {
 export class BrowserPodHost implements PodHost {
   readonly kind = 'browserpod' as const;
   home = '/home/user';
+  /**
+   * BrowserPod keeps its disk in IndexedDB a moment after a write and has no call to
+   * wait for that: a write made just before quitting was lost, one 0.5 s before kept.
+   */
+  readonly settleMs = 1000;
   /** The pod's own environment (PATH, HOME…), read once without passing any (see init). */
   private base: Record<string, string> = {};
   private readonly portals = new Map<number, string>();

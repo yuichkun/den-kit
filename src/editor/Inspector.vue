@@ -615,10 +615,10 @@ function updateMine() {
 }
 .mname {
   font-size: 15px;
-  color: #eee;
+  color: var(--gray-18);
 }
 .msub {
-  color: #8a8a8a;
+  color: var(--gray-12);
   font-size: 12px;
   margin: 2px 0 4px;
 }
@@ -626,7 +626,7 @@ function updateMine() {
   font-family: ui-monospace, monospace;
 }
 .summary {
-  color: #a9a9a9;
+  color: var(--gray-14);
   font-style: italic;
   font-size: 12.5px;
 }
@@ -662,8 +662,8 @@ function updateMine() {
   margin-top: 4px;
 }
 .buttons button.on {
-  background: #ffd43b;
-  color: #111;
+  background: var(--yellow);
+  color: var(--gray-1);
 }
 .plist {
   margin-top: 8px;
@@ -695,10 +695,10 @@ function updateMine() {
   font-size: 11px;
 }
 .ptoggle {
-  color: #5ec4ff;
+  color: var(--blue);
 }
 .ptoggle.on {
-  background: #5ec4ff33;
+  background: color-mix(in srgb, var(--blue) 20%, transparent);
 }
 .face {
   margin-top: 8px;
@@ -711,8 +711,8 @@ function updateMine() {
   gap: 4px;
 }
 .newer {
-  background: #ffd27a14;
-  border: 1px solid #ffd27a55;
+  background: color-mix(in srgb, var(--sand) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sand) 33%, transparent);
   border-radius: 4px;
   padding: 6px 8px;
   font-size: 12px;

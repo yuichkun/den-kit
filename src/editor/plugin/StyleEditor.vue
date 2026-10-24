@@ -239,7 +239,7 @@ const addShadow = (glow: boolean) =>
   gap: 4px;
 }
 .shadow {
-  border-left: 2px solid #333;
+  border-left: 2px solid var(--gray-6);
   padding-left: 6px;
   margin: 4px 0;
 }

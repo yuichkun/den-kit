@@ -191,7 +191,10 @@ export class PodSession {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        host.run('sync', { cwd: host.home, timeoutMs: 2500 }),
+        host.run('sync', { cwd: host.home, timeoutMs: 2500 }).then(async r => {
+          if (host.settleMs) await new Promise(settled => setTimeout(settled, host.settleMs));
+          return r;
+        }),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
             () => reject(new Error('Project storage synchronization failed.')),
@@ -540,6 +543,39 @@ export class PodSession {
     this.end(entry, result);
     return result;
   }
+  /**
+   * The code parts built for a playable build (npm run build in the project): the built files by path, or null
+   * when there is no pod or the build fails (the log shows why).
+   */
+  async buildParts(): Promise<Record<string, Uint8Array> | null> {
+    try {
+      await this.ensure();
+    } catch {
+      return null;
+    }
+    const host = this.host!;
+    // Relative addresses: the built pages work from any folder they are served from.
+    const build = 'npm run build -- --base ./';
+    if ((await this.system(build, `${build} (for the playable build)`)).exitCode !== 0) return null;
+    // The pod reads files back as text: each built file goes as base64, one per line,
+    // in den-kit's own folder of the pod's home (outside the project).
+    const listing = `${host.home}/.den-kit/built-parts.txt`;
+    const dump = await host.run(
+      `mkdir -p "${host.home}/.den-kit" && cd dist && find . -type f | sort | while IFS= read -r f; do printf '%s\\t' "\${f#./}"; base64 < "$f" | tr -d '\\n'; printf '\\n'; done > "${listing}"`,
+      { cwd: this.projectDir, timeoutMs: 120_000 },
+    );
+    const text = dump.exitCode === 0 ? await host.readFile(listing) : null;
+    if (text === null) return null;
+    const files: Record<string, Uint8Array> = {};
+    for (const line of text.split('\n')) {
+      const tab = line.indexOf('\t');
+      if (tab <= 0) continue;
+      const bytes = atob(line.slice(tab + 1));
+      files[line.slice(0, tab)] = Uint8Array.from(bytes, c => c.charCodeAt(0));
+    }
+    return files;
+  }
+
   /** A line in the log from den-kit itself (no command). */
   note(text: string) {
     const entry = this.begin('den-kit', text);

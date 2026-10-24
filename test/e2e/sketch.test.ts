@@ -281,7 +281,9 @@ describe('sketching for the AI', () => {
       });
       await pen('[data-testid=plugin-view] [data-testid=panel]', 80, 20);
       assert.equal(await marks(page, 'plugin').count(), 2);
-      assert.equal(await page.evaluate(() => localStorage.getItem('den-kit:stylus-draws')), 'off');
+      await page.waitForFunction(
+        () => localStorage.getItem('den-kit:editor:stylus-draws') === 'off',
+      );
       assert.deepEqual(errors, []);
       await page.close();
     },

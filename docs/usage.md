@@ -74,12 +74,27 @@ naming each file by its path written out, such as `audio('assets/kick.wav')`.
 
 Works and assets autosave locally. Use the **Patch** menu to export a work file
 (`.denkit`) or import one. A work file carries the work and the contents of its
-files, so it opens on another computer; use it for backups. A file may hold at
-most 100 MB and a work's files 500 MB together.
+files, so it opens on another computer; use it for backups. It also carries the
+work's playable build when den-kit can make one. A file may hold at most 100 MB
+and a work's files 500 MB together.
 
 The macOS app stores its data in
 `~/Library/Application Support/den-kit/`. Its local server uses port `5247`;
 if another process occupies that port, close it before opening den-kit.
+
+## Playing a work outside den-kit
+
+A work file is a ZIP archive. Its `build/` folder is the playable build: a web page that
+plays the work without den-kit, with its plugin screen, sound and assets. Put the folder on
+a static web server and open its `index.html`. Click the page to start the sound, then play
+with the computer keys, a MIDI controller or the controls. Moving a control changes only
+that page, never the work.
+
+Code parts run from another origin than the page, so that a part cannot reach the page.
+Serve `build/parts/` from a second origin, such as another host name or port, and add its
+address to the page's address: `index.html?parts=https://parts.example.com/`. den-kit builds
+the code parts when it exports the work; when the project tools cannot run, the work file
+has no code parts and den-kit says so.
 
 ## Custom code parts
 
@@ -92,7 +107,9 @@ you allow it: a work lists the addresses its code parts need, each with a reason
 AI can add to the list), and **Network and devices for code parts** in the Project tab
 allows them, and the microphone, camera and MIDI, for that work on this computer. What
 you allow is not saved in the work, so a work you receive asks again. A code part makes
-no sound until you click it.
+no sound until you click it. While the project tools are not running, the macOS app shows
+code parts as den-kit last built them, when the work was exported or imported, if their
+files have not changed since.
 
 ## Known limitations
 
@@ -107,6 +124,4 @@ no sound until you click it.
   works and AI-generated Canvas code can therefore make network requests.
 - The Sampler and a codebox's `audio()` use the first 65,536 samples of a file (about
   1.4 seconds), and the Sampler plays them in mono. `bytes()` reads the first 64 KB.
-- Works export as work files, but not as standalone DAW plugins or
-  self-contained web instruments. `vp run build` builds the den-kit renderer,
-  not a distributable instrument.
+- Works do not export as DAW plugins.

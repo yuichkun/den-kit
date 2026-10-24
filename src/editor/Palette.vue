@@ -134,7 +134,7 @@ function key(e: KeyboardEvent) {
   background: var(--panel);
   border: 1px solid var(--accent);
   border-radius: 8px;
-  box-shadow: 0 8px 30px #000a;
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--gray-0) 67%, transparent);
 }
 input {
   margin: 8px;
@@ -151,7 +151,7 @@ li {
   font-size: 12px;
 }
 li.active {
-  background: #5ec4ff22;
+  background: color-mix(in srgb, var(--blue) 13%, transparent);
 }
 .cat {
   font-size: 10px;

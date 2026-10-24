@@ -172,3 +172,20 @@ describe('project disk synchronization at shutdown', () => {
     expect(snapshot(h)).toBe(before);
   });
 });
+
+describe('a disk that keeps writes a moment after sync', () => {
+  it('waits that long before saying the disk was synchronized', async () => {
+    const h = harness();
+    Object.assign(h.host, { settleMs: 1000 });
+    await boot(h);
+    let settled = false;
+    const done = h.pod.flush().then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(settled).toBe(true);
+  });
+});

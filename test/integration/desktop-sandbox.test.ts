@@ -1,8 +1,9 @@
 // The desktop sandbox's server (desktop/sandbox.ts) on a real socket: each open
 // work answers under its own host name, only with the launch's secret; it passes
 // requests and WebSockets through to the workspace's dev server and puts its own
-// rules in every response, whatever the dev server sends; it serves the work's
-// files by path and hears what the browser refused. What the window adds (the
+// rules in every response, whatever the dev server sends; without one, it serves
+// the code parts as last built; it serves the work's files by path and hears what
+// the browser refused. What the window adds (the
 // proxy, WebRTC, DNS prefetching, frames, devices) is checked in Electron by
 // test/desktop.
 import { createHash } from 'node:crypto';
@@ -30,18 +31,25 @@ async function listen(server: Server): Promise<number> {
   return (server.address() as { port: number }).port;
 }
 
-/** A dev server that sends headers of its own (which the sandbox must drop) and echoes WebSockets. */
+/** The analytics script BrowserPod's portal adds to its pages. */
+const BEACON = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78" data-cf-beacon='{"token":"t"}' crossorigin="anonymous"></script>`;
+
+/**
+ * A dev server behind a portal: it sends headers of its own (which the sandbox must drop), its pages
+ * carry the portal's analytics script, and it echoes WebSockets.
+ */
 async function devServer() {
   const seen: Array<{ url?: string; headers: Record<string, unknown> }> = [];
   const server = createServer((req, res) => {
     seen.push({ url: req.url, headers: req.headers });
+    const script = req.url?.endsWith('.js');
     res.writeHead(200, {
-      'content-type': 'text/html',
+      'content-type': script ? 'text/javascript' : 'text/html',
       'content-security-policy': "default-src *; script-src * 'unsafe-eval'",
       'set-cookie': 'portal=1',
       'access-control-allow-origin': '*',
     });
-    res.end(`<p>part ${req.url}</p>`);
+    res.end(script ? `// ${BEACON}` : `<p>part ${req.url}</p>${BEACON}`);
   });
   const wss = new WebSocketServer({ server, handleProtocols: p => [...p][0] ?? false });
   wss.on('connection', (ws, req) => {
@@ -55,6 +63,14 @@ async function devServer() {
 async function sandboxServer() {
   const kick = new TextEncoder().encode('RIFF....WAVE');
   const hash = `sha256-${createHash('sha256').update(kick).digest('hex')}`;
+  const contents = new Map([[hash, kick]]);
+  /** Keeps a content in the host's storage; its hash. */
+  const add = (text: string) => {
+    const data = new TextEncoder().encode(text);
+    const h = `sha256-${createHash('sha256').update(data).digest('hex')}`;
+    contents.set(h, data);
+    return h;
+  };
   const refused: Array<{ work: string; blocked: string; directive: string }> = [];
   let port = 0;
   const server = createServer((req, res) => {
@@ -66,10 +82,10 @@ async function sandboxServer() {
   port = await listen(server);
   const sandbox: SandboxServer = new SandboxServer({
     port,
-    content: h => (h === hash ? kick : null),
+    content: h => contents.get(h) ?? null,
     refused: (work, r) => refused.push({ work, ...r }),
   });
-  return { sandbox, port, refused, hash, kick };
+  return { sandbox, port, server, refused, hash, kick, add };
 }
 
 /** A request with its own Host header (fetch cannot set one): the status, headers and body. */
@@ -135,7 +151,12 @@ describe('the sandbox server', () => {
       headers: { cookie: 'den-kit=1', origin: 'http://127.0.0.1:5247' },
     });
     expect(r.status).toBe(200);
+    // The portal's analytics script is taken out of its pages; other files pass as they are.
     expect(r.body.toString()).toBe('<p>part /?part=reels&el=c1</p>');
+    expect(r.headers.get('content-length')).toBe(String(r.body.length));
+    expect(
+      (await get(port, `work-a.localhost:${port}`, '/src/main.js', sandbox.secret)).body.toString(),
+    ).toBe(`// ${BEACON}`);
     const csp = r.headers.get('content-security-policy')!;
     expect(csp).toContain("connect-src 'self' https://api.example.com wss://api.example.com;");
     expect(csp).toContain("frame-src 'none'");
@@ -191,6 +212,61 @@ describe('the sandbox server', () => {
         refused.on('error', reject);
       }),
     ).rejects.toThrow(/403/);
+  });
+
+  it('ends the WebSockets it passes through, so the server it runs on can close', async () => {
+    const { sandbox, port, server } = await sandboxServer();
+    const dev = await devServer();
+    sandbox.open('work-a', {
+      portal: `http://127.0.0.1:${dev.port}`,
+      origins: [],
+      devices: [],
+      files: {},
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/`, 'vite-hmr', {
+      headers: { host: `work-a.localhost:${port}`, [SECRET_HEADER]: sandbox.secret },
+    });
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+    const ended = new Promise(resolve => ws.once('close', resolve));
+    sandbox.closeConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await ended;
+  });
+
+  it('serves the code parts as last built while there is no dev server, and the dev server while there is', async () => {
+    const { sandbox, port, add } = await sandboxServer();
+    const build = {
+      'index.html': { hash: add('<p>built</p>'), type: 'text/html' },
+      'assets/index-1.js': { hash: add('console.log(1)'), type: 'text/javascript' },
+    };
+    sandbox.open('work-a', { portal: null, origins: [], devices: [], files: {}, build });
+    const host = `work-a.localhost:${port}`;
+    const page = await get(port, host, '/?part=meter&el=m1', sandbox.secret);
+    expect(page.status).toBe(200);
+    expect(page.body.toString()).toBe('<p>built</p>');
+    expect(page.headers.get('content-type')).toBe('text/html');
+    expect(page.headers.get('content-security-policy')).toContain("frame-src 'none'");
+    const script = await get(port, host, '/assets/index-1.js', sandbox.secret);
+    expect(script.body.toString()).toBe('console.log(1)');
+    expect(script.headers.get('content-type')).toBe('text/javascript');
+    expect((await get(port, host, '/assets/none.js', sandbox.secret)).status).toBe(404);
+    expect((await get(port, host, '/constructor', sandbox.secret)).status).toBe(404);
+    expect((await get(port, host, '/', sandbox.secret, { method: 'POST' })).status).toBe(404);
+    // While the person edits: the dev server.
+    const dev = await devServer();
+    sandbox.open('work-a', {
+      portal: `http://127.0.0.1:${dev.port}`,
+      origins: [],
+      devices: [],
+      files: {},
+      build,
+    });
+    expect((await get(port, host, '/?part=meter', sandbox.secret)).body.toString()).toBe(
+      '<p>part /?part=meter</p>',
+    );
   });
 
   it("serves the work's files by path, and hears what the browser refused", async () => {

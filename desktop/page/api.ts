@@ -61,6 +61,7 @@ export type SandboxRequest =
         origins: string[];
         devices: string[];
         files: Record<string, { hash: string; type: string }>;
+        build: Record<string, { hash: string; type: string }>;
       };
     }
   | { op: 'close'; work: string };

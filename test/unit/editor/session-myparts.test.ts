@@ -80,7 +80,7 @@ describe('My parts in the session', () => {
     other.undo();
     expect(Object.keys(other.doc.value.parts)).toEqual([]);
   });
-  it('a newer version is offered (with what changes and whether it was changed here); updating is one undo step', () => {
+  it('a newer version is offered (with what changes and whether it was changed here); updating is one undo step', async () => {
     const { session, storage } = withTone();
     session.saveToMyParts('tone');
     const other = makeSession(storage);
@@ -97,7 +97,7 @@ describe('My parts in the session', () => {
       { op: 'addParam', part: 'tone', node: 'lfo9', port: 'rate', label: 'Rate' },
     ]);
     expect(session.saveToMyParts('tone').message).toMatch(/as v2/);
-    other.reloadMyParts();
+    await other.reloadMyParts();
     const status = other.myPartStatus(def.id);
     expect(status.newer?.version).toBe(2);
     expect(status.diff?.params.added).toEqual(['Rate']);

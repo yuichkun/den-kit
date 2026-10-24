@@ -96,7 +96,7 @@ const host: Host = {
   lifecycle,
 };
 // Checks open the page with ?noStart to begin on the starter instead of the start screen.
-const session = startEditor(host, {
+const session = await startEditor(host, {
   mount: '#app',
   noStart: new URLSearchParams(location.search).has('noStart'),
 });

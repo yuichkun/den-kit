@@ -56,7 +56,7 @@ const host: Host = {
   consent: null,
   lifecycle: null,
 };
-const session = startEditor(host, {
+const session = await startEditor(host, {
   mount: '#app',
   compileTimeoutMs: number('compileTimeout'),
   rotateAfter: number('rotateAfter'),

@@ -645,19 +645,19 @@ defineExpose({ focus });
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  background: #1b1b1b;
-  border-left: 1px solid #000;
+  background: var(--gray-3);
+  border-left: 1px solid var(--gray-0);
   font-size: 15px;
   line-height: 1.45;
-  color: #e2e2e2;
+  color: var(--gray-17);
 }
 header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px 8px 14px;
-  border-bottom: 1px solid #000;
-  background: #232323;
+  border-bottom: 1px solid var(--gray-0);
+  background: var(--gray-4);
 }
 .grow {
   flex: 1;
@@ -665,7 +665,7 @@ header {
 .icon {
   background: transparent;
   border: 0;
-  color: #8a8a8a;
+  color: var(--gray-12);
   padding: 4px 6px;
   display: inline-flex;
   align-items: center;
@@ -689,14 +689,14 @@ header {
   min-height: 0;
 }
 .empty {
-  color: #b8b8b8;
+  color: var(--gray-15);
   font-size: 15px;
 }
 .empty p {
   margin: 0 0 8px;
 }
 .empty .examples {
-  color: #8e8e8e;
+  color: var(--gray-12);
   font-size: 14px;
 }
 .keys {
@@ -705,7 +705,7 @@ header {
   gap: 6px 12px;
   margin: 18px 0 0;
   font-size: 14px;
-  color: #a0a0a0;
+  color: var(--gray-13);
 }
 .keys dt {
   text-align: right;
@@ -717,11 +717,11 @@ kbd {
   display: inline-block;
   min-width: 18px;
   padding: 0 6px;
-  border: 1px solid #555;
+  border: 1px solid var(--gray-9);
   border-bottom-width: 2px;
   border-radius: 4px;
-  background: #262626;
-  color: #eee;
+  background: var(--gray-4);
+  color: var(--gray-18);
   font:
     12px/1.6 Lato,
     system-ui,
@@ -733,14 +733,14 @@ kbd {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #222;
-  border-left: 3px solid #4a4a4a;
+  background: var(--gray-4);
+  border-left: 3px solid var(--gray-8);
   opacity: 0.8;
 }
 .turn.latest,
 .turn.live {
   opacity: 1;
-  background: #262626;
+  background: var(--gray-4);
 }
 .turn.s-applied {
   border-left-color: var(--ok);
@@ -756,10 +756,10 @@ kbd {
 .turn.s-merged,
 .turn.s-reply,
 .turn.s-nothing {
-  border-left-color: #6a6a6a;
+  border-left-color: var(--gray-10);
 }
 .ask {
-  color: #f4f4f4;
+  color: var(--gray-18);
   font-size: 16px;
   overflow-wrap: anywhere;
 }
@@ -776,7 +776,7 @@ kbd {
   align-items: center;
 }
 .label {
-  color: #9ee6cf;
+  color: var(--teal-light);
   overflow-wrap: anywhere;
 }
 .turn.undone .label {
@@ -786,24 +786,24 @@ kbd {
   color: var(--muted);
 }
 .message {
-  color: #ffd98a;
+  color: var(--sand);
   overflow-wrap: anywhere;
 }
 .turn.s-failed .message {
-  color: #ff8da0;
+  color: var(--red-light);
 }
 .turn.s-merged .message,
 .turn.s-reply .message {
-  color: #b8b8b8;
+  color: var(--gray-15);
 }
 .fix {
-  color: #e0e0e0;
+  color: var(--gray-17);
   font-family: ui-monospace, Menlo, monospace;
   font-size: 13.5px;
   overflow-wrap: anywhere;
 }
 .note {
-  color: #a8a8a8;
+  color: var(--gray-14);
   font-size: 14px;
 }
 .show {
@@ -815,8 +815,8 @@ kbd {
   list-style: none;
   margin: 2px 0 0;
   padding: 0 0 0 10px;
-  border-left: 1px solid #3a3a3a;
-  color: #a5a5a5;
+  border-left: 1px solid var(--gray-7);
+  color: var(--gray-14);
   font-size: 13.5px;
   display: flex;
   flex-direction: column;
@@ -826,7 +826,7 @@ kbd {
   overflow-wrap: anywhere;
 }
 .reply {
-  color: #dcdcdc;
+  color: var(--gray-17);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -840,7 +840,7 @@ kbd {
   gap: 10px;
 }
 .time {
-  color: #8c8c8c;
+  color: var(--gray-12);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
@@ -848,7 +848,7 @@ kbd {
   margin-left: auto;
   font-size: 13px;
   padding: 2px 8px;
-  background: #333;
+  background: var(--gray-6);
 }
 .stop kbd {
   font-size: 11px;
@@ -859,21 +859,21 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: #121212;
-  border: 1px solid #444;
+  background: var(--gray-1);
+  border: 1px solid var(--gray-8);
   border-radius: 10px;
   padding: 10px 12px 6px;
 }
 .prompt:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #ff9c1a26;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--orange) 15%, transparent);
 }
 .prompt textarea {
   resize: none;
   background: transparent;
   border: 0;
   outline: none;
-  color: #f4f4f4;
+  color: var(--gray-18);
   font: inherit;
   font-size: 17px;
   line-height: 26px;
@@ -882,7 +882,7 @@ kbd {
   overflow-y: auto;
 }
 .prompt textarea::placeholder {
-  color: #7a7a7a;
+  color: var(--gray-11);
 }
 .prompt-foot {
   display: flex;
@@ -890,7 +890,7 @@ kbd {
   gap: 8px;
 }
 .hint {
-  color: #7c7c7c;
+  color: var(--gray-11);
   font-size: 12.5px;
 }
 .chips {
@@ -906,8 +906,8 @@ kbd {
   max-width: 100%;
   padding: 1px 4px 1px 8px;
   border-radius: 10px;
-  background: #2b3b45;
-  color: #cde8f6;
+  background: var(--slate-2);
+  color: var(--blue-light);
   font-size: 12.5px;
   line-height: 20px;
   overflow: hidden;
@@ -916,8 +916,8 @@ kbd {
 }
 .chip.small {
   padding: 0 8px;
-  background: #263038;
-  color: #a9c6d6;
+  background: var(--slate-2);
+  color: var(--slate-4);
   font-size: 12px;
 }
 .chip.more {
@@ -929,14 +929,14 @@ kbd {
 .chip .x {
   border: 0;
   background: transparent;
-  color: #9db7c4;
+  color: var(--slate-4);
   padding: 0 4px;
   font-size: 14px;
   line-height: 1;
   box-shadow: none;
 }
 .chip .x:hover {
-  color: #fff;
+  color: var(--gray-19);
   background: transparent !important;
 }
 .attached {
@@ -945,37 +945,37 @@ kbd {
   gap: 4px;
 }
 .again {
-  color: #9a9a9a;
+  color: var(--gray-13);
   font-size: 13px;
 }
 .earlier {
-  color: #8a8a8a;
+  color: var(--gray-12);
   font-size: 13px;
 }
 .earlier .link {
   border: 0;
   background: transparent;
-  color: #8a8a8a;
+  color: var(--gray-12);
   padding: 0;
   box-shadow: none;
   text-align: left;
   font-size: 13px;
 }
 .earlier .link:hover {
-  color: #cfcfcf;
+  color: var(--gray-16);
   background: transparent !important;
 }
 .earlier-lines {
   list-style: none;
   margin: 6px 0 0;
   padding: 0 0 0 12px;
-  border-left: 1px solid #333;
+  border-left: 1px solid var(--gray-6);
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 .ask-old {
-  color: #b0b0b0;
+  color: var(--gray-14);
 }
 @keyframes pulse {
   50% {
@@ -998,8 +998,8 @@ kbd {
   }
 }
 .drawer {
-  border-bottom: 1px solid #000;
-  background: #202020;
+  border-bottom: 1px solid var(--gray-0);
+  background: var(--gray-3);
   padding: 10px 14px;
   font-size: 12px;
   max-height: 40%;
@@ -1041,12 +1041,12 @@ kbd {
   text-align: left;
   color: var(--muted);
   font-weight: 400;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--gray-6);
   padding: 2px 6px;
 }
 .traces td {
   padding: 2px 6px;
-  border-bottom: 1px solid #262626;
+  border-bottom: 1px solid var(--gray-4);
   vertical-align: top;
   font-variant-numeric: tabular-nums;
 }
@@ -1066,7 +1066,7 @@ kbd {
 }
 .lane {
   border-left: 3px solid var(--lane);
-  background: #1f1f1f;
+  background: var(--gray-3);
   border-radius: 0 6px 6px 0;
   padding: 4px 8px;
   font-size: 13.5px;
@@ -1088,19 +1088,19 @@ kbd {
   animation: pulse 1s ease-in-out infinite;
 }
 .lane-name {
-  color: #f0f0f0;
+  color: var(--gray-18);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .lane-scope {
-  color: #8fa3ad;
+  color: var(--slate-4);
   font-size: 12px;
   white-space: nowrap;
 }
 .lane-meta {
-  color: #8c8c8c;
+  color: var(--gray-12);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1108,29 +1108,29 @@ kbd {
 .lane-stop {
   border: 0;
   background: transparent;
-  color: #9a9a9a;
+  color: var(--gray-13);
   padding: 0 4px;
   font-size: 15px;
   line-height: 1;
   box-shadow: none;
 }
 .lane-stop:hover {
-  color: #fff;
+  color: var(--gray-19);
   background: transparent !important;
 }
 .lane-what {
-  color: #c9c9c9;
+  color: var(--gray-16);
   overflow-wrap: anywhere;
 }
 .lane.l-failed .lane-what {
-  color: #ff8da0;
+  color: var(--red-light);
 }
 .lane.l-stopped .lane-what,
 .lane.l-done .lane-what {
-  color: #a8a8a8;
+  color: var(--gray-14);
 }
 .lane-step {
-  color: #8f8f8f;
+  color: var(--gray-12);
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1162,18 +1162,18 @@ kbd {
   opacity: 0.35;
 }
 .chip.sketch {
-  background: #45352b;
-  color: #f6dccd;
+  background: var(--brown);
+  color: var(--peach);
 }
 .chip.small.sketch {
-  background: #382d26;
-  color: #d6bfb0;
+  background: var(--brown);
+  color: var(--peach);
 }
 .screen-note {
   padding: 6px 14px;
   font-size: 13px;
-  color: #d6d6d6;
-  background: #262626;
-  border-bottom: 1px solid #000;
+  color: var(--gray-16);
+  background: var(--gray-4);
+  border-bottom: 1px solid var(--gray-0);
 }
 </style>

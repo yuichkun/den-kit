@@ -983,7 +983,7 @@ input[type='range'] {
   min-width: 0;
 }
 .code-error {
-  color: #ffb3b3;
+  color: var(--red-light);
   white-space: pre-wrap;
   font-family: ui-monospace, Menlo, monospace;
 }

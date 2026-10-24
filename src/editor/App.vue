@@ -255,9 +255,12 @@ function keys(e: KeyboardEvent) {
 function closeMenu(e: PointerEvent) {
   if (!(e.target as HTMLElement).closest('.patch-menu')) menu.value = false;
 }
-/** My parts saved in another tab show up here too. */
+/** My parts saved in another window show up here too: a browser says when; the app's windows look again on focus. */
 function storageChanged(e: StorageEvent) {
-  if (e.key === MY_PARTS_KEY) session.reloadMyParts();
+  if (e.key === MY_PARTS_KEY) void session.reloadMyParts();
+}
+function focused() {
+  void session.reloadMyParts();
 }
 /**
  * With a BrowserPod key, the pod starts by itself the first time in this browser (after the start overlay):
@@ -291,6 +294,7 @@ onMounted(() => {
     void refreshUpdate();
   }
   window.addEventListener('storage', storageChanged);
+  window.addEventListener('focus', focused);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
   // The audio closes before the page goes away (unless it waits in the back/forward cache). Chrome can deadlock tearing
@@ -307,6 +311,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('den-kit:open-settings', openSettings);
   for (const stop of stopHost.splice(0)) stop();
   window.removeEventListener('storage', storageChanged);
+  window.removeEventListener('focus', focused);
   window.removeEventListener('keydown', keys);
   window.removeEventListener('pointerdown', closeMenu, true);
   document.removeEventListener('fullscreenchange', fullscreenChange);

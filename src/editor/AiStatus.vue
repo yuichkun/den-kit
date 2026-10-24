@@ -97,7 +97,7 @@ function retryCodex() {
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 4px;
-  background: #161616;
+  background: var(--gray-2);
   white-space: nowrap;
   cursor: default;
   font-variant-numeric: tabular-nums;

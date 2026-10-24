@@ -20,6 +20,7 @@ export function desktopSandbox(shell: Pick<DesktopAPI, 'sandbox' | 'onSandboxRef
             origins: settings.origins,
             devices: settings.devices,
             files: settings.files,
+            build: settings.build,
           },
         })
         .catch(() => undefined);
@@ -28,6 +29,7 @@ export function desktopSandbox(shell: Pick<DesktopAPI, 'sandbox' | 'onSandboxRef
       void shell.sandbox({ op: 'close', work }).catch(() => undefined);
     },
     origin,
+    servesContents: true,
     fileUrl: (work, path) =>
       `${origin(work)}${FILES_PATH}${path.split('/').map(encodeURIComponent).join('/')}`,
     onRefused: listener => shell.onSandboxRefused(listener),

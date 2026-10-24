@@ -241,24 +241,24 @@ function removeMine(id: string) {
 .grid-palette {
   display: flex;
   height: 112px;
-  border-bottom: 1px solid #000;
-  background: #1d1d1d;
+  border-bottom: 1px solid var(--gray-0);
+  background: var(--gray-3);
   font-family: Lato, system-ui, sans-serif;
 }
 .cats {
   width: 330px;
   flex: none;
   padding: 6px 8px;
-  border-right: 1px solid #111;
+  border-right: 1px solid var(--gray-1);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .search {
-  background: #121212;
-  border: 1px solid #333;
+  background: var(--gray-1);
+  border: 1px solid var(--gray-6);
   border-radius: 4px;
-  color: #ddd;
+  color: var(--gray-17);
   padding: 2px 8px;
   font-size: 12px;
 }
@@ -271,7 +271,7 @@ function removeMine(id: string) {
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  color: #b8b8b8;
+  color: var(--gray-15);
   font-size: 11.5px;
   padding: 3px 1px;
   border-radius: 0;
@@ -281,8 +281,8 @@ function removeMine(id: string) {
   text-overflow: ellipsis;
 }
 .catgrid button.on {
-  color: #fff;
-  border-bottom-color: #3cc6ff;
+  color: var(--gray-19);
+  border-bottom-color: var(--cyan);
 }
 .tiles {
   flex: 1;
@@ -307,16 +307,16 @@ function removeMine(id: string) {
 .mini {
   width: 92px;
   height: 54px;
-  background: #2c2c2c;
+  background: var(--gray-5);
   border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 5px;
-  box-shadow: 0 1px 4px #0008;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--gray-0) 53%, transparent);
 }
 .tile:hover .mini {
-  box-shadow: 0 0 0 1px #888;
+  box-shadow: 0 0 0 1px var(--gray-12);
 }
 .name {
   font-size: 10px;
@@ -348,11 +348,11 @@ function removeMine(id: string) {
 }
 .cap {
   font-size: 12px;
-  color: #cfcfcf;
+  color: var(--gray-16);
   white-space: nowrap;
 }
 .empty {
-  color: #888;
+  color: var(--gray-12);
   padding: 20px;
 }
 .mini {
@@ -367,8 +367,8 @@ function removeMine(id: string) {
   padding: 0;
   border-radius: 50%;
   border: 0;
-  background: #444;
-  color: #ddd;
+  background: var(--gray-8);
+  color: var(--gray-17);
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;

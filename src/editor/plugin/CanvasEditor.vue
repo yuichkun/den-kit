@@ -177,12 +177,12 @@ h4 {
 .preview {
   position: relative;
   height: 180px;
-  border: 1px solid #333;
+  border: 1px solid var(--gray-6);
   border-radius: 6px;
   overflow: hidden;
 }
 .props {
-  border: 1px solid #333;
+  border: 1px solid var(--gray-6);
   border-radius: 4px;
   --code-pad: 6px 8px;
 }

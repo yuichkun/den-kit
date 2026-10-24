@@ -3,8 +3,8 @@
 // `vp run dev` and the e2e harness). The page opens and closes works through the
 // bridge (POST /__kit/sandbox with the bridge's token). A browser cannot add the
 // desktop app's secret header, and the work's contents stay in the page, so here
-// the sandbox serves the dev server's pages and nothing else; the rules in its
-// responses are the same.
+// the sandbox serves the dev server's pages and nothing else (no files, no code
+// parts as last built); the rules in its responses are the same.
 import type { Sandbox } from '../src/host/index.ts';
 
 export function devSandbox(token: string, port: number): Sandbox {
@@ -28,6 +28,7 @@ export function devSandbox(token: string, port: number): Sandbox {
       }),
     close: work => send({ op: 'close', work }),
     origin,
+    servesContents: false,
     fileUrl: () => null,
     onRefused: () => () => undefined,
   };

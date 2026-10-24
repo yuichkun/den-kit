@@ -877,26 +877,26 @@ const selectionBox = computed(() => {
   gap: 10px;
   align-items: center;
   padding: 6px 12px;
-  border-bottom: 1px solid #000;
-  background: #232323;
+  border-bottom: 1px solid var(--gray-0);
+  background: var(--gray-4);
   flex-wrap: wrap;
   font-size: 13px;
 }
 .modes {
   display: flex;
-  background: #161616;
+  background: var(--gray-2);
   border-radius: 4px;
   padding: 2px;
 }
 .modes button {
   background: transparent;
   box-shadow: none;
-  color: #9a9a9a;
+  color: var(--gray-13);
   padding: 3px 12px;
 }
 .modes button.active {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--gray-7);
+  color: var(--gray-19);
 }
 .hint {
   font-size: 12.5px;
@@ -920,7 +920,7 @@ kbd {
   font-size: 10.5px;
   margin-left: 4px;
   padding: 0 4px;
-  border: 1px solid #555;
+  border: 1px solid var(--gray-9);
   border-radius: 3px;
 }
 .stage {
@@ -931,18 +931,18 @@ kbd {
 .frame {
   position: absolute;
   inset: 0;
-  outline: 1px dashed #ffffff40;
+  outline: 1px dashed color-mix(in srgb, var(--gray-19) 25%, transparent);
   pointer-events: none;
 }
 .shield {
   position: absolute;
   inset: 0;
-  outline: 1px dashed #5ec4ff50;
+  outline: 1px dashed color-mix(in srgb, var(--blue) 31%, transparent);
   cursor: move;
   pointer-events: auto;
 }
 .shield.selected {
-  outline: 2px solid #5ec4ff;
+  outline: 2px solid var(--blue);
 }
 .shield.locked {
   pointer-events: none;
@@ -953,8 +953,8 @@ kbd {
   width: 10px;
   height: 10px;
   margin: -5px;
-  background: #fff;
-  border: 1.5px solid #3b8ed8;
+  background: var(--gray-19);
+  border: 1.5px solid var(--blue-deep);
   border-radius: 2px;
   z-index: 3;
   pointer-events: auto;
@@ -1008,19 +1008,19 @@ kbd {
   resize: none;
   pointer-events: auto;
   font: inherit;
-  background: #000c;
-  color: #fff;
-  border: 2px solid #5ec4ff;
+  background: color-mix(in srgb, var(--gray-0) 80%, transparent);
+  color: var(--gray-19);
+  border: 2px solid var(--blue);
 }
 .sel-box {
   position: absolute;
-  outline: 1px solid #5ec4ff;
+  outline: 1px solid var(--blue);
   pointer-events: none;
 }
 .marquee {
   position: absolute;
-  border: 1px solid #5ec4ff;
-  background: #5ec4ff22;
+  border: 1px solid var(--blue);
+  background: color-mix(in srgb, var(--blue) 13%, transparent);
   pointer-events: none;
 }
 .empty {
@@ -1042,10 +1042,10 @@ kbd {
   max-height: calc(100% - 20px);
   overflow: auto;
   z-index: 6;
-  background: #1d1f23f2;
-  border: 1px solid #000;
+  background: color-mix(in srgb, var(--slate-0) 95%, transparent);
+  border: 1px solid var(--gray-0);
   border-radius: 6px;
-  box-shadow: 0 8px 30px #0008;
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--gray-0) 53%, transparent);
   font-size: 12.5px;
 }
 .checks header {
@@ -1055,8 +1055,8 @@ kbd {
   gap: 6px;
   align-items: center;
   padding: 7px 10px;
-  background: #1d1f23;
-  border-bottom: 1px solid #000;
+  background: var(--slate-0);
+  border-bottom: 1px solid var(--gray-0);
 }
 .checks .issue {
   display: block;
@@ -1064,17 +1064,17 @@ kbd {
   text-align: left;
   padding: 7px 10px 7px 26px;
   border: 0;
-  border-bottom: 1px solid #2c2f35;
+  border-bottom: 1px solid var(--slate-1);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: #d8dadf;
+  color: var(--slate-5);
   line-height: 1.4;
   position: relative;
   white-space: normal;
 }
 .checks .issue:hover {
-  background: #2a2d33;
+  background: var(--slate-1);
 }
 .checks .issue::before {
   content: '';
@@ -1084,10 +1084,10 @@ kbd {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f2c14e;
+  background: var(--yellow);
 }
 .checks .issue.error::before {
-  background: #ff6b5b;
+  background: var(--red-soft);
 }
 .touch {
   position: absolute;
@@ -1103,7 +1103,7 @@ kbd {
   padding: 0 6px;
   border-radius: 4px 4px 0 0;
   background: var(--touch);
-  color: #000;
+  color: var(--gray-0);
   font:
     600 11px/16px Lato,
     system-ui,

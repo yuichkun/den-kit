@@ -5,6 +5,9 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { WebSocket, WebSocketServer } from 'ws';
+import { SandboxServer } from '../../desktop/sandbox.ts';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
 import { Telemetry } from '../../bridge/telemetry.ts';
 import { CLOSE, PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../bridge/protocol.ts';
@@ -220,5 +223,40 @@ describe('the same tab on a new socket', () => {
     expect(b.tabs().map(t => t.tab)).toEqual(['same']);
     second.send({ t: 'status.get', id: 's' });
     expect((await second.nextOf('status')).id).toBe('s');
+  });
+});
+
+describe('closing', () => {
+  it("closes while a code part's live reload passes through its sandbox", async () => {
+    // A dev server that keeps its live-reload WebSocket open.
+    const dev = createHttpServer();
+    const wss = new WebSocketServer({ server: dev });
+    wss.on('connection', ws => ws.send('hello'));
+    await new Promise<void>(r => dev.listen(0, '127.0.0.1', r));
+    const sandbox = new SandboxServer({
+      port: 0,
+      requireSecret: false,
+      content: () => null,
+      refused: () => undefined,
+    });
+    const b = await createBridge({ origins: [ORIGIN], sandbox });
+    sandbox.open('work-a', {
+      portal: `http://127.0.0.1:${(dev.address() as { port: number }).port}`,
+      origins: [],
+      devices: [],
+      files: {},
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${b.port}/`, {
+      headers: { host: `work-a.localhost:${b.port}` },
+    });
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+    const ended = new Promise(resolve => ws.once('close', resolve));
+    await b.close();
+    await ended;
+    wss.close();
+    dev.close();
   });
 });

@@ -530,6 +530,9 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       for (const t of tabs) t.socket.terminate();
       tabs.clear();
       wss.close();
+      // Connections still open (the frames' live reload, kept-alive requests) would hold the close forever.
+      options.sandbox?.closeConnections();
+      server.closeAllConnections();
       await new Promise<void>(resolve => server.close(() => resolve()));
     },
   };

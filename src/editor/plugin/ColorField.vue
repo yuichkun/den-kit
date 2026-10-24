@@ -78,7 +78,7 @@ function commitText() {
   width: 26px;
   height: 24px;
   padding: 0;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--gray-7);
   border-radius: 4px;
   background: none;
   flex: none;

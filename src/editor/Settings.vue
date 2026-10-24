@@ -293,25 +293,25 @@ onBeforeUnmount(() => {
   z-index: 10000;
   display: grid;
   place-items: center;
-  background: #0009;
+  background: color-mix(in srgb, var(--gray-0) 60%, transparent);
   padding: 24px;
 }
 .desktop-settings {
   width: min(580px, 100%);
   max-height: 90vh;
   overflow: auto;
-  background: #1a2028;
-  border: 1px solid #394451;
+  background: var(--slate-0);
+  border: 1px solid var(--slate-3);
   border-radius: 12px;
-  color: #e6edf5;
-  box-shadow: 0 16px 80px #0008;
+  color: var(--slate-5);
+  box-shadow: 0 16px 80px color-mix(in srgb, var(--gray-0) 53%, transparent);
 }
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 18px 24px;
-  border-bottom: 1px solid #394451;
+  border-bottom: 1px solid var(--slate-3);
 }
 h2 {
   margin: 0;
@@ -334,7 +334,7 @@ p {
 }
 .help,
 footer {
-  color: #9babbc;
+  color: var(--slate-4);
   font-size: 12px;
 }
 footer {
@@ -354,8 +354,8 @@ select {
 }
 button,
 select {
-  border: 1px solid #4b596b;
-  background: #28313d;
+  border: 1px solid var(--slate-3);
+  background: var(--slate-2);
   color: inherit;
   border-radius: 6px;
   padding: 8px 12px;
@@ -375,7 +375,7 @@ select:disabled {
   font-size: 13px;
 }
 .settings-error {
-  color: #ffafa5;
+  color: var(--red-light);
   padding: 0 24px 16px;
 }
 .settings-body .settings-error {

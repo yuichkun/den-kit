@@ -330,7 +330,7 @@ const shape = computed<{
   overflow: visible;
 }
 .grid {
-  stroke: #ffffff10;
+  stroke: color-mix(in srgb, var(--gray-19) 6%, transparent);
   stroke-width: 1;
 }
 </style>

@@ -64,7 +64,9 @@ import {
 } from '../work/persistence.ts';
 import CompilerWorker from '../sound/compile/compiler.worker.ts?worker';
 import { AssetStore } from '../work/asset-store.ts';
-import { readWorkFile, writeWorkFile } from '../work/work-file.ts';
+import { readWorkFile, writeWorkFile, type PlayableBuild } from '../work/work-file.ts';
+import { buildPlayable } from './playable.ts';
+import { PARTS_FOLDER } from '../work/playable.ts';
 import { lookAt, type LookResult } from '../screen/look.ts';
 import {
   assetFontFamily,
@@ -99,18 +101,22 @@ export interface HistoryListener {
   (kind: 'undo' | 'redo', tx: Transaction): void;
 }
 
-const AUTOSAVE_KEY = 'den-kit:autosave';
+/** The editor's own records in the host's storage (the work, the person's parts, the stylus setting). */
+export const RECORD_PREFIX = 'den-kit:editor:';
+const AUTOSAVE_KEY = `${RECORD_PREFIX}work`;
 /** Which conversation (the runtime's id) is a work's: the host keeps that, never what was said. */
 const CONVERSATION_KEY = 'den-kit:conversation:';
 /** My parts: saved parts every patch can place (kept apart from any one patch). */
-export const MY_PARTS_KEY = 'den-kit:my-parts';
+export const MY_PARTS_KEY = `${RECORD_PREFIX}my-parts`;
 /** Whether a stylus draws where it touches nothing ("off" when the person turned it off). */
-const STYLUS_KEY = 'den-kit:stylus-draws';
+const STYLUS_KEY = `${RECORD_PREFIX}stylus-draws`;
 
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /** Read a key again, when another window may have changed it. */
+  refresh?(key: string): Promise<void>;
 }
 
 export class KitSession {
@@ -249,7 +255,7 @@ export class KitSession {
         timeoutMs: options.compileTimeoutMs,
       }),
     );
-    this.reloadMyParts();
+    this.readMyParts();
     if (this.storage?.getItem(STYLUS_KEY) === 'off') this.stylusDraws.value = false;
     watch(this.stylusDraws, on => {
       try {
@@ -313,7 +319,8 @@ export class KitSession {
     this.doc.value = {
       ...doc,
       panel: { ...doc.panel },
-      revision: previous.revision + 1,
+      // A work opened as it was saved keeps its revision; within a session the revision only goes up.
+      revision: undoable ? previous.revision + 1 : Math.max(doc.revision, previous.revision + 1),
       id,
     };
     this.selection.value = [];
@@ -329,8 +336,12 @@ export class KitSession {
   }
 
   // ---- My parts: saved parts every patch can place -----------------------------------------
-  /** Read My parts from storage again (another tab may have saved one). */
-  reloadMyParts() {
+  /** Read My parts from storage again (another window may have saved one). */
+  async reloadMyParts() {
+    await this.storage?.refresh?.(MY_PARTS_KEY);
+    this.readMyParts();
+  }
+  private readMyParts() {
     const raw = this.storage?.getItem(MY_PARTS_KEY);
     if (!raw) {
       this.myParts.value = emptyLibrary();
@@ -1162,7 +1173,8 @@ export class KitSession {
   private scheduleSave() {
     if (!this.storage || this.refused.value) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.saveNow(), 800);
+    // After each change (a drag's moves coalesce): the host keeps the record.
+    this.saveTimer = setTimeout(() => this.saveNow(), 250);
   }
   saveNow() {
     if (this.refused.value || !this.storage) return;
@@ -1203,9 +1215,23 @@ export class KitSession {
   exportText() {
     return serializeDocument(this.doc.value);
   }
-  /** The work as a work file: its record and the contents of its files (a file that opens anywhere). */
+  /**
+   * The work as a work file: its record, the contents of its files (a file that opens anywhere) and its playable
+   * build when it can be made (what is left out of it is said).
+   */
   async exportWork(): Promise<Uint8Array> {
-    return writeWorkFile(this.doc.value, hash => this.assets.bytes(hash));
+    let build: PlayableBuild | undefined;
+    try {
+      const made = await buildPlayable(this);
+      build = made.build;
+      for (const note of made.notes) this.toast('warn', note);
+    } catch (error) {
+      this.toast(
+        'warn',
+        `The work file has no playable build: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return writeWorkFile(this.doc.value, hash => this.assets.bytes(hash), build);
   }
   /** Open a work file in place of this work (one undo step); false when it is refused. */
   async importWork(bytes: Uint8Array): Promise<boolean> {
@@ -1221,6 +1247,13 @@ export class KitSession {
     for (const data of read.contents.values()) await this.assets.put(data);
     this.replace(read.doc, 'Import');
     this.report(read.report);
+    // The code parts as the work file has them built show until the workspace runs them.
+    const parts = Object.entries(read.build).filter(([path]) => path.startsWith(PARTS_FOLDER));
+    if (parts.length && this.codeParts)
+      await this.codeParts.keep(
+        Object.fromEntries(parts.map(([path, data]) => [path.slice(PARTS_FOLDER.length), data])),
+        this.codeParts.builtFrom(),
+      );
     return true;
   }
   importText(text: string): boolean {

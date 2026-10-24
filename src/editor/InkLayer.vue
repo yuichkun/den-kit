@@ -343,15 +343,15 @@ defineExpose({ finishText });
   overflow-wrap: anywhere;
 }
 .note.note {
-  background: color-mix(in srgb, var(--ink) 28%, #fff8d6);
-  color: #1b1b1b;
+  background: color-mix(in srgb, var(--ink) 28%, var(--cream));
+  color: var(--gray-3);
   border: 2px solid var(--ink);
   border-radius: 4px;
-  box-shadow: 0 3px 8px #0006;
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--gray-0) 40%, transparent);
 }
 .note.text {
   color: currentColor;
-  text-shadow: 0 1px 3px #000c;
+  text-shadow: 0 1px 3px color-mix(in srgb, var(--gray-0) 80%, transparent);
   font-weight: 700;
 }
 .note textarea {

@@ -63,7 +63,9 @@ Code parts load from each work's own address on the AI bridge's port
 project's dev server and sets the same response rules as the desktop app. A
 browser cannot apply the desktop app's window rules (the proxy that refuses
 connections, WebRTC without UDP, no DNS prefetching) or add its secret header, so
-the development server's sandbox answers any local request.
+the development server's sandbox answers any local request. The page keeps the
+contents of the work's files, so this sandbox serves only the dev server's pages:
+code parts show only while the project runs.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `vp run build` excludes
@@ -114,6 +116,9 @@ vp run test
 
 `vp check` checks formatting and lint; `vp check --fix` fixes what it can.
 `vp run typecheck` checks types with vue-tsc, and `vp run build` runs it first.
+`vp run build` also builds the player, the page of a playable build, into
+`dist/player/`: exported work files carry it, also from `vp run dev`, and the e2e
+tests need it.
 Run suites separately with `vp run test:unit`, `vp run test:integration`, and
 `vp run test:e2e`. `vp run test:desktop` checks the works' sandbox in Electron
 (what a code part can reach, its frame, WebRTC, DNS prefetching and devices); CI
