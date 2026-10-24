@@ -136,6 +136,22 @@ describe('undo steps', () => {
     expect(value(w.state.doc, 'filter1', 'cutoff')).toBe(start);
   });
 
+  it('undoing a request undoes every edit in it: an earlier step undoes afterwards as well', () => {
+    const w = work();
+    w.edit([{ op: 'setLabel', node: 'osc1', label: 'Mine' }], PERSON);
+    w.edit([{ op: 'setLabel', node: 'osc1', label: 'AI one' }], lead, { group: 'rq1' });
+    w.edit([{ op: 'setLabel', node: 'osc1', label: 'AI two' }], lead, { group: 'rq1' });
+    w.undo();
+    expect(w.state.doc.nodes.osc1!.label).toBe('Mine');
+    // Both of the request's edits were taken back: nothing of it stands over the person's edit.
+    w.undo();
+    expect(w.state.doc.nodes.osc1!.label).toBeUndefined();
+    // Redone, the request's edits stand again.
+    w.redo();
+    w.redo();
+    expect(w.state.doc.nodes.osc1!.label).toBe('AI two');
+  });
+
   it('the AI is told when the person took its edit back', () => {
     const w = work();
     const read = w.state.doc.revision;

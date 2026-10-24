@@ -38,6 +38,7 @@ function harness(sync: () => Promise<PodRunResult> = async () => success()) {
     kind: 'fake',
     home: '/home/test',
     network() {},
+    stopAll: async () => undefined,
     run,
     start(name) {
       const done = new Promise<void>(resolve => {

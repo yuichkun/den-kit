@@ -341,8 +341,20 @@ describe("each work's pod (test pod)", () => {
           })
         ).exitCode,
       ).not.toBe(0);
+      // A process a command left in the background stops before the pod reaches the network.
+      await pod.bash('sleep 300 > /dev/null 2>&1 & echo $! > .left-running', { who: 'ai' });
       const installed = await pod.installPackages('is-number@7.0.0');
       expect(installed.exitCode, installed.output).toBe(0);
+      expect(
+        (
+          await pod.bash(
+            'kill -0 "$(cat .left-running)" 2>/dev/null && echo running || echo gone',
+            {
+              who: 'den-kit',
+            },
+          )
+        ).output,
+      ).toContain('gone');
       // den-kit's install ran with nothing else running (the AI's own try above ran beside the dev server, offline).
       const ourInstall = fake.runs.find(
         r => r.script.includes('--ignore-scripts') && r.script.includes('--no-save is-number'),

@@ -628,7 +628,7 @@ export class PodSession {
     const ready = this.state.value === 'ready';
     const paused = !first && !!this.dev?.running;
     this.set('installing', 'Installing project dependencies…');
-    const r = await this.withoutDev(() =>
+    const r = await this.alone(() =>
       this.npm(
         `if cmp -s package.json node_modules/.den-kit-package.json 2>/dev/null; then echo 'packages are up to date'; else ${NPM_INSTALL} && cp package.json node_modules/.den-kit-package.json; fi`,
         'npm install',
@@ -655,21 +655,26 @@ export class PodSession {
   }
 
   /**
-   * Run an install with nothing else running: the dev server (it runs the work's own
-   * code, such as vite.config.ts) stops while the pod reaches the network, and starts
-   * again after.
+   * Run an install with nothing else running: everything in the pod stops while it
+   * reaches the network (the dev server runs the work's own code, such as
+   * vite.config.ts, and commands may have left processes in the background), and
+   * the dev server starts again after.
    */
-  private async withoutDev<T>(install: () => Promise<T>): Promise<T> {
-    const dev = this.dev;
-    if (!dev?.running) return install();
-    this.paused = dev;
-    this.portal.value = null;
-    await dev.stop();
+  private async alone<T>(install: () => Promise<T>): Promise<T> {
+    const dev = this.dev?.running ? this.dev : null;
+    if (dev) {
+      this.paused = dev;
+      this.portal.value = null;
+      await dev.stop();
+    }
+    await this.host!.stopAll();
     try {
       return await install();
     } finally {
-      this.paused = null;
-      void this.restartDev();
+      if (dev) {
+        this.paused = null;
+        void this.restartDev();
+      }
     }
   }
 
@@ -692,7 +697,7 @@ export class PodSession {
   installPackages(specs: string): Promise<PodRunResult> {
     return this.enqueue(async () => {
       await this.ensure();
-      return this.withoutDev(() =>
+      return this.alone(() =>
         this.npm(`${NPM_INSTALL} --no-save ${specs}`, `npm install ${specs}`, 300_000),
       );
     });

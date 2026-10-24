@@ -120,7 +120,9 @@ files have not changed since.
   disk, and a window's project tools are for the work they started with: to use
   them with another work, reopen den-kit with that work open.
 - The project tools reach the internet only while den-kit installs the packages
-  in `package.json`; commands in the project have no network.
+  in `package.json`; commands in the project have no network. While den-kit
+  installs, everything running in the project stops, and the code parts' preview
+  comes back after.
 - A code part loads scripts only from its work's own address, but what it fetches
   from an address you allowed it can still run as WebAssembly or in a worker of its
   own.

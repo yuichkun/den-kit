@@ -31,6 +31,25 @@ function storage(initial: Record<string, string> = {}) {
 }
 
 describe("the editor's records", () => {
+  it('a write the host refuses is said at once, and flush fails until the record is kept', async () => {
+    const s = storage();
+    let full = true;
+    const write = s.write;
+    s.write = async (key, value) => {
+      if (full) throw new Error('QuotaExceededError');
+      return write(key, value);
+    };
+    const failed: string[] = [];
+    const records = await hostRecords(s, 'den-kit:', key => failed.push(key));
+    records.setItem('den-kit:work', 'newer');
+    await expect(records.flush()).rejects.toThrow(/den-kit:work/);
+    expect(failed).toEqual(['den-kit:work']);
+    full = false;
+    records.setItem('den-kit:work', 'newest');
+    await records.flush();
+    expect(s.data.get('den-kit:work')).toBe('newest');
+  });
+
   it('reads what the host keeps, and writes each change through', async () => {
     const s = storage({ 'den-kit:autosave': 'saved', 'other:key': 'not ours' });
     const records = await hostRecords(s, 'den-kit:');

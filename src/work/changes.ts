@@ -96,14 +96,19 @@ const KEPT = 64;
 export class ChangeLog {
   private readonly entries = new Map<ChangeKey, Entry[]>();
 
-  /** The ops of an edit (or its undo, or its redo) changed their keys. */
-  record(ops: readonly ResolvedOp[], change: Change, kind: Entry['kind'] = 'edit') {
+  /** The ops of an edit (or its undo, or its redo, of the edits of `txs`) changed their keys. */
+  record(
+    ops: readonly ResolvedOp[],
+    change: Change,
+    kind: Entry['kind'] = 'edit',
+    txs: readonly string[] = [change.tx],
+  ) {
     for (const op of ops)
       for (const key of keysOf(op)) {
         const list = this.entries.get(key) ?? [];
         if (kind !== 'edit')
           for (const e of list)
-            if (e.kind === 'edit' && e.change.tx === change.tx) e.undone = kind === 'undo';
+            if (e.kind === 'edit' && txs.includes(e.change.tx)) e.undone = kind === 'undo';
         list.push({ change, kind });
         if (list.length > KEPT) list.splice(0, list.length - KEPT);
         this.entries.set(key, list);

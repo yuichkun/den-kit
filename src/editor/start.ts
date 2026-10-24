@@ -32,13 +32,16 @@ export interface EditorOptions {
 
 export async function startEditor(host: Host, options: EditorOptions): Promise<KitSession> {
   defineWidgets();
-  const records = await hostRecords(host.storage, RECORD_PREFIX);
+  let unsaved = (_key: string) => {};
+  const records = await hostRecords(host.storage, RECORD_PREFIX, key => unsaved(key));
   const session = new KitSession({
     host,
     storage: records,
     compileTimeoutMs: options.compileTimeoutMs,
     rotateAfter: options.rotateAfter,
   });
+  unsaved = () =>
+    session.toast('warn', 'den-kit could not save your changes; export the work to keep it.');
   // Nothing saved yet (the very first launch): open on the start screen.
   const firstRun = !session.restore('bass') && !options.noStart;
   const opened = session.doc.value;
@@ -55,8 +58,11 @@ export async function startEditor(host: Host, options: EditorOptions): Promise<K
   session.codeParts = new CodeParts(session, session.pod, host);
   host.lifecycle?.beforeQuit(async () => {
     session.saveNow();
-    await records.flush();
-    await session.pod?.flush();
+    try {
+      await records.flush();
+    } finally {
+      await session.pod?.flush();
+    }
   });
   createApp({ render: () => h(App, { session, firstRun }) }).mount(options.mount);
   return session;

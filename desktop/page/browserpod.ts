@@ -525,6 +525,18 @@ export class BrowserPodHost implements PodHost {
   }
 
   /**
+   * Stop every process in the pod but this command's own (and the machine's, in
+   * brackets). Only on BrowserPod's own machine (CheerpOS): where a test runs this
+   * adapter on its own computer, it does nothing.
+   */
+  async stopAll(): Promise<void> {
+    await this.run(
+      `case "$(uname -r)" in *cheerpos*) me=$$; for p in $(ps -o pid,args | awk 'NR>1 && index($2, "[") != 1 && index($0, "den-kit-exit") == 0 {print $1}'); do [ "$p" = "$me" ] || kill "$p" 2>/dev/null; done; sleep 0.5 ;; esac; true`,
+      { cwd: this.home, timeoutMs: 15_000 },
+    );
+  }
+
+  /**
    * The pod's own environment (read once without passing one: run's env may replace the
    * environment rather than add to it, so every command gets it back) and where home is.
    */

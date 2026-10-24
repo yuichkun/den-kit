@@ -40,7 +40,12 @@ export interface Transaction {
   baseRevision: number;
   /** The whole patch was replaced (a load, a new start): nothing before it is about this patch. */
   replaced?: boolean;
+  /** The transactions this step is made of, when several merged into it (a request's, a drag's). */
+  merged?: string[];
 }
+
+/** The transactions a step is made of. */
+const txIds = (tx: Transaction) => tx.merged ?? [tx.id];
 
 export const authorLabel = (a: Author) =>
   a.kind === 'human'
@@ -108,6 +113,7 @@ export class History {
         const entry = this.undoStack[at]!;
         entry.stamps = [...stampsOf(entry), ...stamps];
         entry.ops = [...entry.ops, ...tx.ops];
+        entry.merged = [...txIds(entry), tx.id];
         entry.at = tx.at;
         entry.label = tx.label;
         if (at !== this.undoStack.length - 1) {
@@ -131,6 +137,7 @@ export class History {
       last.ops = merged.ops;
       last.stamps = merged.stamps;
       last.at = tx.at;
+      last.merged = [...txIds(last), tx.id];
       return;
     }
     this.undoStack.push({ ...tx, ops: [...tx.ops], stamps });
@@ -184,6 +191,7 @@ export class History {
         label: `Undo: ${tx.label}`,
       },
       'undo',
+      txIds(tx),
     );
     return { doc: next, tx: redo, kept: [...kept].map(([key, change]) => ({ key, change })) };
   }
@@ -205,6 +213,7 @@ export class History {
         label: `Redo: ${tx.label}`,
       },
       'redo',
+      txIds(tx),
     );
     return { doc: next, tx };
   }

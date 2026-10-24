@@ -281,11 +281,13 @@ try {
       width: image.width,
       height: image.height,
       bytes: image.data.length,
+      density: devicePixelRatio,
     };
   });
+  // The window's own pixels: twice the area's size on a high-density screen.
   assert.equal(picture.source, 'shell');
-  assert.equal(picture.width, 400);
-  assert.equal(picture.height, 300);
+  assert.equal(picture.width, Math.round(400 * picture.density));
+  assert.equal(picture.height, Math.round(300 * picture.density));
   assert.ok(picture.bytes > 0);
   await page.click('[data-testid=ai-screen]');
   assert.equal(await page.locator('[data-testid=ai-screen]').getAttribute('aria-pressed'), 'false');

@@ -172,6 +172,10 @@ class FakePodHost implements PodHost {
     };
   }
 
+  async stopAll(): Promise<void> {
+    await this.request({ t: 'stopAll' });
+  }
+
   private request(message: Record<string, unknown>): Promise<Inbound> {
     const id = `q${++this.seq}`;
     return new Promise(resolve => {

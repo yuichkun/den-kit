@@ -58,6 +58,7 @@ function harness(initial: 'ready' | 'hang' = 'ready') {
     kind: 'fake',
     home: '/home/test',
     network() {},
+    stopAll: async () => undefined,
     async run(script, options) {
       commands.push({ script, cwd: options?.cwd });
       const output = script.includes('find .')

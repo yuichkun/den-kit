@@ -80,6 +80,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
     const mine = new Set<ChildProcess>();
     /** What the page started, by its id (to stop it). */
     const started = new Map<string, ChildProcess>();
+    /** Every process group this page's commands made: what they leave in the background stays in it. */
+    const groups = new Set<number>();
     socket.on('close', () => {
       for (const c of mine) {
         try {
@@ -99,6 +101,17 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
       }
       const id = String(m.id ?? '');
       try {
+        if (m.t === 'stopAll') {
+          for (const group of groups)
+            try {
+              process.kill(-group, 'SIGKILL');
+            } catch {
+              /* gone */
+            }
+          groups.clear();
+          send({ t: 'ok', id });
+          return;
+        }
         if (m.t === 'stop') {
           // The process group: the script and what it started.
           const child = started.get(id);
@@ -152,6 +165,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           });
           children.add(child);
           mine.add(child);
+          if (child.pid) groups.add(child.pid);
           if (m.t === 'start') {
             started.set(id, child);
             names.set(child, String(m.name ?? 'proc'));
