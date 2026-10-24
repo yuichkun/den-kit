@@ -627,7 +627,7 @@ describe('building the plugin screen by hand', () => {
     await page.close();
   });
 
-  it("ready-made controls behave by den-kit's rules: a knob drags 200 px for its range, takes the wheel and keys, resets on double-click; a slider never jumps; each gesture is one undo step", async () => {
+  it("ready-made controls behave by den-kit's rules: a knob drags 200 px for its range, takes the wheel and keys, resets on double-click; a slider never jumps; a button held by a key lets go when focus leaves; each gesture is one undo step", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     await kit(page, k =>
@@ -654,6 +654,16 @@ describe('building the plugin screen by hand', () => {
             panel: { x: 200, y: 40, w: 50, h: 240 },
             config: { min: 0, max: 100, scale: 'linear', unit: '' },
             values: { value: 50 },
+          },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'bb',
+            type: 'ui.button',
+            label: 'BB',
+            pos: { x: -300, y: 400 },
+            panel: { x: 280, y: 40, w: 90, h: 44 },
           },
         },
       ]),
@@ -714,6 +724,19 @@ describe('building the plugin screen by hand', () => {
     assert.equal(await steps(), size + 1, 'the drag is one undo step');
     await kit(page, k => k.undo());
     assert.equal(await value('bs'), 50);
+    // Rule 6: a button is on while Space holds it; focus moves away before the key goes up, and it lets go.
+    const button = page.locator('[data-widget=bb] dk-toggle');
+    await button.focus();
+    await page.keyboard.down(' ');
+    await page.waitForFunction(
+      () => (window as any).__kit.doc.value.nodes.bb.values.value === true,
+    );
+    await knob.focus();
+    await page.waitForFunction(
+      () => (window as any).__kit.doc.value.nodes.bb.values.value === false,
+    );
+    assert.equal(await button.getAttribute('value'), 'false');
+    await page.keyboard.up(' ');
     assert.deepEqual(errors, []);
     await page.close();
   });

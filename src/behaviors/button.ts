@@ -1,5 +1,6 @@
 // Buttons and switches (rule 6): a button is on only while it is pressed, a
-// switch changes each time it is pressed. Space and Enter press both.
+// switch changes each time it is pressed. Space and Enter press both. A button
+// held by a key is let go when focus leaves it: the key's release goes elsewhere.
 import { Emitter, type KeyInput } from './events.ts';
 
 const PRESS_KEYS = new Set([' ', 'Enter']);
@@ -34,6 +35,12 @@ export class Button {
     this.key = null;
     this.release();
     return true;
+  }
+  /** Focus left: let go, whatever held it. */
+  releaseAll() {
+    if (!this.down) return;
+    this.key = null;
+    this.release();
   }
   private release() {
     this.down = false;

@@ -48,8 +48,11 @@ describe("an LLM request with the runtime's sub-agents", () => {
         timeout: 30000,
       });
       await lane('Screen').waitFor({ timeout: 30000 });
-      assert.match(await lane('Sound').locator('.lane-scope').innerText(), /sound/);
-      assert.match(await lane('Screen').locator('.lane-scope').innerText(), /screen/);
+      // Each lane shows the scope its sub-agent claims (a moment after the lane starts working).
+      await lane('Sound').locator('.lane-scope', { hasText: /sound/ }).waitFor({ timeout: 30000 });
+      await lane('Screen')
+        .locator('.lane-scope', { hasText: /screen/ })
+        .waitFor({ timeout: 30000 });
       // What a sub-agent just changed is outlined with its name.
       await page.waitForSelector('[data-touched-by=Sound]', { timeout: 30000 });
       await page.waitForFunction(

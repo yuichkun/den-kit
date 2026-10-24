@@ -174,6 +174,13 @@ describe('rule 6: a button is on while pressed; a switch changes on each press; 
     button.keyDown({ key: 'Enter', repeat: true });
     button.keyUp({ key: 'Enter' });
     expect(r.values()).toEqual([true, false, true, false]);
+    // Held by a key, then focus leaves: the key's release goes elsewhere, so the button lets go now.
+    button.keyDown({ key: ' ' });
+    button.releaseAll();
+    expect(button.value).toBe(false);
+    expect(r.values()).toEqual([true, false, true, false, true, false]);
+    button.keyUp({ key: ' ' });
+    expect(r.values()).toHaveLength(6);
   });
   it('switch', () => {
     const sw = new Switch(false);

@@ -2,10 +2,11 @@
 // static server serves it, another one on a second origin serves the built code
 // parts (built with a picture of the work that a part imports). The player plays
 // when clicked, the computer keys play notes, a code part shows from its own
-// origin, the work's own font is loaded, and moving a control changes only the
-// player's own state. The record and the build are of the work as it was when the export
-// started, and the build plays the whole sound, whatever the editor has soloed.
-// Needs den-kit's player build (vp run build makes dist/player/).
+// origin, the work's own font and a control's pictures are loaded, and moving a
+// control changes only the player's own state. The record and the build are of
+// the work as it was when the export started, and the build plays the whole
+// sound, whatever the editor has soloed. Needs den-kit's player build (vp run
+// build makes dist/player/).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -150,6 +151,23 @@ describe('the playable build', () => {
               from: { node: 'cutknob', port: 'out' },
               to: { node: 'cut1', port: 'hz' },
             },
+            // A switch drawn with the work's picture.
+            {
+              op: 'addNode',
+              node: {
+                id: 'picswitch',
+                type: 'ui.toggle',
+                label: 'Pic',
+                pos: { x: 400, y: 640 },
+                panel: { x: 300, y: 20, w: 60, h: 60 },
+                style: {
+                  skin: {
+                    name: 'image',
+                    params: { off: 'assets/logo.svg', on: 'assets/logo.svg' },
+                  },
+                },
+              },
+            },
             {
               op: 'addElement',
               element: {
@@ -216,6 +234,16 @@ describe('the playable build', () => {
           assetFontFamily('assets/title.woff2'),
         ),
         "the work's font is loaded",
+      );
+      // The switch's picture, from the build's files.
+      await player.waitForFunction(
+        () => {
+          const toggle = document.querySelector('[data-widget=picswitch] dk-toggle');
+          const img = toggle?.shadowRoot?.querySelector<HTMLImageElement>('img.off');
+          return !!img && img.complete && img.naturalWidth > 0;
+        },
+        null,
+        { timeout: 10000 },
       );
       // The code part runs, from its own origin.
       await player.waitForSelector('[data-element=meter1] [data-code-state=ready]', {

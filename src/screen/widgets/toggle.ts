@@ -111,6 +111,9 @@ export class DkToggle extends DkElement {
           return behavior.keyDown(input);
         },
         keyUp: input => (momentary ? this.button.keyUp(input) : false),
+        releaseAll: () => {
+          if (momentary) this.button.releaseAll();
+        },
       },
       { target: button },
     );

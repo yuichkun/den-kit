@@ -56,8 +56,14 @@ provide(POD, parts);
 const spec = computed(() =>
   doc.value && generated.value ? pluginSpec(doc.value, catalog, generated.value) : null,
 );
+// Paths on this page's origin, which the controls take (wherever the build is served from).
 const assetUrls = computed(() =>
-  Object.fromEntries(Object.keys(assetsOf(doc.value?.files ?? {})).map(path => [path, path])),
+  Object.fromEntries(
+    Object.keys(assetsOf(doc.value?.files ?? {})).map(path => [
+      path,
+      new URL(path, location.href).pathname,
+    ]),
+  ),
 );
 const analyser = (probe: number) =>
   probe >= 0 ? (engine.probeAnalysers[probe] ?? null) : engine.outAnalyser;
