@@ -11,6 +11,7 @@ import {
   PART_NAME,
   WORK_LIMITS,
   isContent,
+  shippedPath,
   type ContentFile,
   type FileSource,
   type WorkFile,
@@ -1011,7 +1012,7 @@ export function checkAsset(v: unknown): AssetMeta {
   if (a.url !== undefined) {
     const url = str(a.url, 300, 'asset url');
     // Only den-kit's own files: no other site is ever fetched for a patch.
-    if (!/^\/?[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/.test(url) || url.includes('..'))
+    if (!shippedPath(url))
       bad('bad-asset', 'An asset url must be a path inside den-kit (e.g. /showcase/wood.jpg).');
     out.url = url;
   }

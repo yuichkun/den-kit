@@ -1,9 +1,11 @@
 // The URLs the editor shows the work's pictures and fonts with: a path that holds
 // other contents (the file removed and added again, that undone) shows those
 // contents, and a font at that path is registered again under the path's family.
+// A file den-kit ships comes only from den-kit's own origin.
 import { resolveObjectURL } from 'node:buffer';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { KitSession } from '../../../src/editor/session.ts';
+import { AssetStore } from '../../../src/work/asset-store.ts';
 import { assetFontFamily } from '../../../src/work/ui.ts';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -39,6 +41,23 @@ async function shown(k: KitSession, path: string): Promise<Uint8Array | null> {
 const text = (bytes: Uint8Array | null) => (bytes ? new TextDecoder().decode(bytes) : null);
 
 describe("the URLs of the work's pictures and fonts", () => {
+  it("shows a file den-kit ships from den-kit's own origin, and nothing for another host", async () => {
+    const fetched = vi.fn(async () => new Response(new Uint8Array([1])));
+    vi.stubGlobal('fetch', fetched);
+    const store = new AssetStore(null);
+    const meta = (url: string) => ({
+      id: 'assets/a.png',
+      name: 'a.png',
+      mime: 'image/png',
+      bytes: 1,
+      url,
+    });
+    expect(await store.url(meta('/showcase/wood.jpg'))).toBe('/showcase/wood.jpg');
+    expect(await store.url(meta('//attacker.example/probe.png'))).toBeNull();
+    expect(await store.read(meta('//attacker.example/probe.png'))).toBeNull();
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
   it('a path that holds other contents shows them, and the earlier ones again on undo', async () => {
     const k = session();
     expect((await k.addAssetFile(picture('red')))?.id).toBe('assets/logo.svg');

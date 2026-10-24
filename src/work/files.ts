@@ -248,6 +248,12 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 }
 export const HASH = /^sha256-[0-9a-f]{64}$/;
 
+/** Where a file den-kit ships is served: a path on den-kit's own origin (/showcase/wood.jpg); null for anything else, another host included. */
+export function shippedPath(url: string): string | null {
+  if (!/^\/?[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(url) || url.includes('..')) return null;
+  return url.startsWith('/') ? url : `/${url}`;
+}
+
 export function totalBytes(files: Readonly<Record<string, WorkFile>>): number {
   let n = 0;
   const seen = new Set<string>();
@@ -350,8 +356,7 @@ function readFile(entry: unknown): WorkFile | string {
     if (Number.isInteger(e[k]) && (e[k] as number) > 0 && (e[k] as number) <= 16384)
       file[k] = e[k] as number;
   if (typeof e.url === 'string') {
-    if (!/^\/[A-Za-z0-9/_.-]+$/.test(e.url) || e.url.includes('..'))
-      return 'a file shipped with den-kit is a path inside den-kit';
+    if (!shippedPath(e.url)) return 'a file shipped with den-kit is a path inside den-kit';
     file.url = e.url;
   }
   if (e.source && typeof e.source === 'object' && !Array.isArray(e.source)) {

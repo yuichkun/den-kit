@@ -6,6 +6,7 @@
 // showcase (arrows) and, the Subway way, the look it should wear (Tab to the
 // looks, arrows, Enter). Sounds without a screen are at the bottom.
 import { assetsOf } from '../work/ui.ts';
+import { shippedPath } from '../work/files.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { STARTERS, partStarter, type StarterId } from '../work/starters.ts';
 import { emptyDocument, type PatchDocument } from '../work/schema.ts';
@@ -39,9 +40,10 @@ const built = computed(() =>
   WORKS.map(w => {
     const doc: PatchDocument = w.build(session.catalog);
     const urls = Object.fromEntries(
-      Object.values(assetsOf(doc.files))
-        .filter(a => a.url)
-        .map(a => [a.id, a.url!.startsWith('/') ? a.url! : `/${a.url}`]),
+      Object.values(assetsOf(doc.files)).flatMap(a => {
+        const at = a.url ? shippedPath(a.url) : null;
+        return at ? [[a.id, at]] : [];
+      }),
     );
     return {
       work: w,

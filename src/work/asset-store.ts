@@ -3,7 +3,7 @@
 // so a saved work stays small and the same file added twice is kept once.
 // Files shipped with den-kit are plain URLs. Without storage (tests) the bytes
 // stay in memory for the session.
-import { checkFile, sha256, typeOfPath } from './files.ts';
+import { checkFile, sha256, shippedPath, typeOfPath } from './files.ts';
 import { MAX_ASSET_BYTES, type AssetMeta } from './ui.ts';
 
 /** Where contents are kept: the host's storage. */
@@ -126,9 +126,10 @@ export class AssetStore {
   /** The bytes of an asset: its stored contents, or the file den-kit ships. */
   async read(meta: AssetMeta): Promise<Uint8Array | null> {
     if (meta.hash) return this.bytes(meta.hash);
-    if (!meta.url) return null;
+    const at = meta.url ? shippedPath(meta.url) : null;
+    if (!at) return null;
     try {
-      const r = await fetch(meta.url);
+      const r = await fetch(at);
       return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
     } catch {
       return null;
@@ -137,7 +138,7 @@ export class AssetStore {
 
   /** A URL the page can show the asset with (one per contents); null when its contents are not here. */
   async url(meta: AssetMeta): Promise<string | null> {
-    if (meta.url) return meta.url.startsWith('/') ? meta.url : `/${meta.url}`;
+    if (meta.url) return shippedPath(meta.url);
     const hash = meta.hash;
     if (!hash) return null;
     let url = this.urls.get(hash);

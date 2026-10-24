@@ -19,6 +19,7 @@
 // scope on every edit (src/ai/scope.ts), and scopes of agents working at the same
 // time do not overlap. All their edits land in the same request: one ⌘Z.
 import { assetsOf } from '../work/ui.ts';
+import { shippedPath } from '../work/files.ts';
 import { ref, shallowRef, watch } from 'vue';
 import type { AiSession } from './session.ts';
 import { randomId } from '../work/schema.ts';
@@ -576,7 +577,8 @@ export class LlmController {
       look: (doc, picture) => this.session.look({ doc, picture }),
       viewPicture: async id => {
         const asset = assetsOf(this.session.doc.value.files)[id] ?? SHOWCASE_ASSETS[id];
-        const url = this.session.assetUrls.value[id] ?? asset?.url;
+        const url =
+          this.session.assetUrls.value[id] ?? (asset?.url ? shippedPath(asset.url) : null);
         if (!url) return null;
         try {
           return await viewPicture(url);

@@ -8,6 +8,7 @@ import {
   partNames,
   readFiles,
   sha256,
+  shippedPath,
   sniff,
   totalBytes,
 } from '../../../src/work/files.ts';
@@ -107,5 +108,23 @@ describe("the work's files", () => {
     ]);
     expect(partNames(files)).toEqual(['a']);
     expect(totalBytes(files)).toBe(10 + 'export {}'.length);
+  });
+
+  it("takes a file den-kit ships only at a path on den-kit's own origin, never another host", () => {
+    const report: Issue[] = [];
+    const files = readFiles(
+      {
+        'assets/wood.jpg': { url: '/showcase/wood.jpg', bytes: 10, type: 'image/jpeg' },
+        'assets/far.png': { url: '//attacker.example/probe.png', bytes: 10, type: 'image/png' },
+        'assets/away.png': { url: 'https://attacker.example/a.png', bytes: 10, type: 'image/png' },
+        'assets/up.png': { url: '/showcase/../secret.png', bytes: 10, type: 'image/png' },
+      },
+      report,
+    );
+    expect(Object.keys(files)).toEqual(['assets/wood.jpg']);
+    expect(report).toHaveLength(3);
+    expect(shippedPath('showcase/wood.jpg')).toBe('/showcase/wood.jpg');
+    for (const url of ['//attacker.example/probe.png', '/\\attacker.example/x', 'http://x/y'])
+      expect(shippedPath(url), url).toBeNull();
   });
 });
