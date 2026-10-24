@@ -532,6 +532,24 @@ try {
     }
     const check = await page.locator('[data-testid=pod-check-panel]').innerText();
     console.log(JSON.stringify({ podCheck: check }));
+    // What the pod's commands said (an install's npm output, for one), when a step did not pass.
+    if (!/Every step passed/.test(check))
+      console.log(
+        JSON.stringify({
+          podLog: await page.evaluate(() =>
+            (
+              window as unknown as { __kit: import('../src/editor/session.ts').KitSession }
+            ).__kit.pod!.log.value.map(e => ({
+              who: e.who,
+              command: e.command.slice(0, 160),
+              exitCode: e.running ? 'running' : e.exitCode,
+              timedOut: e.timedOut,
+              ms: e.ms,
+              output: e.output.slice(-1500),
+            })),
+          ),
+        }),
+      );
     assert.match(check, /Every step passed/);
     const previewBeforeReopen = await page.evaluate(async marker => {
       const k = (window as unknown as { __kit: import('../src/editor/session.ts').KitSession })
