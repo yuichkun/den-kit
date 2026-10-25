@@ -31,10 +31,12 @@ import {
 /**
  * Stop every process in the pod but den-kit's own, then make sure none is left (exit 1 and the
  * ones left when some are). Kept: this script's shell, the runner line it runs under
- * (DEN_KIT_RUNNER, which only that line sets), the ps it lists with, the machine's own (in
- * brackets) and init. On BrowserPod's machine (CheerpOS) every process has parent 0, so den-kit's
- * cannot be told by their parents, and a name can be anything a process says. Elsewhere (a test
- * running this adapter on its own computer) it does nothing.
+ * (DEN_KIT_RUNNER, which only that line sets), the ps it lists with, process 0 and init, and
+ * those with no command line (ps shows them in brackets: they have exited, or are the
+ * machine's own). On BrowserPod's machine (CheerpOS) every process has parent 0, so den-kit's
+ * cannot be told by their parents, and a name can be anything a process says, brackets
+ * included: only its command line in /proc tells. Elsewhere (a test running this adapter on its
+ * own computer) it does nothing.
  */
 export const STOP_ALL = `case "$(uname -r)" in *cheerpos*) ;; *) exit 0 ;; esac
 listing=$(mktemp "\${TMPDIR:-/tmp}/den-kit-processes.XXXXXX" 2>/dev/null ||
@@ -47,8 +49,8 @@ pass() {
   left=""
   while read -r pid args || [ -n "$pid" ]; do
     case "$pid" in '' | *[!0-9]*) continue ;; esac
-    case "$args" in '['*) continue ;; esac
-    case " $$ \${DEN_KIT_RUNNER:-} $lister 1 " in *" $pid "*) continue ;; esac
+    case "$args" in '['*) [ "$(head -c 1 "/proc/$pid/cmdline" 2>/dev/null | wc -c)" -gt 0 ] || continue ;; esac
+    case " $$ \${DEN_KIT_RUNNER:-} $lister 0 1 " in *" $pid "*) continue ;; esac
     left="$left $pid"
     [ -n "$1" ] && kill "$1" "$pid" 2>/dev/null
   done < "$listing"
