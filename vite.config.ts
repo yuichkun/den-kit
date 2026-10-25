@@ -1,6 +1,9 @@
 import { defineConfig, lazyPlugins } from 'vite-plus';
 import type { Plugin } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+import { playwright } from 'vite-plus/test/browser-playwright';
+import { THEMES } from './src/work/schema.ts';
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -198,6 +201,23 @@ export default defineConfig({
         extends: true,
         test: { name: 'unit', include: ['test/unit/**/*.test.ts'], environment: 'node' },
       },
+      // Every story of Storybook (.storybook) as a test, in Chromium: once in each base theme, or in
+      // the first alone when Storybook runs them (its test panel and tools run one project).
+      ...(process.env.VITEST_STORYBOOK === 'true' ? THEMES.slice(0, 1) : THEMES).map(theme => ({
+        plugins: [storybookTest({ configDir: join(kit, '.storybook'), initialGlobals: { theme } })],
+        // Another run (Storybook's) may hold the test port: take the next free one. `server`
+        // above keeps only the editor to its own port.
+        server: { strictPort: false },
+        test: {
+          name: `stories-${theme}`,
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } }),
+            instances: [{ browser: 'chromium' as const }],
+          },
+        },
+      })),
       {
         extends: true,
         test: {
