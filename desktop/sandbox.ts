@@ -88,7 +88,11 @@ export interface SandboxWork {
  */
 function onPortal(url: string | undefined, portal: string): URL {
   const asked = new URL(url ?? '/', 'http://sandbox');
-  return new URL(`${asked.pathname}${asked.search}`, new URL(portal).origin);
+  // Set on the portal's address, never read as an address again (a path such as "//a//elsewhere/" would be).
+  const target = new URL(new URL(portal).origin);
+  target.pathname = asked.pathname;
+  target.search = asked.search;
+  return target;
 }
 
 /** A path from a URL, or null when it does not decode. */

@@ -197,19 +197,27 @@ describe('the sandbox server', () => {
       files: {},
     });
     const host = `work-a.localhost:${port}`;
-    for (const path of [`//127.0.0.1:${other}/secret`, `http://127.0.0.1:${other}/secret`]) {
-      const r = await get(port, host, path, sandbox.secret);
-      expect(r.body.toString()).not.toContain('elsewhere');
+    // The last: a path that names another host once its first host is taken off.
+    const paths = [
+      `//127.0.0.1:${other}/`,
+      `http://127.0.0.1:${other}/`,
+      `//a//127.0.0.1:${other}/`,
+    ];
+    for (const path of paths) {
+      const r = await get(port, host, `${path}secret`, sandbox.secret);
+      expect(r.body.toString(), path).not.toContain('elsewhere');
     }
-    const ws = new WebSocket(`ws://127.0.0.1:${port}//127.0.0.1:${other}/`, {
-      headers: { host, [SECRET_HEADER]: sandbox.secret },
-    });
-    const first = await new Promise<string>((resolve, reject) => {
-      ws.once('message', m => resolve(String(m)));
-      ws.once('error', reject);
-    });
-    expect(first).not.toContain('elsewhere');
-    ws.close();
+    for (const path of paths.filter(p => p.startsWith('//'))) {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, {
+        headers: { host, [SECRET_HEADER]: sandbox.secret },
+      });
+      const first = await new Promise<string>((resolve, reject) => {
+        ws.once('message', m => resolve(String(m)));
+        ws.once('error', reject);
+      });
+      expect(first, path).not.toContain('elsewhere');
+      ws.close();
+    }
   });
 
   it("passes the dev server's WebSocket (live reload) through, with its subprotocol", async () => {
