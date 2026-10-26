@@ -118,11 +118,8 @@ export interface ThreadStartResponse {
 export type UserInput =
   | { type: 'text'; text: string; text_elements: unknown[] }
   | { type: 'image'; url: string };
-/**
- * A copy of a conversation (a member that starts from the lead's). The copy keeps the source's tools
- * (there is no dynamicTools here) and takes its own instructions and isolation.
- */
-export interface ThreadForkParams {
+/** Open a saved conversation to go on with it; it keeps its tools, and takes the isolation again. */
+export interface ThreadResumeParams {
   threadId: string;
   model?: string | null;
   cwd?: string | null;
@@ -130,7 +127,16 @@ export interface ThreadForkParams {
   sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access';
   config?: Record<string, unknown> | null;
   developerInstructions?: string | null;
-  ephemeral?: boolean;
+}
+/** What was said in a conversation, page by page. */
+export interface ThreadItemsListParams {
+  threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+}
+export interface ThreadItemsListResponse {
+  data: Array<{ turnId: string; item: { type: string; [key: string]: unknown } }>;
+  nextCursor: string | null;
 }
 export interface TurnStartParams {
   threadId: string;
@@ -206,12 +212,15 @@ export type ThreadItem =
       durationMs: number | null;
     }
   | { type: string; id: string; [key: string]: unknown };
-/** Item types a den-kit turn may produce; anything else (commandExecution, mcpToolCall, webSearch, …) is reported. */
+/** Item types a den-kit turn may produce; anything else (commandExecution, fileChange, imageView, …) is reported. */
 export const EXPECTED_ITEMS = new Set([
   'userMessage',
   'agentMessage',
   'reasoning',
-  'dynamicToolCall',
+  'mcpToolCall',
+  'subAgentActivity',
+  'collabAgentToolCall',
+  'webSearch',
   'plan',
   'contextCompaction',
 ]);

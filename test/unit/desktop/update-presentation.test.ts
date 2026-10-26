@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { settingsError, updatePresentation } from '../../../src/desktop/presentation.ts';
+import { settingsError, updatePresentation } from '../../../src/editor/settings-presentation.ts';
 
 describe('update presentation', () => {
   it('hides updates where they do not apply', () => {

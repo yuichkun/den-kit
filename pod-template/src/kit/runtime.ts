@@ -5,7 +5,7 @@
 //                   log, picture (a PNG of the part), asset? (a picture by id), key
 //                   (keys the part does not use), missing (no such part)
 //   den-kit → page: init, props, controls, frame (sound + values), look, size,
-//                   mode, picture? (asks for one), asset (bytes)
+//                   mode, picture? (asks for one), asset (a URL on the page's own origin, or bytes)
 import type { Audio, ControlValue, Kit, Part, PropSpecs, PropValues } from './index';
 import { CONTROLS, type ControlId } from './controls';
 import { picture } from './picture';
@@ -331,6 +331,24 @@ export function boot(modules: Modules) {
       if (gesture) post({ type: 'end', gesture });
       gesture = null;
     },
+    bind: (behavior, id) => {
+      known(id);
+      const b = behavior as unknown as {
+        events: { on(l: (e: { type: string; value?: unknown }) => void): () => void };
+        set?(value: unknown): void;
+      };
+      b.set?.(values[id]);
+      const stop = b.events.on(e => {
+        if (e.type === 'begin') kit.begin();
+        else if (e.type === 'value') move(id as ControlId, e.value as ControlValue);
+        else kit.end();
+      });
+      const follow = kit.on(id, value => b.set?.(value));
+      return () => {
+        stop();
+        follow();
+      };
+    },
     audio,
     frame: l => {
       listeners.frame.add(l);
@@ -466,10 +484,15 @@ export function boot(modules: Modules) {
         const done = assetWaits.get(Number(m.req));
         if (!done) return;
         assetWaits.delete(Number(m.req));
+        // A URL on this page's own origin (den-kit serves the work's files there), or the bytes.
+        const own =
+          typeof m.url === 'string' && new URL(m.url, location.href).origin === location.origin;
         done(
-          m.bytes instanceof ArrayBuffer
-            ? URL.createObjectURL(new Blob([m.bytes], { type: String(m.mime ?? '') }))
-            : null,
+          own
+            ? String(m.url)
+            : m.bytes instanceof ArrayBuffer
+              ? URL.createObjectURL(new Blob([m.bytes], { type: String(m.mime ?? '') }))
+              : null,
         );
         return;
       }

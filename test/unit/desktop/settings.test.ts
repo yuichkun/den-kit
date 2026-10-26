@@ -8,13 +8,12 @@ describe('desktop settings', () => {
   it('persists only the chosen settings and rejects malformed values', () => {
     const dir = mkdtempSync(join(tmpdir(), 'den-kit-settings-'));
     try {
-      const value = { model: 'gpt-6.1-sol', effort: 'high', fork: true };
+      const value = { model: 'gpt-6.1-sol', effort: 'high' };
       writeSettings(dir, value);
       expect(readSettings(dir)).toEqual(value);
       expect(Object.keys(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')))).toEqual([
         'model',
         'effort',
-        'fork',
       ]);
       expect(() => validatedSettings({ ...value, effort: 'invented' })).toThrow();
       expect(() => validatedSettings({ ...value, model: '../../other' })).toThrow();

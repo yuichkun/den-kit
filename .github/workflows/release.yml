@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate:
     if: github.repository == 'yuichkun/den-kit'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -116,7 +116,7 @@ jobs:
   publish:
     needs: [validate, build]
     if: needs.validate.outputs.release == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # Publish one release at a time without canceling an active one. GitHub keeps only one pending job per
     # concurrency group, so merge release pull requests one at a time.

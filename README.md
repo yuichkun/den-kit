@@ -24,9 +24,10 @@ Signed builds for macOS (Apple silicon and Intel) are on
 ## Documentation
 
 - [Using den-kit](docs/usage.md): the macOS app, the basic workflow, shortcuts, saving,
-  code parts and known limitations
+  playing a work outside den-kit, code parts and known limitations
 - [Development](docs/development.md): running from source, building the macOS app,
   checks and tests
+- [Principles](docs/principles.md): the rules every change follows
 - [Architecture](docs/architecture.md): how den-kit is structured
 
 Bug reports and suggestions are welcome as GitHub issues. Include reproduction steps and

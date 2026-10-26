@@ -3,18 +3,18 @@ import { describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
-import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
-import type { BridgeStatus, LlmEvent } from '../../../src/ai/protocol.ts';
+import type { LlmInbound } from '../../../desktop/page/bridge-client.ts';
+import type { BridgeStatus, LlmEvent } from '../../../bridge/protocol.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { KIT_TOOLS, developerInstructions } from '../../../src/ai/llm-spec.ts';
 import { KitSession } from '../../../src/editor/session.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { fromPartView, partView } from '../../../src/core/parts.ts';
-import { partStarter, starter } from '../../../src/core/starters.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { fromPartView, partView } from '../../../src/work/parts.ts';
+import { partStarter, starter } from '../../../src/work/starters.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
 
 const makeSession = () =>
   new KitSession({
@@ -27,7 +27,7 @@ const makeSession = () =>
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
 class FakeTransport {
   online = true;
@@ -43,9 +43,18 @@ class FakeTransport {
       this.listeners.delete(l);
     };
   }
-  llmStart(id: string, text: string, instructions: string, thread?: string) {
-    this.sent.push({ t: 'llm.start', id, text, instructions, thread });
+  llmStart(
+    id: string,
+    text: string,
+    instructions: string,
+    thread?: string,
+    options: { context?: string } = {},
+  ) {
+    this.sent.push({ t: 'llm.start', id, text, instructions, thread, ...options });
     return true;
+  }
+  conversation() {
+    return Promise.resolve(null);
   }
   llmSteer() {
     return true;
@@ -130,16 +139,18 @@ describe('the LLM and parts', () => {
     session.commit([{ op: 'makePart', ids: ['osc1', 'filter1'], name: 'Drop' }]);
     session.enterPart('drop1');
     const first = llm.run('add a second oscillator');
-    expect(String(t.last('llm.start')!.text)).toMatch(
+    expect(String(t.last('llm.start')!.context)).toMatch(
       /The person is inside part "Drop" \(part drop, entered through drop1\)\. The request is about this part[^\n]*"inside": "drop"[^\n]*set on drop1/,
     );
-    expect(String(t.last('llm.start')!.text)).toMatch(/The person edited by hand: Make a part\./);
+    expect(String(t.last('llm.start')!.context)).toMatch(
+      /The person edited by hand: Make a part\./,
+    );
     t.done(first.id);
     await new Promise(r => setTimeout(r, 5));
     session.leavePart();
     llm.run('louder');
     expect(t.sent.filter(m => m.t === 'llm.start')).toHaveLength(2);
-    expect(String(t.last('llm.start')!.text)).not.toMatch(/inside part "Drop"/);
+    expect(String(t.last('llm.start')!.context)).not.toMatch(/inside part "Drop"/);
   });
   it('kit_apply_ops makes a part, uses it again and edits inside; the ids it tried are the ids that land', async () => {
     const state = { live: starter('bass', catalog) };

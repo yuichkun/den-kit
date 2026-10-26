@@ -2,36 +2,36 @@
    throughout, so coloured text lines up with the textarea drawn over it. */
 .hljs-comment,
 .hljs-quote {
-  color: #6a8a5a;
+  color: var(--code-comment);
 }
 .hljs-keyword,
 .hljs-literal,
 .hljs-doctag,
 .hljs-meta .hljs-keyword,
 .hljs-selector-tag {
-  color: #c792ea;
+  color: var(--code-keyword);
 }
 .hljs-built_in,
 .hljs-type,
 .hljs-title.class_,
 .hljs-title.class_.inherited__ {
-  color: #4ec9b0;
+  color: var(--code-type);
 }
 .hljs-title,
 .hljs-title.function_ {
-  color: #dcdcaa;
+  color: var(--code-function);
 }
 .hljs-string,
 .hljs-regexp,
 .hljs-template-tag,
 .hljs-meta .hljs-string,
 .hljs-code {
-  color: #e2a47a;
+  color: var(--code-string);
 }
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet {
-  color: #b5cea8;
+  color: var(--code-number);
 }
 .hljs-attr,
 .hljs-attribute,
@@ -40,33 +40,33 @@
 .hljs-template-variable,
 .hljs-params,
 .hljs-variable.language_ {
-  color: #9cdcfe;
+  color: var(--code-variable);
 }
 .hljs-tag,
 .hljs-name {
-  color: #6aa8e8;
+  color: var(--code-tag);
 }
 .hljs-selector-class,
 .hljs-selector-id,
 .hljs-selector-pseudo,
 .hljs-selector-attr {
-  color: #d7ba7d;
+  color: var(--code-selector);
 }
 .hljs-meta {
-  color: #c586c0;
+  color: var(--code-meta);
 }
 .hljs-section {
-  color: #6aa8e8;
+  color: var(--code-tag);
 }
 .hljs-link {
-  color: #4fc1ff;
+  color: var(--code-link);
   text-decoration: underline;
 }
 .hljs-addition {
-  color: #b5cea8;
+  color: var(--code-number);
 }
 .hljs-deletion {
-  color: #f48771;
+  color: var(--code-deletion);
 }
 .hljs-subst,
 .hljs-operator,

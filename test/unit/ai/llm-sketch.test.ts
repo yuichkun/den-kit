@@ -1,17 +1,16 @@
-// The person's rough sketch (U8c), from the marks to the AI: marks belong where
+// The person's rough sketch, from the marks to the AI: marks belong where
 // they were drawn (the plugin; the patch, or the part the person is inside);
 // sending reads them (what each goes around, crosses or joins) and keeps them,
-// dimmed, until the request ends; the LLM gets their words and pictures with the
-// request or with what is added to it; members get the sketches on what they
-// hold; pointing marks reach the LLM alongside the selection.
+// dimmed, until the request ends; the LLM gets their words (in den-kit's notes)
+// and pictures with the request or with what is added to it; pointing marks
+// reach the LLM alongside the selection.
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AiRequests } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import { attachmentsOf } from '../../../src/ai/attachments.ts';
-import { lineForAi, readSavedLines, savedLine } from '../../../src/ai/conversation.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { controlFor } from '../../../src/plugin/controls.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { controlFor } from '../../../src/screen/controls.ts';
 import type { SentSketch } from '../../../src/ai/sketch.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
 import { takeSketch, targetsOn } from '../../../src/editor/sketch-send.ts';
@@ -26,7 +25,6 @@ beforeEach(() => {
   t = new FakeLlmTransport();
   llm = new LlmController(session, requests, t as unknown as LlmTransport, {
     stopGraceMs: 200,
-    storage: null,
     deps: {
       compile: async () => ({ ok: true, ms: 300 }) as Awaited<ReturnType<WorkspaceDeps['compile']>>,
       render: async () => {
@@ -177,8 +175,8 @@ describe('the LLM gets the sketch', () => {
     };
     const o = llm.run('make this bigger', { sketch });
     const start = t.last('llm.start', o.id)!;
-    expect(String(start.text)).toContain(`\n[den-kit] ${PLUGIN}`);
-    expect(String(start.text)).toMatch(/\n\nmake this bigger$/);
+    expect(String(start.context)).toContain(`\n[den-kit] ${PLUGIN}`);
+    expect(start.text).toBe('make this bigger');
     expect(start.images).toEqual([PNG_P]);
     expect(session.sentMarks.value).toEqual({ [m.id]: o.id });
     expect(line(o.id).sketch?.parts[0]?.marks).toBe(1);
@@ -199,7 +197,8 @@ describe('the LLM gets the sketch', () => {
       sketch: { parts: [{ view: 'patch', marks: 1, text: PATCH, image: PNG_S }], ids: [m.id] },
     });
     const steer = t.last('llm.steer', added.id)!;
-    expect(String(steer.text)).toContain(`[den-kit] ${PATCH}`);
+    expect(String(steer.context)).toContain(`[den-kit] ${PATCH}`);
+    expect(steer.text).toBe('and wire it like this');
     expect(steer.images).toEqual([PNG_S]);
     expect(session.sentMarks.value).toEqual({ [m.id]: o.id });
     t.event(added.id, { kind: 'steered', target: o.id });
@@ -222,78 +221,7 @@ describe('the LLM gets the sketch', () => {
   });
 });
 
-describe('members get the sketches on what they hold', () => {
-  const SEAM = {
-    ops: [
-      {
-        op: 'addControl',
-        for: { node: 'cut1', port: 'hz' },
-        label: 'Cutoff',
-        panel: { x: 24, y: 96, w: 84, h: 96 },
-      },
-    ],
-  };
-  const MEMBERS = {
-    members: [
-      {
-        name: 'Sound',
-        goal: 'A squelchy acid bass',
-        scope: { sound: { nodes: ['filter1', 'fenv1'] } },
-        done: 'it bites',
-      },
-      { name: 'Screen', goal: 'A neon screen', scope: { screen: 'all' }, done: 'it glows' },
-      {
-        name: 'Bare',
-        goal: 'A rounder oscillator',
-        scope: { sound: { nodes: ['osc1'] } },
-        done: 'done',
-        context: 'bare',
-      },
-    ],
-  };
-  it('the sound member the patch sketch, the screen member the plugin sketch (words and picture); a bare brief neither', async () => {
-    const sketch: SentSketch = {
-      parts: [
-        { view: 'plugin', marks: 2, text: PLUGIN, image: PNG_P },
-        { view: 'patch', marks: 1, text: PATCH, image: PNG_S },
-      ],
-      ids: [],
-    };
-    const o = llm.run('acid with a neon screen', { sketch });
-    expect(t.last('llm.start', o.id)!.images).toEqual([PNG_P, PNG_S]);
-    expect((await t.call(o.id, 'l1', 'kit_apply_ops', SEAM)).success).toBe(true);
-    const started = await t.call(o.id, 'l2', 'kit_delegate', MEMBERS);
-    expect(started.text).toMatch(/^Started: /);
-    const sound = t.last('llm.start', `${o.id}~m1`)!,
-      screen = t.last('llm.start', `${o.id}~m2`)!,
-      bare = t.last('llm.start', `${o.id}~m3`)!;
-    expect(String(sound.text)).toContain(`[den-kit] The person's sketch: ${PATCH}`);
-    expect(String(sound.text)).not.toContain('sketched on the plugin');
-    expect(sound.images).toEqual([PNG_S]);
-    expect(String(screen.text)).toContain(`[den-kit] The person's sketch: ${PLUGIN}`);
-    expect(screen.images).toEqual([PNG_P]);
-    expect(String(bare.text)).not.toContain('sketch');
-    expect(bare.images).toBeUndefined();
-    // The lead passes marks along: their lines and the picture they are on.
-    expect(
-      (await t.call(o.id, 'l3', 'kit_tell', { member: 'm1', text: 'see the note', marks: [2] }))
-        .success,
-    ).toBe(true);
-    const told = t.last('llm.steer')!;
-    expect(String(told.text)).toBe(
-      `[den-kit] The lead adds: see the note\n[den-kit] ${PLUGIN.split('\n')[0]}\n${PLUGIN.split('\n')[2]}`,
-    );
-    expect(told.images).toEqual([PNG_P]);
-    const none = await t.call(o.id, 'l4', 'kit_tell', {
-      member: 'm1',
-      text: 'and this',
-      marks: [9],
-    });
-    expect(none).toMatchObject({ success: false, text: "No marks 9 in the person's sketch." });
-  });
-});
-
-describe('the prompt and the saved conversation', () => {
+describe('the prompt', () => {
   it('a short prompt with a box reaches the LLM and keeps its marks until the request ends', async () => {
     const m = session.addMark('patch', {
       kind: 'rect',
@@ -307,8 +235,8 @@ describe('the prompt and the saved conversation', () => {
     expect(o).toMatchObject({ status: 'thinking', route: 'llm' });
     expect(o.sketch?.parts[0]?.marks).toBe(1);
     const start = t.last('llm.start', o.id)!;
-    expect(String(start.text)).toContain('filter1 — Lowpass');
-    expect(String(start.text)).toContain(PATCH);
+    expect(String(start.context)).toContain('filter1 — Lowpass');
+    expect(String(start.context)).toContain(PATCH);
     expect(session.sentMarks.value).toEqual({ [m.id]: o.id });
     expect(session.sketch.value.patch.map(mark => mark.id)).toEqual([m.id]);
     t.done(o.id);
@@ -326,38 +254,11 @@ describe('the prompt and the saved conversation', () => {
     });
     expect(o.route).toBe('llm');
     const start = t.last('llm.start', o.id)!;
-    expect(String(start.text)).toContain(PLUGIN);
+    expect(String(start.context)).toContain(PLUGIN);
     expect(start.images).toEqual([PNG_P]);
     expect(session.sentMarks.value).toEqual({ [m.id]: o.id });
     t.done(o.id);
     await settle();
     expect(session.sketch.value.plugin).toEqual([]);
-  });
-  it('a saved line keeps what the sketch was, not its words or picture; the LLM reads that it had one', () => {
-    const saved = savedLine({
-      id: 'rq1',
-      text: 'make this bigger',
-      status: 'applied',
-      route: 'llm',
-      ms: 10,
-      label: 'bigger',
-      sketch: { parts: [{ view: 'plugin', marks: 2, text: PLUGIN, image: PNG_P }], ids: ['mark1'] },
-    });
-    expect(saved.sketch).toEqual({ parts: [{ view: 'plugin', marks: 2 }] });
-    const [back] = readSavedLines([
-      {
-        ...saved,
-        sketch: {
-          parts: [
-            { view: 'plugin', marks: 2, text: 'x' },
-            { view: 'bogus', marks: 1 },
-          ],
-        },
-      },
-    ]);
-    expect(back!.sketch).toEqual({ parts: [{ view: 'plugin', marks: 2 }] });
-    expect(lineForAi(back!)).toBe(
-      '- LLM request: “make this bigger” [with a sketch: 2 marks on the plugin] → bigger',
-    );
   });
 });

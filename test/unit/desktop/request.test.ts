@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { desktopRequest } from '../../../src/desktop/request.ts';
+import { withTimeout as desktopRequest } from '../../../src/editor/settings-presentation.ts';
 
 afterEach(() => vi.useRealTimers());
 describe('settings IPC deadlines', () => {

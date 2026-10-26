@@ -1,6 +1,6 @@
 // What the LLM is told and which tools it gets. Dependency-free: the Node bridge
-// registers these tools with Codex (dynamicTools) and the browser executes them
-// against the live patch (src/ai/llm-workspace.ts).
+// offers these tools to Codex (as an MCP server, bridge/mcp.ts) and the browser
+// executes them against the live patch (src/ai/llm-workspace.ts).
 
 export interface ToolSpec {
   name: string;
@@ -86,10 +86,10 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"addControl","for":{"node":"filter1","port":"cutoff"},"label":"Cutoff","panel":{"x":24,"y":96,"w":84,"h":96}}  (a knob for a module input, wired, with the input\'s range and unit; "type":"ui.slider"|"ui.toggle"|"ui.button"; leave out "panel" to use the first free space)',
       '  {"op":"setPanel","node":"knob1","panel":{"x":24,"y":96,"w":84,"h":96}}  (put an existing control on the plugin; null takes it off) · {"op":"setRect","id":"knob1","rect":{...}}  (move or resize a control or an element)',
       '  {"op":"setStyle","node":"knob1","style":{"skin":{"name":"cap","params":{"shape":"chicken"}},"textStyle":{"font":"oswald","size":12,"color":"fg"}}}  (replaces the control\'s whole style)',
-      '  {"op":"setLook","look":{"tokens":{"accent":"#ff7a59"},"background":[{"kind":"image","asset":"sc-wood","fit":"cover"}],"skins":{"knob":{"name":"ring"}}}}  (merges)',
+      '  {"op":"setLook","look":{"tokens":{"accent":"#ff7a59"},"background":[{"kind":"image","asset":"assets/den-kit/wood.jpg","fit":"cover"}],"skins":{"knob":{"name":"ring"}}}}  (merges)',
       '  {"op":"addElement","element":{"kind":"text","text":"ACID","rect":{"x":24,"y":16,"w":300,"h":48},"textStyle":{"font":"oswald","size":40,"color":"fg"}}} · {"op":"updateElement","id":"text1","set":{"text":"ACID 303"}} · {"op":"removeElement","id":"text1"}',
       '  {"op":"arrange","ids":["shape1"],"to":"back"} · {"op":"group","ids":["text1","shape1"]} · {"op":"setPanelSize","width":720,"height":440}',
-      '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief)',
+      '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief) · {"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"Live weather for the sky display"}]}  (the origins the code parts need; the person allows them, until then they are unreachable)',
       '  {"op":"addElement","element":{"kind":"code","part":"reels","rect":{"x":0,"y":0,"w":720,"h":200},"props":{"speed":1.5}}}  (a code part: src/parts/reels.ts of the screen project, written with kit_write_file or kit_bash; kit_ui_reference "code")',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
     ].join('\n'),
@@ -133,6 +133,7 @@ export const KIT_TOOLS: ToolSpec[] = [
                   'addAsset',
                   'wearLook',
                   'setBrief',
+                  'setNetwork',
                   'makePart',
                   'unpackPart',
                   'detachPart',
@@ -195,7 +196,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_write_codebox',
     description:
-      'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core"; inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
+      'Write the code of a codebox module (add one first with kit_apply_ops, type "kit.codebox") and declare its ports. The code must default-export defineSubgraph from "@unworklet/core" (it may also import audio and bytes from "@den-kit/assets"); inputs and outputs are Node<"f32"> (signal) or Node<"bool"> (gate). Code that compiles lands at once; type errors and compile errors come back with line numbers in your code and nothing lands.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -233,7 +234,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_listen',
     description:
-      'Render the patch offline with a short phrase and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
+      'Render the patch offline with a short phrase (its assets loaded, as the editor plays them) and measure it: level, peaks, clipping, brightness over time, attack and release, stereo width, broken samples (and a spectrogram picture when your model accepts images). Phrases: "bass" (mono bass line), "chord" (held 4-note chord), "hits" (percussive notes); effect patches with an Audio In hear "chords", "drums" or "noise" instead.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -291,6 +292,26 @@ export const KIT_TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'kit_import_asset',
+    description:
+      'Bring a file from a public URL into the work as an asset (assets/<name>): a picture, font, sound, video or data the work needs. den-kit fetches it (public addresses only, up to 100 MB) and checks that it is what its name says; then use it like any asset. Give its source and licence when you know them. It is one edit of this request.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        name: {
+          type: 'string',
+          description: 'File name with its extension (default: from the URL).',
+        },
+        title: { type: 'string' },
+        author: { type: 'string' },
+        license: { type: 'string' },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'kit_look',
     description:
       'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words.',
@@ -306,8 +327,8 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_bash',
     description: [
-      "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm install a package, npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF.",
-      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. No network beyond the npm registry and GitHub.',
+      "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF. To add a package, add it with a version to package.json's dependencies: den-kit installs it from the npm registry.",
+      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. The pod has no network: only installs by den-kit reach the npm registry (npm install <name>, curl and fetch fail).',
     ].join('\n'),
     inputSchema: {
       type: 'object',
@@ -348,7 +369,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_finish',
     description:
-      'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z. A member also reports to the lead: names (ids and names others rely on, e.g. "knob3 Drive → drive1.amount"), needs (what it needed outside its scope) and problems (what is left).',
+      'Finish: give a one-sentence summary of what you changed, in the language the user wrote in. Your edits are already live; the user can undo the whole request with one ⌘Z. A sub-agent also reports to the agent that started it: names (ids and names others rely on, e.g. "knob3 Drive → drive1.amount"), needs (what it needed outside its scope) and problems (what is left).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -366,92 +387,30 @@ export const KIT_TOOLS: ToolSpec[] = [
 const scopeSchema = {
   type: 'object',
   description:
-    'What the member may change. "sound": "all" (the whole patch) or {"parts":["drop"]} (inside those parts) or {"nodes":["filter1","env2"]} (those modules and the ones it adds). "screen": "all" (the whole plugin screen: look, brief, size, every control\'s place and style, decorations) or {"elements":["text1","knob3"]} (those controls and decorations and the ones it adds) or {"area":{"x":0,"y":0,"w":360,"h":200}} (what lies in that part of the screen and what it adds there). "project": "all" (the screen project in the pod: kit_bash, kit_write_file; one holder at a time). Scopes of members working at the same time must not overlap; yours is what is left.',
+    'What you will change. "sound": "all" (the whole patch) or {"parts":["drop"]} (inside those parts) or {"nodes":["filter1","env2"]} (those modules and the ones you add). "screen": "all" (the whole plugin screen: look, brief, size, every control\'s place and style, decorations) or {"elements":["text1","knob3"]} (those controls and decorations and the ones you add) or {"area":{"x":0,"y":0,"w":360,"h":200}} (what lies in that part of the screen and what you add there). "project": "all" (the screen project in the pod: kit_bash, kit_write_file; one holder at a time).',
   properties: { sound: {}, screen: {}, project: { type: 'string', enum: ['all'] } },
   additionalProperties: false,
 };
 
-/** Tools only a lead has: starting members, waiting for them, talking to them. */
-export const LEAD_TOOLS: ToolSpec[] = [
-  {
-    name: 'kit_delegate',
-    description:
-      'Start members: other AIs like you (same model, same tools) that work on parts of this request at the same time as you, each in its own scope. It returns at once with their ids; then do your own part outside their scopes, or call kit_wait. Use it only for parts that are substantial and independent once the names they share are fixed (land those first). Give each a short name the person sees, the goal (the result), why (what the person cares about, one sentence), its scope and when it is done; not how to build it. den-kit gives each member the person\'s own words, the recent conversation, what the person attached or sketched and the current state of its scope. context: "brief" (default), "full" (this whole conversation as well: for many rounds of taste talk) or "bare" (only your brief: mechanical jobs).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        members: {
-          type: 'array',
-          minItems: 1,
-          maxItems: 3,
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              goal: { type: 'string' },
-              why: { type: 'string' },
-              scope: scopeSchema,
-              done: { type: 'string' },
-              notes: { type: 'string' },
-              context: { type: 'string', enum: ['brief', 'full', 'bare'] },
-            },
-            required: ['name', 'goal', 'scope', 'done'],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ['members'],
-      additionalProperties: false,
-    },
+/** The sub-agent's own tool: say what it will change before it edits. */
+export const CLAIM_TOOL: ToolSpec = {
+  name: 'kit_claim_scope',
+  description:
+    'Say what you will change before you edit, when you are a sub-agent (an agent another agent started for part of this request). Edits outside your scope are refused, and scopes of agents working at the same time must not overlap: if yours overlaps one held now, this fails and says whose it is. Call it again to change your scope; it ends when you do. The agent the person asked does not need it, but cannot change what a working sub-agent holds.',
+  inputSchema: {
+    type: 'object',
+    properties: { scope: scopeSchema, name: { type: 'string' } },
+    required: ['scope'],
+    additionalProperties: false,
   },
-  {
-    name: 'kit_wait',
-    description:
-      'Wait for members: returns when the members named (default: all working ones) have finished, with their reports (summary, names, needs, problems, what landed, time, tokens), or after timeout_s (default 60, at most 60) with their progress so far, or at once when the person adds something to the request. Call it again to keep waiting.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        members: { type: 'array', items: { type: 'string' } },
-        timeout_s: { type: 'number', minimum: 5, maximum: 60 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'kit_tell',
-    description:
-      'Add instructions to a member that is working (it reads them at its next step). "marks": numbers of the person\'s sketch marks to pass along with their picture.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        member: { type: 'string' },
-        text: { type: 'string' },
-        marks: { type: 'array', items: { type: 'number' } },
-      },
-      required: ['member', 'text'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'kit_stop_member',
-    description:
-      'Stop a member that is working (what it already changed stays; its scope comes back to you).',
-    inputSchema: {
-      type: 'object',
-      properties: { member: { type: 'string' }, why: { type: 'string' } },
-      required: ['member'],
-      additionalProperties: false,
-    },
-  },
-];
-export const LEAD_TOOL_NAMES = new Set(LEAD_TOOLS.map(t => t.name));
+};
 
-/** Every kit_* tool den-kit runs (the lead's set). */
-export const KIT_TOOL_NAMES = new Set([...KIT_TOOLS, ...LEAD_TOOLS].map(t => t.name));
+/** Every kit_* tool den-kit runs. */
+export const KIT_TOOL_NAMES = new Set([...KIT_TOOLS, CLAIM_TOOL].map(t => t.name));
 
-/** The tools a conversation gets: a lead also starts members; alone or as a member, the rest. */
-export function toolsFor(role: 'solo' | 'lead' | 'member' = 'solo'): ToolSpec[] {
-  return role === 'lead' ? [...KIT_TOOLS, ...LEAD_TOOLS] : KIT_TOOLS;
+/** The tools every conversation gets (sub-agents included: the runtime gives them their parent's). */
+export function toolsFor(): ToolSpec[] {
+  return [...KIT_TOOLS, CLAIM_TOOL];
 }
 
 /** The pod may have to start first (on BrowserPod: boot, npm install, the dev server — minutes the first time). */
@@ -468,40 +427,22 @@ export function toolDeadlineMs(tool: string, args: unknown, base: number): numbe
     return Math.max(base, seconds * 1000 + POD_START_MS);
   }
   if (tool === 'kit_read_file' || tool === 'kit_write_file') return Math.max(base, POD_START_MS);
-  if (tool === 'kit_wait') {
-    const t = (args as { timeout_s?: unknown } | null)?.timeout_s;
-    const seconds = typeof t === 'number' && Number.isFinite(t) ? Math.min(60, Math.max(5, t)) : 60;
-    return Math.max(base, seconds * 1000 + 15_000);
-  }
   return base;
 }
 
-/** The rules the LLM works under; `blocks` is the catalogue summary from the browser. A lead and a member get their part of the rules too. */
-export function developerInstructions(
-  blocks: string,
-  role: 'solo' | 'lead' | 'member' = 'solo',
-): string {
-  return `${baseInstructions(blocks)}${role === 'lead' ? LEAD_RULES : role === 'member' ? MEMBER_RULES : ''}`;
+/** The rules the LLM works under; `blocks` is the catalogue summary from the browser. */
+export function developerInstructions(blocks: string): string {
+  return `${baseInstructions(blocks)}${AGENT_RULES}`;
 }
 
-const LEAD_RULES = `
+const AGENT_RULES = `
 
-Working with members (you lead this request)
-- You can hand parts of a request to members: other AIs like you (same model, same tools) that work at the same time as you, so the person gets the result sooner. Use kit_delegate only when the request has two or more substantial parts that can be built independently once the names they share are fixed: the sound and the screen of a new plugin, two separate sections of a screen, a code part beside den-kit controls. Do small edits, and work where every step depends on the last, yourself: a member takes a few seconds to start and you have to check its work.
-- Fix the seam before you split: the controls both sides use (addControl, with labels and ranges), the signals a display shows, the names of parts. Land them first with kit_apply_ops; members read them and keep them.
-- Give each member a short name the person sees ("Sound", "Screen", "Waveform"), the goal, why (what the person cares about, one sentence), its scope and when it is done. Not how to build it: it decides. den-kit already gives it the person's own words, the recent conversation, what they attached or sketched and the state of its scope; do not repeat those. context "brief" (default) is enough unless many rounds of taste talk matter ("full") or the job is mechanical ("bare").
-- Scopes must not overlap. A member changes only its scope, and while it works you cannot change its scope either. Controls are shared: a screen member places and styles them, a sound member sets their values; the controls that existed when they started are yours (nobody else removes or rewires them). The screen project ("project") has one holder at a time.
-- While members work, do your own part outside their scopes or wait with kit_wait (it returns when they finish, or after up to 60 s with their progress: call it again). kit_tell adds instructions to a working member; kit_stop_member stops one.
-- When they are done, read their reports (what changed, names, what they need), fix the seam if needed, look (kit_look) and listen (kit_listen) once over the whole, then kit_finish. Members included, the request is one ⌘Z for the person.`;
-
-const MEMBER_RULES = `
-
-You are a member
-- The lead AI split the person's request and gave you one part of it; other members may work on other parts at the same time. The first message says your part: the goal, why, your scope, when you are done, and what den-kit knows (the person's own words, the recent conversation, the state of your scope).
-- Change only what is in your scope: an edit outside it is refused and nothing of it lands. You may read everything. Keep the names others rely on: the controls and parts that existed when you started stay as they are (do not remove, rename or rewire them).
-- If you need something outside your scope (a new knob, a module, a file), do not work around it: put it in kit_finish "needs" and the lead adds it.
-- Work as usual (check, listen, look), then end with kit_finish: summary (one sentence, the person's language), names (ids and names others rely on), needs and problems. Keep chat text short: the lead reads your report and the person sees your progress.
-- You cannot start members yourself.`;
+Sub-agents
+- You can start sub-agents (other agents with the same tools) for parts of a request that are substantial and independent once the names they share are fixed: the sound and the screen of a new plugin, two separate sections of a screen, a code part beside den-kit controls. Do small edits, and work where every step depends on the last, yourself.
+- Fix the seam before you split: the controls both sides use (addControl, with labels and ranges), the signals a display shows, the names of parts. Land them first with kit_apply_ops.
+- Tell each sub-agent its goal, why, what it may change, and when it is done; it starts with kit_claim_scope and its scope. Scopes of agents working at the same time must not overlap, and while a sub-agent works nobody else changes its scope. The screen project has one holder at a time.
+- If you are a sub-agent: call kit_claim_scope before your first edit, change only your scope, keep the names others rely on (do not remove, rename or rewire what existed when you started), and end with a short report of what you changed and what you need.
+- When they are done, look (kit_look) and listen (kit_listen) once over the whole, then kit_finish. Sub-agents included, the request is one ⌘Z for the person.`;
 
 function baseInstructions(blocks: string): string {
   return `You edit a modular synthesizer patch in den-kit, a Bitwig-Grid-like environment whose patch compiles to an AudioWorklet. The user plays it live while you work.
@@ -515,7 +456,7 @@ How to work
 - Never ask the user to choose. If the request is ambiguous, take the most plausible reading, say it in one short sentence, and go on; the user will tell you if they meant something else.
 - Questions about how something works: answer in a few sentences in the user's language (read the patch first); change nothing unless asked.
 - The user may play and edit while you work. If an edit is refused because the patch changed, read it again. The whole request is one undo step for the user.
-- Requests can start with [den-kit] notes: what happened since your last turn (saved requests, the person's own edits, things they undid) or, in a new conversation, what came before. Use them for follow-ups such as "more", "not that one" or "like before".
+- Requests can start with [den-kit] notes: what the person has attached, sketched or is looking at, and the edits they made by hand since your last turn. Use them for follow-ups such as "more", "not that one" or "like before".
 - When the person attached things (they point at them), the request is about those: change them rather than building something new, unless they clearly ask for something new.
 - When the person is inside a part (a [den-kit] note says which), the request is about that part: work inside it unless they clearly ask for something else.
 - A [den-kit] note says what the person is looking at (the view, what is in sight and selected, the notes they hold): "this", "here" and "what I see" mean that. When they share their screen, kit_look with as "seen" shows it to you as they see it.
@@ -532,6 +473,7 @@ The patch model
   import { defineSubgraph, type Node } from '@unworklet/core';
   export default defineSubgraph(() => ({ tick(i: { in: Node<'f32'>; drive: Node<'f32'> }) { return { out: i.in.mul(i.drive).tanh() }; } }));
   Declare its ports with kit_write_codebox; inputs become knobs when unconnected.
+- Audio assets in the sound: a Sampler (den.samplePlayer) plays one; set its sound config to the asset's path (assets/…): it plays the first 65,536 frames (about 1.4 s), mixed to mono. A codebox reads assets with import { audio, bytes } from '@den-kit/assets', the path written out: audio('assets/kick.wav').read(channel, position) gives a sample (two channels, 0 outside the sound), bytes('assets/table.bin').at(index) a byte.
 
 Parts (build small, listen, then reuse)
 - A part is a piece of patch defined once and used in several places (kit.part nodes; each use has its own parameter values). Nodes inside a part have "inside": "<part id>"; kit_get_patch lists every part, its uses, inputs, parameters, outputs and what is inside.
@@ -560,7 +502,7 @@ The plugin screen (what the user plays)
 The screen project (code parts: when den-kit's own pieces are not enough)
 - Each work can have a web project (Vite + TypeScript, ESLint, git) that lives in the pod; its code parts show on the plugin in their own box, fed with the controls' values and the sound, and can move controls (one drag is one undo step for the person). Use it when the screen needs what controls, skins, decorations and canvases do not do: a look of its own, 3D (three.js), motion and physics, a display of the sound, a control that behaves its own way, a whole custom screen.
 - Before your first code part, read the project's AGENTS.md (kit_read_file "AGENTS.md"): the part API (src/kit/index.ts), how parts reach the controls (src/kit/controls.ts, made from the patch), and the rules. A work without a project gets one from den-kit's template on your first kit_bash or kit_write_file.
-- Work as in any web project: write files, npm install what you need, run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
+- Work as in any web project: write files, add the packages you need to package.json (den-kit installs them), run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
 - A control a code part reads or moves must exist in the patch (a knob wired to the input it stands for; it need not be on the plugin). Use the look's colours (the --dk-* CSS variables) so the part belongs to the plugin, and keep parts light (one animation loop through kit.frame).
 - Everything you change in the project lands in the work at once and undoes with your request; node_modules, dist and .git stay in the pod.
 

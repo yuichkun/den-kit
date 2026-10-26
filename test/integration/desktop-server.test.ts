@@ -16,7 +16,7 @@ it('isolates the renderer and refuses foreign hosts, writes and paths outside it
   const dir = mkdtempSync(join(tmpdir(), 'den-kit-renderer-'));
   const root = join(dir, 'renderer');
   mkdirSync(root);
-  writeFileSync(join(root, 'index.html'), '<h1>den-kit</h1>');
+  writeFileSync(join(root, 'desktop.html'), '<h1>den-kit</h1>');
   writeFileSync(join(dir, 'auth.json'), 'must not be served');
   const server = createServer(rendererServer(root));
   resources.push({ server, dir });

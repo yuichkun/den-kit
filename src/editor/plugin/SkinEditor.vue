@@ -8,8 +8,8 @@ import {
   type ControlKind,
   type Skin,
   type SkinParamValue,
-} from '../../core/skins.ts';
-import { isImageAsset, type AssetMeta } from '../../core/ui.ts';
+} from '../../work/skins.ts';
+import { isImageAsset, type AssetMeta } from '../../work/ui.ts';
 import ColorField from './ColorField.vue';
 import NumberField from './NumberField.vue';
 
@@ -24,7 +24,7 @@ const def = computed(() => (props.value ? skinDef(props.control, props.value.nam
 const pictures = computed(() => Object.values(props.assets).filter(isImageAsset));
 function param(id: string, v: SkinParamValue | null, done = true) {
   if (!props.value) return;
-  const params = { ...(props.value.params ?? {}) };
+  const params = { ...props.value.params };
   if (v === null) delete params[id];
   else params[id] = v;
   emit(

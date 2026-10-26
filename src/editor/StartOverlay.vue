@@ -68,7 +68,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: #0b0b0bd9;
+  background: color-mix(in srgb, var(--gray-1) 85%, transparent);
   backdrop-filter: blur(3px);
   cursor: pointer;
 }
@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #ddd;
+  color: var(--gray-17);
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 18px;
@@ -90,10 +90,10 @@ h1 {
   margin: 0 0 18px;
   font-size: 30px;
   font-weight: 400;
-  color: #f4f4f4;
+  color: var(--gray-18);
 }
 p {
-  color: #bdbdbd;
+  color: var(--gray-15);
   font-size: 15px;
   line-height: 1.5;
   margin: 6px 0;
@@ -109,7 +109,7 @@ p {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px 22px;
-  color: #a8a8a8;
+  color: var(--gray-14);
   font-size: 14px;
 }
 kbd {
@@ -117,11 +117,11 @@ kbd {
   min-width: 18px;
   padding: 1px 6px;
   margin-right: 4px;
-  border: 1px solid #555;
+  border: 1px solid var(--gray-9);
   border-bottom-width: 2px;
   border-radius: 4px;
-  background: #222;
-  color: #eee;
+  background: var(--gray-4);
+  color: var(--gray-18);
   font:
     12px/1.5 Lato,
     system-ui,

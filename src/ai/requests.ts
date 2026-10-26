@@ -1,11 +1,12 @@
-// The prompt and its saved conversation. Every new request goes to the LLM;
-// there is no local phrase interpreter or separate classification service.
+// The prompt and the requests of this session; what was said earlier in the
+// work's conversation is read from the runtime, which keeps it. Every request
+// goes to the LLM.
 import { shallowRef, watch } from 'vue';
-import type { KitSession } from '../editor/session.ts';
-import { randomId } from '../core/schema.ts';
+import type { AiSession } from './session.ts';
+import { randomId } from '../work/schema.ts';
 import type { Attachment } from './attachments.ts';
 import type { SentSketch } from './sketch.ts';
-import { SAVED_LINES, readSavedLines, savedLine } from './conversation.ts';
+import type { ConversationLine } from '../host/ai.ts';
 
 export type OutcomeStatus =
   | 'working'
@@ -16,8 +17,7 @@ export type OutcomeStatus =
   | 'stopped'
   | 'failed'
   | 'merged';
-/** Older route names are accepted only when reading a saved conversation. */
-export type RouteKind = 'llm' | 'none' | 'lexicon' | 'jev' | 'jev-target';
+export type RouteKind = 'llm' | 'none';
 
 export interface AgentLane {
   id: string;
@@ -51,48 +51,68 @@ export interface Outcome {
   fix?: string;
   screen?: boolean;
   attached?: Attachment[];
-  /** Preserved for conversations saved before the phrase interpreter was removed. */
-  repeats?: string;
   where?: { path: string[]; part: string; name: string };
   agents?: AgentLane[];
   tokens?: number;
   sketch?: SentSketch;
 }
 
+/** What was said earlier in a conversation, as request lines (the person's words, and what the AI said). */
+export function earlierLines(lines: readonly ConversationLine[]): Outcome[] {
+  const out: Outcome[] = [];
+  for (const [i, line] of lines.entries()) {
+    if (line.who === 'person')
+      out.push({ id: `earlier-${i}`, text: line.text, status: 'reply', route: 'llm', ms: 0 });
+    else if (out.length) {
+      const last = out.at(-1)!;
+      out[out.length - 1] = {
+        ...last,
+        reply: last.reply ? `${last.reply}\n${line.text}` : line.text,
+      };
+    }
+  }
+  return out;
+}
+
 export class AiRequests {
   readonly outcome = shallowRef<Outcome | null>(null);
+  /** This session's requests about the open work. */
   readonly history = shallowRef<Outcome[]>([]);
+  /** What was said before, in the open work's conversation. */
   readonly earlier = shallowRef<Outcome[]>([]);
-  readonly session: KitSession;
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly session: AiSession;
+  /** The conversation whose earlier lines were read. */
+  private readFor: string | null = null;
 
-  constructor(session: KitSession) {
+  constructor(session: AiSession) {
     this.session = session;
-    const saved = session.loadConversation();
-    if (saved && saved.id === session.conversation.value)
-      this.history.value = readSavedLines(saved.lines);
+    // Another work opened, or the work starts afresh (a starter loaded over it, a new conversation):
+    // its own requests and conversation show.
+    const clear = () => {
+      this.history.value = [];
+      this.outcome.value = null;
+      this.earlier.value = [];
+      this.readFor = null;
+    };
+    watch(() => session.doc.value.id, clear, { flush: 'sync' });
     watch(
       () => session.conversation.value,
-      () => {
-        this.earlier.value = [...this.earlier.value, ...this.history.value.map(savedLine)].slice(
-          -60,
-        );
-        this.history.value = [];
-        this.outcome.value = null;
-        this.persist();
+      (thread, before) => {
+        if (thread === null && before !== null) clear();
       },
       { flush: 'sync' },
     );
-    watch(this.history, () => {
-      if (this.persistTimer) return;
-      this.persistTimer = setTimeout(() => {
-        this.persistTimer = null;
-        this.persist();
-      }, 250);
+    // The work's conversation became known (read from the host's storage), or the runtime came online.
+    watch(
+      () => session.conversation.value,
+      () => void this.readEarlier(),
+    );
+    session.bridge?.onStatus(() => {
+      if (this.readFor !== session.conversation.value) void this.readEarlier();
     });
+    void this.readEarlier();
     session.onHistory((kind, tx) => {
-      // Older saved edits remain undoable, alongside the current LLM edits.
-      if (tx.author.kind !== 'ai-fast' && tx.author.kind !== 'ai-llm') return;
+      if (tx.author.kind !== 'ai-llm') return;
       const past = this.history.value.find(
         o => o.txId === tx.id || (tx.author.kind === 'ai-llm' && o.id === tx.author.take),
       );
@@ -107,6 +127,17 @@ export class AiRequests {
     });
   }
 
+  /** Read what was said earlier in the open work's conversation (the runtime keeps it); not this session's own requests. */
+  private async readEarlier() {
+    const thread = this.session.conversation.value;
+    const bridge = this.session.bridge;
+    if (!thread || !bridge?.online || this.readFor === thread || this.history.value.length) return;
+    const lines = await bridge.conversation(thread);
+    if (this.session.conversation.value !== thread || !lines) return;
+    this.readFor = thread;
+    this.earlier.value = earlierLines(lines).slice(-60);
+  }
+
   where(): Outcome['where'] {
     const path = this.session.partPath.value,
       doc = this.session.doc.value;
@@ -114,14 +145,6 @@ export class AiRequests {
     return part && doc.parts[part]
       ? { path: [...path], part, name: doc.parts[part]!.name }
       : undefined;
-  }
-
-  persist() {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
-    this.session.saveConversation(this.history.value.slice(-SAVED_LINES).map(savedLine));
   }
 
   upsert(outcome: Outcome) {

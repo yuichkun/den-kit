@@ -3,9 +3,14 @@
 // bridge restart with a new token, and forwards LLM messages to its listeners.
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { WebSocket, WebSocketServer } from 'ws';
-import { BridgeClient, type LlmInbound, type SocketLike } from '../../src/ai/bridge-client.ts';
+import {
+  BridgeClient,
+  type LlmInbound,
+  type SocketLike,
+} from '../../desktop/page/bridge-client.ts';
 import { createBridge, type Bridge } from '../../bridge/server.ts';
-import { PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../src/ai/protocol.ts';
+import { developerWording } from '../../dev/ai-wording.ts';
+import { PROTOCOL_VERSION, WS_PATH, type ServerMessage } from '../../bridge/protocol.ts';
 
 const ORIGIN = 'http://127.0.0.1:5180';
 const cleanup: Array<() => Promise<void> | void> = [];
@@ -43,6 +48,7 @@ function client(
   extra: Partial<ConstructorParameters<typeof BridgeClient>[0]> = {},
 ) {
   const c = new BridgeClient({
+    wording: developerWording,
     token: bridge.token,
     url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`,
     createSocket: url => new WebSocket(url, { origin: ORIGIN }) as unknown as SocketLike,
@@ -55,7 +61,7 @@ function client(
 
 describe('BridgeClient', () => {
   it('without a token it is disabled and cannot send an LLM request', async () => {
-    const c = new BridgeClient({ token: null });
+    const c = new BridgeClient({ wording: developerWording, token: null });
     c.start();
     expect(c.state.value).toBe('disabled');
     expect(c.detail.value).toMatch(/dev/);
@@ -125,6 +131,7 @@ describe('BridgeClient', () => {
   it('a refused origin is reported and not retried', async () => {
     const { bridge } = await setup();
     const c = new BridgeClient({
+      wording: developerWording,
       token: bridge.token,
       url: `ws://127.0.0.1:${bridge.port}${WS_PATH}`,
       createSocket: url =>
@@ -141,6 +148,7 @@ describe('BridgeClient', () => {
 
   it('a missing bridge means offline with backoff, never an exception', async () => {
     const c = new BridgeClient({
+      wording: developerWording,
       token: 't',
       url: 'ws://127.0.0.1:1/__kit/ws',
       createSocket: url => new WebSocket(url) as unknown as SocketLike,

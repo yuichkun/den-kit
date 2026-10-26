@@ -4,9 +4,9 @@
 // loses nothing in the patch.
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { extractBundle, bundleHash, latest } from '../../../src/core/library.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { extractBundle, bundleHash, latest } from '../../../src/work/library.ts';
 
 function memoryStorage(): StorageLike & { data: Map<string, string>; full: boolean } {
   const data = new Map<string, string>();
@@ -36,7 +36,7 @@ function makeSession(storage: StorageLike) {
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
   session.replace(starter('bass', catalog), 'Bass', false);
   return session;
@@ -80,7 +80,7 @@ describe('My parts in the session', () => {
     other.undo();
     expect(Object.keys(other.doc.value.parts)).toEqual([]);
   });
-  it('a newer version is offered (with what changes and whether it was changed here); updating is one undo step', () => {
+  it('a newer version is offered (with what changes and whether it was changed here); updating is one undo step', async () => {
     const { session, storage } = withTone();
     session.saveToMyParts('tone');
     const other = makeSession(storage);
@@ -97,7 +97,7 @@ describe('My parts in the session', () => {
       { op: 'addParam', part: 'tone', node: 'lfo9', port: 'rate', label: 'Rate' },
     ]);
     expect(session.saveToMyParts('tone').message).toMatch(/as v2/);
-    other.reloadMyParts();
+    await other.reloadMyParts();
     const status = other.myPartStatus(def.id);
     expect(status.newer?.version).toBe(2);
     expect(status.diff?.params.added).toEqual(['Rate']);

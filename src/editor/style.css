@@ -1,22 +1,6 @@
-/* App chrome in the spirit of Bitwig Studio: charcoal panels, Lato, orange accent. */
+/* den-kit's own screens: charcoal panels, Lato, orange accent. The colors are tokens (tokens.css). */
 :root {
   color-scheme: dark;
-  --bg: #0e0e0e;
-  --panel: #232323;
-  --panel-2: #2f2f2f;
-  --panel-3: #393939;
-  --line: #111;
-  --line-2: #3a3a3a;
-  --fg: #d4d4d4;
-  --muted: #8a8a8a;
-  --accent: #ff9c1a;
-  --accent-2: #3cc6ff;
-  --warn: #ffd43b;
-  --error: #ff3a5c;
-  --ok: #24d3a8;
-  --ghost: #b26bff;
-  --signal: #ff3a5c;
-  --gate: #ffd43b;
   font-family: Lato, system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 14px;
 }
@@ -44,13 +28,13 @@ button {
   border-radius: 4px;
   padding: 4px 10px;
   cursor: pointer;
-  color: #dcdcdc;
+  color: var(--gray-17);
   box-shadow:
-    0 1px 0 #ffffff10 inset,
-    0 1px 2px #0008;
+    0 1px 0 color-mix(in srgb, var(--gray-19) 6%, transparent) inset,
+    0 1px 2px color-mix(in srgb, var(--gray-0) 53%, transparent);
 }
 button:hover:not(:disabled) {
-  background: #444;
+  background: var(--gray-8);
 }
 button:disabled {
   opacity: 0.4;
@@ -58,18 +42,18 @@ button:disabled {
 }
 button.primary {
   background: var(--accent);
-  color: #1a1a1a;
+  color: var(--gray-3);
   font-weight: 700;
 }
 button.primary:hover:not(:disabled) {
-  background: #ffb24a;
+  background: var(--orange-light);
 }
 select,
 input[type='text'],
 input[type='number'],
 textarea {
-  background: #161616;
-  border: 1px solid #3a3a3a;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-7);
   border-radius: 4px;
   padding: 3px 6px;
 }
@@ -118,13 +102,13 @@ input[type='range'] {
   z-index: 5;
 }
 .ai-dock .resizer:hover {
-  background: #ff9c1a33;
+  background: color-mix(in srgb, var(--orange) 20%, transparent);
 }
 .ai-toggle {
-  color: #e8e8e8;
+  color: var(--gray-18);
 }
 .update-ready {
-  color: #1b1206;
+  color: var(--orange-darker);
   background: var(--accent);
   border-color: var(--accent);
   font-weight: 600;
@@ -137,8 +121,8 @@ input[type='range'] {
 }
 .kbd-hint {
   font-size: 11px;
-  color: #8a8a8a;
-  border: 1px solid #4a4a4a;
+  color: var(--gray-12);
+  border: 1px solid var(--gray-8);
   border-radius: 3px;
   padding: 0 4px;
   margin-left: auto;
@@ -149,8 +133,8 @@ input[type='range'] {
   right: 10px;
   z-index: 40;
   opacity: 0.25;
-  background: #000a;
-  color: #eee;
+  background: color-mix(in srgb, var(--gray-0) 67%, transparent);
+  color: var(--gray-18);
   transition: opacity 0.2s;
   display: inline-flex;
   gap: 8px;
@@ -165,9 +149,9 @@ input[type='range'] {
   align-items: center;
   gap: 10px;
   padding: 7px 12px;
-  background: #2a2a2a;
-  border-bottom: 1px solid #000;
-  box-shadow: 0 1px 0 #ffffff0a inset;
+  background: var(--gray-5);
+  border-bottom: 1px solid var(--gray-0);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--gray-19) 4%, transparent) inset;
 }
 .toolbar .group {
   display: flex;
@@ -182,7 +166,7 @@ input[type='range'] {
 }
 .toolbar b {
   letter-spacing: 0.06em;
-  color: #f0f0f0;
+  color: var(--gray-18);
 }
 .logo {
   display: inline-grid;
@@ -199,13 +183,13 @@ input[type='range'] {
   display: block;
 }
 .logo i:nth-child(3n) {
-  background: #3cc6ff;
+  background: var(--cyan);
 }
 .logo i:nth-child(5n) {
-  background: #ff3a5c;
+  background: var(--red);
 }
 .logo i:nth-child(7n) {
-  background: #24d3a8;
+  background: var(--teal);
 }
 .status {
   font-size: 12px;
@@ -221,7 +205,7 @@ input[type='range'] {
 }
 .status.error {
   color: var(--error);
-  background: #161616;
+  background: var(--gray-2);
 }
 .status.busy {
   color: var(--warn);
@@ -253,13 +237,13 @@ input[type='range'] {
   position: relative;
   min-height: 0;
   overflow: hidden;
-  border-left: 1px solid #000;
+  border-left: 1px solid var(--gray-0);
 }
 .patch-menu {
   position: relative;
 }
 .patch-menu > button.open {
-  background: #3a3a3a;
+  background: var(--gray-7);
 }
 .patch-menu .menu {
   position: absolute;
@@ -270,10 +254,10 @@ input[type='range'] {
   display: flex;
   flex-direction: column;
   padding: 6px;
-  background: #262626;
-  border: 1px solid #3a3a3a;
+  background: var(--gray-4);
+  border: 1px solid var(--gray-7);
   border-radius: 8px;
-  box-shadow: 0 12px 32px #000c;
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--gray-0) 80%, transparent);
 }
 .patch-menu .menu button {
   text-align: left;
@@ -283,7 +267,7 @@ input[type='range'] {
   border-radius: 5px;
 }
 .patch-menu .menu button:hover {
-  background: #3a3a3a;
+  background: var(--gray-7);
 }
 .patch-menu .menu-head {
   font-size: 11px;
@@ -294,7 +278,7 @@ input[type='range'] {
 }
 .patch-menu hr {
   border: 0;
-  border-top: 1px solid #3a3a3a;
+  border-top: 1px solid var(--gray-7);
   margin: 6px 4px;
 }
 .banner {
@@ -306,36 +290,36 @@ input[type='range'] {
   max-width: min(720px, calc(100% - 48px));
   padding: 8px 14px;
   border-radius: 8px;
-  background: #2a2416ee;
-  border: 1px solid #6b5a1e;
-  color: #ffe08a;
+  background: color-mix(in srgb, var(--orange-darker) 93%, transparent);
+  border: 1px solid var(--yellow-dark);
+  color: var(--sand);
   font-size: 13px;
-  box-shadow: 0 8px 24px #000a;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--gray-0) 67%, transparent);
 }
 .banner.below {
   top: 124px;
 }
 
 .bottom {
-  border-top: 1px solid #000;
-  background: #262626;
+  border-top: 1px solid var(--gray-0);
+  background: var(--gray-4);
 }
 .tabs {
   display: flex;
   gap: 0;
-  background: #161616;
+  background: var(--gray-2);
   border-radius: 4px;
   padding: 2px;
 }
 .tabs button {
   background: transparent;
   box-shadow: none;
-  color: #9a9a9a;
+  color: var(--gray-13);
   padding: 3px 12px;
 }
 .tabs button.active {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--gray-7);
+  color: var(--gray-19);
 }
 /* The pod's state on the Project tab: grey off, amber working, green ready, red failed. */
 .pod-dot {
@@ -345,19 +329,19 @@ input[type='range'] {
   border-radius: 50%;
   margin-left: 4px;
   vertical-align: 1px;
-  background: #555;
+  background: var(--gray-9);
 }
 .pod-dot.ready {
-  background: #45d16b;
+  background: var(--green);
 }
 .pod-dot.failed {
-  background: #ff5b5b;
+  background: var(--red-soft);
 }
 .pod-dot.booting,
 .pod-dot.syncing,
 .pod-dot.installing,
 .pod-dot.starting {
-  background: #ffb02e;
+  background: var(--orange-light);
 }
 .toasts {
   position: fixed;
@@ -372,9 +356,9 @@ input[type='range'] {
 .toast {
   padding: 9px 12px;
   border-radius: 5px;
-  background: #2f2f2f;
+  background: var(--gray-6);
   border-left: 3px solid var(--accent-2);
-  box-shadow: 0 6px 20px #000c;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--gray-0) 80%, transparent);
 }
 .toast.warn {
   border-left-color: var(--warn);
@@ -407,7 +391,7 @@ input[type='range'] {
 }
 .section {
   padding: 10px 14px;
-  border-bottom: 1px solid #111;
+  border-bottom: 1px solid var(--gray-1);
 }
 .section h3 {
   margin: -10px -14px 8px;
@@ -415,8 +399,8 @@ input[type='range'] {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #a8a8a8;
-  background: #2b2b2b;
+  color: var(--gray-14);
+  background: var(--gray-5);
   text-align: center;
   font-weight: 400;
 }
@@ -428,7 +412,7 @@ input[type='range'] {
 }
 .row label {
   width: 96px;
-  color: #b5b5b5;
+  color: var(--gray-15);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -438,13 +422,13 @@ input[type='range'] {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   padding: 0 4px;
-  border: 1px solid #444;
+  border: 1px solid var(--gray-8);
   border-radius: 3px;
 }
 .overlay {
   position: absolute;
   inset: 0;
-  background: #000b;
+  background: color-mix(in srgb, var(--gray-0) 73%, transparent);
   display: grid;
   place-items: center;
   z-index: 30;
@@ -456,7 +440,7 @@ input[type='range'] {
   border-radius: 8px;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  box-shadow: 0 20px 60px #000;
+  box-shadow: 0 20px 60px var(--gray-0);
   overflow: hidden;
 }
 .modal header,
@@ -465,5 +449,20 @@ input[type='range'] {
   display: flex;
   gap: 8px;
   align-items: center;
-  background: #2b2b2b;
+  background: var(--gray-5);
+}
+
+/* A work open in another window: this window says so instead of opening it. */
+.refused {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.refused p {
+  max-width: 34em;
+  font-size: 15px;
+  line-height: 1.5;
 }

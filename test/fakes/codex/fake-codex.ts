@@ -8,6 +8,12 @@
 // Turns are scripted: FAKE_CODEX_SCENARIOS names a module whose default export is
 // Scenario[]; the first whose `match` fits the user text runs (see scenarios.ts).
 //
+// Tools: a thread whose config names an MCP server (mcp_servers) gets its tools from
+// it, as the real server does: each thread opens its own MCP session (initialize,
+// tools/list) and calls tools/call with _meta.threadId. A scenario can start
+// sub-agents (spawn): like the real one, the parent's conversation reports them
+// (subAgentActivity), and each runs a turn on its own thread with its own MCP session.
+//
 // Environment:
 //   CODEX_HOME            must exist (like the real CLI); auth.json there = signed in
 //   FAKE_CODEX_AUTH       chatgpt | apiKey | none | no-auth (overrides auth.json)
@@ -17,9 +23,9 @@
 //   FAKE_CODEX_SPLIT      1: write every message in two chunks (tests line buffering)
 //   FAKE_CODEX_STARTUP_MS delay before the first reply
 //   FAKE_CODEX_LATE_INTERRUPT_MS  reply delay for interrupting a finished turn (real: ~9.5 s)
-//   FAKE_CODEX_FORK       refuse: thread/fork fails ("no rollout found", like an ephemeral thread may)
 //   FAKE_CODEX_LOGIN      success | completed-only | completed-before-save | updated-first | file-first | silent | early-completion | failure | crash | hang-start
 //   FAKE_CODEX_CONFIRM    hang | error | delay: account confirmation after OAuth succeeds
+//   FAKE_CODEX_ITEMS      refuse: thread/items/list fails (a saved conversation cannot be read back)
 import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -33,11 +39,13 @@ export interface TurnApi {
   readonly text: string;
   /** Pictures that came with it (data: URLs), and with each steer. */
   readonly images: string[];
-  /** This turn's conversation is a copy of another (thread/fork): its id. */
-  readonly forkedFrom: string | null;
   /** Texts steered into the turn so far. */
   readonly steers: string[];
   readonly interrupted: boolean;
+  /** Start a sub-agent named `name` that runs `run` on its own thread; resolves when it ends. */
+  spawn(name: string, run: (agent: TurnApi) => Promise<void>): Promise<void>;
+  /** Wait for every sub-agent this turn started (a collab `wait`). */
+  waitAgents(): Promise<void>;
   say(text: string, chunks?: number): Promise<void>;
   think(): Promise<void>;
   /** A kit_* tool round trip through den-kit. */
@@ -157,6 +165,111 @@ const notify = (method: string, params: Record<string, unknown>) =>
 const respond = (id: unknown, result: unknown) => write({ id, result });
 const refuse = (id: unknown, message: string) => write({ error: { code: -32600, message }, id });
 
+// ---- den-kit's MCP server, as the real codex-mcp-client talks to it ----------------------------------
+const MCP_SERVER_KEYS = new Set([
+  'url',
+  'bearer_token_env_var',
+  'required',
+  'startup_timeout_sec',
+  'tool_timeout_sec',
+  'default_tools_approval_mode',
+  'enabled_tools',
+  'disabled_tools',
+]);
+async function mcpPost(
+  link: McpLink,
+  body: Record<string, unknown>,
+  timeoutMs = 20000,
+): Promise<{ result?: any; error?: { message?: string } } | null> {
+  const r = await fetch(link.url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream, application/json',
+      authorization: `Bearer ${link.token}`,
+      'user-agent': 'codex-mcp-client/0.160.1',
+      ...(link.protocol ? { 'mcp-protocol-version': link.protocol } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', ...body }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (r.status === 202) return null;
+  if (!r.ok) throw new Error(`MCP server answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return (await r.json()) as { result?: any; error?: { message?: string } };
+}
+/** A new MCP session for one thread: initialize, initialized, tools/list. */
+async function connectMcp(thread: ThreadState): Promise<void> {
+  const server = thread.mcpConfig!;
+  const link: McpLink = {
+    url: String(server.url),
+    token: env[String(server.bearer_token_env_var ?? '')] ?? '',
+    approve: server.default_tools_approval_mode === 'approve',
+    timeoutMs: Number(server.tool_timeout_sec ?? 60) * 1000,
+    tools: new Set(),
+    next: 0,
+    protocol: '',
+  };
+  notify('mcpServer/startupStatus/updated', {
+    threadId: thread.id,
+    name: 'den-kit',
+    status: 'starting',
+    error: null,
+    failureReason: null,
+  });
+  const init = await mcpPost(link, {
+    id: link.next++,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-06-18',
+      capabilities: { elicitation: { form: {}, url: {} } },
+      clientInfo: { name: 'codex-mcp-client', title: 'Codex', version: '0.160.1' },
+    },
+  });
+  if (!init?.result) throw new Error(init?.error?.message ?? 'no answer to initialize');
+  link.protocol = String(init.result.protocolVersion);
+  await mcpPost(link, { method: 'notifications/initialized' });
+  const list = await mcpPost(link, {
+    id: link.next++,
+    method: 'tools/list',
+    params: { _meta: { progressToken: 0 } },
+  });
+  for (const t of (list?.result?.tools ?? []) as Array<{ name?: unknown }>)
+    link.tools.add(String(t.name));
+  thread.mcp = link;
+  log({ mcpSession: { thread: thread.id, tools: [...link.tools] } });
+  notify('mcpServer/startupStatus/updated', {
+    threadId: thread.id,
+    name: 'den-kit',
+    status: 'ready',
+    error: null,
+    failureReason: null,
+  });
+}
+/** The den-kit MCP server named in a thread's config, checked like the real config loader. */
+function mcpServerOf(config: unknown): {
+  server: Record<string, unknown> | null;
+  problem?: string;
+} {
+  if (!isObj(config) || config.mcp_servers === undefined) return { server: null };
+  if (!isObj(config.mcp_servers)) return { server: null, problem: 'mcp_servers must be a table' };
+  const server = config.mcp_servers['den-kit'];
+  if (!isObj(server)) return { server: null };
+  for (const key of Object.keys(server))
+    if (!MCP_SERVER_KEYS.has(key))
+      return { server: null, problem: `unrecognized configuration: mcp_servers.den-kit.${key}` };
+  if (typeof server.url !== 'string' || !/^https?:\/\//.test(server.url))
+    return { server: null, problem: 'mcp_servers.den-kit.url must be an http(s) URL' };
+  if (
+    server.default_tools_approval_mode !== undefined &&
+    !['auto', 'prompt', 'writes', 'approve'].includes(String(server.default_tools_approval_mode))
+  )
+    return {
+      server: null,
+      problem: 'unknown variant in mcp_servers.den-kit.default_tools_approval_mode',
+    };
+  return { server };
+}
+
 if (env.FAKE_CODEX_FAULT === 'garbage') {
   process.stdout.write('this is not json\n{"half": \n\n[1,2,3]\n');
 }
@@ -181,20 +294,43 @@ interface TurnState {
   steerWaiters: Array<(t: string) => void>;
   started: number;
   images: string[];
+  /** turn/started was sent: like the real server, an interrupt before it is refused. */
+  begun: boolean;
+  /** Sub-agents it started (each resolves when it ends). */
+  children: Array<Promise<void>>;
+}
+/** A thread's session with den-kit's MCP server. */
+interface McpLink {
+  url: string;
+  token: string;
+  approve: boolean;
+  timeoutMs: number;
+  tools: Set<string>;
+  next: number;
+  protocol: string;
 }
 interface ThreadState {
   id: string;
   turn: TurnState | null;
   tools: Set<string>;
   unsubscribed: boolean;
-  forkedFrom: string | null;
   usage: { input: number; cached: number; output: number; reasoning: number };
+  /** Saved (not ephemeral): it can be opened again and read back while this process runs. */
+  saved: boolean;
+  /** What was said, as thread/items/list returns it. */
+  items: Array<{ turnId: string; item: Record<string, unknown> }>;
+  /** The MCP server in its config (mcp_servers["den-kit"]), and its session with it. */
+  mcpConfig: Record<string, unknown> | null;
+  mcp: McpLink | null;
+  /** The thread that started it, when it is a sub-agent. */
+  parent: string | null;
 }
+/** A turn's text: den-kit's notes (when there are any), then the person's words, a blank line apart. */
 const textOf = (input: unknown) =>
   (input as Array<{ type: string; text?: string }>)
     .filter(i => i.type === 'text')
     .map(i => i.text)
-    .join('\n');
+    .join('\n\n');
 const imagesOf = (input: unknown) =>
   (input as Array<{ type: string; url?: string }>).filter(i => i.type === 'image').map(i => i.url!);
 const threads = new Map<string, ThreadState>();
@@ -277,28 +413,24 @@ const THREAD_START_KEYS = new Set([
   'mockExperimentalField',
   'experimentalRawEvents',
 ]);
-const THREAD_FORK_KEYS = new Set([
+const THREAD_RESUME_KEYS = new Set([
   'threadId',
-  'lastTurnId',
-  'beforeTurnId',
+  'history',
   'path',
   'model',
   'modelProvider',
   'serviceTier',
   'cwd',
-  'runtimeWorkspaceRoots',
   'approvalPolicy',
   'approvalsReviewer',
   'sandbox',
-  'permissions',
   'config',
   'baseInstructions',
   'developerInstructions',
-  'ephemeral',
-  'threadSource',
+  'personality',
   'excludeTurns',
-  'deferGoalContinuation',
 ]);
+const ITEMS_LIST_KEYS = new Set(['threadId', 'turnId', 'cursor', 'limit', 'sortDirection']);
 const TURN_START_KEYS = new Set([
   'threadId',
   'disabledPluginIds',
@@ -368,6 +500,19 @@ function checkThreadStart(p: Record<string, unknown>): string | null {
     !['disabled', 'cached', 'indexed', 'live'].includes(String(p.config.web_search))
   )
     return 'failed to load configuration: unknown variant in `web_search`';
+  if (isObj(p.config) && p.config.agents !== undefined) {
+    const agents = p.config.agents;
+    if (!isObj(agents)) return 'failed to load configuration: agents must be a table';
+    for (const [key, value] of Object.entries(agents))
+      if (key === 'max_concurrent_threads_per_session') {
+        if (typeof value !== 'number' || value < 1)
+          return 'failed to load configuration: agents.max_concurrent_threads_per_session must be a positive number';
+      } else if (!isObj(value))
+        // Any other key is an agent role (a table).
+        return `failed to load configuration: invalid type in \`agents.${key}\`, expected struct AgentRoleToml`;
+  }
+  const mcp = mcpServerOf(p.config);
+  if (mcp.problem) return `thread/start: ${mcp.problem}`;
   if (p.dynamicTools !== undefined && p.dynamicTools !== null) {
     if (!Array.isArray(p.dynamicTools)) return 'thread/start: dynamicTools must be an array';
     for (const t of p.dynamicTools) {
@@ -489,6 +634,216 @@ function endTurn(
   });
 }
 
+/** A tool call through the thread's MCP session, reported as the real server reports it (mcpToolCall items). */
+async function mcpCall(
+  turn: TurnState,
+  tool: string,
+  args: unknown,
+): Promise<{ success: boolean; text: string; images: number }> {
+  const link = turn.thread.mcp!;
+  const ids = { threadId: turn.thread.id, turnId: turn.id };
+  const itemId = `exec-${randomUUID()}`;
+  const started = Date.now();
+  const item = (extra: Record<string, unknown>) => ({
+    type: 'mcpToolCall',
+    id: itemId,
+    server: 'den-kit',
+    tool,
+    status: 'inProgress',
+    arguments: args,
+    appContext: null,
+    mcpAppUi: null,
+    pluginId: null,
+    readOnlyHint: null,
+    result: null,
+    error: null,
+    durationMs: null,
+    ...extra,
+  });
+  notify('item/started', { item: item({}), ...ids, startedAtMs: started });
+  const end = (ok: boolean, extra: Record<string, unknown>, text: string, images = 0) => {
+    if (turn.active)
+      notify('item/completed', {
+        item: item({
+          status: ok ? 'completed' : 'failed',
+          durationMs: Date.now() - started,
+          ...extra,
+        }),
+        ...ids,
+        completedAtMs: Date.now(),
+      });
+    return { success: ok, text, images };
+  };
+  // Like the real one: without approval, an MCP tool never runs when approvals are off.
+  if (!link.approve) {
+    const message = 'MCP tool call requires approval, but approval policy is never';
+    return end(false, { error: { message } }, message);
+  }
+  if (!link.tools.has(tool))
+    return end(false, { error: { message: `unknown tool ${tool}` } }, `unknown MCP tool: ${tool}`);
+  let reply: Awaited<ReturnType<typeof mcpPost>>;
+  try {
+    reply = await mcpPost(
+      link,
+      {
+        id: link.next++,
+        method: 'tools/call',
+        params: {
+          _meta: {
+            callId: itemId,
+            'x-codex-turn-metadata': {
+              thread_id: turn.thread.id,
+              turn_id: turn.id,
+              ...(turn.thread.parent
+                ? { parent_thread_id: turn.thread.parent, subagent_kind: 'thread_spawn' }
+                : {}),
+            },
+            threadId: turn.thread.id,
+            progressToken: link.next,
+          },
+          name: tool,
+          arguments: args,
+        },
+      },
+      link.timeoutMs,
+    );
+  } catch (error) {
+    return end(false, { error: { message: String(error) } }, `tool call failed: ${String(error)}`);
+  }
+  const result = reply?.result as
+    | { content?: Array<Record<string, unknown>>; isError?: boolean }
+    | undefined;
+  if (!result || !Array.isArray(result.content)) {
+    violation('tools/call answered without content', reply);
+    return end(false, { error: { message: 'no result' } }, reply?.error?.message ?? 'no result');
+  }
+  for (const c of result.content)
+    if (
+      c.type === 'text'
+        ? typeof c.text !== 'string'
+        : c.type === 'image'
+          ? typeof c.data !== 'string' || !String(c.mimeType).startsWith('image/')
+          : true
+    )
+      violation(`bad MCP content item ${JSON.stringify(c).slice(0, 80)}`);
+  log({
+    mcpCall: {
+      thread: turn.thread.id,
+      tool,
+      success: !result.isError,
+      types: result.content.map(c => c.type),
+      text: result.content
+        .filter(c => c.type === 'text')
+        .map(c => String(c.text))
+        .join('\n'),
+      images: result.content
+        .filter(c => c.type === 'image')
+        .map(c => ({
+          mimeType: String(c.mimeType),
+          prefix: String(c.data).slice(0, 16),
+          length: String(c.data).length,
+        })),
+    },
+  });
+  return end(
+    !result.isError,
+    { result: { content: result.content, structuredContent: null } },
+    result.content
+      .filter(c => c.type === 'text')
+      .map(c => String(c.text))
+      .join('\n'),
+    result.content.filter(c => c.type === 'image').length,
+  );
+}
+
+/**
+ * A sub-agent, as the real server runs one: the parent's conversation reports it (subAgentActivity started),
+ * it runs a turn on its own thread with its own MCP session, and the parent hears when it ends. It does not
+ * stop with its parent's turn: it has to be interrupted on its own thread.
+ */
+function spawnAgent(
+  parentTurn: TurnState,
+  name: string,
+  run: (agent: TurnApi) => Promise<void>,
+): Promise<void> {
+  const parent = parentTurn.thread;
+  const child: ThreadState = {
+    id: randomUUID(),
+    turn: null,
+    tools: parent.tools,
+    unsubscribed: false,
+    usage: { input: 0, cached: 0, output: 0, reasoning: 0 },
+    saved: true,
+    items: [],
+    mcpConfig: parent.mcpConfig,
+    mcp: null,
+    parent: parent.id,
+  };
+  threads.set(child.id, child);
+  const activity = (kind: string, itemId: string) => {
+    if (!parentTurn.active) return;
+    const item = {
+      type: 'subAgentActivity',
+      id: itemId,
+      kind,
+      agentThreadId: child.id,
+      agentPath: `/root/${name}`,
+    };
+    const ids = { threadId: parent.id, turnId: parentTurn.id };
+    notify('item/started', { item, ...ids, startedAtMs: Date.now() });
+    notify('item/completed', { item, ...ids, completedAtMs: Date.now() });
+  };
+  activity('started', `call_${randomUUID().slice(0, 8)}`);
+  const turn: TurnState = {
+    id: randomUUID(),
+    thread: child,
+    active: true,
+    interrupted: false,
+    steers: [],
+    steersRead: 0,
+    steerWaiters: [],
+    started: Date.now(),
+    images: [],
+    begun: true,
+    children: [],
+  };
+  child.turn = turn;
+  notify('thread/status/changed', {
+    threadId: child.id,
+    status: { type: 'active', activeFlags: [] },
+  });
+  notify('turn/started', {
+    threadId: child.id,
+    turn: {
+      id: turn.id,
+      items: [],
+      itemsView: 'notLoaded',
+      status: 'inProgress',
+      error: null,
+      startedAt: Math.floor(Date.now() / 1000),
+      completedAt: null,
+      durationMs: null,
+    },
+  });
+  log({ subAgent: child.id, parent: parent.id, name });
+  return (async () => {
+    try {
+      if (child.mcpConfig) await connectMcp(child);
+      await run(api(turn, `sub-agent ${name}`));
+      endTurn(turn, 'completed');
+    } catch (error) {
+      log({ scenarioError: String(error) });
+      endTurn(turn, 'failed', {
+        message: `fake sub-agent threw: ${String(error)}`,
+        codexErrorInfo: 'other',
+        additionalDetails: null,
+        misalignment: null,
+      });
+    }
+    activity(turn.interrupted ? 'interrupted' : 'completed', `subagent-completed-${turn.id}`);
+  })();
+}
+
 function api(turn: TurnState, text: string): TurnApi {
   const live = () => turn.active;
   const ids = { threadId: turn.thread.id, turnId: turn.id };
@@ -499,12 +854,37 @@ function api(turn: TurnState, text: string): TurnApi {
     get images() {
       return turn.images;
     },
-    forkedFrom: turn.thread.forkedFrom,
     get steers() {
       return turn.steers;
     },
     get interrupted() {
       return turn.interrupted;
+    },
+    spawn(name, run) {
+      if (!live()) return Promise.resolve();
+      const work = spawnAgent(turn, name, run);
+      turn.children.push(work);
+      return work;
+    },
+    async waitAgents() {
+      const itemId = `call_${randomUUID().slice(0, 8)}`;
+      const item = (status: string) => ({
+        type: 'collabAgentToolCall',
+        id: itemId,
+        tool: 'wait',
+        status,
+        senderThreadId: turn.thread.id,
+        receiverThreadIds: [],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      });
+      if (live())
+        notify('item/started', { item: item('inProgress'), ...ids, startedAtMs: Date.now() });
+      await Promise.all(turn.children);
+      if (live())
+        notify('item/completed', { item: item('completed'), ...ids, completedAtMs: Date.now() });
     },
     async say(message, chunks = 3) {
       if (!live()) return;
@@ -527,20 +907,19 @@ function api(turn: TurnState, text: string): TurnApi {
         notify('item/agentMessage/delta', { ...ids, itemId, delta: message.slice(i, i + size) });
         await new Promise(r => setTimeout(r, 5));
       }
-      if (live())
-        notify('item/completed', {
-          item: {
-            type: 'agentMessage',
-            id: itemId,
-            text: message,
-            phase: null,
-            memoryCitation: null,
-            delivery: null,
-            questions: null,
-          },
-          ...ids,
-          completedAtMs: Date.now(),
-        });
+      if (live()) {
+        const item = {
+          type: 'agentMessage',
+          id: itemId,
+          text: message,
+          phase: null,
+          memoryCitation: null,
+          delivery: null,
+          questions: null,
+        };
+        turn.thread.items.push({ turnId: turn.id, item });
+        notify('item/completed', { item, ...ids, completedAtMs: Date.now() });
+      }
     },
     async think() {
       if (!live()) return;
@@ -560,6 +939,7 @@ function api(turn: TurnState, text: string): TurnApi {
     },
     async call(tool, args) {
       if (!live()) return { success: false, text: 'turn is over', images: 0 };
+      if (turn.thread.mcp) return mcpCall(turn, tool, args);
       const itemId = `call_${randomUUID().slice(0, 8)}`;
       const started = Date.now();
       notify('item/started', {
@@ -728,6 +1108,117 @@ async function runTurn(turn: TurnState, text: string) {
       additionalDetails: null,
       misalignment: null,
     });
+  }
+}
+
+/** thread/start, once its MCP session is up (the real server connects first; a required server that fails stops it). */
+async function startThread(id: unknown, params: Record<string, unknown>, thread: ThreadState) {
+  if (!(await mcpReady(id, thread))) return;
+  threads.set(thread.id, thread);
+  const t = {
+    id: thread.id,
+    environments: params.environments ?? null,
+    extra: null,
+    sessionId: thread.id,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: '',
+    ephemeral: !!params.ephemeral,
+    model: params.model ?? 'gpt-6.1-sol',
+    modelProvider: 'openai',
+    status: { type: 'idle' },
+    cwd: params.cwd ?? '/',
+    cliVersion: '0.160.1',
+    turns: [],
+  };
+  respond(id, {
+    thread: t,
+    model: t.model,
+    modelProvider: 'openai',
+    serviceTier: null,
+    disabledPluginIds: [],
+    cwd: t.cwd,
+    runtimeWorkspaceRoots: [],
+    instructionSources: env.FAKE_CODEX_INSTRUCTION_SOURCES
+      ? env.FAKE_CODEX_INSTRUCTION_SOURCES.split(',')
+      : [],
+    approvalPolicy: params.approvalPolicy ?? 'on-request',
+    approvalsReviewer: 'user',
+    sandbox: {
+      type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite',
+      networkAccess: false,
+    },
+    activePermissionProfile: null,
+    reasoningEffort: null,
+    multiAgentMode: 'explicitRequestOnly',
+  });
+  notify('thread/started', { thread: t });
+}
+/** thread/resume: the thread opens its own MCP session again. */
+async function resumeThread(id: unknown, params: Record<string, unknown>, thread: ThreadState) {
+  const mcp = mcpServerOf(params.config);
+  if (mcp.problem) {
+    violation(`thread/resume: ${mcp.problem}`, params);
+    refuse(id, mcp.problem);
+    return;
+  }
+  thread.mcpConfig = mcp.server;
+  thread.mcp = null;
+  if (!(await mcpReady(id, thread))) return;
+  thread.unsubscribed = false;
+  const t = {
+    id: thread.id,
+    environments: null,
+    extra: null,
+    sessionId: thread.id,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: '',
+    ephemeral: false,
+    model: params.model ?? 'gpt-6.1-sol',
+    modelProvider: 'openai',
+    status: { type: 'idle' },
+    cwd: params.cwd ?? '/',
+    cliVersion: '0.160.1',
+    turns: [],
+  };
+  respond(id, {
+    thread: t,
+    model: t.model,
+    modelProvider: 'openai',
+    serviceTier: null,
+    disabledPluginIds: [],
+    cwd: t.cwd,
+    instructionSources: [],
+    approvalPolicy: params.approvalPolicy ?? 'on-request',
+    approvalsReviewer: 'user',
+    sandbox: {
+      type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite',
+      networkAccess: false,
+    },
+    reasoningEffort: null,
+    collaborationMode: null,
+    turnsBackwardsCursor: null,
+    itemsBackwardsCursor: null,
+  });
+}
+/** Connect a thread to its MCP server; false (and the request refused) when a required one fails. */
+async function mcpReady(id: unknown, thread: ThreadState): Promise<boolean> {
+  if (!thread.mcpConfig) return true;
+  try {
+    await connectMcp(thread);
+    return true;
+  } catch (error) {
+    notify('mcpServer/startupStatus/updated', {
+      threadId: thread.id,
+      name: 'den-kit',
+      status: 'failed',
+      error: String(error),
+      failureReason: null,
+    });
+    if (thread.mcpConfig.required !== true) return true;
+    refuse(id, `required MCP servers failed to initialize: den-kit: ${String(error)}`);
+    return false;
   }
 }
 
@@ -1013,110 +1504,51 @@ async function handle(message: Record<string, unknown>) {
           ((params.dynamicTools as Array<{ name: string }> | undefined) ?? []).map(t => t.name),
         ),
         unsubscribed: false,
-        forkedFrom: null,
         usage: { input: 0, cached: 0, output: 0, reasoning: 0 },
+        saved: params.ephemeral === false,
+        items: [],
+        mcpConfig: mcpServerOf(params.config).server,
+        mcp: null,
+        parent: null,
       };
-      threads.set(thread.id, thread);
-      const t = {
-        id: thread.id,
-        environments: params.environments ?? null,
-        extra: null,
-        sessionId: thread.id,
-        forkedFromId: null,
-        parentThreadId: null,
-        preview: '',
-        ephemeral: !!params.ephemeral,
-        model: params.model ?? 'gpt-6.1-sol',
-        modelProvider: 'openai',
-        status: { type: 'idle' },
-        cwd: params.cwd ?? '/',
-        cliVersion: '0.160.1',
-        turns: [],
-      };
-      respond(id, {
-        thread: t,
-        model: t.model,
-        modelProvider: 'openai',
-        serviceTier: null,
-        disabledPluginIds: [],
-        cwd: t.cwd,
-        runtimeWorkspaceRoots: [],
-        instructionSources: env.FAKE_CODEX_INSTRUCTION_SOURCES
-          ? env.FAKE_CODEX_INSTRUCTION_SOURCES.split(',')
-          : [],
-        approvalPolicy: params.approvalPolicy ?? 'on-request',
-        approvalsReviewer: 'user',
-        sandbox: {
-          type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite',
-          networkAccess: false,
-        },
-        activePermissionProfile: null,
-        reasoningEffort: null,
-        multiAgentMode: 'explicitRequestOnly',
-      });
-      notify('thread/started', { thread: t });
+      void startThread(id, params, thread);
       return;
     }
-    case 'thread/fork': {
+    case 'thread/resume': {
       for (const key of Object.keys(params))
-        if (!THREAD_FORK_KEYS.has(key)) {
-          violation(`thread/fork: unknown field \`${key}\``);
+        if (!THREAD_RESUME_KEYS.has(key)) {
+          violation(`thread/resume: unknown field \`${key}\``);
           refuse(id, `unknown field \`${key}\``);
           return;
         }
-      const source = threads.get(String(params.threadId));
-      if (env.FAKE_CODEX_FORK === 'refuse' || !source) {
+      const thread = threads.get(String(params.threadId));
+      if (!thread?.saved) {
         refuse(id, `no rollout found for thread id ${String(params.threadId)}`);
         return;
       }
-      if (params.ephemeral !== true)
-        violation('thread/fork: den-kit forks must be ephemeral', params);
-      // The copy keeps the source's tools (fork has no dynamicTools).
-      const thread: ThreadState = {
-        id: randomUUID(),
-        turn: null,
-        tools: new Set(source.tools),
-        unsubscribed: false,
-        forkedFrom: source.id,
-        usage: { ...source.usage },
-      };
-      threads.set(thread.id, thread);
-      const t = {
-        id: thread.id,
-        environments: null,
-        extra: null,
-        sessionId: thread.id,
-        forkedFromId: source.id,
-        parentThreadId: null,
-        preview: '',
-        ephemeral: true,
-        model: params.model ?? 'gpt-6.1-sol',
-        modelProvider: 'openai',
-        status: { type: 'idle' },
-        cwd: params.cwd ?? '/',
-        cliVersion: '0.160.1',
-        turns: [],
-      };
+      void resumeThread(id, params, thread);
+      return;
+    }
+    case 'thread/items/list': {
+      for (const key of Object.keys(params))
+        if (!ITEMS_LIST_KEYS.has(key)) {
+          violation(`thread/items/list: unknown field \`${key}\``);
+          refuse(id, `unknown field \`${key}\``);
+          return;
+        }
+      const thread = threads.get(String(params.threadId));
+      if (!thread?.saved || env.FAKE_CODEX_ITEMS === 'refuse') {
+        refuse(id, `no rollout found for thread id ${String(params.threadId)}`);
+        return;
+      }
+      const from = Number(params.cursor ?? 0) || 0;
+      const limit = typeof params.limit === 'number' ? params.limit : 50;
+      const page = thread.items.slice(from, from + limit);
       respond(id, {
-        thread: t,
-        model: t.model,
-        modelProvider: 'openai',
-        serviceTier: null,
-        disabledPluginIds: [],
-        cwd: t.cwd,
-        runtimeWorkspaceRoots: [],
-        instructionSources: [],
-        approvalPolicy: params.approvalPolicy ?? 'on-request',
-        approvalsReviewer: 'user',
-        sandbox: {
-          type: params.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite',
-          networkAccess: false,
-        },
-        activePermissionProfile: null,
-        reasoningEffort: null,
-        multiAgentMode: 'explicitRequestOnly',
+        data: page.map(e => ({ ...e, startedAtMs: null, completedAtMs: null })),
+        nextCursor: from + limit < thread.items.length ? String(from + limit) : null,
+        backwardsCursor: null,
       });
-      notify('thread/started', { thread: t });
       return;
     }
     case 'turn/start': {
@@ -1166,8 +1598,14 @@ async function handle(message: Record<string, unknown>) {
         steerWaiters: [],
         started: Date.now(),
         images: imagesOf(params.input),
+        begun: false,
+        children: [],
       };
       thread.turn = turn;
+      thread.items.push({
+        turnId: turn.id,
+        item: { type: 'userMessage', id: randomUUID(), clientId: null, content: params.input },
+      });
       respond(id, {
         turn: {
           id: turn.id,
@@ -1180,42 +1618,49 @@ async function handle(message: Record<string, unknown>) {
           durationMs: null,
         },
       });
-      notify('thread/status/changed', {
-        threadId: thread.id,
-        status: { type: 'active', activeFlags: [] },
-      });
-      notify('turn/started', {
-        threadId: thread.id,
-        turn: {
-          id: turn.id,
-          items: [],
-          itemsView: 'notLoaded',
-          status: 'inProgress',
-          error: null,
-          startedAt: Math.floor(Date.now() / 1000),
-          completedAt: null,
-          durationMs: null,
-        },
-      });
-      const userItem = {
-        type: 'userMessage',
-        id: randomUUID(),
-        clientId: null,
-        content: params.input,
+      const begin = () => {
+        if (!turn.active) return;
+        turn.begun = true;
+        notify('thread/status/changed', {
+          threadId: thread.id,
+          status: { type: 'active', activeFlags: [] },
+        });
+        notify('turn/started', {
+          threadId: thread.id,
+          turn: {
+            id: turn.id,
+            items: [],
+            itemsView: 'notLoaded',
+            status: 'inProgress',
+            error: null,
+            startedAt: Math.floor(Date.now() / 1000),
+            completedAt: null,
+            durationMs: null,
+          },
+        });
+        const userItem = {
+          type: 'userMessage',
+          id: randomUUID(),
+          clientId: null,
+          content: params.input,
+        };
+        notify('item/started', {
+          item: userItem,
+          threadId: thread.id,
+          turnId: turn.id,
+          startedAtMs: Date.now(),
+        });
+        notify('item/completed', {
+          item: userItem,
+          threadId: thread.id,
+          turnId: turn.id,
+          completedAtMs: Date.now(),
+        });
+        void runTurn(turn, text);
       };
-      notify('item/started', {
-        item: userItem,
-        threadId: thread.id,
-        turnId: turn.id,
-        startedAtMs: Date.now(),
-      });
-      notify('item/completed', {
-        item: userItem,
-        threadId: thread.id,
-        turnId: turn.id,
-        completedAtMs: Date.now(),
-      });
-      void runTurn(turn, text);
+      // A saved thread's turn starts a few milliseconds after the answer (measured on the real 0.160.1).
+      if (thread.saved) setTimeout(begin, 10);
+      else begin();
       return;
     }
     case 'turn/steer': {
@@ -1248,6 +1693,10 @@ async function handle(message: Record<string, unknown>) {
     }
     case 'turn/interrupt': {
       const turn = threads.get(String(params.threadId))?.turn;
+      if (turn?.active && turn.id === params.turnId && !turn.begun) {
+        refuse(id, 'no active turn to interrupt');
+        return;
+      }
       if (!turn?.active || turn.id !== params.turnId) {
         setTimeout(() => respond(id, {}), lateInterruptMs);
         log({ lateInterrupt: params.turnId });

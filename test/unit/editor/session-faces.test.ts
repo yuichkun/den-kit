@@ -3,18 +3,19 @@
 // pictures and put on another plugin at once when placed there (not when placed
 // inside a part); My parts files carry the pictures' bytes; a face of one
 // control stays a face.
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
 import { KitSession, MY_PARTS_KEY, type StorageLike } from '../../../src/editor/session.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { catalog } from '../../../src/blocks/index.ts';
-import { generate } from '../../../src/core/codegen.ts';
-import { faceGroup } from '../../../src/core/face.ts';
-import { libraryAssets, parseLibrary, serializeLibrary } from '../../../src/core/library.ts';
-import { parseDocument, serializeDocument } from '../../../src/core/persistence.ts';
-import { validate } from '../../../src/core/validate.ts';
-import { faceOnPlugin } from '../../../src/plugin/faces.ts';
-import { AssetStore } from '../../../src/plugin/asset-store.ts';
-import { SHOWCASE_ASSETS } from '../../../src/showcase/assets.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { generate } from '../../../src/sound/codegen.ts';
+import { faceGroup } from '../../../src/work/face.ts';
+import { libraryAssets, parseLibrary, serializeLibrary } from '../../../src/work/library.ts';
+import { parseDocument, serializeDocument } from '../../../src/work/persistence.ts';
+import { validate } from '../../../src/work/validate.ts';
+import { faceOnPlugin } from '../../../src/screen/faces.ts';
+import { AssetStore } from '../../../src/work/asset-store.ts';
+import { SHOWCASE_ASSETS } from '../../../src/screen/showcase/assets.ts';
 
 function memoryStorage(): StorageLike {
   const data = new Map<string, string>();
@@ -40,19 +41,29 @@ function makeSession(storage: StorageLike, assets = new AssetStore(null)) {
         onerror: null,
         onmessageerror: null,
       }) as never,
-    engine: { setParam() {}, unload() {}, running: false } as never,
+    engine: { setParam() {}, setAssets() {}, unload() {}, running: false } as never,
   });
   session.replace(starter('bass', catalog), 'Bass', false);
   return session;
 }
-const LOGO = 'a0123456789abcde';
+const LOGO = 'assets/logo.png';
+/** The SHA-256 of PNG below. */
+const LOGO_HASH = 'sha256-63ef318d96b5d0d0ceba6e04a4e622b1158335cdc67c49e27839132c6f655058';
 /** A plate with a screw, a word that shows a knob, a readout and a lamp of it, and a level lamp. */
 function decorate(session: KitSession) {
   const r = session.commit([
-    { op: 'addAsset', asset: SHOWCASE_ASSETS['sc-screw']! },
+    { op: 'addAsset', asset: SHOWCASE_ASSETS['assets/den-kit/screw.svg']! },
     {
       op: 'addAsset',
-      asset: { id: LOGO, name: 'logo.png', mime: 'image/png', bytes: 68, width: 1, height: 1 },
+      asset: {
+        id: LOGO,
+        name: 'logo.png',
+        mime: 'image/png',
+        bytes: 68,
+        width: 1,
+        height: 1,
+        hash: LOGO_HASH,
+      },
     },
     {
       op: 'addNode',
@@ -72,7 +83,7 @@ function decorate(session: KitSession) {
       element: {
         kind: 'image',
         id: 'screw1',
-        asset: 'sc-screw',
+        asset: 'assets/den-kit/screw.svg',
         rect: { x: 104, y: 54, w: 16, h: 16 },
       },
     },
@@ -178,7 +189,7 @@ describe('screen parts', () => {
     expect(session.saveToMyParts('rainLogo')).toMatchObject({ ok: true });
     const saved = session.myParts.value.parts.rainLogo!;
     expect(Object.keys(saved.versions[0]!.bundle.assets ?? {}).sort()).toEqual(
-      [LOGO, 'sc-screw'].sort(),
+      [LOGO, 'assets/den-kit/screw.svg'].sort(),
     );
     expect(saved.versions[0]!.bundle.nodes).toEqual({});
     // Another patch (another tab: the same storage).
@@ -197,7 +208,9 @@ describe('screen parts', () => {
       'shape',
       'text',
     ]);
-    expect(Object.keys(doc.assets).sort()).toEqual([LOGO, 'sc-screw'].sort());
+    expect(Object.keys(assetsOf(doc.files)).sort()).toEqual(
+      [LOGO, 'assets/den-kit/screw.svg'].sort(),
+    );
     expect(Object.values(doc.ui.elements).find(e => e.kind === 'text')).toMatchObject({
       text: 'RAIN',
     });
@@ -226,11 +239,14 @@ describe('screen parts', () => {
       libraryAssets(session.myParts.value)
         .map(a => a.id)
         .sort(),
-    ).toEqual([LOGO, 'sc-screw'].sort());
-    const text = serializeLibrary(session.myParts.value, undefined, { assetData: { [LOGO]: PNG } });
+    ).toEqual([LOGO, 'assets/den-kit/screw.svg'].sort());
+    // The bytes go by what they hold (parts from different works may hold other contents at one path).
+    const text = serializeLibrary(session.myParts.value, undefined, {
+      assetData: { [LOGO_HASH]: PNG },
+    });
     const read = parseLibrary(text, catalog);
     if (!read.ok) throw new Error(read.error);
-    expect(read.assetData).toEqual({ [LOGO]: PNG });
+    expect(read.assetData).toEqual({ [LOGO_HASH]: PNG });
     expect(read.library.parts.rainLogo!.versions[0]!.bundle.assets?.[LOGO]).not.toHaveProperty(
       'data',
     );
@@ -241,7 +257,7 @@ describe('screen parts', () => {
       ok: true,
       message: 'My parts: added 1.',
     });
-    await expect.poll(async () => (await store.get(LOGO))?.size ?? 0).toBeGreaterThan(0);
+    await expect.poll(async () => (await store.bytes(LOGO_HASH))?.length ?? 0).toBeGreaterThan(0);
     // Bytes that are not what they say are dropped with a reason (once), the part still comes in.
     const raw = JSON.parse(text);
     raw.parts.rainLogo.versions[0].bundle.assets[LOGO].data = 'data:image/jpeg;base64,AAAA';

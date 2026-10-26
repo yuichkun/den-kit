@@ -2,8 +2,8 @@
 // "Add to the plugin": type to filter, arrows and Enter to pick, Esc to close.
 // Pictures list the patch's assets.
 import { computed, nextTick, onMounted, ref } from 'vue';
-import { INSERTABLES } from '../../plugin/inserts.ts';
-import { isImageAsset } from '../../core/ui.ts';
+import { INSERTABLES } from '../../screen/inserts.ts';
+import { isImageAsset, assetsOf } from '../../work/ui.ts';
 import { useSession } from '../context.ts';
 
 const emit = defineEmits<{ (e: 'pick', key: string, asset?: string): void; (e: 'close'): void }>();
@@ -13,7 +13,7 @@ const current = ref(0);
 const input = ref<HTMLInputElement | null>(null);
 const rows = computed(() => {
   const q = query.value.trim().toLowerCase();
-  const pictures = Object.values(session.doc.value.assets)
+  const pictures = Object.values(assetsOf(session.doc.value.files))
     .filter(isImageAsset)
     .map(a => ({ key: 'picture', asset: a.id, title: a.name, doc: 'Picture', group: 'Picture' }));
   const all = [
@@ -92,10 +92,10 @@ onMounted(() => {
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  background: #232323;
+  background: var(--gray-4);
   border: 1px solid var(--accent);
   border-radius: 8px;
-  box-shadow: 0 16px 40px #000c;
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--gray-0) 80%, transparent);
   overflow: hidden;
 }
 input {
@@ -120,10 +120,10 @@ input {
   border-radius: 5px;
 }
 .item.current {
-  background: #3a2a14;
+  background: var(--orange-dark);
 }
 .title {
-  color: #f0f0f0;
+  color: var(--gray-18);
   font-size: 14px;
 }
 .doc {
@@ -134,7 +134,7 @@ input {
   white-space: nowrap;
 }
 .group {
-  color: #777;
+  color: var(--gray-11);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;

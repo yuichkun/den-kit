@@ -2,8 +2,8 @@
 // cables and things on the plugin screen ride along with the request
 // ("this one is too bright"). The AI panel shows them above the prompt; the
 // LLM gets them by id with a few words each.
-import type { Catalog } from '../core/catalog.ts';
-import type { PatchDocument } from '../core/schema.ts';
+import type { Catalog } from '../work/catalog.ts';
+import type { PatchDocument } from '../work/schema.ts';
 
 export type AttachmentKind = 'module' | 'control' | 'element' | 'cable';
 export interface Attachment {

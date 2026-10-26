@@ -1,21 +1,22 @@
 // The LLM's tools run against the live patch: an edit is tried on a copy, and
 // only one that validates and compiles lands (as one step); a failing edit
 // lands nothing and says why. What the tools report, and what lands.
+import { assetsOf } from '../../../src/work/ui.ts';
 import { describe, expect, it } from 'vite-plus/test';
-import { catalog } from '../../../src/blocks/index.ts';
-import { starter } from '../../../src/core/starters.ts';
-import { applyIntents, type Intent } from '../../../src/core/ops.ts';
-import { clone, type PatchDocument } from '../../../src/core/schema.ts';
+import { catalog } from '../../../src/sound/blocks/index.ts';
+import { starter } from '../../../src/work/starters.ts';
+import { applyIntents, type Intent } from '../../../src/work/ops.ts';
+import { clone, type PatchDocument } from '../../../src/work/schema.ts';
 import { LlmWorkspace, type WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
 import {
+  CLAIM_TOOL,
   KIT_TOOLS,
   KIT_TOOL_NAMES,
-  LEAD_TOOLS,
   developerInstructions,
 } from '../../../src/ai/llm-spec.ts';
-import type { RenderRequest } from '../../../src/compile/protocol.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { checkPlugin } from '../../../src/plugin/checks.ts';
+import type { RenderRequest } from '../../../src/sound/compile/protocol.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { checkPlugin } from '../../../src/screen/checks.ts';
 
 function workspace(extra: Partial<WorkspaceDeps> = {}, doc = starter('bass', catalog)) {
   const renders: Array<Omit<RenderRequest, 'id' | 'kind'>> = [];
@@ -78,12 +79,13 @@ describe('tool specs', () => {
       expect(text).toContain(name);
     expect(text).toMatch(/Never ask the user to choose/);
     expect(text).toMatch(/lands on the live patch at once/);
-    // Every tool den-kit runs: everyone's and the lead's (U8).
-    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length + LEAD_TOOLS.length);
-    for (const t of LEAD_TOOLS) {
-      expect(t.inputSchema.type).toBe('object');
-      expect(KIT_TOOL_NAMES.has(t.name)).toBe(true);
-    }
+    // Every tool den-kit runs, the same for every agent: sub-agents claim their scope with one more.
+    expect(KIT_TOOL_NAMES.size).toBe(KIT_TOOLS.length + 1);
+    expect(CLAIM_TOOL.inputSchema.type).toBe('object');
+    expect(KIT_TOOL_NAMES.has('kit_claim_scope')).toBe(true);
+    for (const gone of ['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member'])
+      expect(KIT_TOOL_NAMES.has(gone)).toBe(false);
+    expect(text).toMatch(/kit_claim_scope/);
     expect(KIT_TOOL_NAMES.has('kit_ask')).toBe(false);
   });
 });
@@ -322,7 +324,9 @@ describe('LlmWorkspace', () => {
           op: 'setLook',
           look: {
             tokens: { accent: '#39ff14' },
-            background: [{ kind: 'image', asset: 'sc-brushed-metal', fit: 'tile', size: 256 }],
+            background: [
+              { kind: 'image', asset: 'assets/den-kit/brushed-metal.jpg', fit: 'tile', size: 256 },
+            ],
           },
         },
         {
@@ -344,7 +348,7 @@ describe('LlmWorkspace', () => {
     expect(look.success).toBe(true);
     expect(look.text).toMatch(/The sound is unchanged/);
     expect(compiles).toHaveLength(1);
-    expect(state.live.assets['sc-brushed-metal']).toBeDefined();
+    expect(assetsOf(state.live.files)['assets/den-kit/brushed-metal.jpg']).toBeDefined();
     expect(state.live.ui.elements.text1).toMatchObject({ kind: 'text', text: 'ACID' });
     expect(landed.at(-1)!.label).toMatch(/look: tokens, background, \+ text “ACID”, style knob1/);
     expect((await ws.call('kit_get_plugin', {})).text).toMatch(
@@ -358,7 +362,7 @@ describe('LlmWorkspace', () => {
       ops: [
         {
           op: 'setLook',
-          look: { background: [{ kind: 'image', asset: 'sc-wood', fit: 'cover' }] },
+          look: { background: [{ kind: 'image', asset: 'assets/den-kit/wood.jpg', fit: 'cover' }] },
         },
         {
           op: 'addElement',
@@ -422,12 +426,12 @@ describe('LlmWorkspace', () => {
     };
     const { ws } = workspace({
       images: true,
-      viewPicture: async id => (id === 'sc-wood' ? seen : null),
+      viewPicture: async id => (id === 'assets/den-kit/wood.jpg' ? seen : null),
     });
-    const r = await ws.call('kit_view_picture', { id: 'sc-wood' });
+    const r = await ws.call('kit_view_picture', { id: 'assets/den-kit/wood.jpg' });
     expect(r.success).toBe(true);
     expect(r.text).toMatch(
-      /^Picture sc-wood Warm mid-brown wood grain.*: 1024×1024\. Main colours: #5a3a22 \(60%\), #8a5a32 \(40%\)\. The picture is attached\./,
+      /^Picture assets\/den-kit\/wood\.jpg Warm mid-brown wood grain.*: 1024×1024\. Main colours: #5a3a22 \(60%\), #8a5a32 \(40%\)\. The picture is attached\./,
     );
     expect(r.imageDataUrl).toMatch(/^data:image\/png;base64,/);
     const missing = await ws.call('kit_view_picture', { id: 'my-photo' });
@@ -435,8 +439,60 @@ describe('LlmWorkspace', () => {
     expect(missing.text).toMatch(/No picture "my-photo"\. This patch has no pictures\./);
     const plain = workspace({ images: false, viewPicture: async () => seen });
     expect(
-      (await plain.ws.call('kit_view_picture', { id: 'sc-wood' })).imageDataUrl,
+      (await plain.ws.call('kit_view_picture', { id: 'assets/den-kit/wood.jpg' })).imageDataUrl,
     ).toBeUndefined();
+  });
+
+  it('a file from a URL becomes an asset of the work as one edit of the request, with where it came from', async () => {
+    const hash = `sha256-${'a'.repeat(64)}`;
+    const { ws, state, landed } = workspace({
+      importFile: async (url, name) => {
+        if (url.includes('private')) throw new Error('only public addresses can be fetched');
+        return {
+          asset: {
+            id: `assets/${name ?? 'rain.wav'}`,
+            name: name ?? 'rain.wav',
+            mime: 'audio/wav',
+            bytes: 1200,
+            hash,
+          },
+          url: `${url}?final`,
+        };
+      },
+    });
+    const r = await ws.call('kit_import_asset', {
+      url: 'https://sounds.example/rain.wav',
+      license: 'CC0',
+      author: 'A. Person',
+    });
+    expect(r.success).toBe(true);
+    expect(landed.at(-1)!.intents).toEqual([
+      {
+        op: 'addAsset',
+        asset: expect.objectContaining({
+          id: 'assets/rain.wav',
+          source: {
+            url: 'https://sounds.example/rain.wav?final',
+            author: 'A. Person',
+            license: 'CC0',
+          },
+        }),
+      },
+    ]);
+    expect(assetsOf(state.live.files)['assets/rain.wav']).toMatchObject({
+      mime: 'audio/wav',
+      hash,
+    });
+    const refused = await ws.call('kit_import_asset', { url: 'http://private.example/x.wav' });
+    expect(refused).toMatchObject({
+      success: false,
+      text: 'Not imported: only public addresses can be fetched',
+    });
+    // A host that cannot fetch: the AI is told to ask the person.
+    expect(
+      (await workspace().ws.call('kit_import_asset', { url: 'https://sounds.example/rain.wav' }))
+        .text,
+    ).toMatch(/cannot fetch files here/);
   });
 
   it('one edit that adds decorations, controls and a group lands with the same ids it was tried with', async () => {

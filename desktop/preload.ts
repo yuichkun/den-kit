@@ -1,7 +1,8 @@
+// The bridge between den-kit's page and the main process: only the app's
+// top-level page receives the API; code-part iframes receive no Node/IPC powers.
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAPI, DesktopRuntime } from '../src/desktop/api.ts';
+import type { DesktopAPI, DesktopRuntime } from './page/api.ts';
 
-// Only the app's top-level page receives the API; code-part iframes receive no Node/IPC powers.
 const originArgument = process.argv
   .find(arg => arg.startsWith('--den-kit-origin='))
   ?.slice('--den-kit-origin='.length);
@@ -22,10 +23,19 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     openUsage: () => ipcRenderer.invoke('den-kit:usage'),
     checkForUpdates: () => ipcRenderer.invoke('den-kit:check-updates'),
     installUpdate: () => ipcRenderer.invoke('den-kit:install-update'),
+    storage: request => ipcRenderer.invoke('den-kit:storage', request),
+    fetch: (url, maxBytes) => ipcRenderer.invoke('den-kit:fetch', { url, maxBytes }),
+    sandbox: request => ipcRenderer.invoke('den-kit:sandbox', request),
+    onSandboxRefused: listener => {
+      const handler = (_event: unknown, refusal: Parameters<typeof listener>[0]) =>
+        listener(refusal);
+      ipcRenderer.on('den-kit:sandbox-refused', handler);
+      return () => ipcRenderer.off('den-kit:sandbox-refused', handler);
+    },
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
   ipcRenderer.on('den-kit:open-settings', () =>
-    window.dispatchEvent(new Event('den-kit:open-settings')),
+    window.dispatchEvent(new Event('den-kit:show-settings')),
   );
   // The page reads the new state through info(); event details do not cross the isolated world.
   ipcRenderer.on('den-kit:update', () => window.dispatchEvent(new Event('den-kit:update')));

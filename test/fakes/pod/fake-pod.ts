@@ -1,6 +1,7 @@
 // FOR TESTS ONLY: stands in for BrowserPod (which needs an API key the cloud
-// tests do not have). The page talks to it through src/pod/fake-host.ts over a
-// WebSocket; commands run in this machine's bash, in a temporary home, and a
+// tests do not have). The page talks to it through dev/fake-pod.ts over a
+// WebSocket; commands run in this machine's bash, in a temporary home (one per
+// disk the page asks for: a work's disk, like BrowserPod's storage key), and a
 // server they start is reported as a "portal" (its local address). Commands run
 // with the test machine's own tools, so it checks den-kit's side of the pod
 // (files, commands, the dev server, the code parts), not BrowserPod itself.
@@ -13,9 +14,14 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 export interface FakePod {
   url: string;
+  /** The home of a page that names no disk. */
   home: string;
+  /** The home of a disk. */
+  homeOf(disk: string): string;
   close(): Promise<void>;
   /** Commands the page ran (scripts), for tests to inspect. */ commands: string[];
+  /** Each command the page ran, with the long-running processes (by name) still going when it began. */
+  runs: Array<{ script: string; alongside: string[] }>;
 }
 
 async function freePort(): Promise<number> {
@@ -33,17 +39,15 @@ async function freePort(): Promise<number> {
 export async function startFakePod(options: { root?: string } = {}): Promise<FakePod> {
   const root = options.root ?? mkdtempSync(join(tmpdir(), 'den-kit-fake-pod-'));
   const home = join(root, 'home');
+  const homeOf = (disk: string) => join(root, 'disks', disk.replace(/[^\w-]/g, '_'));
   mkdirSync(join(home, '.den-kit', 'run'), { recursive: true });
   const children = new Set<ChildProcess>();
   const commands: string[] = [];
+  const runs: Array<{ script: string; alongside: string[] }> = [];
+  const names = new WeakMap<ChildProcess, string>();
   let scripts = 0;
-  const inside = (p: string) => {
-    const abs = resolve(p);
-    return abs === home || abs.startsWith(`${home}/`) ? abs : null;
-  };
-  const baseEnv = {
+  const env = {
     ...process.env,
-    HOME: home,
     CI: '1',
     NO_COLOR: '1',
     FORCE_COLOR: '0',
@@ -51,18 +55,33 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
     npm_config_fund: 'false',
     npm_config_audit: 'false',
     npm_config_update_notifier: 'false',
+    // One download cache for every disk and run (each work's disk installs the template's packages): the test
+    // machine's network decides how long a fresh install takes, which is not what the tests check.
+    npm_config_cache: join(tmpdir(), 'den-kit-fake-pod-npm-cache'),
   };
 
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise(r => wss.once('listening', r));
   const port = (wss.address() as AddressInfo).port;
 
-  wss.on('connection', (socket: WebSocket) => {
+  wss.on('connection', (socket: WebSocket, request) => {
+    const disk = new URL(request.url ?? '/', 'http://pod').searchParams.get('disk');
+    const home = disk ? homeOf(disk) : join(root, 'home');
+    mkdirSync(join(home, '.den-kit', 'run'), { recursive: true });
+    const inside = (p: string) => {
+      const abs = resolve(p);
+      return abs === home || abs.startsWith(`${home}/`) ? abs : null;
+    };
+    const baseEnv = { ...env, HOME: home };
     const send = (m: Record<string, unknown>) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(m));
     };
     // Like BrowserPod, whose pod lives in the tab: the page going away stops what it started.
     const mine = new Set<ChildProcess>();
+    /** What the page started, by its id (to stop it). */
+    const started = new Map<string, ChildProcess>();
+    /** Every process group this page's commands made: what they leave in the background stays in it. */
+    const groups = new Set<number>();
     socket.on('close', () => {
       for (const c of mine) {
         try {
@@ -82,11 +101,34 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
       }
       const id = String(m.id ?? '');
       try {
+        if (m.t === 'stopAll') {
+          for (const group of groups)
+            try {
+              process.kill(-group, 'SIGKILL');
+            } catch {
+              /* gone */
+            }
+          groups.clear();
+          send({ t: 'ok', id });
+          return;
+        }
+        if (m.t === 'stop') {
+          // The process group: the script and what it started.
+          const child = started.get(id);
+          if (child)
+            try {
+              process.kill(-child.pid!, 'SIGTERM');
+            } catch {
+              /* gone */
+            }
+          return;
+        }
         if (m.t === 'write') {
           const p = inside(String(m.path));
           if (!p) throw new Error(`${m.path} is outside the pod's home.`);
           mkdirSync(dirname(p), { recursive: true });
-          writeFileSync(p, String(m.content ?? ''));
+          const content = String(m.content ?? '');
+          writeFileSync(p, m.base64 ? Buffer.from(content, 'base64') : content);
           send({ t: 'ok', id });
           return;
         }
@@ -98,6 +140,8 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
         if (m.t === 'run' || m.t === 'start') {
           const script = String(m.script ?? '');
           commands.push(script);
+          if (m.t === 'run')
+            runs.push({ script, alongside: [...started.values()].map(c => names.get(c) ?? '') });
           const file = join(
             home,
             '.den-kit',
@@ -122,6 +166,11 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
           });
           children.add(child);
           mine.add(child);
+          if (child.pid) groups.add(child.pid);
+          if (m.t === 'start') {
+            started.set(id, child);
+            names.set(child, String(m.name ?? 'proc'));
+          }
           let portalSent = false,
             timedOut = false;
           const onData = (b: Buffer) => {
@@ -129,6 +178,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
             send({ t: 'out', id, text });
             if (m.t === 'start' && !portalSent) {
               const found = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/.exec(
+                // eslint-disable-next-line no-control-regex -- the colour codes are what this takes out
                 text.replace(/\x1b\[[0-9;]*m/g, ''),
               );
               if (found) {
@@ -165,6 +215,7 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
             if (timer) clearTimeout(timer);
             children.delete(child);
             mine.delete(child);
+            started.delete(id);
             send({ t: 'exit', id, code: timedOut ? null : code, timedOut });
           });
           return;
@@ -178,7 +229,9 @@ export async function startFakePod(options: { root?: string } = {}): Promise<Fak
   return {
     url: `ws://127.0.0.1:${port}/`,
     home,
+    homeOf,
     commands,
+    runs,
     async close() {
       for (const c of children) {
         try {

@@ -1,4 +1,5 @@
-// K6–K8 editor flows driven through the real UI (mouse and keyboard).
+// Editor flows driven through the real UI (mouse and keyboard).
+import { writeZip } from '../../src/work/zip.ts';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -184,7 +185,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K7 exposes an input to the plugin and plays it from there; theme and layout edits are undoable', async () => {
+  it('exposes an input to the plugin and plays it from there; theme and layout edits are undoable', async () => {
     const { page } = await fresh();
     await page.locator('.vue-flow__node[data-id="cut1"] header').click();
     await page.click('[data-expose="hz"]');
@@ -249,7 +250,7 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K8 codebox: edit in the editor, see a type error at its line, fix it and hear it compile', async () => {
+  it('codebox: edit in the editor, see a type error at its line, fix it and hear it compile', async () => {
     const { page } = await fresh();
     await kit(page, k =>
       k.commit([
@@ -290,23 +291,39 @@ describe('patch editor', () => {
     await page.close();
   });
 
-  it('K8 import refuses broken files with a reason; export → import round-trips; code view highlights the selection', async () => {
+  it('import refuses broken files with a reason; export → import round-trips; code view highlights the selection', async () => {
     const { page } = await fresh();
+    const newer = writeZip([
+      {
+        path: 'work.json',
+        data: new TextEncoder().encode('{"format":"den-kit/work","version":99}'),
+      },
+    ]);
     await page.setInputFiles('[data-testid=import-file]', {
-      name: 'bad.denkit.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{"schema":"den-kit/patch","version":99}'),
+      name: 'bad.denkit',
+      mimeType: 'application/zip',
+      buffer: Buffer.from(newer),
     });
     await page.waitForFunction(() =>
       (window as any).__kit.toasts.value.some((t: { text: string }) =>
         /newer den-kit/.test(t.text),
       ),
     );
-    const exported = await kit(page, k => k.exportText());
+    await page.setInputFiles('[data-testid=import-file]', {
+      name: 'old.denkit.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{"schema":"den-kit/patch","version":4}'),
+    });
+    await page.waitForFunction(() =>
+      (window as any).__kit.toasts.value.some((t: { text: string }) =>
+        /not a den-kit work file/.test(t.text),
+      ),
+    );
+    const exported: number[] = await kit(page, async k => Array.from(await k.exportWork()));
     await kit(page, k => k.loadStarter('chorus'));
     await page.setInputFiles('[data-testid=import-file]', {
-      name: 'bass.denkit.json',
-      mimeType: 'application/json',
+      name: 'bass.denkit',
+      mimeType: 'application/zip',
       buffer: Buffer.from(exported),
     });
     await page.waitForFunction(() => (window as any).__kit.doc.value.name === 'Bass');
@@ -319,17 +336,30 @@ describe('patch editor', () => {
     assert.ok((await page.locator('[data-testid=code-view] .line .hljs-keyword').count()) > 10);
     await page.close();
   });
-  it('F6 two tabs can both edit (no read-only mode); each autosaves its own changes', async () => {
+  it('a work opens in one window: a second window says so and saves nothing; once the first closes it opens again', async () => {
     const context = await h.browser.newContext();
     const a = await context.newPage();
     await a.goto(h.url);
     await waitCompiled(a);
+    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), true);
+    await kit(a, k => k.saveNow());
     const b = await context.newPage();
     await b.goto(h.url);
-    await waitCompiled(b);
-    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'from a' }]).ok), true);
-    assert.equal(await kit(b, k => k.commit([{ op: 'setName', name: 'from b' }]).ok), true);
-    assert.equal(await b.$('[data-testid=take-over]'), null);
+    await b.waitForSelector('[data-testid=work-refused]');
+    assert.match(
+      (await b.textContent('[data-testid=work-refused]')) ?? '',
+      /“from a” is open in another den-kit window/,
+    );
+    // The first window keeps the work; the second wrote nothing over it.
+    assert.equal(await kit(a, k => k.commit([{ op: 'setName', name: 'still a' }]).ok), true);
+    await kit(a, k => k.saveNow());
+    await b.waitForTimeout(1200);
+    await a.close();
+    const c = await context.newPage();
+    await c.goto(h.url);
+    await waitCompiled(c);
+    assert.equal(await kit(c, k => k.doc.value.name), 'still a');
+    assert.equal(await c.$('[data-testid=work-refused]'), null);
     await context.close();
   });
 });

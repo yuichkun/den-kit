@@ -2,7 +2,7 @@
 // real updater, the first when den-kit quits normally (without reopening it) and the second through Restart now, and
 // keeps the work. It builds all three versions locally and serves them from 127.0.0.1, so no release is published and
 // the person's own den-kit profile is never used. Squirrel.Mac installs only signed updates, so a
-// Developer ID Application identity must be available in the keychain. Run `npm run desktop:build` first.
+// Developer ID Application identity must be available in the keychain. Run `vp run desktop:build` first.
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import {
@@ -30,7 +30,7 @@ import { denKitRunning, listProcesses } from './clean-desktop.ts';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const stagedPackage = join(root, '.desktop-build/app/package.json');
 if (process.platform !== 'darwin') throw new Error('The update check runs on macOS.');
-if (!existsSync(stagedPackage)) throw new Error('Run npm run desktop:build first.');
+if (!existsSync(stagedPackage)) throw new Error('Run vp run desktop:build first.');
 if (denKitRunning(listProcesses()))
   throw new Error('Quit den-kit first: the update check shares its updater caches.');
 const arch: MacArch = process.arch === 'arm64' ? 'arm64' : 'x64';

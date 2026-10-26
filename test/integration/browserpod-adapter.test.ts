@@ -1,4 +1,4 @@
-// den-kit's BrowserPod adapter (src/pod/browserpod.ts) running its real code
+// den-kit's BrowserPod adapter (desktop/page/browserpod.ts) running its real code
 // against a stand-in with BrowserPod's API (test/fakes/pod/mock-browserpod.ts),
 // which follows BrowserPod's documented behaviour and takes the harder reading
 // where the documentation is silent: run() resolves at exit with no status (a
@@ -13,8 +13,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import type { BrowserPod } from '@leaningtech/browserpod';
-import { catalog } from '../../src/blocks/index.ts';
-import { starter } from '../../src/core/starters.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import {
   BrowserPodHost,
@@ -23,10 +23,12 @@ import {
   parseEnv,
   plainBytes,
   resetBrowserPodForTest,
-} from '../../src/pod/browserpod.ts';
-import { PodSession } from '../../src/pod/pod-session.ts';
-import { starterPart } from '../../src/pod/template.ts';
+} from '../../desktop/page/browserpod.ts';
+import { PodSession } from '../../src/workspace/pod-session.ts';
+import { starterPart } from '../../src/workspace/template.ts';
 import { MockBrowserPod, resizableBuffer } from '../fakes/pod/mock-browserpod.ts';
+import { kitFiles } from '../../src/screen/kit-files.ts';
+import { throughSandbox } from '../helpers/sandboxed.ts';
 
 const resizable = (buffer: ArrayBufferLike) =>
   (buffer as { resizable?: boolean }).resizable === true;
@@ -213,14 +215,18 @@ describe('the pod session through the BrowserPod adapter', () => {
       doc: shallowRef(starter('bass', catalog)),
       commit: () => ({ ok: true, ops: [], created: [] }),
     } as unknown as KitSession;
-    pod = new PodSession(kit, {
-      kind: 'fake',
-      create: async () => {
-        const h = new BrowserPodHost(mock as unknown as BrowserPod);
-        await h.init();
-        return h;
+    pod = new PodSession(
+      kit,
+      {
+        kind: 'fake',
+        create: async () => {
+          const h = new BrowserPodHost(mock as unknown as BrowserPod);
+          await h.init();
+          return h;
+        },
       },
-    });
+      kitFiles(),
+    );
   });
   afterAll(() => {
     pod?.dispose();
@@ -236,22 +242,23 @@ describe('the pod session through the BrowserPod adapter', () => {
     await pod.writeFile('src/parts/meter.ts', starterPart('meter'));
     const { files } = await pod.collect();
     expect(files['src/parts/meter.ts']).toBe(starterPart('meter'));
-    const page = await fetch(`${pod.portal.value}?part=meter`);
-    expect(page.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
+    const page = await throughSandbox(pod.portal.value!, '/?part=meter');
+    expect(page.headers['cross-origin-embedder-policy']).toBe('require-corp');
     expect((await fetch(`${pod.portal.value}src/parts/meter.ts`)).status).toBe(200);
   }, 240_000);
   it("the dev server starts with src/parts made and looks for new folders (BrowserPod's file watching does not see folders made later)", async () => {
     const dev = mock.runs.find(r => r.args.some(a => a.endsWith('/.den-kit/run/dev.sh')));
-    expect(dev?.env).toEqual(
-      expect.arrayContaining(['KIT_WATCH_NEW_FOLDERS=1', 'KIT_HMR_CLIENT_PORT=443', 'PORT=5173']),
-    );
+    expect(dev?.env).toEqual(expect.arrayContaining(['KIT_WATCH_NEW_FOLDERS=1', 'PORT=5173']));
     const { readFileSync } = await import('node:fs');
     expect(
       readFileSync(
         dev!.args.find(a => a.endsWith('dev.sh'))!,
         'utf8',
       ),
-    ).toMatch(/^mkdir -p src\/parts && npm run dev/);
+      // The script records its process (so den-kit can stop it) and runs as npm (stopping npm stops the dev server).
+    ).toMatch(
+      /^echo \$\$ > '[^']*\/\.den-kit\/run\/dev\.pid'\nmkdir -p src\/parts && exec npm run dev\n/,
+    );
     // A part in a folder made after the server started is served, and so is its change.
     await pod.bash("mkdir -p src/lib && echo 'export const n = 1;' > src/lib/n.ts", { who: 'ai' });
     expect(await (await fetch(`${pod.portal.value}src/lib/n.ts`)).text()).toContain('n = 1');
@@ -288,9 +295,14 @@ describe('BrowserPod starts once per page', () => {
   });
   /** A stand-in module whose boot is controlled by the test, counting boots and refusing a second one like BrowserPod. */
   function module(settle: (mock: MockBrowserPod) => Promise<unknown>) {
-    const state = { boots: 0, mock: new MockBrowserPod({ home }) };
+    const state = {
+      boots: 0,
+      mock: new MockBrowserPod({ home }),
+      options: null as { storageKey?: string } | null,
+    };
     const BrowserPod = {
-      boot: async () => {
+      boot: async (options: { storageKey?: string }) => {
+        state.options = options;
         state.boots++;
         if (state.boots > 1) throw new Error('Device already opened in another tab');
         await settle(state.mock);
@@ -303,6 +315,17 @@ describe('BrowserPod starts once per page', () => {
     };
   }
 
+  it("a work's pod keeps the work's own disk, and a page that started one work's pod refuses another's", async () => {
+    resetBrowserPodForTest();
+    const { state, load } = module(async () => undefined);
+    await bootBrowserPod({ apiKey: 'k', work: 'w1', testing: { load } });
+    expect(state.options?.storageKey).toBe('den-kit-work-w1');
+    await expect(bootBrowserPod({ apiKey: 'k', work: 'w2', testing: { load } })).rejects.toThrow(
+      /belong to the work that started them/,
+    );
+    expect(state.boots).toBe(1);
+    state.mock.dispose();
+  });
   it('a slow start: den-kit says so, and asking again waits for the same start (no second boot)', async () => {
     resetBrowserPodForTest();
     let release!: () => void;
@@ -313,13 +336,13 @@ describe('BrowserPod starts once per page', () => {
         }),
     );
     await expect(
-      bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load, limitMs: 200 } }),
+      bootBrowserPod({ apiKey: 'k', work: 's', testing: { load, limitMs: 200 } }),
     ).rejects.toThrow(/has not started after/);
     release();
     await new Promise(r => setTimeout(r, 50));
     const host = await bootBrowserPod({
       apiKey: 'k',
-      storageKey: 's',
+      work: 's',
       testing: { load, limitMs: 200 },
     });
     expect(host.home).toBe(home);
@@ -331,13 +354,11 @@ describe('BrowserPod starts once per page', () => {
     const { state, load } = module(async () => {
       throw new Error('the machine image could not be read');
     });
-    const first = bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } });
+    const first = bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } });
     await expect(first).rejects.toThrow(
       'BrowserPod did not start: the machine image could not be read',
     );
-    const again = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-      e => e,
-    );
+    const again = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(e => e);
     expect(again.message).toBe('BrowserPod did not start: the machine image could not be read');
     expect(again.fix).toMatch(/Reload the page/);
     expect(state.boots).toBe(1);
@@ -348,9 +369,7 @@ describe('BrowserPod starts once per page', () => {
     const had = memory.toResizableBuffer;
     delete memory.toResizableBuffer;
     try {
-      const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-        x => x,
-      );
+      const e = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(x => x);
       expect(e.message).toBe(
         'This browser is too old for BrowserPod (it lacks resizable WebAssembly memory).',
       );
@@ -365,9 +384,7 @@ describe('BrowserPod starts once per page', () => {
     const { load } = module(async () => {
       throw new Error('Device already opened in another tab');
     });
-    const e = await bootBrowserPod({ apiKey: 'k', storageKey: 's', testing: { load } }).catch(
-      x => x,
-    );
+    const e = await bootBrowserPod({ apiKey: 'k', work: 's', testing: { load } }).catch(x => x);
     expect(e.message).toMatch(/disk is open in another den-kit tab/);
     expect(e.fix).toMatch(/Close the other den-kit tabs/);
   });

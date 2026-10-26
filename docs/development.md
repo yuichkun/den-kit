@@ -47,6 +47,9 @@ Development settings in a local `.env` file:
 | `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
 | `KIT_PORT`         | Editor port; defaults to `5180`.                        |
 | `KIT_BRIDGE_PORT`  | Local AI bridge port; defaults to `5181`.               |
+| `KIT_CODEX`        | `off` runs without the AI.                              |
+| `KIT_CODEX_HOME`   | Use another Codex home, such as `~/.codex`.             |
+| `KIT_CODEX_BIN`    | Run another Codex binary than the pinned one.           |
 
 ### Project workspace
 
@@ -57,6 +60,15 @@ browser. Source development uses the key configured above.
 The Project tab shows startup progress and provides a terminal, source editor,
 and checks. First startup includes package installation and requires network
 access. BrowserPod also supplies the AI's project environment.
+
+Code parts load from each work's own address on the AI bridge's port
+(`http://<work id>.localhost:5181`), which passes their requests through to the
+project's dev server and sets the same response rules as the desktop app. A
+browser cannot apply the desktop app's window rules (the proxy that refuses
+connections, WebRTC without UDP, no DNS prefetching) or add its secret header, so
+the development server's sandbox answers any local request. The page keeps the
+contents of the work's files, so this sandbox serves only the dev server's pages:
+code parts show only while the project runs.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `vp run build` excludes
@@ -95,6 +107,40 @@ to keep first. The command refuses to delete data while den-kit is running.
 Use `vp run desktop:clean --dry-run` to print the target without deleting it.
 The app bundle, exported files, and repository `.env` are preserved.
 
+## Storybook
+
+[Storybook](https://storybook.js.org/docs) shows the plugin's ready-made controls
+(`src/screen/widgets`) on their own, in each skin and each base theme, and tries
+den-kit's control behaviors on them:
+
+```sh
+vp run storybook
+```
+
+Open [http://localhost:6006/](http://localhost:6006/) and pick the base theme in the
+toolbar. Storybook's own test runner (**Run tests** in the sidebar, and the agent
+tools' `test run`) tries the stories in graphite. `vp run test:stories` runs every story in
+Chromium once in each base theme: its `play` function and an accessibility check,
+which fails the test unless the story file sets `a11y: { test: 'todo' }`.
+`vp run storybook:build` builds a static Storybook into `dist/storybook/`.
+
+A control's stories are in `<control>.stories.ts` beside it. A story file imports the
+control's class with a plain `import`, not `import type`: Storybook finds the stories
+of a changed file through the imports of story files.
+
+Storybook's tools for AI agents run from the command line. Its help writes
+`npx storybook`; use `vp exec storybook`:
+
+```sh
+vp exec storybook skills stories
+vp exec storybook tools --help
+```
+
+`stories preview` and `review create` need a running Storybook; the other tools run
+without one. `review create` gathers the stories a change affects on a review page
+of the running Storybook. While Storybook runs, it also serves the story tools as an
+MCP server at `http://localhost:6006/mcp`.
+
 ## Checks and tests
 
 ```sh
@@ -107,8 +153,14 @@ vp run test
 
 `vp check` checks formatting and lint; `vp check --fix` fixes what it can.
 `vp run typecheck` checks types with vue-tsc, and `vp run build` runs it first.
+`vp run build` also builds the player, the page of a playable build, into
+`dist/player/`: exported work files carry it, also from `vp run dev`, and the e2e
+tests need it.
 Run suites separately with `vp run test:unit`, `vp run test:integration`, and
-`vp run test:e2e`. Browser tests need Chromium; `CHROMIUM_PATH` can select an
+`vp run test:e2e`. `vp run test:stories` runs the controls' stories
+([Storybook](#storybook)). `vp run test:desktop` checks the works' sandbox in Electron
+(what a code part can reach, its frame, WebRTC, DNS prefetching and devices); CI
+runs it on macOS. Browser tests need Chromium; `CHROMIUM_PATH` can select an
 existing installation. Automated regression tests use model and pod substitutes
 rather than paid AI or BrowserPod services. Pod tests execute local commands
 and may download npm dependencies.

@@ -6,17 +6,18 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { AiRequests, type Outcome } from '../../../src/ai/requests.ts';
 import { LlmController, type LlmTransport } from '../../../src/ai/llm.ts';
-import type { LlmInbound } from '../../../src/ai/bridge-client.ts';
-import type { BridgeStatus, LlmEvent, ToolOutput } from '../../../src/ai/protocol.ts';
+import type { AIStatus, LlmEvent, LlmInbound, ToolOutput } from '../../../src/host/ai.ts';
+import { developerWording } from '../../../dev/ai-wording.ts';
 import type { WorkspaceDeps } from '../../../src/ai/llm-workspace.ts';
-import { analyse } from '../../../src/core/analysis.ts';
-import { clone } from '../../../src/core/schema.ts';
+import { analyse } from '../../../src/sound/analysis.ts';
+import { clone } from '../../../src/work/schema.ts';
 import type { KitSession } from '../../../src/editor/session.ts';
 import { testSession } from '../../helpers/test-session.ts';
 
 class FakeTransport {
   online = true;
-  readonly status = shallowRef<BridgeStatus>({
+  readonly wording = developerWording;
+  readonly status = shallowRef<AIStatus>({
     codex: { state: 'ok', images: false, model: 'GPT-6.1-Sol' },
   });
   sent: Array<Record<string, unknown>> = [];
@@ -32,13 +33,27 @@ class FakeTransport {
       this.listeners.delete(l);
     };
   }
-  llmStart(id: string, text: string, instructions: string, thread?: string) {
-    this.sent.push({ t: 'llm.start', id, text, instructions, thread });
+  llmStart(
+    id: string,
+    text: string,
+    instructions: string,
+    thread?: string,
+    options: { context?: string; images?: string[] } = {},
+  ) {
+    this.sent.push({ t: 'llm.start', id, text, instructions, thread, ...options });
     return this.online;
   }
-  llmSteer(id: string, target: string, text: string) {
-    this.sent.push({ t: 'llm.steer', id, target, text });
+  llmSteer(
+    id: string,
+    target: string,
+    text: string,
+    options: { context?: string; images?: string[] } = {},
+  ) {
+    this.sent.push({ t: 'llm.steer', id, target, text, ...options });
     return this.online;
+  }
+  conversation() {
+    return Promise.resolve(null);
   }
   llmStop(id: string) {
     this.sent.push({ t: 'llm.stop', id });
@@ -137,7 +152,6 @@ const snapshot = () => {
     Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
   return JSON.stringify({ ...d, revision: 0, nodes: sort(d.nodes), edges: sort(d.edges) });
 };
-const startId = () => String(t.last('llm.start')!.id);
 
 describe('a request', () => {
   it('replaces reconnecting progress when output resumes and clears loading after a failed connection', () => {
@@ -166,8 +180,10 @@ describe('a request', () => {
     const o = llm.run('wobble the cutoff');
     expect(o).toMatchObject({ status: 'thinking', route: 'llm', live: true });
     const start = t.last('llm.start')!;
-    expect(String(start.text)).toMatch(
-      /^\[den-kit\] You edit the live patch; each edit that checks out lands at once\.[\s\S]*wobble the cutoff$/,
+    // The person's words go as they are; den-kit's notes about the moment come with them.
+    expect(start.text).toBe('wobble the cutoff');
+    expect(String(start.context)).toMatch(
+      /^\[den-kit\] You edit the live work; each edit that checks out lands at once\./,
     );
     expect(String(start.instructions)).toContain('kit_get_patch');
     expect(String(start.instructions)).toContain('den.lfo');
@@ -200,7 +216,7 @@ describe('a request', () => {
     expect(line(o.id).undone).toBe(true);
   });
 
-  it('an edit by the user in between stays their own: the request undoes in two parts around it', async () => {
+  it('an edit by the user in between stays their own step; one undo takes the whole request back', async () => {
     const before = snapshot();
     const undoSteps = session.history.size;
     const o = llm.run('wobble and open it');
@@ -211,13 +227,36 @@ describe('a request', () => {
     });
     t.done(o.id);
     expect(line(o.id).status).toBe('applied');
-    expect(session.history.size).toBe(undoSteps + 3);
-    session.undo(); // the LLM's second part
+    expect(session.history.size).toBe(undoSteps + 2);
+    session.undo(); // the whole request, both parts
     expect(session.doc.value.nodes.cut1!.values.hz).not.toBe(900);
+    expect(session.doc.value.nodes.lfo2).toBeUndefined();
     expect(session.doc.value.nodes.filter1!.values.resonance).toBe(2);
-    session.undo();
-    session.undo();
+    session.undo(); // the user's own edit
     expect(snapshot()).toBe(before);
+  });
+
+  it('an AI edit on something the person changed after the AI read the work fails and says what changed', async () => {
+    const o = llm.run('open the resonance');
+    session.commit([{ op: 'setValue', node: 'filter1', port: 'resonance', value: 2 }]); // the user, meanwhile
+    const refused = await t.call(o.id, 'c1', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 6 }],
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.text).toMatch(/module filter1 \(resonance\) was changed by the person/);
+    expect(session.doc.value.nodes.filter1!.values.resonance).toBe(2);
+    // What the person did not touch, the AI may still change.
+    const other = await t.call(o.id, 'c2', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'cut1', port: 'hz', value: 900 }],
+    });
+    expect(other.success).toBe(true);
+    // Once it has read the work again, it decides with the change in sight.
+    await t.call(o.id, 'c3', 'kit_get_patch', {});
+    const again = await t.call(o.id, 'c4', 'kit_apply_ops', {
+      ops: [{ op: 'setValue', node: 'filter1', port: 'resonance', value: 6 }],
+    });
+    expect(again.success).toBe(true);
+    t.done(o.id);
   });
 
   it('a reply without changes shows the words; a follow-up continues the conversation', async () => {
@@ -234,16 +273,17 @@ describe('a request', () => {
     });
     llm.run('make it darker');
     expect(t.last('llm.start')!.thread).toBe('th1');
-    expect(String(t.last('llm.start')!.text)).toMatch(/may have changed since your last turn/);
+    expect(String(t.last('llm.start')!.context)).toMatch(/may have changed since your last turn/);
   });
 
-  it('a new conversation starts when a different patch is loaded', async () => {
+  it('a new conversation starts when the person loads another patch', async () => {
     const o = llm.run('explain');
     t.event(o.id, { kind: 'thread', thread: 'th1', fresh: false });
     t.done(o.id);
+    expect(session.conversation.value).toBe('th1');
     session.loadStarter('pad');
+    expect(session.conversation.value).toBeNull();
     llm.run('explain again');
-    expect(t.last('llm.forget')).toEqual({ t: 'llm.forget', thread: 'th1' });
     expect(t.last('llm.start')!.thread).toBeUndefined();
   });
 });
@@ -255,7 +295,8 @@ describe('while it works', () => {
     expect(t.last('llm.steer')).toMatchObject({
       id: steer.id,
       target: first.id,
-      text: expect.stringMatching(/adds, while you work[\s\S]*make it darker/),
+      text: 'make it darker',
+      context: expect.stringMatching(/adds this while you work/),
     });
     t.event(steer.id, { kind: 'steered', target: first.id });
     expect(line(steer.id)).toMatchObject({ status: 'merged', live: false });
@@ -423,7 +464,7 @@ describe('when something does not work', () => {
   it('Codex not signed in: the line says what to run', () => {
     t.status.value = {
       ...t.status.value,
-      codex: { state: 'login', fix: 'Run `npm run codex:login` once.' },
+      codex: { state: 'login', fix: 'Run `vp run codex:login` once.' },
     };
     const o = llm.run('wobble');
     expect(o).toMatchObject({
@@ -448,7 +489,7 @@ describe('the prompt sends every request to the LLM', () => {
     const undoSteps = session.history.size;
     const o: Outcome = requests.run(text);
     expect(o).toMatchObject({ route: 'llm', status: 'thinking' });
-    expect(String(t.last('llm.start')!.text).endsWith(`\n\n${text}`)).toBe(true);
+    expect(t.last('llm.start')!.text).toBe(text);
     expect(snapshot()).toBe(before);
     expect(session.history.size).toBe(undoSteps);
   });
@@ -474,7 +515,7 @@ describe('the prompt sends every request to the LLM', () => {
       codex: {
         state: 'error',
         detail: 'Codex stopped unexpectedly.',
-        fix: 'Run `npm run doctor`.',
+        fix: 'Run `vp run doctor`.',
       },
     };
     const before = snapshot();

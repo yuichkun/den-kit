@@ -1,8 +1,8 @@
-// U3 in the browser: building a plugin screen by hand. Adding things from the
+// Building a plugin screen by hand, in the browser. Adding things from the
 // keyboard, editing text in place, aligning, grouping, stacking, undo; pictures
-// dropped onto the plugin become assets and travel inside an export; custom
-// parts draw, and a broken or endless one is stopped without taking the page
-// down; a part that handles the mouse moves controls in one undo step per
+// dropped onto the plugin become assets and travel inside an export; canvases
+// draw, and a broken or endless one is stopped without taking the page down; a
+// canvas that handles the mouse moves controls in one undo step per
 // press; decorations never block the controls under them; the look and skins
 // change from the inspector; the start screen starts a work in another work's look.
 import { after, before, describe, it } from 'node:test';
@@ -160,8 +160,21 @@ describe('building the plugin screen by hand', () => {
         (e: any) => e.kind === 'image',
       ),
     );
-    const asset = await kit(page, k => Object.values<any>(k.doc.value.assets)[0]);
-    assert.match(asset.id, /^a[0-9a-f]{15}$/);
+    const asset = await kit(
+      page,
+      k =>
+        Object.entries<any>(k.doc.value.files)
+          .filter(([p]) => p.startsWith('assets/'))
+          .map(([id, f]) => ({
+            id,
+            name: id.split('/').at(-1),
+            mime: f.type,
+            width: f.width,
+            height: f.height,
+            source: f.source,
+          }))[0],
+    );
+    assert.equal(asset.id, 'assets/dot.png');
     assert.deepEqual(
       [asset.name, asset.mime, asset.width, asset.height],
       ['dot.png', 'image/png', 2, 2],
@@ -195,21 +208,51 @@ describe('building the plugin screen by hand', () => {
       { x: stage!.x + 40, y: stage!.y + 40 },
     );
     await page.waitForSelector('[data-testid=toast]:has-text("could not be read as a picture")');
-    assert.equal(await kit(page, k => Object.keys(k.doc.value.assets).length), 1);
+    assert.equal(
+      await kit(
+        page,
+        k =>
+          Object.entries<any>(k.doc.value.files)
+            .filter(([p]) => p.startsWith('assets/'))
+            .map(([id, f]) => ({
+              id,
+              name: id.split('/').at(-1),
+              mime: f.type,
+              width: f.width,
+              height: f.height,
+              source: f.source,
+            })).length,
+      ),
+      1,
+    );
     // The asset panel lists it; a licence can be noted.
-    await page.click(`[data-asset=${asset.id}]`);
+    await page.click(`[data-asset="${asset.id}"]`);
     await page.fill('[data-testid=asset-detail] [data-field=license]', 'Own work');
     await page.keyboard.press('Enter');
     assert.equal(
-      await kit(page, k => Object.values<any>(k.doc.value.assets)[0].source?.license),
+      await kit(
+        page,
+        k =>
+          Object.entries<any>(k.doc.value.files)
+            .filter(([p]) => p.startsWith('assets/'))
+            .map(([id, f]) => ({
+              id,
+              name: id.split('/').at(-1),
+              mime: f.type,
+              width: f.width,
+              height: f.height,
+              source: f.source,
+            }))[0].source?.license,
+      ),
       'Own work',
     );
-    // Export carries the bytes; a fresh page imports them back.
-    const text: string = await kit(page, k => k.exportWithAssets());
-    assert.match(JSON.parse(text).assets[asset.id].data, /^data:image\/png;base64,/);
+    // The work file carries the bytes; a fresh page (its own storage) imports them back.
+    const file: number[] = await kit(page, async k => Array.from(await k.exportWork()));
     const { page: other } = await openKit(h);
-    await kit(other, k => k.importText);
-    await other.evaluate(t => (window as any).__kit.importText(t), text);
+    assert.equal(
+      await other.evaluate(bytes => (window as any).__kit.importWork(new Uint8Array(bytes)), file),
+      true,
+    );
     await other.keyboard.press('Control+Alt+KeyE');
     await other.waitForFunction(
       () =>
@@ -229,10 +272,8 @@ describe('building the plugin screen by hand', () => {
     await waitCompiled(page);
     await pluginEdit(page);
     await page.keyboard.press('Shift+Space');
-    // Its old name still finds it.
-    await page.keyboard.type('custom');
+    await page.keyboard.type('canvas');
     await page.waitForSelector('[data-testid=insert-menu] .item.current[data-insert=canvas]');
-    await page.fill('[data-testid=insert-search]', 'canvas');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-element=canvas1] canvas');
     // Enter opens the code; a throwing draw shows its message in the canvas.
@@ -569,7 +610,7 @@ describe('building the plugin screen by hand', () => {
     assert.equal(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)');
     assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ffb36b');
     assert.ok(
-      await kit(page, k => !!k.doc.value.assets['sc-sunset']),
+      await kit(page, k => !!k.doc.value.files['assets/den-kit/sunset-sky.jpg']),
       'the look brings its picture',
     );
     assert.ok(
@@ -582,6 +623,120 @@ describe('building the plugin screen by hand', () => {
       'Acid Line (Afterglow look)',
       'starting is one undo step',
     );
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it("ready-made controls behave by den-kit's rules: a knob drags 200 px for its range, takes the wheel and keys, resets on double-click; a slider never jumps; a button held by a key lets go when focus leaves; each gesture is one undo step", async () => {
+    const { page, errors } = await openKit(h);
+    await waitCompiled(page);
+    await kit(page, k =>
+      k.commit([
+        {
+          op: 'addNode',
+          node: {
+            id: 'bk',
+            type: 'ui.knob',
+            label: 'BK',
+            pos: { x: -300, y: 0 },
+            panel: { x: 40, y: 40, w: 120, h: 140 },
+            config: { min: 0, max: 100, scale: 'linear', unit: '' },
+            values: { value: 50 },
+          },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'bs',
+            type: 'ui.slider',
+            label: 'BS',
+            pos: { x: -300, y: 200 },
+            panel: { x: 200, y: 40, w: 50, h: 240 },
+            config: { min: 0, max: 100, scale: 'linear', unit: '' },
+            values: { value: 50 },
+          },
+        },
+        {
+          op: 'addNode',
+          node: {
+            id: 'bb',
+            type: 'ui.button',
+            label: 'BB',
+            pos: { x: -300, y: 400 },
+            panel: { x: 280, y: 40, w: 90, h: 44 },
+          },
+        },
+      ]),
+    );
+    await page.keyboard.press('Control+Alt+KeyE');
+    const knob = page.locator('[data-widget=bk] dk-knob');
+    await knob.waitFor();
+    const value = (id: string): Promise<number> =>
+      page.evaluate(id => (window as any).__kit.doc.value.nodes[id].values.value, id);
+    const near = async (id: string, v: number) =>
+      page.waitForFunction(
+        ([id, v]) => Math.abs((window as any).__kit.doc.value.nodes[id].values.value - v) < 0.6,
+        [id, v] as const,
+        { timeout: 5000 },
+      );
+    const steps = () => kit(page, k => k.history.size);
+    const b = (await knob.boundingBox())!;
+    let size = await steps();
+    // Rule 1: 40 px up on screen (however the plugin is scaled) is 20% of the range, wherever it is grabbed.
+    for (const grab of [0.3, 0.6]) {
+      const start = await value('bk');
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height * grab);
+      await page.mouse.down();
+      for (const dy of [10, 20, 30, 40])
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height * grab - dy);
+      await page.mouse.up();
+      await near('bk', Math.min(100, start + 20));
+      assert.equal(await steps(), ++size, 'one drag is one undo step');
+    }
+    // Rule 4: keys (1%, Shift 10%, Home and End); rule 3: a wheel notch is 1%; rule 2: a double-click is the default.
+    await kit(page, k => k.commit([{ op: 'setValue', node: 'bk', port: 'value', value: 50 }]));
+    await knob.focus();
+    await page.keyboard.press('ArrowUp');
+    await near('bk', 51);
+    await page.keyboard.press('Shift+ArrowUp');
+    await near('bk', 61);
+    await page.keyboard.press('Home');
+    await near('bk', 0);
+    await page.keyboard.press('End');
+    await near('bk', 100);
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.wheel(0, 100);
+    await near('bk', 99);
+    await knob.dblclick();
+    await near('bk', Number(await knob.getAttribute('default')));
+    // Rule 5: clicking a slider somewhere else does not move it; dragging moves it from where it was.
+    const slider = page.locator('[data-widget=bs] dk-slider .track');
+    const s = (await slider.boundingBox())!;
+    size = await steps();
+    await page.mouse.click(s.x + s.width / 2, s.y + 4);
+    await page.waitForTimeout(200);
+    assert.equal(await value('bs'), 50, 'a click does not jump');
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height - 4);
+    await page.mouse.down();
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height - 4 - s.height / 4, { steps: 4 });
+    await page.mouse.up();
+    await near('bs', 75);
+    assert.equal(await steps(), size + 1, 'the drag is one undo step');
+    await kit(page, k => k.undo());
+    assert.equal(await value('bs'), 50);
+    // Rule 6: a button is on while Space holds it; focus moves away before the key goes up, and it lets go.
+    const button = page.locator('[data-widget=bb] dk-toggle');
+    await button.focus();
+    await page.keyboard.down(' ');
+    await page.waitForFunction(
+      () => (window as any).__kit.doc.value.nodes.bb.values.value === true,
+    );
+    await knob.focus();
+    await page.waitForFunction(
+      () => (window as any).__kit.doc.value.nodes.bb.values.value === false,
+    );
+    assert.equal(await button.getAttribute('value'), 'false');
+    await page.keyboard.up(' ');
     assert.deepEqual(errors, []);
     await page.close();
   });

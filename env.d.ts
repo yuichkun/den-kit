@@ -8,7 +8,7 @@ declare module 'virtual:kit-runtime' {
   export default runtime;
 }
 declare module 'virtual:kit-bridge' {
-  const bridge: { token: string | null };
+  const bridge: { token: string | null; port: number };
   export default bridge;
 }
 declare module 'virtual:kit-pod' {
@@ -16,7 +16,7 @@ declare module 'virtual:kit-pod' {
   export default pod;
 }
 declare module 'virtual:kit-types' {
-  const snapshot: import('./src/compile/type-project.ts').TypeFiles;
+  const snapshot: import('./src/sound/compile/type-project.ts').TypeFiles;
   export default snapshot;
 }
 declare module '*.vue' {

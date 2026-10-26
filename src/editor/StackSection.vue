@@ -4,16 +4,16 @@
 // count recompiles; how a knob spreads (amount, kind, a copy's own value) is
 // played live, like turning a knob.
 import { computed } from 'vue';
-import type { PortDef } from '../core/catalog.ts';
-import { formatCpu } from '../core/cost.ts';
+import type { PortDef } from '../work/catalog.ts';
+import { formatCpu } from '../work/cost.ts';
 import {
   MAX_COUNT,
   SPREAD_KINDS,
   type PatchNode,
   type Spread,
   type SpreadKind,
-} from '../core/schema.ts';
-import { copiesOf, spreadable, spreadReach, spreadUnit, spreadValue } from '../core/stacks.ts';
+} from '../work/schema.ts';
+import { copiesOf, spreadable, spreadReach, spreadUnit, spreadValue } from '../work/stacks.ts';
 import { useSession } from './context.ts';
 
 const props = defineProps<{ node: PatchNode }>();
@@ -67,7 +67,7 @@ function setKind(p: PortDef, kind: SpreadKind | 'same') {
     return;
   }
   const old = spreadOf(p);
-  const next: Spread = { ...(old ?? {}), kind };
+  const next: Spread = { ...old, kind };
   if ((kind === 'range' || kind === 'random') && !next.amount)
     next.amount = p.scale === 'log' ? 0.5 : spreadReach(p) / 8;
   if (kind === 'each' && !next.values?.length)
@@ -123,7 +123,7 @@ function drawBars(p: PortDef, e: PointerEvent) {
       Math.max(0, Math.floor(((m.clientX - r.left) / r.width) * count.value)),
     );
     current[k] = fromHeight(p, 1 - (m.clientY - r.top) / r.height);
-    setSpread(p, { ...(spreadOf(p) ?? {}), kind: 'each', values: [...current] }, gesture);
+    setSpread(p, { ...spreadOf(p), kind: 'each', values: [...current] }, gesture);
   };
   paint(e);
   const up = () => {
@@ -285,8 +285,8 @@ const fmt = (v: number) => {
   font-size: 11px;
 }
 .small.on {
-  background: #5ec4ff33;
-  color: #cfe9ff;
+  background: color-mix(in srgb, var(--blue) 20%, transparent);
+  color: var(--blue-light);
 }
 .quick {
   display: flex;
@@ -319,16 +319,16 @@ const fmt = (v: number) => {
   width: 100%;
   height: 34px;
   display: block;
-  background: #1e1e1e;
+  background: var(--gray-3);
   border-radius: 3px;
   cursor: crosshair;
   touch-action: none;
 }
 .bars rect {
-  fill: #5ec4ff99;
+  fill: color-mix(in srgb, var(--blue) 60%, transparent);
 }
 .bars.each rect {
-  fill: #ffd43bcc;
+  fill: color-mix(in srgb, var(--yellow) 80%, transparent);
 }
 .ends {
   display: flex;

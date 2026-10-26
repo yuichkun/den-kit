@@ -1,4 +1,4 @@
-// U8c in the page: the person picks up the pen (P), circles a knob and leaves a
+// In the page: the person picks up the pen (P), circles a knob and leaves a
 // sticky note on the plugin, sends a request: the AI gets the marks in words
 // (what each goes around) and the plugin re-drawn with the numbered marks; the
 // marks wait, dimmed, while it works and go when it is done. ⌘Z while drawing
@@ -135,14 +135,17 @@ describe('sketching for the AI', () => {
         said,
         /\[den-kit\] The person sketched on the plugin \(\d+×\d+ design pixels\); the marks are numbered on the picture \(the plugin re-drawn at its design size\):\n①/,
       );
+      // den-kit's notes, the person's words and the picture, each an input of its own.
       const start = h.codex!.sent('turn/start').at(-1)! as {
-        params: { input: Array<{ type: string; url?: string }> };
+        params: { input: Array<{ type: string; text?: string; url?: string }> };
       };
       assert.deepEqual(
         start.params.input.map(i => i.type),
-        ['text', 'image'],
+        ['text', 'text', 'image'],
       );
-      assert.match(start.params.input[1]!.url!, /^data:image\/(png|jpeg);base64,/);
+      assert.match(start.params.input[0]!.text!, /^\[den-kit\]/);
+      assert.equal(start.params.input[1]!.text, 'sketch test');
+      assert.match(start.params.input[2]!.url!, /^data:image\/(png|jpeg);base64,/);
       // Done: the marks go; the line says a sketch went with it.
       await page.waitForFunction(
         () => document.querySelectorAll('[data-ink=plugin] [data-mark]').length === 0,
@@ -278,7 +281,9 @@ describe('sketching for the AI', () => {
       });
       await pen('[data-testid=plugin-view] [data-testid=panel]', 80, 20);
       assert.equal(await marks(page, 'plugin').count(), 2);
-      assert.equal(await page.evaluate(() => localStorage.getItem('den-kit:stylus-draws')), 'off');
+      await page.waitForFunction(
+        () => localStorage.getItem('den-kit:editor:stylus-draws') === 'off',
+      );
       assert.deepEqual(errors, []);
       await page.close();
     },
@@ -349,7 +354,9 @@ describe('sketching for the AI', () => {
       assert.equal(await page.locator('[data-testid=ink-bar]').count(), 0);
       const underlay = await kit(page, k => ({
         u: k.doc.value.ui.underlay,
-        name: k.doc.value.assets[k.doc.value.ui.underlay?.asset]?.name,
+        name:
+          k.doc.value.files[k.doc.value.ui.underlay?.asset] &&
+          k.doc.value.ui.underlay?.asset.split('/').at(-1),
       }));
       assert.deepEqual(
         [underlay.u.visible, underlay.u.opacity, underlay.name],

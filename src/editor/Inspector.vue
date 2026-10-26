@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { isParamInput, type ConfigDef, type PortDef } from '../core/catalog.ts';
-import type { ConfigValue } from '../core/schema.ts';
-import { RANGE_UNITS, membersOf, partInterface, usesOf } from '../core/parts.ts';
-import type { PartParam } from '../core/schema.ts';
-import { describeDiff } from '../core/library.ts';
-import { describeFace } from '../core/face.ts';
-import { faceOnPlugin } from '../plugin/faces.ts';
+import { isParamInput, type ConfigDef, type PortDef } from '../work/catalog.ts';
+import type { ConfigValue } from '../work/schema.ts';
+import { RANGE_UNITS, membersOf, partInterface, usesOf } from '../work/parts.ts';
+import type { PartParam } from '../work/schema.ts';
+import { describeDiff } from '../work/library.ts';
+import { describeFace } from '../work/face.ts';
+import { faceOnPlugin } from '../screen/faces.ts';
 import { useSession } from './context.ts';
-import { ControlError, controlFor } from '../plugin/controls.ts';
+import { ControlError, controlFor } from '../screen/controls.ts';
 import ValueField from './ValueField.vue';
 import InputSelect from './InputSelect.vue';
 import StackSection from './StackSection.vue';
-import { stackable } from '../core/stacks.ts';
+import { stackable } from '../work/stacks.ts';
+import { typeOfPath } from '../work/files.ts';
+import { assetsOf } from '../work/ui.ts';
 
 const emit = defineEmits<{ (e: 'edit-code', id: string): void }>();
 const session = useSession();
@@ -79,7 +81,12 @@ function expose(port: string) {
         : `Added "${session.doc.value.nodes[made.id]?.label}" in the corner: the plugin has no free space (make it bigger, or move things).`,
     );
 }
-const configDefs = computed(() => def.value?.config ?? []);
+const configDefs = computed(() => (def.value?.config ?? []).filter(c => c.kind !== 'asset'));
+/** Configs that point at an asset: changing them sends the asset's samples, without recompiling. */
+const assetDefs = computed(() => (def.value?.config ?? []).filter(c => c.kind === 'asset'));
+const audioAssets = computed(() =>
+  Object.keys(assetsOf(session.doc.value.files)).filter(p => typeOfPath(p).as === 'audio'),
+);
 
 // ---- parts ---------------------------------------------------------------------------
 /** The part a selected use stands for. */
@@ -198,7 +205,7 @@ function setRange(p: PartParam, key: 'min' | 'max' | 'unit', e: Event) {
     raw = (e.target as HTMLInputElement | HTMLSelectElement).value;
   if (!now || !shown.value) return;
   const next = {
-    ...(p.range ?? {}),
+    ...p.range,
     min: now.min,
     max: now.max,
     unit: now.unit,
@@ -473,6 +480,22 @@ function updateMine() {
         </div>
       </div>
       <StackSection v-if="stackable(session.catalog, node.type)" :node="node" />
+      <div v-if="assetDefs.length" class="section">
+        <h3>Files</h3>
+        <div v-for="c in assetDefs" :key="c.id" class="row" :title="c.doc">
+          <label>{{ c.label ?? c.id }}</label>
+          <select
+            :value="String(node.config[c.id] ?? '')"
+            :data-config="c.id"
+            @change="setConfig(c, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ audioAssets.length ? '—' : 'No audio assets yet' }}</option>
+            <option v-for="path in audioAssets" :key="path" :value="path">
+              {{ path.slice('assets/'.length) }}
+            </option>
+          </select>
+        </div>
+      </div>
       <div v-if="configDefs.length" class="section">
         <h3>Construction (recompiles)</h3>
         <div v-for="c in configDefs" :key="c.id" class="row" :title="c.doc">
@@ -592,10 +615,10 @@ function updateMine() {
 }
 .mname {
   font-size: 15px;
-  color: #eee;
+  color: var(--gray-18);
 }
 .msub {
-  color: #8a8a8a;
+  color: var(--gray-12);
   font-size: 12px;
   margin: 2px 0 4px;
 }
@@ -603,7 +626,7 @@ function updateMine() {
   font-family: ui-monospace, monospace;
 }
 .summary {
-  color: #a9a9a9;
+  color: var(--gray-14);
   font-style: italic;
   font-size: 12.5px;
 }
@@ -639,8 +662,8 @@ function updateMine() {
   margin-top: 4px;
 }
 .buttons button.on {
-  background: #ffd43b;
-  color: #111;
+  background: var(--yellow);
+  color: var(--gray-1);
 }
 .plist {
   margin-top: 8px;
@@ -672,10 +695,10 @@ function updateMine() {
   font-size: 11px;
 }
 .ptoggle {
-  color: #5ec4ff;
+  color: var(--blue);
 }
 .ptoggle.on {
-  background: #5ec4ff33;
+  background: color-mix(in srgb, var(--blue) 20%, transparent);
 }
 .face {
   margin-top: 8px;
@@ -688,8 +711,8 @@ function updateMine() {
   gap: 4px;
 }
 .newer {
-  background: #ffd27a14;
-  border: 1px solid #ffd27a55;
+  background: color-mix(in srgb, var(--sand) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sand) 33%, transparent);
   border-radius: 4px;
   padding: 6px 8px;
   font-size: 12px;

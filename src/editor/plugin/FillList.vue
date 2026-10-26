@@ -2,7 +2,7 @@
 // Fill layers, bottom first: colours, linear and radial gradients, pictures
 // (cover, contain, stretch or tiled), each with its own opacity and blend.
 import { computed } from 'vue';
-import { BLEND_MODES, isImageAsset, type AssetMeta, type Fill, type Stop } from '../../core/ui.ts';
+import { BLEND_MODES, isImageAsset, type AssetMeta, type Fill, type Stop } from '../../work/ui.ts';
 import ColorField from './ColorField.vue';
 import NumberField from './NumberField.vue';
 
@@ -252,11 +252,11 @@ function addStop(i: number) {
 
 <style scoped>
 .layer {
-  border: 1px solid #333;
+  border: 1px solid var(--gray-6);
   border-radius: 6px;
   padding: 4px 6px;
   margin: 4px 0;
-  background: #1d1d1d;
+  background: var(--gray-3);
 }
 .head select {
   flex: 1;

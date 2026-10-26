@@ -1,4 +1,4 @@
-// `npm run codex:login`: sign the pinned Codex CLI in for den-kit with your
+// `vp run codex:login`: sign the pinned Codex CLI in for den-kit with your
 // ChatGPT account. It uses den-kit's own CODEX_HOME (.codex-home, or
 // KIT_CODEX_HOME), creating it first because Codex refuses a missing one. Extra
 // arguments go to `codex login` (e.g. `-- --device-auth` on a machine without a browser).
@@ -32,7 +32,7 @@ child.on('error', error => {
 child.on('exit', code => {
   if (code === 0)
     console.log(
-      '\nSigned in. If `npm run dev` is running, den-kit picks this up by itself (the LLM status turns green).\nCheck everything with `npm run doctor -- --deep`.',
+      '\nSigned in. If `vp run dev` is running, den-kit picks this up by itself (the LLM status turns green).\nCheck everything with `vp run doctor --deep`.',
     );
   process.exit(code ?? 1);
 });

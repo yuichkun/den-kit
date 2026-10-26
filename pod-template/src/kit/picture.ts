@@ -166,7 +166,7 @@ function copy(node: Node, ctx: Ctx): Node | null {
     ctx.work.push(
       (async () => {
         let value = bg;
-        for (const m of [...bg.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)]) {
+        for (const m of bg.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)) {
           const d = await data(m[2]!);
           value = value.replace(m[0], d ? `url("${d}")` : 'none');
         }
@@ -185,21 +185,21 @@ function copy(node: Node, ctx: Ctx): Node | null {
 
 async function fontCss(families: Set<string>): Promise<string> {
   const rules: string[] = [];
-  for (const sheet of [...document.styleSheets]) {
+  for (const sheet of Array.from(document.styleSheets)) {
     let list: CSSRuleList;
     try {
       list = sheet.cssRules;
     } catch {
       continue;
     }
-    for (const rule of [...list]) {
+    for (const rule of Array.from(list)) {
       if (
         !(rule instanceof CSSFontFaceRule) ||
         !families.has(rule.style.getPropertyValue('font-family').replace(/^["']|["']$/g, ''))
       )
         continue;
       let text = rule.cssText;
-      for (const m of [...text.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)]) {
+      for (const m of text.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)) {
         const d = await data(new URL(m[2]!, sheet.href ?? document.baseURI).href);
         text = text.replace(m[0], d ? `url("${d}")` : 'local("none")');
       }

@@ -8,9 +8,12 @@
 // tab id (the browser ignores repeats). A tab that stays away for `llmGraceMs`
 // has its requests stopped and its conversations closed.
 //
-// Trust model: a connection must come from the Vite page's Origin and present
+// Trust model: a connection must come from den-kit's page's Origin and present
 // the per-launch token in its first message within a few seconds; otherwise it
-// is closed with a code that says why (see CLOSE in src/ai/protocol.ts).
+// is closed with a code that says why (see CLOSE in bridge/protocol.ts).
+//
+// The agent runtime reaches den-kit's tools through the MCP server at /mcp
+// (bridge/mcp.ts), with its own per-launch token.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -23,12 +26,15 @@ import {
   type BridgeStatus,
   type ClientMessage,
   type ServerMessage,
-} from '../src/ai/protocol.ts';
+} from './protocol.ts';
 import { Telemetry } from './telemetry.ts';
 import type { CodexClient, TurnSink } from './codex/client.ts';
+import { MCP_PATH, mcpHandler } from './mcp.ts';
+import type { SandboxServer, SandboxWork } from '../desktop/sandbox.ts';
 
 export const BRIDGE_VERSION = 'den-kit-bridge/1';
 export const TOKEN_PATH = '/__kit/token';
+export const SANDBOX_PATH = '/__kit/sandbox';
 const MAX_TELEMETRY_BYTES = 64 * 1024;
 
 export interface BridgeOptions {
@@ -46,6 +52,13 @@ export interface BridgeOptions {
   log?: (line: string) => void;
   /** Packaged desktop app: serve its built renderer from the same loopback origin. */
   handleHttp?: (req: IncomingMessage, res: ServerResponse) => void;
+  /** The works' sandbox origins on this server (desktop/sandbox.ts), when the host serves code parts here. */
+  sandbox?: SandboxServer;
+  /**
+   * The development host: the page opens and closes works on the sandbox through POST /__kit/sandbox (with the
+   * bridge's token), as the desktop app's page does through its preload bridge.
+   */
+  sandboxControl?: boolean;
 }
 
 interface Tab {
@@ -136,12 +149,12 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   }
   function sinkFor(tabName: string, id: string): TurnSink {
     return {
-      event: event => {
-        if (event.kind === 'thread') add(threads, tabName, event.thread);
-        if (event.kind === 'done') running.get(tabName)?.delete(keyOf(tabName, id));
+      event: (event, agent) => {
+        if (event.kind === 'thread' && !agent) add(threads, tabName, event.thread);
+        if (event.kind === 'done' && !agent) running.get(tabName)?.delete(keyOf(tabName, id));
         if (event.kind === 'steered')
           event = { ...event, target: event.target.slice(tabName.length + SEP.length) };
-        deliver(tabName, { t: 'llm.event', id, event });
+        deliver(tabName, { t: 'llm.event', id, event, ...(agent ? { agent } : {}) });
       },
       toolCall: call =>
         deliver(tabName, {
@@ -150,6 +163,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
           callId: call.callId,
           tool: call.tool,
           args: call.args,
+          ...(call.agent ? { agent: call.agent } : {}),
         }),
     };
   }
@@ -186,6 +200,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
           callId: call.callId,
           tool: call.tool,
           args: call.args,
+          ...(call.agent ? { agent: call.agent } : {}),
         });
     }
   }
@@ -201,10 +216,68 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       },
     });
   const originAllowed = (origin: string | undefined) => !!origin && origins.has(origin);
+  /** POST /__kit/sandbox from the development host's page: open or close a work's sandbox origin. */
+  function controlSandbox(sandbox: SandboxServer, req: IncomingMessage, res: ServerResponse) {
+    const deny = (status: number) => res.writeHead(status, { 'content-type': 'text/plain' }).end();
+    if (
+      req.method !== 'POST' ||
+      !isLoopbackHost(req.headers.host) ||
+      !originAllowed(req.headers.origin) ||
+      req.headers.authorization !== `Bearer ${token}`
+    ) {
+      deny(403);
+      return;
+    }
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      body += chunk;
+      if (body.length > MAX_FRAME_BYTES) req.destroy();
+    });
+    req.on('end', () => {
+      try {
+        const m = JSON.parse(body) as {
+          op?: unknown;
+          work?: unknown;
+          settings?: Partial<SandboxWork>;
+        };
+        if (typeof m.work !== 'string') throw new Error('no work');
+        if (m.op === 'close') sandbox.close(m.work);
+        else if (m.op === 'open' && m.settings && typeof m.settings === 'object')
+          sandbox.open(m.work, {
+            portal: typeof m.settings.portal === 'string' ? m.settings.portal : null,
+            origins: Array.isArray(m.settings.origins) ? m.settings.origins.map(String) : [],
+            devices: (Array.isArray(m.settings.devices)
+              ? m.settings.devices.map(String)
+              : []) as SandboxWork['devices'],
+            // This host keeps contents in the page: the sandbox serves none of the work's files.
+            files: {},
+          });
+        else throw new Error('unknown operation');
+        res.writeHead(204).end();
+      } catch {
+        deny(400);
+      }
+    });
+  }
 
-  // HTTP: only the token endpoint (same-origin pages may re-read the token after a bridge restart).
+  const mcp = codex
+    ? mcpHandler({
+        token: randomBytes(32).toString('hex'),
+        tools: () => codex.tools(),
+        call: (thread, tool, args) => codex.mcpCall(thread, tool, args),
+        version: BRIDGE_VERSION,
+      })
+    : null;
+
+  // HTTP: the token endpoint (same-origin pages may re-read the token after a bridge restart) and MCP.
   const server = createServer((req, res) => {
+    if (options.sandbox?.handle(req, res)) return;
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (options.sandbox && options.sandboxControl && url.pathname === SANDBOX_PATH) {
+      controlSandbox(options.sandbox, req, res);
+      return;
+    }
     if (req.method === 'GET' && url.pathname === TOKEN_PATH) {
       const site = req.headers['sec-fetch-site'];
       const origin = req.headers.origin;
@@ -221,6 +294,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         .end(JSON.stringify({ token, protocol: PROTOCOL_VERSION }));
       return;
     }
+    if (mcp && isLoopbackHost(req.headers.host) && mcp.handle(req, res)) return;
     if (options.handleHttp) {
       options.handleHttp(req, res);
       return;
@@ -230,6 +304,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    if (options.sandbox?.upgrade(req, socket, head)) return;
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (url.pathname !== WS_PATH || !isLoopbackHost(req.headers.host)) {
       socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -338,27 +413,29 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
         }
         const key = keyOf(tab.tab, message.id);
         add(running, tab.tab, key);
-        // Only the tab's own conversations can be continued.
-        const thread =
-          message.thread && threads.get(tab.tab)?.has(message.thread) ? message.thread : undefined;
-        // A member may start from a copy of one of the tab's own conversations only.
-        const fork = message.fork
-          ? {
-              thread: threads.get(tab.tab)?.has(message.fork.thread) ? message.fork.thread : '',
-              fallback: message.fork.fallback,
-            }
-          : undefined;
+        // Codex keeps den-kit's conversations in den-kit's own CODEX_HOME: any of them can go on.
+        // It is this tab's now (closed when this tab goes away, not when the one before does).
+        if (message.thread) {
+          for (const own of threads.values()) own.delete(message.thread);
+          add(threads, tab.tab, message.thread);
+        }
         codex.startTurn(
           {
             key,
             text: message.text,
-            thread,
+            context: message.context,
+            thread: message.thread,
             instructions: message.instructions,
-            role: message.role,
             images: message.images,
-            fork,
           },
           sinkFor(tab.tab, message.id),
+        );
+        return;
+      }
+      case 'llm.conversation': {
+        const socket = tab.socket;
+        void (codex ? codex.conversation(message.thread) : Promise.resolve(null)).then(lines =>
+          send(socket, { t: 'conversation', id: message.id, lines }),
         );
         return;
       }
@@ -372,6 +449,7 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
             key: keyOf(tab.tab, message.id),
             target: keyOf(tab.tab, message.target),
             text: message.text,
+            context: message.context,
             images: message.images,
           },
           sinkFor(tab.tab, message.id),
@@ -429,6 +507,9 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
+  if (options.sandbox && !options.sandbox.port) options.sandbox.port = port;
+  // Codex starts after this (the bridge's owner starts it), with the server's address and token.
+  if (mcp) codex?.useMcp({ url: `http://127.0.0.1:${port}${MCP_PATH}`, token: mcp.token });
 
   return {
     port,
@@ -449,6 +530,9 @@ export async function createBridge(options: BridgeOptions = {}): Promise<Bridge>
       for (const t of tabs) t.socket.terminate();
       tabs.clear();
       wss.close();
+      // Connections still open (the frames' live reload, kept-alive requests) would hold the close forever.
+      options.sandbox?.closeConnections();
+      server.closeAllConnections();
       await new Promise<void>(resolve => server.close(() => resolve()));
     },
   };

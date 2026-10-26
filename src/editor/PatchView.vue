@@ -15,10 +15,10 @@ import {
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
-import { createsCycle } from '../core/scope.ts';
-import type { Intent } from '../core/ops.ts';
-import { expandedId } from '../core/parts.ts';
-import { copiesOf } from '../core/stacks.ts';
+import { createsCycle } from '../work/scope.ts';
+import type { Intent } from '../work/ops.ts';
+import { expandedId } from '../work/parts.ts';
+import { copiesOf } from '../work/stacks.ts';
 import { useSession } from './context.ts';
 import KitNode from './KitNode.vue';
 import KitEdge from './KitEdge.vue';
@@ -444,7 +444,7 @@ const offLlmFit = session.onTransaction(tx => {
   lastFit = performance.now();
   setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
 });
-/** What the person sees of the patch (U8b): the zoom and the modules in sight. */
+/** What the person sees of the patch: the zoom and the modules in sight. */
 const viewDetails = () => {
   const vp = flow.getViewport();
   const { width, height } = flow.dimensions.value;
@@ -459,7 +459,7 @@ const viewDetails = () => {
     .map(n => n.id);
   return { zoom: Math.round(vp.zoom * 100) / 100, inView };
 };
-/** Where the modules are drawn (their boxes in the patch's positions), for reading the person's sketch (U8c). */
+/** Where the modules are drawn (their boxes in the patch's positions), for reading the person's sketch. */
 const patchBoxes = () =>
   Object.fromEntries(
     flow.getNodes.value.map(n => [
@@ -596,7 +596,7 @@ defineExpose({ openPalette, fit });
   position: relative;
   flex: 1;
   outline: none;
-  background: #0e0e0e;
+  background: var(--gray-1);
 }
 .patch-view .vue-flow__node-kit {
   padding: 0;
@@ -611,18 +611,18 @@ defineExpose({ openPalette, fit });
   outline: none;
 }
 .patch-view .vue-flow__connection-path {
-  stroke: #e0e0e0;
+  stroke: var(--gray-17);
   stroke-width: 3;
 }
 .patch-view .vue-flow__edge.selected .vue-flow__edge-path {
   stroke: none;
 }
 .patch-view .vue-flow__selection {
-  border: 1px solid #5ec4ff;
-  background: #5ec4ff1f;
+  border: 1px solid var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
 }
 .patch-view .vue-flow__nodesselection-rect {
-  border: 1px dashed #5ec4ff99;
+  border: 1px dashed color-mix(in srgb, var(--blue) 60%, transparent);
   background: transparent;
 }
 .patch-view .crumbs {
@@ -635,18 +635,18 @@ defineExpose({ openPalette, fit });
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  background: #1b1b1bee;
-  border: 1px solid #3a3a3a;
+  background: color-mix(in srgb, var(--gray-3) 93%, transparent);
+  border: 1px solid var(--gray-7);
   border-radius: 8px;
   font-size: 13px;
-  box-shadow: 0 4px 16px #0008;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--gray-0) 53%, transparent);
 }
 .patch-view .crumb {
   flex: none;
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: #9ad7ff;
+  color: var(--blue-light);
   padding: 2px 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -655,15 +655,15 @@ defineExpose({ openPalette, fit });
   text-overflow: ellipsis;
 }
 .patch-view .crumb.here {
-  color: #fff;
+  color: var(--gray-19);
   font-weight: 600;
   cursor: default;
 }
 .patch-view .crumbs .sep {
-  color: #666;
+  color: var(--gray-10);
 }
 .patch-view .crumbs .hint {
-  color: #777;
+  color: var(--gray-11);
   font-size: 11.5px;
   margin: 0 6px;
   white-space: nowrap;
@@ -674,13 +674,13 @@ defineExpose({ openPalette, fit });
   font-size: 11.5px;
   padding: 2px 8px;
   border-radius: 10px;
-  background: #2c2c2c;
-  color: #ccc;
-  border: 1px solid #444;
+  background: var(--gray-5);
+  color: var(--gray-16);
+  border: 1px solid var(--gray-8);
 }
 .patch-view .crumbs .solo.on {
-  background: #ffd43b;
-  color: #111;
-  border-color: #ffd43b;
+  background: var(--yellow);
+  color: var(--gray-1);
+  border-color: var(--yellow);
 }
 </style>

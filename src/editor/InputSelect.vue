@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // What an effect patch hears while you try it: test material, or the computer's
 // audio input (a guitar through an interface, a microphone).
-import type { TestSignal } from '../engine/audio-engine.ts';
+import type { TestSignal } from '../sound/audio-engine.ts';
 import { useSession } from './context.ts';
 
 const session = useSession();

@@ -3,20 +3,23 @@
 // only an edit that passes lands on the live patch, at once, as one step of the
 // request. A failing edit never lands; its problems go back to the model. The
 // controller (src/ai/llm.ts) makes the steps of one request one undo step.
-import type { Catalog, PortDef } from '../core/catalog.ts';
-import { generate, type Generated } from '../core/codegen.ts';
-import { describePatch } from '../core/describe.ts';
-import { formatIssue, type Issue } from '../core/issues.ts';
-import { applyIntents, OpError, type Intent } from '../core/ops.ts';
-import { PHRASES, phraseEvents, type Phrase } from '../core/phrases.ts';
-import type { PatchDocument, PortSpec } from '../core/schema.ts';
-import { validate } from '../core/validate.ts';
-import { latest, type Library } from '../core/library.ts';
-import { placeNewNodes } from '../core/layout.ts';
-import { pngDataUrl, type TestSignal } from '../core/analysis.ts';
-import type { RenderRequest } from '../compile/protocol.ts';
-import { compileInputs } from '../compile/compile-client.ts';
-import type { Rendered } from '../compile/render-client.ts';
+import { textFiles } from '../work/files.ts';
+import { assetsOf, type AssetMeta } from '../work/ui.ts';
+import type { Catalog, PortDef } from '../work/catalog.ts';
+import { currentAssets, generate, type Generated } from '../sound/codegen.ts';
+import { decodeAudio, slotPayload, type Decoded } from '../sound/assets.ts';
+import { describePatch } from './describe.ts';
+import { formatIssue, type Issue } from '../work/issues.ts';
+import { applyIntents, OpError, type Intent } from '../work/ops.ts';
+import { PHRASES, phraseEvents, type Phrase } from '../sound/phrases.ts';
+import type { PatchDocument, PortSpec } from '../work/schema.ts';
+import { validate } from '../work/validate.ts';
+import { latest, type Library } from '../work/library.ts';
+import { placeNewNodes } from '../work/layout.ts';
+import { pngDataUrl, type TestSignal } from '../sound/analysis.ts';
+import type { RenderRequest } from '../sound/compile/protocol.ts';
+import { compileInputs } from '../sound/compile/compile-client.ts';
+import type { Rendered } from '../sound/compile/render-client.ts';
 import {
   describePlugin,
   describeUiOp,
@@ -24,35 +27,21 @@ import {
   screenChanged,
   uiReference,
 } from './plugin-tools.ts';
-import { PICTURE_DOC, SHOWCASE_ASSETS } from '../showcase/assets.ts';
-import { checkPlugin, formatPluginIssue } from '../plugin/checks.ts';
-import type { LookResult } from '../plugin/look.ts';
+import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
+import { checkPlugin, formatPluginIssue } from '../screen/checks.ts';
+import type { LookResult } from '../screen/look.ts';
 
-import type { LlmRole, ToolOutput } from './protocol.ts';
-import { reportOf, type MemberReport } from './members.ts';
-import type { PodRunResult } from '../pod/host.ts';
-import type { PartReport } from '../pod/pod-session.ts';
-import { projectPath } from '../pod/host.ts';
+import type { ToolOutput } from '../host/ai.ts';
+import type { PodAccess } from '../workspace/pod-session.ts';
+
+export type { PodAccess };
+import { projectPath } from '../workspace/pod-io.ts';
 
 export type { ToolOutput };
 
 /** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
-export interface PodAccess {
-  /** Why it cannot be used and what fixes that; null when it can. */
-  unavailable(): { reason: string; fix?: string } | null;
-  /** Started and in step with the work (the first call boots it: up to a few minutes on a fresh pod). */
-  ensure(): Promise<void>;
-  bash(command: string, timeoutMs: number): Promise<PodRunResult>;
-  readFile(path: string): Promise<string | null>;
-  writeFile(path: string, text: string): Promise<void>;
-  /** The project's files that differ from the work (null: deleted), and what was left out. */
-  collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }>;
-  /** The project's folder in the pod. */
-  projectDir(): string;
-  /** The code parts on the plugin as they reported (element id → report). */
-  parts(): Record<string, PartReport>;
-  status(): { state: string; message: string; portal: string | null };
-}
+/** Tools that show the AI the work as it is now. */
+const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_look']);
 
 export interface WorkspaceDeps {
   catalog: Catalog;
@@ -66,8 +55,15 @@ export interface WorkspaceDeps {
   images: boolean;
   /** The live patch as it is now. */
   read(): PatchDocument;
-  /** Put checked edits on the live patch as one step of this request. */
-  land(intents: Intent[], label: string): { ok: true } | { ok: false; message: string };
+  /**
+   * Put checked edits on the live patch as one step of this request. `seen` is the
+   * revision this AI last read: what someone else changed after it is not overwritten.
+   */
+  land(
+    intents: Intent[],
+    label: string,
+    seen: number,
+  ): { ok: true } | { ok: false; message: string };
   /** Draw the plugin and look it over (and take a picture when `picture`). */
   look(doc: PatchDocument, picture: boolean): Promise<LookResult>;
   /** A picture asset, made small enough to send, with its main colours (null: no such picture, or it cannot be read). */
@@ -78,16 +74,22 @@ export interface WorkspaceDeps {
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
   pod?: PodAccess;
-  /** Alone, the lead of a team, or a member (U8). */
-  role?: LlmRole;
-  /** Why an edit (the live patch → the patch with it) is outside what this AI may change now; null: it may. */
+  /** The contents of an asset of the work (absent in tests that do not need them: the sound's assets are silent when it listens). */
+  readAsset?(asset: AssetMeta): Promise<Uint8Array | null>;
+  /** Decode audio at a sample rate (absent: the page's decoder). */
+  decodeAudio?(bytes: Uint8Array, sampleRate: number): Promise<Decoded | null>;
+  /** Why an edit (the live patch → the patch with it) is outside what this agent may change now; null: it may. */
   scope?(before: PatchDocument, after: PatchDocument): string | null;
-  /** Why this AI may not use the screen project now (a member without it, the lead while a member holds it); null: it may. */
+  /** Why this agent may not use the screen project now (another agent holds it, or it is not in its scope); null: it may. */
   project?(): string | null;
-  /** The lead's team (kit_delegate, kit_wait, kit_tell, kit_stop_member). */
-  team?: Team;
-  /** A picture of what the person sees now (U8b): their view, or the one asked for; or why there is none. */
+  /** kit_claim_scope: this agent says what it will change (src/ai/llm.ts checks it against the others'). */
+  claim?(args: unknown): ToolOutput;
+  /** The sub-agents still working, for the agent the person asked ("“Sound”"). */
+  working?(): string[];
+  /** A picture of what the person sees now: their view, or the one asked for; or why there is none. */
   seen?(view?: 'plugin' | 'patch' | 'window'): Promise<SeenResult>;
+  /** A file from a public URL, kept as an asset would be but not yet in the work (absent: den-kit cannot fetch here). */
+  importFile?(url: string, name?: string): Promise<{ asset: AssetMeta; url: string }>;
 }
 export interface SeenResult {
   /** What the person is looking at, in words. */
@@ -103,15 +105,6 @@ export interface SeenResult {
   };
   /** Why there is no picture. */
   reason?: string;
-}
-/** What a lead does with its members (src/ai/llm.ts runs them). */
-export interface Team {
-  delegate(args: unknown): ToolOutput | Promise<ToolOutput>;
-  wait(args: unknown): Promise<ToolOutput>;
-  tell(args: unknown): ToolOutput | Promise<ToolOutput>;
-  stop(args: unknown): ToolOutput;
-  /** Members still working ("m1 “Sound”"). */
-  working(): string[];
 }
 export interface Picture {
   png: Uint8Array | null;
@@ -132,8 +125,7 @@ export const dataUrl = (bytes: Uint8Array, mime: string) => {
 };
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS =
-  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_finish';
-const TEAM_TOOLS = new Set(['kit_delegate', 'kit_wait', 'kit_tell', 'kit_stop_member']);
+  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
 /** Kept of a command's output for the model (the end, where errors are). */
 const MAX_COMMAND_TEXT = 12000;
 const clipEnd = (s: string, n = MAX_COMMAND_TEXT) =>
@@ -151,19 +143,22 @@ export class LlmWorkspace {
   screenTouched = false;
   /** This request changed the screen project (den-kit commits it in the pod's git at the end). */
   projectTouched = false;
-  /** Edits refused because they were outside this AI's scope. */
+  /** Edits refused because they were outside this agent's scope. */
   refused = 0;
-  /** A member's report to the lead (its kit_finish). */
-  report: MemberReport | null = null;
   private remindedToLook = false;
   private readonly deps: WorkspaceDeps;
 
+  /** The revision of the work this AI last read (its request, or a tool that reads the work). */
+  private seen: number;
+
   constructor(deps: WorkspaceDeps) {
     this.deps = deps;
+    this.seen = deps.read().revision;
   }
 
   async call(tool: string, args: unknown): Promise<ToolOutput> {
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+    if (READS.has(tool)) this.seen = this.deps.read().revision;
     try {
       switch (tool) {
         case 'kit_get_patch':
@@ -183,13 +178,7 @@ export class LlmWorkspace {
           );
         case 'kit_get_plugin': {
           const doc = this.deps.read();
-          // ("part" was its name before U5; an old habit still works.)
-          const canvas =
-            typeof a.canvas === 'string' && a.canvas
-              ? a.canvas
-              : typeof a.part === 'string' && a.part
-                ? a.part
-                : undefined;
+          const canvas = typeof a.canvas === 'string' && a.canvas ? a.canvas : undefined;
           return {
             success: true,
             text: clip(
@@ -223,6 +212,8 @@ export class LlmWorkspace {
           };
         case 'kit_view_picture':
           return await this.viewPicture(String(a.id ?? ''));
+        case 'kit_import_asset':
+          return await this.importAsset(a);
         case 'kit_bash':
           return await this.bash(
             typeof a.command === 'string' ? a.command : '',
@@ -236,12 +227,16 @@ export class LlmWorkspace {
           );
         case 'kit_write_file':
           return await this.writeFile(a.path, a.content);
+        case 'kit_claim_scope':
+          return this.deps.claim
+            ? this.deps.claim(args)
+            : { success: false, text: 'Scopes are not checked here: edit as usual.' };
         case 'kit_finish': {
-          const working = this.deps.team?.working() ?? [];
+          const working = this.deps.working?.() ?? [];
           if (working.length)
             return {
               success: false,
-              text: `Members are still working (${working.join(', ')}). Wait for them with kit_wait (or stop one with kit_stop_member), check their work, then finish.`,
+              text: `Sub-agents are still working (${working.join(', ')}). Wait for them, check their work, then finish.`,
             };
           if (this.unseen && !this.remindedToLook) {
             this.remindedToLook = true;
@@ -251,20 +246,12 @@ export class LlmWorkspace {
             };
           }
           this.summary = String(a.summary ?? '').slice(0, 400) || null;
-          if (this.deps.role === 'member') {
-            this.report = reportOf(a);
-            return {
-              success: true,
-              text: 'Reported to the lead. Your edits are already on the live patch.',
-            };
-          }
           return {
             success: true,
             text: 'OK. Your edits are already on the live patch; the user can undo the whole request with one ⌘Z.',
           };
         }
         default:
-          if (TEAM_TOOLS.has(tool)) return await this.team(tool, args);
           return { success: false, text: `Unknown tool "${tool}". Available: ${TOOLS}.` };
       }
     } catch (error) {
@@ -272,29 +259,6 @@ export class LlmWorkspace {
         success: false,
         text: `Tool failed: ${error instanceof Error ? error.message : String(error)}`,
       };
-    }
-  }
-
-  // ---- the team (U8) ---------------------------------------------------------------
-  private async team(tool: string, args: unknown): Promise<ToolOutput> {
-    const team = this.deps.team;
-    if (!team || this.deps.role !== 'lead')
-      return {
-        success: false,
-        text:
-          this.deps.role === 'member'
-            ? 'Members cannot start or manage members; only the lead does. Do your part and report in kit_finish.'
-            : 'Members are off for this request (the person turned them off): do the work yourself.',
-      };
-    switch (tool) {
-      case 'kit_delegate':
-        return await team.delegate(args);
-      case 'kit_wait':
-        return await team.wait(args);
-      case 'kit_tell':
-        return await team.tell(args);
-      default:
-        return team.stop(args);
     }
   }
 
@@ -436,6 +400,7 @@ export class LlmWorkspace {
         config: def.config.map(c => ({
           id: c.id,
           kind: c.kind,
+          accepts: c.accepts,
           options: c.options,
           default: c.default,
           min: c.min,
@@ -495,6 +460,49 @@ export class LlmWorkspace {
       [...intents, ...moves],
       what,
       `${ops.length} edit${ops.length === 1 ? '' : 's'}${trial.created.length ? ` (new ids: ${trial.created.join(', ')})` : ''}${notes}`,
+    );
+  }
+
+  /** A file from a public URL into the work's assets, as one edit of this request. */
+  private async importAsset(a: Record<string, unknown>): Promise<ToolOutput> {
+    if (!this.deps.importFile)
+      return {
+        success: false,
+        text: 'den-kit cannot fetch files here. Ask the person to add the file (drop it on the plugin).',
+      };
+    let got;
+    try {
+      got = await this.deps.importFile(
+        String(a.url ?? ''),
+        typeof a.name === 'string' ? a.name : undefined,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        text: `Not imported: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    const text = (key: string) => (typeof a[key] === 'string' && a[key] ? { [key]: a[key] } : {});
+    const asset: AssetMeta = {
+      ...got.asset,
+      source: { url: got.url, ...text('title'), ...text('author'), ...text('license') },
+    };
+    const before = this.deps.read();
+    const intents: Intent[] = [{ op: 'addAsset', asset }];
+    let trial;
+    try {
+      trial = applyIntents(before, intents, this.deps.catalog);
+    } catch (error) {
+      if (error instanceof OpError)
+        return { success: false, text: `Not imported: ${error.message}` };
+      throw error;
+    }
+    return this.landChecked(
+      before,
+      trial.doc,
+      intents,
+      `imported ${asset.id}`,
+      `${asset.id} (${asset.mime}, ${asset.bytes} bytes)`,
     );
   }
 
@@ -597,7 +605,7 @@ export class LlmWorkspace {
         );
       report = `Compiled OK in ${(compiled.ms / 1000).toFixed(1)} s.`;
     }
-    const landed = this.deps.land(intents, step);
+    const landed = this.deps.land(intents, step, this.seen);
     if (!landed.ok) {
       this.steps.push(`${step} — not applied`);
       return {
@@ -617,9 +625,9 @@ export class LlmWorkspace {
   // ---- looking ---------------------------------------------------------------------------
   private async viewPicture(id: string): Promise<ToolOutput> {
     const doc = this.deps.read();
-    const asset = doc.assets[id] ?? SHOWCASE_ASSETS[id];
+    const asset = assetsOf(doc.files)[id] ?? SHOWCASE_ASSETS[id];
     if (!asset || !asset.mime.startsWith('image/')) {
-      const pictures = Object.values(doc.assets)
+      const pictures = Object.values(assetsOf(doc.files))
         .filter(a => a.mime.startsWith('image/'))
         .map(a => a.id);
       return {
@@ -670,7 +678,7 @@ export class LlmWorkspace {
     if (seen.picture) {
       const p = seen.picture;
       this.steps.push(`looked at what you see (${view ?? seen.looking})`);
-      const from = p.source === 'shell' ? 'the desktop app' : 'their shared tab';
+      const from = p.source === 'shell' ? "den-kit's window" : 'their shared tab';
       return {
         success: true,
         text: `What the person sees now (${view ?? seen.looking}, ${p.width}×${p.height}, from ${from}). ${seen.text}${this.deps.images ? ' The picture is attached.' : ' Your model does not take pictures, so there is none.'}`,
@@ -729,8 +737,8 @@ export class LlmWorkspace {
     const paths = Object.keys(files).sort();
     const lines: string[] = [];
     if (paths.length) {
-      const before = this.deps.read().project?.files ?? {};
-      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what);
+      const before = textFiles(this.deps.read().files);
+      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what, this.seen);
       const list = paths.map(
         p => `${p} (${files[p] === null ? 'deleted' : p in before ? 'changed' : 'new'})`,
       );
@@ -855,6 +863,35 @@ export class LlmWorkspace {
   }
 
   // ---- listening ---------------------------------------------------------------------
+  /** What loads the sound's assets as it starts, as the editor's sound gets them, and the assets that cannot be. */
+  private async assetMessages(
+    doc: PatchDocument,
+    generated: Generated,
+  ): Promise<{ messages: RenderRequest['messages']; missing: string[] }> {
+    const files = assetsOf(doc.files);
+    const decode = this.deps.decodeAudio ?? decodeAudio;
+    const decoded = new Map<string, Promise<Decoded | null>>();
+    const messages: RenderRequest['messages'] = [];
+    const missing = new Set<string>();
+    for (const { slot, path } of currentAssets(doc, this.deps.catalog, generated)) {
+      if (!path) continue;
+      const asset = files[path];
+      const bytes = asset && this.deps.readAsset ? await this.deps.readAsset(asset) : null;
+      let contents: Uint8Array | Decoded | null = bytes;
+      if (bytes && slot.kind !== 'bytes') {
+        if (!decoded.has(path)) decoded.set(path, decode(bytes, LISTEN_RATE));
+        contents = await decoded.get(path)!;
+      }
+      if (!contents) missing.add(path);
+      else
+        messages.push({
+          name: slot.event,
+          atQuantum: 0,
+          payload: slotPayload(slot.kind, contents),
+        });
+    }
+    return { messages, missing: [...missing] };
+  }
   private async listen(phrase?: string, seconds?: number): Promise<ToolOutput> {
     const { catalog } = this.deps;
     const doc = this.deps.read();
@@ -865,7 +902,7 @@ export class LlmWorkspace {
         text: 'There is nothing to play: the patch does not compile or nothing reaches Out. Fix that first (kit_get_patch shows the problems).',
       };
     const effect = generated.audioIn;
-    let request: Omit<RenderRequest, 'id' | 'kind'>;
+    let request: Omit<RenderRequest, 'id' | 'kind' | 'messages'>;
     const base = {
       source: generated.source,
       ...compileInputs(doc, generated),
@@ -912,18 +949,25 @@ export class LlmWorkspace {
         },
       };
     }
-    const rendered = await this.deps.render(request);
+    const assets = await this.assetMessages(doc, generated);
+    const rendered = await this.deps.render({ ...request, messages: assets.messages });
     this.steps.push(
       `listened (${rendered.report.silent ? 'silent' : `${rendered.report.peakDb} dB peak`})`,
     );
     const { summary, ...metrics } = rendered.report;
+    const missing = assets.missing.length
+      ? `\nNot loaded (their contents are not here, or they are not audio), so silent: ${assets.missing.join(', ')}.`
+      : '';
     return {
       success: true,
-      text: `${summary}\n${JSON.stringify(metrics)}`,
+      text: `${summary}${missing}\n${JSON.stringify(metrics)}`,
       imageDataUrl: rendered.png ? pngDataUrl(rendered.png) : undefined,
     };
   }
 }
+
+/** The listening render's sample rate (src/sound/compile/compiler.worker.ts). */
+const LISTEN_RATE = 48000;
 
 /** "+ LFO, cable lfo2 → cut1.octaves, filter1.resonance = 2" */
 export function describeOps(ops: Intent[], created: string[]): string {

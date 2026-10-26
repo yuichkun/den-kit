@@ -1,4 +1,4 @@
-// U4 with the LLM: the (fake) model builds the plugin screen with den-kit's
+// The plugin screen with the AI: the (fake) model builds the plugin screen with den-kit's
 // tools in this page — reads it, writes a design brief, edits, looks at it
 // (the real off-screen picture and checks), fixes what the look found, looks
 // again — and the person sees it land on the plugin; one ⌘Z takes it all back.
@@ -77,19 +77,14 @@ describe('the LLM builds the plugin screen', () => {
           `${knob} → ${target}`,
         );
       // The model saw the problems, and a picture of the screen.
-      const looks = h.codex!.replies().filter(r => /Looked at the plugin/.test(JSON.stringify(r)));
+      const looks = h.codex!.mcpCalls().filter(c => /Looked at the plugin/.test(c.text));
       assert.equal(looks.length, 2);
-      assert.match(JSON.stringify(looks[0]), /overlap/);
-      assert.match(JSON.stringify(looks[0]), /text2 .*hard to read/);
-      assert.match(JSON.stringify(looks[1]), /found nothing to fix/);
-      const items = (
-        looks[0]!.result as { contentItems: Array<{ type: string; imageUrl?: string }> }
-      ).contentItems;
-      assert.deepEqual(
-        items.map(i => i.type),
-        ['inputText', 'inputImage'],
-      );
-      assert.match(items[1]!.imageUrl!, /^data:image\/png;base64,iVBORw0KGgo/);
+      assert.match(looks[0]!.text, /overlap/);
+      assert.match(looks[0]!.text, /text2 .*hard to read/);
+      assert.match(looks[1]!.text, /found nothing to fix/);
+      assert.deepEqual(looks[0]!.types, ['text', 'image']);
+      assert.equal(looks[0]!.images[0]!.mimeType, 'image/png');
+      assert.match(looks[0]!.images[0]!.prefix, /^iVBORw0KGgo/);
       // The panel offers to show the plugin; it shows the new screen.
       await page.click('[data-testid=ai-show-plugin]');
       await page.waitForSelector('[data-testid=plugin-view] [data-element=text1]');

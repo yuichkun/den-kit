@@ -1,14 +1,14 @@
-// B1: every catalog node compiles in a minimal patch, globally and (where allowed)
+// Every catalog node compiles in a minimal patch, globally and (where allowed)
 // per voice, and renders finite audio. Guards descriptor drift from den signatures.
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { renderOffline } from '@unworklet/offline';
 import { compile } from '@unworklet/core';
-import { catalog } from '../../src/blocks/index.ts';
-import { generate } from '../../src/core/codegen.ts';
-import { applyIntents, type Intent } from '../../src/core/ops.ts';
-import { emptyDocument } from '../../src/core/schema.ts';
-import { CODEBOX_TEMPLATE } from '../../src/core/codebox.ts';
-import { evaluate } from '../../src/compile/evaluate.ts';
+import { catalog } from '../../src/sound/blocks/index.ts';
+import { generate } from '../../src/sound/codegen.ts';
+import { applyIntents, type Intent } from '../../src/work/ops.ts';
+import { emptyDocument } from '../../src/work/schema.ts';
+import { CODEBOX_TEMPLATE } from '../../src/work/codebox-template.ts';
+import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -91,7 +91,7 @@ function patchFor(type: string, voice: boolean) {
   return applyIntents(emptyDocument(type, 't'), intents, catalog).doc;
 }
 
-describe('B1 every block compiles and renders finite audio', () => {
+describe('every block compiles and renders finite audio', () => {
   for (const def of testable) {
     for (const voice of [false, true]) {
       if (voice && (def.scope === 'global' || def.kind === 'widget')) continue;
@@ -134,7 +134,7 @@ describe('B1 every block compiles and renders finite audio', () => {
 });
 
 describe('runtime semantics', () => {
-  it('B5 History is exactly a one-sample delay', async () => {
+  it('History is exactly a one-sample delay', async () => {
     const doc = applyIntents(
       emptyDocument(),
       [
@@ -159,7 +159,7 @@ describe('runtime semantics', () => {
     expect(l![0]).toBe(0);
     for (let i = 1; i < 256; i++) expect(l![i]).toBe(rr![i - 1]);
   });
-  it('B6 a runaway feedback loop raises one kitHealth event and a panic reset recovers', async () => {
+  it('a runaway feedback loop raises one kitHealth event and a panic reset recovers', async () => {
     const doc = applyIntents(
       emptyDocument(),
       [
@@ -201,7 +201,7 @@ describe('runtime semantics', () => {
     const tail = after.outputs.main![0]!;
     expect(Math.max(...tail.slice(128).map(Math.abs))).toBe(0);
   });
-  it('B7 codebox capture errors point at the codebox node', async () => {
+  it('codebox capture errors point at the codebox node', async () => {
     const code =
       "import { defineSubgraph } from '@unworklet/core';\nexport default defineSubgraph(() => { throw new Error('boom in box'); });";
     const doc = applyIntents(
@@ -228,7 +228,7 @@ describe('runtime semantics', () => {
       message: expect.stringContaining('boom in box'),
     });
   });
-  it('B7 codebox syntax errors report a line inside the codebox', () => {
+  it('codebox syntax errors report a line inside the codebox', () => {
     const code =
       "import { defineSubgraph } from '@unworklet/core';\nexport default defineSubgraph(() => ({\n  tick(i) { return { out: i.in.mul( } }\n}));";
     const doc = applyIntents(
@@ -252,7 +252,7 @@ describe('runtime semantics', () => {
     expect(line - g.codeboxes.box1! + 1).toBe(3);
   });
   it('compile timing stays in the seconds range for the starters', async () => {
-    const { starter, STARTERS } = await import('../../src/core/starters.ts');
+    const { starter, STARTERS } = await import('../../src/work/starters.ts');
     for (const id of STARTERS) {
       const g = generate(starter(id, catalog), catalog);
       const t0 = performance.now();

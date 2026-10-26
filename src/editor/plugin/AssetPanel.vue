@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The patch's pictures and fonts. Drop files here (or on the plugin), or add
-// them with the button; each keeps where it came from and its licence. A picture
-// can go on the plugin, become the background or the reference picture under it.
+// The patch's assets: pictures, fonts and sounds. Drop files here (or on the
+// plugin), or add pictures and fonts with the button; each keeps where it came
+// from and its licence. A picture can go on the plugin, become the background or
+// the reference picture under it.
 import { computed, ref } from 'vue';
 import {
   assetFontFamily,
@@ -10,15 +11,18 @@ import {
   isImageAsset,
   type AssetMeta,
   type WidgetStyle,
-} from '../../core/ui.ts';
-import { placePicture } from '../../plugin/edit.ts';
+  assetsOf,
+} from '../../work/ui.ts';
+import { placePicture } from '../../screen/edit.ts';
 import { useSession } from '../context.ts';
 
 const session = useSession();
 const doc = computed(() => session.doc.value);
-const assets = computed(() => Object.values(doc.value.assets));
+const assets = computed(() => Object.values(assetsOf(doc.value.files)));
 const current = ref<string | null>(null);
-const asset = computed(() => (current.value ? doc.value.assets[current.value] : undefined));
+const asset = computed(() =>
+  current.value ? assetsOf(doc.value.files)[current.value] : undefined,
+);
 const uses = computed(() =>
   assetUses(
     doc.value.ui,
@@ -34,7 +38,7 @@ function commit(...args: Parameters<typeof session.commit>) {
   return r;
 }
 async function addFiles(files: FileList | File[] | null) {
-  for (const file of [...(files ?? [])]) {
+  for (const file of Array.from(files ?? [])) {
     const meta = await session.addAssetFile(file);
     if (meta) current.value = meta.id;
   }
@@ -76,7 +80,7 @@ const underlay = (a: AssetMeta) =>
   });
 function source(key: 'title' | 'author' | 'url' | 'license', value: string) {
   if (!asset.value) return;
-  const next = { ...(asset.value.source ?? {}), [key]: value || undefined };
+  const next = { ...asset.value.source, [key]: value || undefined };
   for (const k of Object.keys(next) as Array<keyof typeof next>) if (!next[k]) delete next[k];
   commit(
     [
@@ -247,7 +251,7 @@ function remove(a: AssetMeta) {
 }
 .assets.over {
   outline-color: var(--accent);
-  background: #ff9c1a10;
+  background: color-mix(in srgb, var(--orange) 6%, transparent);
 }
 .grid {
   display: grid;
@@ -260,8 +264,8 @@ function remove(a: AssetMeta) {
   overflow: hidden;
   display: grid;
   place-items: center;
-  background: #161616;
-  border: 1px solid #333;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-6);
   box-shadow: none;
 }
 .thumb img {

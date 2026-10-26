@@ -49,8 +49,8 @@ defineExpose({ focus: () => area.value?.focus(), textarea: area });
   min-width: 0;
   font: var(--code-font, 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace);
   tab-size: 2;
-  background: var(--code-bg, #0f1115);
-  color: var(--code-fg, #d6d6d6);
+  background: var(--code-bg, var(--slate-0));
+  color: var(--code-fg, var(--gray-16));
 }
 .paint,
 textarea {
@@ -91,14 +91,14 @@ textarea {
   border-radius: 0;
   background: transparent;
   color: transparent;
-  caret-color: var(--code-caret, #f0f0f0);
+  caret-color: var(--code-caret, var(--gray-18));
   overflow: auto;
 }
 textarea::selection {
-  background: rgba(94, 160, 255, 0.35);
+  background: color-mix(in srgb, var(--blue-deep) 35%, transparent);
   color: transparent;
 }
 textarea::placeholder {
-  color: #6b6b6b;
+  color: var(--gray-10);
 }
 </style>

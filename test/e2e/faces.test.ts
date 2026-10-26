@@ -259,7 +259,7 @@ describe('faces', () => {
       ]);
       return meta.id;
     });
-    assert.match(asset, /^a[0-9a-f]{15}$/);
+    assert.match(asset, /^assets\/.+\.png$/);
     await page.keyboard.press('Control+Alt+KeyE');
     await page.keyboard.press('Control+KeyE');
     await page.waitForSelector('[data-testid=plugin-edit].active');

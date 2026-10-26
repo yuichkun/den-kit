@@ -2,11 +2,11 @@
 // The code of a canvas, with a live preview: the draft runs as you type
 // (after a pause), so mistakes show at once; Apply (⌘Enter) puts it on the plugin.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { CanvasElement } from '../../core/ui.ts';
-import { pluginSpec } from '../../plugin/build.ts';
-import { CANVAS_TEMPLATE } from '../../plugin/inserts.ts';
-import PluginWindow from '../../plugin/PluginWindow.vue';
-import type { PluginSpec } from '../../plugin/spec.ts';
+import type { CanvasElement } from '../../work/ui.ts';
+import { pluginSpec } from '../../screen/build.ts';
+import { CANVAS_TEMPLATE } from '../../screen/inserts.ts';
+import PluginWindow from '../../screen/PluginWindow.vue';
+import type { PluginSpec } from '../../screen/spec.ts';
 import { useSession } from '../context.ts';
 import { controlWriter } from '../play.ts';
 import CodeArea from '../CodeArea.vue';
@@ -177,12 +177,12 @@ h4 {
 .preview {
   position: relative;
   height: 180px;
-  border: 1px solid #333;
+  border: 1px solid var(--gray-6);
   border-radius: 6px;
   overflow: hidden;
 }
 .props {
-  border: 1px solid #333;
+  border: 1px solid var(--gray-6);
   border-radius: 4px;
   --code-pad: 6px 8px;
 }

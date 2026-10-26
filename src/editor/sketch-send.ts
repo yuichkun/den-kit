@@ -1,4 +1,4 @@
-// What goes with a request from the person's sketch (U8c): for each view with
+// What goes with a request from the person's sketch: for each view with
 // marks not sent yet, the marks in words (what each goes around, crosses or
 // joins, from where the things are drawn) and a picture of them on the view;
 // and, when the marks only go around things, those things, like a selection.

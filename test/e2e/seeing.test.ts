@@ -1,4 +1,4 @@
-// U8b in the page: every LLM request says what the person is looking at; the
+// In the page: every LLM request says what the person is looking at; the
 // model can ask to see it (kit_look as "seen"): without screen sharing it gets
 // the plugin re-drawn and is told so, with sharing a picture of the view as
 // the person sees it. (The cloud's headless Chrome cannot share a tab, so the
@@ -88,15 +88,10 @@ describe('the AI sees what the person sees', () => {
         /^picture: What the person sees now \(plugin, \d+×\d+, from their shared tab\)\. The person is looking at the plugin, playing it at \d+% of its design size; they let you see their screen/,
       );
       const reply = h
-        .codex!.replies()
-        .filter(r => /What the person sees now/.test(JSON.stringify(r)))
+        .codex!.mcpCalls()
+        .filter(c => /What the person sees now/.test(c.text))
         .at(-1)!;
-      const items = (reply.result as { contentItems: Array<{ type: string; imageUrl?: string }> })
-        .contentItems;
-      assert.deepEqual(
-        items.map(i => i.type),
-        ['inputText', 'inputImage'],
-      );
+      assert.deepEqual(reply.types, ['text', 'image']);
       // In the patch view the line says what is in sight.
       await page.click('[data-testid=view-patch]');
       await page.waitForSelector('[data-testid=patch-view] .vue-flow__node');

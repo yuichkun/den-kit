@@ -44,7 +44,7 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | Introduction and downloads                                               | [README.md](README.md)                                                                                              |
 | Using den-kit, and its known limitations                                 | [docs/usage.md](docs/usage.md)                                                                                      |
-| Running from source, building the macOS app, checks and tests            | [docs/development.md](docs/development.md)                                                                          |
+| Running from source, building the macOS app, Storybook, checks and tests | [docs/development.md](docs/development.md)                                                                          |
 | Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
 | Modules, how data moves between them, their interfaces                   | [docs/architecture.md](docs/architecture.md)                                                                        |
 | A module's role and its rules                                            | The comment at the top of the module                                                                                |
@@ -53,11 +53,6 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | What CI runs                                                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
 | What a pull request description holds                                    | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |
 | Sources of the bundled showcase assets                                   | [public/showcase/SOURCES.md](public/showcase/SOURCES.md)                                                            |
-
-The code is being rewritten to [docs/principles.md](docs/principles.md) and
-[docs/architecture.md](docs/architecture.md), and code that has not been rewritten yet does
-not follow them. New and changed code follows them, and a review flags a change only when it
-takes the code further from them.
 
 ## How to work
 
