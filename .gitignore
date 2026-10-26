@@ -10,3 +10,7 @@ release/
 test-results/
 .DS_Store
 .vitest/
+build-storybook.log
+chromatic.log
+chromatic-build-*.xml
+chromatic-diagnostics.json
