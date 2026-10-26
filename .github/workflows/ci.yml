@@ -30,6 +30,7 @@ jobs:
       - run: vp exec playwright install --with-deps chromium
       - run: vp run build
       - run: vp run test
+      - run: vp run test:stories
 
   # Package both Mac architectures without signing, secrets or publication, so packaging problems show up
   # in the pull request instead of in a release.
