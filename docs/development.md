@@ -149,6 +149,7 @@ vp run typecheck
 vp run build
 vp exec playwright install chromium
 vp run test
+vp run test:stories
 ```
 
 `vp check` checks formatting and lint; `vp check --fix` fixes what it can.
