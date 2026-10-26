@@ -1,6 +1,7 @@
 // The scope and the meter in Storybook (both are dk-scope; `mode` picks which), each skin, drawing
 // a steady sine wave in place of the sound. They only show (rule 9 of src/behaviors/index.ts).
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
+import isChromatic from 'chromatic/isChromatic';
 import { html } from 'lit';
 import { SKINS } from '../../work/skins.ts';
 import { DkScope } from './display.ts';
@@ -11,13 +12,14 @@ interface Args {
   skin: string;
 }
 
-/** What the scope reads from its AnalyserNode: a sine wave that moves on each frame. */
+/** What the scope reads from its AnalyserNode: a sine wave that moves on each frame, and holds still for Chromatic's snapshots. */
 function sine(): DkScope['analyser'] {
+  const step = isChromatic() ? 0 : 0.25;
   let phase = 0;
   return {
     getFloatTimeDomainData(data: Float32Array) {
       for (let i = 0; i < data.length; i++) data[i] = 0.5 * Math.sin(phase + i / 12);
-      phase += 0.25;
+      phase += step;
     },
   } as unknown as AnalyserNode;
 }
@@ -25,6 +27,8 @@ function sine(): DkScope['analyser'] {
 const meta = {
   title: 'Controls/Scope and meter',
   component: 'dk-scope',
+  // The phosphor trace builds up over its first frames: Chromatic waits for it to settle.
+  parameters: { chromatic: { delay: 500 } },
   args: { mode: 'scope', label: 'Out', skin: 'line' },
   argTypes: {
     mode: { control: 'inline-radio', options: ['scope', 'meter'] },

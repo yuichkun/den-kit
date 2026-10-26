@@ -50,7 +50,7 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | A module's role and its rules                                            | The comment at the top of the module                                                                                |
 | Releases                                                                 | [RELEASE.md](RELEASE.md)                                                                                            |
 | Code parts, the `kit` API, and what the in-app AI reads in the workspace | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
-| What CI runs                                                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
+| What CI runs                                                             | [.github/workflows/](.github/workflows/)                                                                            |
 | What a pull request description holds                                    | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |
 | Sources of the bundled showcase assets                                   | [public/showcase/SOURCES.md](public/showcase/SOURCES.md)                                                            |
 

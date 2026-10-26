@@ -124,6 +124,13 @@ Chromium once in each base theme: its `play` function and an accessibility check
 which fails the test unless the story file sets `a11y: { test: 'todo' }`.
 `vp run storybook:build` builds a static Storybook into `dist/storybook/`.
 
+Every push publishes the built Storybook to [Chromatic](https://www.chromatic.com/docs/)
+([.github/workflows/chromatic.yml](../.github/workflows/chromatic.yml)), with a snapshot
+of each story in each base theme. On a pull request, Chromatic's UI Review shows each
+changed story beside the base branch's, to comment on and approve, and reports to the
+pull request as the UI Review and UI Tests checks. The workflow needs the
+`CHROMATIC_PROJECT_TOKEN` secret.
+
 A control's stories are in `<control>.stories.ts` beside it. A story file imports the
 control's class with a plain `import`, not `import type`: Storybook finds the stories
 of a changed file through the imports of story files.
