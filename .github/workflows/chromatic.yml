@@ -1,7 +1,5 @@
 name: Chromatic
-# Publishes the Storybook of every push to Chromatic, which takes a snapshot of each story in each base theme.
-# A pull request gets a UI Review there: each changed story beside the base branch's, to comment on and
-# approve. Chromatic reports it on the pull request as the UI Review and UI Tests checks.
+# Publishes the Storybook of every push to Chromatic for review; docs/development.md (Storybook) says what it does.
 on: push
 permissions:
   contents: read
