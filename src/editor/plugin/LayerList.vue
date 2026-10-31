@@ -101,15 +101,15 @@ const ICON: Record<string, string> = {
   align-items: center;
   gap: 6px;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-size: 13px;
 }
 .layer:hover {
-  background: var(--gray-5);
+  background: var(--app-chrome);
 }
 .layer.selected {
-  background: var(--orange-dark);
+  background: var(--app-field);
   outline: 1px solid var(--accent);
 }
 .layer.hidden .name {
@@ -119,7 +119,7 @@ const ICON: Record<string, string> = {
 .icon {
   width: 18px;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .name {
   flex: 1;
@@ -130,19 +130,21 @@ const ICON: Record<string, string> = {
 }
 .group {
   font-size: 11px;
-  color: var(--muted);
-  border: 1px solid var(--gray-8);
-  border-radius: 3px;
+  color: var(--text-muted);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-control);
   padding: 0 4px;
 }
 .flag {
   padding: 0 4px;
   background: none;
+  border: 0;
+  clip-path: none;
   box-shadow: none;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 .flag.on {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 </style>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// A patch module drawn in Bitwig Grid style: charcoal slab, signal-coloured
-// title, ring in-ports (with a small knob when unconnected) on the left, dot
-// out-ports on the right, big white knobs and a live drawing on the face.
-// Unconnected note-bound inputs show a pre-cord icon (implicit connection).
+// A patch module: in its type's color, filled or only marked as the theme says, with
+// in-ports (with a small knob when unconnected) on the left, out-ports on the right, big
+// knobs and a live drawing on the face. Unconnected note-bound inputs show a pre-cord icon
+// (implicit connection). Its look comes from the theme's tokens (docs/design-system.md).
 import { computed, ref } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
 import type { PortDef } from '../work/catalog.ts';
@@ -12,14 +12,7 @@ import { formatCpu } from '../work/cost.ts';
 import { copiesOf } from '../work/stacks.ts';
 import type { Issue } from '../work/issues.ts';
 import { useSession } from './context.ts';
-import {
-  formatValue,
-  portColor,
-  shortLabel,
-  titleColor,
-  visibleInputs,
-  SIGNAL,
-} from './grid-style.ts';
+import { formatValue, shortLabel, typeGroup, visibleInputs } from './grid-style.ts';
 import { hasViz as vizFor, moduleBox } from '../work/layout.ts';
 import GridKnob from './GridKnob.vue';
 import ModuleViz from './ModuleViz.vue';
@@ -40,7 +33,7 @@ const session = useSession();
 const expanded = ref(false);
 const node = computed(() => props.data.node);
 const def = computed(() => session.catalog.find(node.value.type));
-const color = computed(() => titleColor(def.value));
+const group = computed(() => typeGroup(def.value));
 const connected = computed(() => new Set(props.data.connected));
 const inputs = computed(() =>
   visibleInputs(session.catalog, node.value, connected.value, expanded.value),
@@ -202,9 +195,9 @@ const voiceText = computed(() =>
       port: !!portName,
       stacked: copies > 1,
       touched: !!data.touch,
+      [`cat-${group}`]: true,
     }"
     :style="{
-      '--c': color,
       width: `${width}px`,
       ...(data.touch ? { '--touch': data.touch.color } : {}),
     }"
@@ -248,7 +241,6 @@ const voiceText = computed(() =>
       <span
         v-else-if="def?.category === 'modulation' || def?.category === 'envelope'"
         class="modarrow"
-        :style="{ color: SIGNAL.modulator }"
         >●→</span
       >
     </header>
@@ -267,7 +259,6 @@ const voiceText = computed(() =>
             :position="Position.Left"
             class="ring"
             :class="{ on: connected.has(p.id) }"
-            :style="{ '--pc': portColor(def, p, 'in') }"
           />
           <GridKnob
             v-if="isSmallKnob(p)"
@@ -277,7 +268,6 @@ const voiceText = computed(() =>
             :default="Number(p.default ?? 0)"
             :scale="p.scale"
             :unit="p.unit"
-            :color="portColor(def, p, 'in')"
             :label="paramOf(p) ? `◆ ${p.id} (this use's own value)` : p.id"
             :class="{ param: !!paramOf(p) }"
             @change="(v, g) => commitValue(p, v, g)"
@@ -293,7 +283,6 @@ const voiceText = computed(() =>
           <span
             v-else-if="p.binding && !connected.has(p.id)"
             class="precord"
-            :style="{ color: SIGNAL.logic }"
             :title="precordTitle(p)"
             >{{ precord(p) }}</span
           >
@@ -359,7 +348,11 @@ const voiceText = computed(() =>
         <ModuleViz
           v-if="hasViz"
           :node="node"
-          :color="node.type === 'kit.out' || node.type === 'kit.audioIn' ? '#8d8d8d' : color"
+          :color="
+            node.type === 'kit.out' || node.type === 'kit.audioIn'
+              ? 'var(--mod-soft)'
+              : 'var(--knob-arc)'
+          "
           :width="Math.max(76, Math.min(faceWidth, 150))"
           :height="node.type === 'den.envelope' || node.type === 'den.curvedAdsr' ? 46 : 36"
         />
@@ -372,17 +365,16 @@ const voiceText = computed(() =>
             :default="Number(p.default ?? 0)"
             :scale="p.scale"
             :unit="p.unit"
-            :color="color"
             :label="`${paramOf(p) ? '◆ ' : ''}${shortLabel(p)}`"
             :data-param="paramOf(p)?.id"
             @change="(v, g) => commitValue(p, v, g)"
           />
         </div>
         <template v-if="isWidget">
-          <div v-if="typeof widgetValue === 'number'" class="readout" :style="{ color }">
+          <div v-if="typeof widgetValue === 'number'" class="readout">
             {{ formatValue(widgetValue, String(node.config.unit || '')) }}
           </div>
-          <div v-else-if="typeof widgetValue === 'boolean'" class="readout" :style="{ color }">
+          <div v-else-if="typeof widgetValue === 'boolean'" class="readout">
             {{ widgetValue ? 'ON' : 'OFF' }}
           </div>
           <div class="muted tiny">{{ node.panel ? 'on panel' : 'not on panel' }}</div>
@@ -401,13 +393,7 @@ const voiceText = computed(() =>
           <span v-if="!(outputs.length === 1 && p.id === 'out')" class="plabel">{{
             p.label ?? p.id
           }}</span>
-          <Handle
-            :id="p.id"
-            type="source"
-            :position="Position.Right"
-            class="dot"
-            :style="{ '--pc': portColor(def, p, 'out') }"
-          />
+          <Handle :id="p.id" type="source" :position="Position.Right" class="dot" />
         </div>
       </div>
     </div>
@@ -424,28 +410,42 @@ const voiceText = computed(() =>
 </template>
 
 <style scoped>
+/* The module's own colors, from its type (.cat-*) and the theme: what it is filled with,
+   what is drawn on it, softer labels, and the color of its values. */
 .mod {
+  --mod-fill: color-mix(in srgb, var(--c) var(--module-fill-type), var(--module-body));
+  --mod-ink: color-mix(in srgb, var(--ink-c) var(--module-fill-type), var(--module-value));
+  --mod-soft: color-mix(in srgb, var(--mod-ink) 64%, var(--mod-fill));
+  --knob-arc: color-mix(in srgb, var(--ink-c) var(--module-fill-type), var(--c));
   position: relative;
-  background: var(--gray-5);
-  border-radius: 6px;
-  color: var(--gray-16);
-  font-family: Lato, system-ui, sans-serif;
+  background: var(--mod-fill);
+  border-radius: var(--radius-module);
+  color: var(--mod-ink);
+  font-family: var(--font-ui);
   font-size: 11px;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--gray-19) 3%, transparent) inset;
+  box-shadow:
+    var(--module-ring),
+    inset 0 0 0 1px var(--module-edge);
 }
 .mod.selected {
-  box-shadow: 0 0 0 2px var(--gray-17);
+  box-shadow:
+    var(--module-selected),
+    inset 0 0 0 1px var(--module-edge);
 }
 .mod.error {
-  box-shadow: 0 0 0 2px var(--red);
+  box-shadow:
+    var(--module-ring),
+    inset 0 0 0 2px var(--state-danger);
 }
 .mod.warning {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--yellow) 60%, transparent);
+  box-shadow:
+    var(--module-ring),
+    inset 0 0 0 1px var(--state-warn);
 }
 .mod.selected.error {
   box-shadow:
-    0 0 0 2px var(--gray-17),
-    0 0 0 4px var(--red);
+    var(--module-selected),
+    inset 0 0 0 2px var(--state-danger);
 }
 header {
   position: relative;
@@ -454,20 +454,24 @@ header {
   height: 24px;
 }
 .title {
-  color: var(--c);
-  font-size: 14px;
+  color: color-mix(in srgb, var(--c) var(--title-type), var(--mod-ink));
+  font-size: 13px;
+  font-weight: var(--weight-title);
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   display: block;
 }
+.title::before {
+  content: var(--heading-prefix);
+  color: var(--mod-soft);
+}
 .poly {
   position: absolute;
   left: 8px;
   top: 8px;
-  fill: var(--orange);
-  opacity: 0.55;
+  fill: var(--mod-soft);
 }
 .modarrow {
   position: absolute;
@@ -475,6 +479,7 @@ header {
   top: 5px;
   font-size: 11px;
   letter-spacing: -2px;
+  color: var(--knob-arc);
 }
 .body {
   display: flex;
@@ -511,8 +516,22 @@ header {
   padding-right: 16px;
   justify-content: flex-end;
 }
+/* Input names take the theme's row colors (the four encoders in Screen); on a module filled
+   with its type's color they are drawn in the module's ink. */
+.ins .port {
+  --row-c: var(--param-1);
+}
+.ins .port:nth-child(4n + 2) {
+  --row-c: var(--param-2);
+}
+.ins .port:nth-child(4n + 3) {
+  --row-c: var(--param-3);
+}
+.ins .port:nth-child(4n + 4) {
+  --row-c: var(--param-4);
+}
 .plabel {
-  color: var(--gray-11);
+  color: color-mix(in srgb, var(--mod-soft) var(--module-fill-type), var(--row-c, var(--mod-soft)));
   font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
@@ -523,6 +542,7 @@ header {
   font-size: 12px;
   width: 12px;
   text-align: center;
+  color: var(--mod-soft);
 }
 .knobs {
   display: flex;
@@ -537,107 +557,112 @@ header {
 .seg button {
   background: transparent;
   border: 0;
-  box-shadow: none;
-  color: var(--gray-10);
+  clip-path: none;
+  color: var(--mod-soft);
   font-size: 11px;
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   display: grid;
   place-items: center;
 }
+.seg button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mod-ink) 10%, transparent);
+}
 .seg button.on {
-  color: var(--c);
-  background: color-mix(in srgb, var(--gray-19) 5%, transparent);
+  color: var(--knob-arc);
+  background: color-mix(in srgb, var(--mod-ink) 12%, transparent);
 }
 .voicetext {
-  color: var(--orange);
+  color: var(--knob-arc);
   font-size: 12px;
   letter-spacing: 0.04em;
 }
 .readout {
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+  color: var(--knob-arc);
 }
 .tiny {
   font-size: 10px;
 }
 .tgl {
-  background: var(--gray-7);
+  background: color-mix(in srgb, var(--mod-ink) 12%, transparent);
   border: 0;
-  color: var(--gray-13);
+  clip-path: none;
+  color: var(--mod-soft);
   font-size: 10px;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .tgl.on {
-  background: var(--yellow);
-  color: var(--gray-3);
+  background: var(--knob-arc);
+  color: var(--mod-fill);
 }
 .more {
   margin: 2px 0 0 14px;
   align-self: flex-start;
   background: transparent;
-  border: 1px solid var(--gray-8);
-  color: var(--gray-13);
+  border: 1px solid color-mix(in srgb, var(--mod-ink) 30%, transparent);
+  clip-path: none;
+  color: var(--mod-soft);
   font-size: 10px;
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   cursor: pointer;
 }
 .code {
-  background: var(--gray-7);
+  background: color-mix(in srgb, var(--mod-ink) 10%, transparent);
   border: 0;
-  color: var(--c);
-  font:
-    12px ui-monospace,
-    monospace;
+  clip-path: none;
+  color: var(--knob-arc);
+  font: 12px var(--font-mono);
+  text-transform: none;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .note {
   white-space: pre-wrap;
-  color: var(--gray-18);
+  color: var(--note-text);
   font-size: 12px;
   padding: 4px 6px;
   max-width: 220px;
 }
 .mod.comment {
-  background: var(--olive);
+  background: var(--note-body);
+  color: var(--note-text);
 }
 /* A part: a double edge, its contents on the face. Its inputs and outputs inside: a dashed edge. */
 .mod.part {
-  background: var(--slate-1);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--blue) 33%, transparent),
-    0 0 0 4px var(--slate-1),
-    0 0 0 5px color-mix(in srgb, var(--blue) 20%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--selection) 33%, transparent),
+    0 0 0 4px var(--app-canvas),
+    0 0 0 5px color-mix(in srgb, var(--selection) 20%, transparent);
 }
 .mod.part.selected {
   box-shadow:
-    0 0 0 2px var(--gray-17),
-    0 0 0 4px var(--slate-1),
-    0 0 0 5px color-mix(in srgb, var(--blue) 40%, transparent);
+    0 0 0 2px var(--selection),
+    0 0 0 4px var(--app-canvas),
+    0 0 0 5px color-mix(in srgb, var(--selection) 40%, transparent);
 }
 .mod.port {
-  background: var(--gray-4);
-  outline: 1px dashed color-mix(in srgb, var(--blue) 40%, transparent);
+  outline: 1px dashed color-mix(in srgb, var(--selection) 40%, transparent);
   outline-offset: -1px;
 }
 .partmark {
   position: absolute;
   left: 8px;
   top: 5px;
-  color: var(--blue);
+  color: var(--mod-ink);
   font-size: 12px;
 }
 .mod.voice .partmark {
   left: 24px;
 }
 .contents {
-  color: var(--blue-light);
+  color: var(--knob-arc);
   font-size: 11.5px;
   text-align: center;
   max-width: 100%;
@@ -647,19 +672,19 @@ header {
   padding: 0 4px;
 }
 .partinfo {
-  color: var(--gray-11);
+  color: var(--mod-soft);
   font-size: 10px;
 }
 .alone {
-  color: var(--yellow);
+  color: var(--state-warn);
 }
 :deep(.param) {
-  outline: 1px solid color-mix(in srgb, var(--blue) 53%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--selection) 53%, transparent);
   border-radius: 50%;
 }
 .missing {
   padding: 8px;
-  color: var(--red);
+  color: var(--state-danger);
   text-align: center;
 }
 /* ×N: copies stacked behind the box, the count in the corner, the load under it. */
@@ -668,9 +693,9 @@ header {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 6px;
-  background: var(--gray-4);
-  border: 1px solid var(--gray-8);
+  border-radius: var(--radius-module);
+  background: var(--mod-fill);
+  border: 1px solid color-mix(in srgb, var(--mod-ink) 25%, transparent);
   z-index: -1;
   pointer-events: none;
 }
@@ -688,7 +713,7 @@ header {
   position: absolute;
   right: 6px;
   top: 5px;
-  color: var(--blue);
+  color: var(--knob-arc);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -697,7 +722,7 @@ header {
   position: absolute;
   right: 6px;
   bottom: 2px;
-  color: var(--gray-12);
+  color: var(--mod-soft);
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -709,26 +734,25 @@ header {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--red);
-  color: var(--gray-19);
+  background: var(--state-danger);
+  color: var(--text-on-ink);
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 11px;
 }
 .warning .badge {
-  background: var(--yellow);
-  color: var(--gray-1);
+  background: var(--state-warn);
 }
-/* Ports: rings for inputs, filled dots for outputs, coloured by signal type. */
+/* Ports: the theme's shape and colors; inputs filled once a cable is in. */
 .port :deep(.vue-flow__handle) {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   min-width: 0;
   min-height: 0;
-  border-radius: 50%;
-  border: 2px solid var(--pc);
-  background: var(--gray-5);
+  border-radius: var(--port-radius);
+  border: 1.5px solid var(--port-in-ring);
+  background: var(--port-in-fill);
   top: 50%;
 }
 .port.in :deep(.vue-flow__handle) {
@@ -739,13 +763,14 @@ header {
   right: 3px;
   left: auto;
   transform: translateY(-50%);
-  background: var(--pc);
+  border-color: var(--port-out-ring);
+  background: var(--port-out-fill);
 }
 .port.in :deep(.vue-flow__handle.on) {
-  background: var(--pc);
+  background: var(--port-in-ring);
 }
 .port :deep(.vue-flow__handle:hover) {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gray-19) 19%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--selection) 30%, transparent);
 }
 .mod.touched {
   box-shadow:
@@ -758,13 +783,10 @@ header {
   top: -18px;
   left: 0;
   padding: 0 6px;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
   background: var(--touch);
-  color: var(--gray-0);
-  font:
-    600 11px/16px Lato,
-    system-ui,
-    sans-serif;
+  color: var(--text-on-lane);
+  font: 600 11px/16px var(--font-ui);
   white-space: nowrap;
   pointer-events: none;
 }

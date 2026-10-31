@@ -5,7 +5,10 @@
 // focus), and the letters they play are printed here.
 // Skins: piano (black and white keys; `start`, `octaves`, `held`, and `pc` = the
 // note where the computer-keyboard letters are printed), pads (big pads in a grid,
-// one note each, stepping through a scale).
+// one note each, stepping through a scale). The piano's colors can be set with
+// --dk-key-white, --dk-key-black, --dk-key-line, --dk-key-label, --dk-key-down,
+// --dk-key-down-label and --dk-key-down-black: den-kit's keyboard bar sets them from
+// its theme, and a plugin leaves them unset.
 import { Keyboard, listen, velocityAt } from '../../behaviors/index.ts';
 import { BASE_CSS, DkElement, col, escapeHtml } from './base.ts';
 
@@ -124,7 +127,8 @@ export class DkKeyboard extends DkElement {
     const ww = 100 / whites.length;
     const label = (n: number) =>
       `${letter(n) ? `<span class="k">${letter(n)}</span>` : ''}${n % 12 === 0 ? `<span class="c">C${Math.floor(n / 12) - 1}</span>` : ''}`;
-    return `<style>${BASE_CSS}.kb{position:relative;width:100%;height:100%;user-select:none}.w,.b{position:absolute;top:0;border:1px solid #222;border-radius:0 0 4px 4px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:4px;gap:1px;font:600 10px/1 Lato,system-ui,sans-serif}.w{height:100%;background:#f3f3f3;color:#555}.b{height:60%;background:#222;z-index:1;color:#bbb}.on{background:${col(params.lit, 'var(--dk-accent,#5ec4ff)')}!important;color:#111!important}.k{font-size:11px}.c{font-weight:400;font-size:9px;color:#999}</style>
+    const lit = col(params.lit, 'var(--dk-accent,#5ec4ff)');
+    return `<style>${BASE_CSS}.kb{position:relative;width:100%;height:100%;user-select:none}.w,.b{position:absolute;top:0;border:1px solid var(--dk-key-line,#222);border-radius:0 0 4px 4px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:4px;gap:1px;font:600 10px/1 Lato,system-ui,sans-serif}.w{height:100%;background:var(--dk-key-white,#f3f3f3);color:var(--dk-key-label,#555)}.b{height:60%;background:var(--dk-key-black,#222);z-index:1;color:#bbb}.on{background:var(--dk-key-down,${lit})!important;color:var(--dk-key-down-label,#111)!important}.b.on{background:var(--dk-key-down-black,var(--dk-key-down,${lit}))!important}.k{font-size:11px}.c{font-weight:400;font-size:9px;color:#999}</style>
       <div class="kb" part="keyboard">${whites.map((n, i) => `<div class="w" data-note="${n}" style="left:${i * ww}%;width:${ww}%">${label(n)}</div>`).join('')}${blacks.map(b => `<div class="b" data-note="${b.note}" style="left:${b.at * ww - ww * 0.3}%;width:${ww * 0.6}%">${label(b.note)}</div>`).join('')}</div>`;
   }
 

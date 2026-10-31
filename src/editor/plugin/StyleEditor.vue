@@ -222,7 +222,7 @@ const addShadow = (glow: boolean) =>
 .sub {
   margin: 8px 0 2px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -239,7 +239,7 @@ const addShadow = (glow: boolean) =>
   gap: 4px;
 }
 .shadow {
-  border-left: 2px solid var(--gray-6);
+  border-left: 2px solid var(--line-subtle);
   padding-left: 6px;
   margin: 4px 0;
 }

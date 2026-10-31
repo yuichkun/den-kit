@@ -252,11 +252,11 @@ function addStop(i: number) {
 
 <style scoped>
 .layer {
-  border: 1px solid var(--gray-6);
-  border-radius: 6px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-control);
   padding: 4px 6px;
   margin: 4px 0;
-  background: var(--gray-3);
+  background: var(--app-chrome);
 }
 .head select {
   flex: 1;

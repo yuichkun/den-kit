@@ -12,24 +12,29 @@ import {
   type SettingsAction,
   type SettingsInfo,
 } from './settings-presentation.ts';
+import { THEMES, savedTheme, useTheme } from './theme.ts';
 
-// Settings for what the host lets the person manage in den-kit: the AI account and model, and updates.
-const props = defineProps<{ account: AIAccount; lifecycle: Lifecycle | null }>();
+// Settings: the theme of den-kit's own screens, and what the host lets the person manage
+// there: the AI account and model, and updates. Every host has the theme; the rest shows
+// when the host provides it.
+const props = defineProps<{ account: AIAccount | null; lifecycle: Lifecycle | null }>();
 const emit = defineEmits<{ close: [] }>();
+const themeId = ref(savedTheme());
+const chooseTheme = () => useTheme(themeId.value, { keep: true });
 const api = {
   async info(): Promise<SettingsInfo> {
     const [account, app] = await Promise.all([
-      props.account.info(),
+      props.account!.info(),
       props.lifecycle?.info() ?? Promise.resolve({ version: '', update: undefined }),
     ]);
     return { ...account, ...app };
   },
-  saveSettings: (settings: AISettings) => props.account.saveSettings(settings),
-  signIn: () => props.account.signIn(),
-  cancelSignIn: () => props.account.cancelSignIn(),
-  signOut: () => props.account.signOut(),
-  reconnectAI: () => props.account.reconnect(),
-  openUsage: () => props.account.openUsage(),
+  saveSettings: (settings: AISettings) => props.account!.saveSettings(settings),
+  signIn: () => props.account!.signIn(),
+  cancelSignIn: () => props.account!.cancelSignIn(),
+  signOut: () => props.account!.signOut(),
+  reconnectAI: () => props.account!.reconnect(),
+  openUsage: () => props.account!.openUsage(),
   checkForUpdates: () => props.lifecycle?.checkForUpdates() ?? Promise.resolve(),
   installUpdate: () => props.lifecycle?.installUpdate() ?? Promise.resolve(),
 };
@@ -131,13 +136,18 @@ function keys(e: KeyboardEvent) {
   }
 }
 onMounted(() => {
+  window.addEventListener('keydown', keys, true);
+  if (!props.account) {
+    loading.value = false;
+    void nextTick().then(() => dialog.value?.focus());
+    return;
+  }
   void refresh(true)
     .then(() => nextTick())
     .then(() => dialog.value?.focus());
   timer = setInterval(() => {
     if (!refreshing) void refresh(!info.value);
   }, 1500);
-  window.addEventListener('keydown', keys, true);
 });
 onBeforeUnmount(() => {
   disposed = true;
@@ -162,6 +172,17 @@ onBeforeUnmount(() => {
         <h2 id="settings-title">Settings</h2>
         <button aria-label="Close settings" @click="emit('close')">×</button>
       </header>
+      <div class="settings-body">
+        <h3>Theme</h3>
+        <label
+          >Theme<select v-model="themeId" data-testid="settings-theme" @change="chooseTheme">
+            <option v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select></label
+        >
+        <p class="help">
+          The theme changes how den-kit looks. Each work's plugin screen keeps its own look.
+        </p>
+      </div>
       <div v-if="info" class="settings-body">
         <h3>ChatGPT</h3>
         <p data-testid="desktop-account" role="status">
@@ -280,7 +301,7 @@ onBeforeUnmount(() => {
         </template>
         <footer>den-kit {{ info.version }}</footer>
       </div>
-      <p v-else-if="loading" class="settings-body" role="status">Loading settings…</p>
+      <p v-else-if="account && loading" class="settings-body" role="status">Loading settings…</p>
       <p v-if="error || loadError" class="settings-error" role="alert">{{ error || loadError }}</p>
     </section>
   </div>
@@ -293,25 +314,25 @@ onBeforeUnmount(() => {
   z-index: 10000;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--gray-0) 60%, transparent);
+  background: color-mix(in srgb, var(--app-canvas) 60%, transparent);
   padding: 24px;
 }
 .desktop-settings {
   width: min(580px, 100%);
   max-height: 90vh;
   overflow: auto;
-  background: var(--slate-0);
-  border: 1px solid var(--slate-3);
-  border-radius: 12px;
-  color: var(--slate-5);
-  box-shadow: 0 16px 80px color-mix(in srgb, var(--gray-0) 53%, transparent);
+  background: var(--app-chrome);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-dialog);
 }
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 18px 24px;
-  border-bottom: 1px solid var(--slate-3);
+  border-bottom: 1px solid var(--line-subtle);
 }
 h2 {
   margin: 0;
@@ -334,7 +355,7 @@ p {
 }
 .help,
 footer {
-  color: var(--slate-4);
+  color: var(--text-muted);
   font-size: 12px;
 }
 footer {
@@ -354,10 +375,10 @@ select {
 }
 button,
 select {
-  border: 1px solid var(--slate-3);
-  background: var(--slate-2);
+  border: 1px solid var(--line-subtle);
+  background: var(--app-field);
   color: inherit;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 8px 12px;
   font: inherit;
   cursor: pointer;
@@ -375,7 +396,7 @@ select:disabled {
   font-size: 13px;
 }
 .settings-error {
-  color: var(--red-light);
+  color: var(--state-danger);
   padding: 0 24px 16px;
 }
 .settings-body .settings-error {

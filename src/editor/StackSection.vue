@@ -285,8 +285,8 @@ const fmt = (v: number) => {
   font-size: 11px;
 }
 .small.on {
-  background: color-mix(in srgb, var(--blue) 20%, transparent);
-  color: var(--blue-light);
+  background: color-mix(in srgb, var(--accent-text) 16%, transparent);
+  color: var(--accent-text);
 }
 .quick {
   display: flex;
@@ -319,16 +319,16 @@ const fmt = (v: number) => {
   width: 100%;
   height: 34px;
   display: block;
-  background: var(--gray-3);
-  border-radius: 3px;
+  background: var(--app-chrome);
+  border-radius: var(--radius-control);
   cursor: crosshair;
   touch-action: none;
 }
 .bars rect {
-  fill: color-mix(in srgb, var(--blue) 60%, transparent);
+  fill: color-mix(in srgb, var(--selection) 60%, transparent);
 }
 .bars.each rect {
-  fill: color-mix(in srgb, var(--yellow) 80%, transparent);
+  fill: color-mix(in srgb, var(--state-warn) 80%, transparent);
 }
 .ends {
   display: flex;

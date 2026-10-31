@@ -68,7 +68,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--gray-1) 85%, transparent);
+  background: color-mix(in srgb, var(--app-canvas) 85%, transparent);
   backdrop-filter: blur(3px);
   cursor: pointer;
 }
@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key, true));
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--gray-17);
+  color: var(--text-primary);
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 18px;
@@ -90,16 +90,16 @@ h1 {
   margin: 0 0 18px;
   font-size: 30px;
   font-weight: 400;
-  color: var(--gray-18);
+  color: var(--text-primary);
 }
 p {
-  color: var(--gray-15);
+  color: var(--text-primary);
   font-size: 15px;
   line-height: 1.5;
   margin: 6px 0;
 }
 .error {
-  color: var(--warn);
+  color: var(--state-warn);
 }
 .hints {
   list-style: none;
@@ -109,7 +109,7 @@ p {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px 22px;
-  color: var(--gray-14);
+  color: var(--text-muted);
   font-size: 14px;
 }
 kbd {
@@ -117,14 +117,11 @@ kbd {
   min-width: 18px;
   padding: 1px 6px;
   margin-right: 4px;
-  border: 1px solid var(--gray-9);
+  border: 1px solid var(--line-strong);
   border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--gray-4);
-  color: var(--gray-18);
-  font:
-    12px/1.5 Lato,
-    system-ui,
-    sans-serif;
+  border-radius: var(--radius-control);
+  background: var(--app-chrome);
+  color: var(--text-primary);
+  font: 12px/1.5 var(--font-ui);
 }
 </style>

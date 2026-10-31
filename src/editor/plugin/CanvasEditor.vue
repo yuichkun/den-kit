@@ -160,7 +160,7 @@ onBeforeUnmount(() => document.querySelector<HTMLElement>('[data-testid=plugin-v
   min-height: 0;
 }
 aside {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--line-subtle);
   padding: 8px;
   overflow: auto;
   font-size: 12.5px;
@@ -170,27 +170,27 @@ aside {
 }
 h4 {
   margin: 8px 0 2px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
 }
 .preview {
   position: relative;
   height: 180px;
-  border: 1px solid var(--gray-6);
-  border-radius: 6px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 .props {
-  border: 1px solid var(--gray-6);
-  border-radius: 4px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-control);
   --code-pad: 6px 8px;
 }
 .props.bad {
-  border-color: var(--error);
+  border-color: var(--state-danger);
 }
 .help {
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.5;
 }
 </style>

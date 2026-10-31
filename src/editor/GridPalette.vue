@@ -7,7 +7,7 @@ import type { NodeDef } from '../work/catalog.ts';
 import { partUses } from '../work/parts.ts';
 import { latest } from '../work/library.ts';
 import { useSession } from './context.ts';
-import { titleColor, portColor } from './grid-style.ts';
+import { typeGroup } from './grid-style.ts';
 
 const emit = defineEmits<{ (e: 'add', type: string): void }>();
 const session = useSession();
@@ -92,12 +92,9 @@ const ins = (d: Tile) =>
     .filter(p => p.role === 'audio' || p.type === 'gate')
     .slice(0, 2);
 const outs = (d: Tile) => (typeof d.outputs === 'function' ? [] : d.outputs).slice(0, 2);
-const tileColor = (d: Tile) =>
-  d.type.startsWith('mine:')
-    ? '#ffd27a'
-    : d.type.startsWith('part:')
-      ? '#9ad7ff'
-      : titleColor(d as NodeDef);
+/** A tile looks like a small module of its type; parts and My parts carry no type color. */
+const tileGroup = (d: Tile) =>
+  d.type.startsWith('mine:') || d.type.startsWith('part:') ? 'neutral' : typeGroup(d as NodeDef);
 const tileName = (d: Tile) =>
   d.type.startsWith('mine:')
     ? `★ ${d.title}`
@@ -147,6 +144,7 @@ function removeMine(id: string) {
         <button
           v-for="[id, name] in CATEGORIES"
           :key="id"
+          class="as-written"
           :class="{ on: !query && category === id }"
           @click="
             category = id;
@@ -196,22 +194,10 @@ function removeMine(id: string) {
         @dragstart="drag($event, d.type)"
         @click="!(d.singleton && taken.has(d.type)) && emit('add', d.type)"
       >
-        <div class="mini">
-          <span class="pins l"
-            ><i
-              v-for="p in ins(d)"
-              :key="p.id"
-              class="ring"
-              :style="{ borderColor: portColor(d as NodeDef, p, 'in') }"
-          /></span>
-          <span class="name" :style="{ color: tileColor(d) }">{{ tileName(d) }}</span>
-          <span class="pins r"
-            ><i
-              v-for="p in outs(d)"
-              :key="p.id"
-              class="dot"
-              :style="{ background: portColor(d as NodeDef, p, 'out') }"
-          /></span>
+        <div class="mini" :class="`cat-${tileGroup(d)}`">
+          <span class="pins l"><i v-for="p in ins(d)" :key="p.id" class="ring" /></span>
+          <span class="name">{{ tileName(d) }}</span>
+          <span class="pins r"><i v-for="p in outs(d)" :key="p.id" class="dot" /></span>
           <button
             v-if="d.type.startsWith('mine:')"
             class="drop"
@@ -241,24 +227,25 @@ function removeMine(id: string) {
 .grid-palette {
   display: flex;
   height: 112px;
-  border-bottom: 1px solid var(--gray-0);
-  background: var(--gray-3);
-  font-family: Lato, system-ui, sans-serif;
+  border-bottom: 1px solid var(--line-subtle);
+  background: var(--app-chrome);
+  font-family: var(--font-ui);
 }
 .cats {
   width: 330px;
   flex: none;
   padding: 6px 8px;
-  border-right: 1px solid var(--gray-1);
+  border-right: 1px solid var(--line-subtle);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .search {
-  background: var(--gray-1);
-  border: 1px solid var(--gray-6);
-  border-radius: 4px;
-  color: var(--gray-17);
+  background: var(--field-fill);
+  border: var(--field-line);
+  border-radius: var(--radius-control);
+  clip-path: var(--clip-control);
+  color: var(--text-primary);
   padding: 2px 8px;
   font-size: 12px;
 }
@@ -267,11 +254,14 @@ function removeMine(id: string) {
   grid-template-columns: repeat(5, 1fr);
   gap: 0 3px;
 }
+/* Type names in the sans, so they fit their cells in every theme. */
 .catgrid button {
+  font-family: var(--font-ui);
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  color: var(--gray-15);
+  clip-path: none;
+  color: var(--text-muted);
   font-size: 11.5px;
   padding: 3px 1px;
   border-radius: 0;
@@ -280,9 +270,13 @@ function removeMine(id: string) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.catgrid button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-primary);
+}
 .catgrid button.on {
-  color: var(--gray-19);
-  border-bottom-color: var(--cyan);
+  color: var(--text-primary);
+  border-bottom-color: var(--ink);
 }
 .tiles {
   flex: 1;
@@ -305,20 +299,27 @@ function removeMine(id: string) {
   cursor: not-allowed;
 }
 .mini {
+  --mod-fill: color-mix(in srgb, var(--c) var(--module-fill-type), var(--module-body));
+  --mod-ink: color-mix(in srgb, var(--ink-c) var(--module-fill-type), var(--module-value));
   width: 92px;
   height: 54px;
-  background: var(--gray-5);
-  border-radius: 5px;
+  background: var(--mod-fill);
+  border-radius: var(--radius-module);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 5px;
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--gray-0) 53%, transparent);
+  box-shadow:
+    var(--module-ring),
+    inset 0 0 0 1px var(--module-edge);
 }
 .tile:hover .mini {
-  box-shadow: 0 0 0 1px var(--gray-12);
+  box-shadow:
+    var(--module-selected),
+    inset 0 0 0 1px var(--module-edge);
 }
 .name {
+  color: color-mix(in srgb, var(--c) var(--title-type), var(--mod-ink));
   font-size: 10px;
   text-align: center;
   flex: 1;
@@ -335,24 +336,28 @@ function removeMine(id: string) {
 .ring {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid;
+  border-radius: var(--port-radius);
+  border: 1.5px solid var(--port-in-ring);
+  background: var(--port-in-fill);
   box-sizing: border-box;
   display: block;
 }
 .dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--port-radius);
+  border: 1.5px solid var(--port-out-ring);
+  background: var(--port-out-fill);
+  box-sizing: border-box;
   display: block;
 }
 .cap {
   font-size: 12px;
-  color: var(--gray-16);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 .empty {
-  color: var(--gray-12);
+  color: var(--text-muted);
   padding: 20px;
 }
 .mini {
@@ -367,8 +372,8 @@ function removeMine(id: string) {
   padding: 0;
   border-radius: 50%;
   border: 0;
-  background: var(--gray-8);
-  color: var(--gray-17);
+  background: var(--app-field);
+  color: var(--text-primary);
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
