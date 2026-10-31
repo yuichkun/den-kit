@@ -47,6 +47,7 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | Running from source, building the macOS app, Storybook, checks and tests | [docs/development.md](docs/development.md)                                                                          |
 | Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
 | Modules, how data moves between them, their interfaces                   | [docs/architecture.md](docs/architecture.md)                                                                        |
+| How den-kit's own screens look and what they say: themes, tokens, rules  | [docs/design-system.md](docs/design-system.md)                                                                      |
 | A module's role and its rules                                            | The comment at the top of the module                                                                                |
 | Releases                                                                 | [RELEASE.md](RELEASE.md)                                                                                            |
 | Code parts, the `kit` API, and what the in-app AI reads in the workspace | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |

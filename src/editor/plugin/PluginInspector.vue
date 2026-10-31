@@ -289,7 +289,7 @@ const fontAssets = computed(() => Object.values(assets.value).filter(isFontAsset
         {{ facePart.name }} can put the same screen on the plugin; uses whose face is on the plugin
         now follow.
       </div>
-      <button class="primary" data-testid="save-face" @click="saveFace">
+      <button class="primary as-written" data-testid="save-face" @click="saveFace">
         Save as {{ facePart.name }}'s face
       </button>
     </div>
@@ -951,15 +951,15 @@ textarea {
 }
 .code {
   margin: 4px 0;
-  border-radius: 4px;
-  --code-font: 12px/1.45 ui-monospace, Menlo, monospace;
+  border-radius: var(--radius-control);
+  --code-font: 12px/1.45 var(--font-mono);
   --code-pad: 5px 7px;
   --code-resize: vertical;
 }
 .sub {
   margin: 8px 0 2px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -983,8 +983,8 @@ input[type='range'] {
   min-width: 0;
 }
 .code-error {
-  color: var(--red-light);
+  color: var(--state-danger);
   white-space: pre-wrap;
-  font-family: ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 </style>

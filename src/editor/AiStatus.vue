@@ -96,8 +96,8 @@ function retryCodex() {
 .chip {
   font-size: 11px;
   padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--gray-2);
+  border-radius: var(--radius-control);
+  background: var(--app-field);
   white-space: nowrap;
   cursor: default;
   font-variant-numeric: tabular-nums;
@@ -106,15 +106,15 @@ function retryCodex() {
   cursor: pointer;
 }
 .chip.ok {
-  color: var(--ok);
+  color: var(--state-ok);
 }
 .chip.error {
-  color: var(--error);
+  color: var(--state-danger);
 }
 .chip.wait {
-  color: var(--warn);
+  color: var(--state-warn);
 }
 .chip.off {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 </style>

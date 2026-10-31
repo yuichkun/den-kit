@@ -78,8 +78,8 @@ function commitText() {
   width: 26px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--gray-7);
-  border-radius: 4px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-control);
   background: none;
   flex: none;
   cursor: pointer;
@@ -90,7 +90,7 @@ function commitText() {
   font-size: 13px;
 }
 .text.bad {
-  border-color: var(--error);
+  border-color: var(--state-danger);
 }
 .clear {
   padding: 0 6px;

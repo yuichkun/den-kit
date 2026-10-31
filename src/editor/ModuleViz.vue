@@ -303,23 +303,30 @@ const shape = computed<{
       :y2="(H / 4) * k"
       class="grid"
     />
-    <path v-if="shape.fill" :d="shape.fill" :fill="color" opacity="0.18" />
+    <path v-if="shape.fill" :d="shape.fill" :style="{ fill: color }" opacity="0.18" />
     <path
       v-if="shape.dashed"
       :d="shape.dashed"
-      :stroke="color"
+      :style="{ stroke: color }"
       stroke-width="1.5"
       fill="none"
       stroke-dasharray="4 3"
     />
-    <path :d="shape.path" :stroke="color" stroke-width="1.8" fill="none" stroke-linejoin="round" />
+    <path
+      :d="shape.path"
+      :style="{ stroke: color }"
+      stroke-width="1.8"
+      fill="none"
+      stroke-linejoin="round"
+    />
     <circle
       v-for="(d, k) in shape.dots ?? []"
       :key="k"
       :cx="d[0]"
       :cy="d[1]"
       r="3"
-      :fill="k === (shape.dots?.length ?? 0) - 1 ? '#fff' : color"
+      :class="{ now: k === (shape.dots?.length ?? 0) - 1 }"
+      :style="{ fill: color }"
     />
   </svg>
 </template>
@@ -330,7 +337,13 @@ const shape = computed<{
   overflow: visible;
 }
 .grid {
-  stroke: color-mix(in srgb, var(--gray-19) 6%, transparent);
+  stroke: color-mix(in srgb, currentColor 14%, transparent);
   stroke-width: 1;
+}
+/* The point the sound is at now. */
+circle.now {
+  fill: var(--mod-fill, var(--app-canvas)) !important;
+  stroke: currentColor;
+  stroke-width: 1.5;
 }
 </style>

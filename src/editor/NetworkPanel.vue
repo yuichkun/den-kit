@@ -117,7 +117,7 @@ function add() {
 
 <style scoped>
 .network {
-  border-top: 1px solid var(--line, var(--slate-1));
+  border-top: 1px solid var(--line, var(--line-subtle));
   padding: 6px 12px;
 }
 .network summary {
@@ -154,6 +154,6 @@ function add() {
   min-width: 260px;
 }
 .problem {
-  color: var(--red-soft);
+  color: var(--state-danger);
 }
 </style>

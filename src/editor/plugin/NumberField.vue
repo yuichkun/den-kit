@@ -70,7 +70,7 @@ input {
   font-variant-numeric: tabular-nums;
 }
 .unit {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 </style>

@@ -5,6 +5,9 @@ instrument's interface inside den-kit.
 
 Click the start overlay to enable audio and MIDI.
 
+**Settings** → **Theme** changes how den-kit looks: three looks, each light or dark. Each
+work's plugin screen keeps its own look.
+
 ## The macOS app
 
 Use **Settings** (`⌘,`) in the app to sign in to ChatGPT and choose a model and

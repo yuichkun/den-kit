@@ -131,10 +131,10 @@ function key(e: KeyboardEvent) {
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  box-shadow: 0 8px 30px color-mix(in srgb, var(--gray-0) 67%, transparent);
+  background: var(--app-chrome);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
 }
 input {
   margin: 8px;
@@ -151,11 +151,11 @@ li {
   font-size: 12px;
 }
 li.active {
-  background: color-mix(in srgb, var(--blue) 13%, transparent);
+  background: color-mix(in srgb, var(--selection) 13%, transparent);
 }
 .cat {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   margin-left: 4px;
 }
