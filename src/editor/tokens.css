@@ -88,7 +88,7 @@
   --module-selected: 0 0 0 2px var(--app-canvas), 0 0 0 4px var(--selection);
   --title-type: 0%;
   --port-radius: 50%;
-  --module-ring: none;
+  --module-ring: 0 0 0 0 transparent;
   --module-tick: var(--module-track);
   /* highlighted code; text on the bright colors of the AI's helpers */
   --code-comment: var(--text-muted);
@@ -215,7 +215,7 @@
   --module-selected: 0 0 0 2px var(--app-canvas), 0 0 0 4px var(--selection);
   --title-type: 0%;
   --port-radius: 50%;
-  --module-ring: none;
+  --module-ring: 0 0 0 0 transparent;
   --module-tick: var(--module-track);
   /* highlighted code; text on the bright colors of the AI's helpers */
   --code-comment: var(--text-muted);
@@ -596,7 +596,7 @@
   --module-selected: inset 0 0 0 2px var(--selection);
   --title-type: 0%;
   --port-radius: 0;
-  --module-ring: none;
+  --module-ring: 0 0 0 0 transparent;
   --module-tick: #c6c6c2;
   /* highlighted code; text on the bright colors of the AI's helpers */
   --code-comment: var(--text-muted);
@@ -730,7 +730,7 @@
   --module-selected: inset 0 0 0 2px var(--selection);
   --title-type: 0%;
   --port-radius: 0;
-  --module-ring: none;
+  --module-ring: 0 0 0 0 transparent;
   --module-tick: #353535;
   /* highlighted code; text on the bright colors of the AI's helpers */
   --code-comment: var(--text-muted);

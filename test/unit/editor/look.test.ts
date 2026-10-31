@@ -93,6 +93,22 @@ describe("den-kit's own look", () => {
       expect({ id, tokens }).toEqual({ id, tokens: first!.tokens });
   });
 
+  it('a token in a list of shadows is a shadow in every theme, never none', () => {
+    // `none` inside a list makes the whole box-shadow invalid, and the browser drops it.
+    const listed = new Set(
+      styles().flatMap(({ css }) =>
+        [...css.matchAll(/box-shadow:\s*([^;]+);/g)]
+          .filter(m => m[1]!.includes(','))
+          .flatMap(m => [...m[1]!.matchAll(/var\(--([a-z0-9-]+)/g)].map(v => v[1]!)),
+      ),
+    );
+    expect(listed.size).toBeGreaterThan(0);
+    const none = [...themeBlocks()].flatMap(([id, tokens]) =>
+      [...listed].filter(t => tokens.get(t)?.trim() === 'none').map(t => `${id}: ${t}`),
+    );
+    expect(none).toEqual([]);
+  });
+
   it('text is readable on every surface in every theme (4.5:1)', () => {
     const text = [
       'text-primary',

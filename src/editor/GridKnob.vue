@@ -197,7 +197,7 @@ function reset() {
 }
 .label {
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--mod-ink, var(--text-primary));
   white-space: nowrap;
   line-height: 14px;
   min-width: 40px;
