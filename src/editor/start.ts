@@ -14,9 +14,31 @@ import { KitSession, RECORD_PREFIX } from './session.ts';
 import { kitFiles } from '../screen/kit-files.ts';
 import { CodeParts } from './code-parts.ts';
 import { hostRecords } from './records.ts';
+import { savedTheme, useTheme } from './theme.ts';
 import '@fontsource/lato/400.css';
 import '@fontsource/lato/700.css';
 import '../screen/fonts.ts';
+// The themes' fonts (tokens.css; all SIL Open Font License 1.1): Tile, Screen and Plate each
+// use one sans and one mono.
+import '@fontsource/schibsted-grotesk/400.css';
+import '@fontsource/schibsted-grotesk/500.css';
+import '@fontsource/schibsted-grotesk/600.css';
+import '@fontsource/schibsted-grotesk/700.css';
+import '@fontsource/dm-mono/400.css';
+import '@fontsource/dm-mono/500.css';
+import '@fontsource/inter/300.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/chivo-mono/300.css';
+import '@fontsource/chivo-mono/400.css';
+import '@fontsource/chivo-mono/500.css';
+import '@fontsource/inter-tight/400.css';
+import '@fontsource/inter-tight/500.css';
+import '@fontsource/inter-tight/600.css';
+import '@fontsource/inter-tight/700.css';
+import '@fontsource/jetbrains-mono/500.css';
 import './tokens.css';
 import './style.css';
 
@@ -31,6 +53,7 @@ export interface EditorOptions {
 }
 
 export async function startEditor(host: Host, options: EditorOptions): Promise<KitSession> {
+  useTheme(savedTheme());
   defineWidgets();
   let unsaved = (_key: string) => {};
   const records = await hostRecords(host.storage, RECORD_PREFIX, key => unsaved(key));

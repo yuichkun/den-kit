@@ -65,18 +65,14 @@ async function copy() {
   justify-content: space-between;
   align-items: center;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-subtle);
 }
 pre {
   margin: 0;
   overflow: auto;
   flex: 1;
-  font:
-    12px/1.45 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  color: var(--gray-16);
+  font: 12px/1.45 var(--font-mono);
+  color: var(--text-primary);
 }
 .line {
   display: block;
@@ -84,14 +80,14 @@ pre {
   padding-right: 16px;
 }
 .line.hl {
-  background: color-mix(in srgb, var(--blue) 13%, transparent);
+  background: color-mix(in srgb, var(--selection) 13%, transparent);
 }
 .n {
   display: inline-block;
   width: 44px;
   padding-right: 10px;
   text-align: right;
-  color: var(--slate-3);
+  color: var(--text-muted);
   user-select: none;
 }
 .empty {

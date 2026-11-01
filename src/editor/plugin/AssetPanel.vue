@@ -246,12 +246,12 @@ function remove(a: AssetMeta) {
 
 <style scoped>
 .assets {
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   outline: 1px dashed transparent;
 }
 .assets.over {
   outline-color: var(--accent);
-  background: color-mix(in srgb, var(--orange) 6%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .grid {
   display: grid;
@@ -264,8 +264,8 @@ function remove(a: AssetMeta) {
   overflow: hidden;
   display: grid;
   place-items: center;
-  background: var(--gray-2);
-  border: 1px solid var(--gray-6);
+  background: var(--app-field);
+  border: 1px solid var(--line-subtle);
   box-shadow: none;
 }
 .thumb img {
@@ -281,13 +281,13 @@ function remove(a: AssetMeta) {
 }
 .thumb.add {
   font-size: 22px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .font {
   font-size: 22px;
 }
 .hint {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 13px;
   margin-top: 6px;
 }

@@ -276,7 +276,7 @@ export function podCheck(): PodCheck {
           v-for="f in files"
           :key="f"
           type="button"
-          class="file"
+          class="file as-written"
           :class="{ current: f === current, made: GENERATED_FILES.has(f) }"
           :data-file="f"
           @click="select(f)"
@@ -426,15 +426,15 @@ export function podCheck(): PodCheck {
   inset: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto 38%;
-  background: var(--gray-3);
-  color: var(--gray-17);
+  background: var(--app-chrome);
+  color: var(--text-primary);
 }
 .head {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--gray-6);
+  border-bottom: 1px solid var(--line-subtle);
   font-size: 13px;
   flex-wrap: wrap;
 }
@@ -442,23 +442,23 @@ export function podCheck(): PodCheck {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--gray-10);
+  background: var(--text-muted);
 }
 .dot.ready {
-  background: var(--green);
+  background: var(--state-ok);
 }
 .dot.failed {
-  background: var(--red-soft);
+  background: var(--state-danger);
 }
 .dot.unavailable,
 .dot.off {
-  background: var(--gray-10);
+  background: var(--text-muted);
 }
 .dot.booting,
 .dot.syncing,
 .dot.installing,
 .dot.starting {
-  background: var(--orange-light);
+  background: var(--accent);
   animation: blink 1s infinite;
 }
 @keyframes blink {
@@ -467,13 +467,13 @@ export function podCheck(): PodCheck {
   }
 }
 .state {
-  color: var(--gray-14);
+  color: var(--text-muted);
 }
 .message {
-  color: var(--gray-16);
+  color: var(--text-primary);
 }
 .fix {
-  color: var(--sand);
+  color: var(--text-primary);
 }
 .spacer {
   flex: 1;
@@ -484,7 +484,7 @@ export function podCheck(): PodCheck {
   min-height: 0;
 }
 .files {
-  border-right: 1px solid var(--gray-6);
+  border-right: 1px solid var(--line-subtle);
   overflow: auto;
   padding: 6px;
   display: flex;
@@ -497,21 +497,20 @@ export function podCheck(): PodCheck {
 .file {
   text-align: left;
   background: transparent;
+  border: 0;
+  clip-path: none;
   box-shadow: none;
   padding: 3px 6px;
-  font:
-    12px ui-monospace,
-    Menlo,
-    monospace;
-  color: var(--gray-16);
-  border-radius: 4px;
+  font: 12px var(--font-mono);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
 }
 .file.current {
-  background: var(--orange-dark);
-  color: var(--gray-19);
+  background: var(--app-field);
+  color: var(--text-primary);
 }
 .file.made {
-  color: var(--gray-12);
+  color: var(--text-muted);
   font-style: italic;
 }
 .new {
@@ -522,10 +521,7 @@ export function podCheck(): PodCheck {
 .new input {
   flex: 1;
   min-width: 0;
-  font:
-    12px ui-monospace,
-    Menlo,
-    monospace;
+  font: 12px var(--font-mono);
 }
 .editor {
   display: grid;
@@ -538,21 +534,21 @@ export function podCheck(): PodCheck {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--gray-5);
+  border-bottom: 1px solid var(--line-subtle);
   font-size: 12.5px;
 }
 .code {
-  --code-bg: var(--gray-2);
-  --code-fg: var(--gray-18);
-  --code-font: 12.5px/1.45 ui-monospace, Menlo, monospace;
+  --code-bg: var(--app-field);
+  --code-fg: var(--text-primary);
+  --code-font: 12.5px/1.45 var(--font-mono);
   --code-pad: 10px 12px;
 }
 .diagnostics {
-  border-top: 1px solid var(--gray-6);
+  border-top: 1px solid var(--line-subtle);
 }
 .diagnostics summary {
   padding: 7px 12px;
-  color: var(--gray-14);
+  color: var(--text-muted);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -561,7 +557,7 @@ export function podCheck(): PodCheck {
   grid-template-columns: minmax(220px, 1fr) 2fr;
   max-height: 240px;
   overflow: auto;
-  border-top: 1px solid var(--gray-5);
+  border-top: 1px solid var(--line-subtle);
 }
 .diagnostic-tools {
   padding: 8px 12px;
@@ -570,7 +566,7 @@ export function podCheck(): PodCheck {
   margin: 0 0 8px;
 }
 .check {
-  border-left: 1px solid var(--gray-6);
+  border-left: 1px solid var(--line-subtle);
   padding: 8px 10px;
   font-size: 12.5px;
 }
@@ -583,27 +579,27 @@ export function podCheck(): PodCheck {
   grid-template-columns: 14px 1fr auto;
   gap: 4px;
   padding: 4px 0;
-  border-bottom: 1px solid var(--gray-4);
+  border-bottom: 1px solid var(--line-subtle);
 }
 .step .mark {
-  color: var(--gray-12);
+  color: var(--text-muted);
 }
 .step.ok .mark {
-  color: var(--green);
+  color: var(--state-ok);
 }
 .step.failed .mark {
-  color: var(--red-soft);
+  color: var(--state-danger);
 }
 .step.running .mark {
-  color: var(--orange-light);
+  color: var(--accent-text);
 }
 .step .ms {
-  color: var(--gray-14);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 .step .detail {
   grid-column: 2 / 4;
-  color: var(--gray-12);
+  color: var(--text-muted);
   font-size: 11.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -611,48 +607,45 @@ export function podCheck(): PodCheck {
 .terminal {
   display: grid;
   grid-template-rows: 1fr auto;
-  border-top: 1px solid var(--gray-6);
+  border-top: 1px solid var(--line-subtle);
   min-height: 0;
-  background: var(--gray-1);
+  background: var(--app-canvas);
 }
 .lines {
   overflow: auto;
   padding: 6px 10px;
-  font:
-    12px/1.4 ui-monospace,
-    Menlo,
-    monospace;
+  font: 12px/1.4 var(--font-mono);
 }
 .entry {
   margin-bottom: 6px;
 }
 .cmd {
-  color: var(--gray-18);
+  color: var(--text-primary);
 }
 .who {
   display: inline-block;
   min-width: 54px;
-  color: var(--blue-deep);
+  color: var(--text-muted);
 }
 .entry.ai .who {
-  color: var(--orange-light);
+  color: var(--accent-text);
 }
 .entry.you .who {
-  color: var(--green);
+  color: var(--state-ok);
 }
 .prompt {
-  color: var(--gray-11);
+  color: var(--text-muted);
 }
 .exit {
-  color: var(--gray-12);
+  color: var(--text-muted);
   margin-left: 6px;
 }
 .entry.failed .exit {
-  color: var(--red-soft);
+  color: var(--state-danger);
 }
 .out {
   margin: 2px 0 0 60px;
-  color: var(--gray-15);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 260px;
@@ -663,15 +656,12 @@ export function podCheck(): PodCheck {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-top: 1px solid var(--gray-5);
-  font:
-    12.5px ui-monospace,
-    Menlo,
-    monospace;
+  border-top: 1px solid var(--line-subtle);
+  font: 12.5px var(--font-mono);
 }
 .input input {
   flex: 1;
   font: inherit;
-  background: var(--gray-1);
+  background: var(--app-canvas);
 }
 </style>

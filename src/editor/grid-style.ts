@@ -1,80 +1,62 @@
-// Visual language modelled on Bitwig's The Grid: near-black blueprint canvas,
-// charcoal modules with a signal-coloured title, ring in-ports / dot out-ports
-// coloured by signal type, white knobs, thick coloured cables.
+// How the patch shows what things are (docs/design-system.md): the color group of a
+// module's type (one of the themes' cat-* tokens), and the kind of signal a cable carries.
 import type { NodeDef, PortDef } from '../work/catalog.ts';
 
-/** Grid signal colours (Bitwig: untyped red, control turquoise, pitch orange, phase purple, logic yellow, secondary blue). */
-export const SIGNAL = {
-  audio: '#ff3a5c',
-  control: '#24d3a8',
-  modulator: '#3cc6ff',
-  pitch: '#ff8c1a',
-  phase: '#b26bff',
-  logic: '#ffd43b',
-  secondary: '#3d9bff',
-  neutral: '#c9ccd1',
-} as const;
-export type SignalKind = keyof typeof SIGNAL;
-
-export const CATEGORY_KIND: Record<string, SignalKind> = {
-  voice: 'pitch',
-  source: 'audio',
-  filter: 'audio',
-  envelope: 'control',
-  modulation: 'modulator',
-  fx: 'audio',
-  dynamics: 'audio',
-  math: 'audio',
-  io: 'neutral',
-  ui: 'logic',
-  code: 'audio',
-  part: 'modulator',
+/** The color groups of module types. io, code and parts carry no color of their own. */
+export type TypeGroup =
+  | 'source'
+  | 'filter'
+  | 'envelope'
+  | 'modulation'
+  | 'fx'
+  | 'dynamics'
+  | 'voice'
+  | 'ui'
+  | 'math'
+  | 'neutral';
+const GROUPS: Record<string, TypeGroup> = {
+  source: 'source',
+  filter: 'filter',
+  envelope: 'envelope',
+  modulation: 'modulation',
+  fx: 'fx',
+  dynamics: 'dynamics',
+  voice: 'voice',
+  ui: 'ui',
+  math: 'math',
 };
+/** A module's color group; the class `cat-<group>` (style.css) gives its colors. */
+export const typeGroup = (def: NodeDef | undefined): TypeGroup =>
+  (def && GROUPS[def.category]) || 'neutral';
 
-export function titleColor(def: NodeDef | undefined): string {
-  if (!def) return SIGNAL.audio;
-  if (def.type === 'kit.voiceIn') return SIGNAL.pitch;
-  if (def.type === 'kit.voiceMix') return SIGNAL.audio;
-  if (def.type === 'kit.pitchMod' || def.type === 'kit.mtof') return SIGNAL.pitch;
-  if (def.type === 'kit.history') return SIGNAL.secondary;
-  return SIGNAL[CATEGORY_KIND[def.category] ?? 'audio'];
-}
-
-/** Colour of a port by what the signal means (the ring colour on inputs, dot colour on outputs). */
-export function portKind(
+/** What a cable carries, by what the port means. */
+export type SignalKind = 'audio' | 'control' | 'gate';
+export function signalKind(
   def: NodeDef | undefined,
   port: PortDef,
   direction: 'in' | 'out',
 ): SignalKind {
-  if (port.type === 'gate') return 'logic';
-  if (port.unit === 'cycles') return 'phase';
+  if (port.type === 'gate') return 'gate';
+  if (port.unit === 'cycles') return 'control';
   if (
     port.unit === 'note' ||
     port.unit === 'st' ||
     (port.unit === 'Hz' && port.roles?.includes('pitch'))
   )
-    return 'pitch';
-  if (def?.type === 'kit.voiceIn') return port.id === 'velocity' ? 'control' : 'pitch';
+    return 'control';
+  if (def?.type === 'kit.voiceIn') return 'control';
   if (direction === 'out') {
-    if (def?.category === 'envelope') return 'control';
+    if (def?.category === 'envelope' || def?.category === 'ui') return 'control';
     if (
       def?.category === 'modulation' &&
-      def.type !== 'kit.pitchMod' &&
       def.type !== 'kit.cutoffMod' &&
       def.type !== 'kit.tremolo'
     )
-      return 'modulator';
-    if (def?.type === 'kit.pitchMod') return 'pitch';
-    if (def?.category === 'ui') return 'control';
+      return 'control';
     return 'audio';
   }
-  if (port.role === 'audio') return 'audio';
-  if (port.unit === 'Hz' || port.unit === 'oct') return 'pitch';
-  if (port.unit === 's') return 'control';
-  return 'secondary';
+  return port.role === 'audio' ? 'audio' : 'control';
 }
-export const portColor = (def: NodeDef | undefined, port: PortDef, direction: 'in' | 'out') =>
-  SIGNAL[portKind(def, port, direction)];
 
 export { visibleInputs } from '../work/layout.ts';
 

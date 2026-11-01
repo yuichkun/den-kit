@@ -66,7 +66,7 @@ pass ""
 
 export interface BrowserPodOptions {
   apiKey: string;
-  /** Installed-app users need app actions, while contributors need setup diagnostics. */
+  /** Who reads what goes wrong: app users or contributors (docs/design-system.md#what-the-screens-say). */
   audience?: 'desktop' | 'developer';
   /** The work the pod is for: its disk is kept in this browser (IndexedDB) under a key of its own, so installed packages survive a reload. */
   work: string;

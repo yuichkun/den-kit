@@ -103,19 +103,19 @@ function finish() {
   min-width: 64px;
   text-align: right;
   padding: 2px 8px;
-  border-radius: 3px;
-  background: var(--gray-2);
-  color: var(--orange);
+  border-radius: var(--radius-control);
+  background: var(--app-field);
+  color: var(--accent-text);
   cursor: ew-resize;
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 .value-field.gate {
   cursor: pointer;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .value-field.gate.on {
-  color: var(--gate);
+  color: var(--state-warn);
 }
 .value-input {
   width: 64px;

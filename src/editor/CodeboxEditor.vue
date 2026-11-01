@@ -119,14 +119,14 @@ const add = (list: PortSpec[], stem: string) => {
   min-height: 0;
 }
 aside {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--line-subtle);
   padding: 8px;
   overflow: auto;
   font-size: 12px;
 }
 h4 {
   margin: 8px 0 4px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
 }

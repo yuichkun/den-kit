@@ -717,7 +717,12 @@ const selectionBox = computed(() => {
       <span style="flex: 1" />
       <template v-if="edit && hiddenWidgets.length">
         <span class="muted">Not on the plugin:</span>
-        <button v-for="n in hiddenWidgets" :key="n.id" class="small" @click="place(n.id)">
+        <button
+          v-for="n in hiddenWidgets"
+          :key="n.id"
+          class="small as-written"
+          @click="place(n.id)"
+        >
           + {{ n.label ?? n.id }}
         </button>
       </template>
@@ -853,7 +858,7 @@ const selectionBox = computed(() => {
         <button
           v-for="(i, k) in checks.issues"
           :key="k"
-          class="issue"
+          class="issue as-written"
           :class="i.severity"
           :data-code="i.code"
           @click="pickIssue(i)"
@@ -878,26 +883,28 @@ const selectionBox = computed(() => {
   gap: 10px;
   align-items: center;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--gray-0);
-  background: var(--gray-4);
+  border-bottom: 1px solid var(--line-subtle);
+  background: var(--app-chrome);
   flex-wrap: wrap;
   font-size: 13px;
 }
 .modes {
   display: flex;
-  background: var(--gray-2);
-  border-radius: 4px;
+  background: var(--app-field);
+  border-radius: var(--radius-control);
+  clip-path: var(--clip-control);
   padding: 2px;
 }
 .modes button {
   background: transparent;
+  border-color: transparent;
   box-shadow: none;
-  color: var(--gray-13);
+  color: var(--text-muted);
   padding: 3px 12px;
 }
 .modes button.active {
-  background: var(--gray-7);
-  color: var(--gray-19);
+  background: var(--ink);
+  color: var(--text-on-ink);
 }
 .hint {
   font-size: 12.5px;
@@ -911,7 +918,7 @@ const selectionBox = computed(() => {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .small {
   padding: 2px 8px;
@@ -921,8 +928,8 @@ kbd {
   font-size: 10.5px;
   margin-left: 4px;
   padding: 0 4px;
-  border: 1px solid var(--gray-9);
-  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
 }
 .stage {
   position: relative;
@@ -932,18 +939,18 @@ kbd {
 .frame {
   position: absolute;
   inset: 0;
-  outline: 1px dashed color-mix(in srgb, var(--gray-19) 25%, transparent);
+  outline: 1px dashed color-mix(in srgb, var(--line-strong) 25%, transparent);
   pointer-events: none;
 }
 .shield {
   position: absolute;
   inset: 0;
-  outline: 1px dashed color-mix(in srgb, var(--blue) 31%, transparent);
+  outline: 1px dashed color-mix(in srgb, var(--selection) 31%, transparent);
   cursor: move;
   pointer-events: auto;
 }
 .shield.selected {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--selection);
 }
 .shield.locked {
   pointer-events: none;
@@ -954,9 +961,9 @@ kbd {
   width: 10px;
   height: 10px;
   margin: -5px;
-  background: var(--gray-19);
-  border: 1.5px solid var(--blue-deep);
-  border-radius: 2px;
+  background: var(--app-card);
+  border: 1.5px solid var(--selection-handle);
+  border-radius: var(--radius-control);
   z-index: 3;
   pointer-events: auto;
 }
@@ -1009,19 +1016,19 @@ kbd {
   resize: none;
   pointer-events: auto;
   font: inherit;
-  background: color-mix(in srgb, var(--gray-0) 80%, transparent);
-  color: var(--gray-19);
-  border: 2px solid var(--blue);
+  background: color-mix(in srgb, var(--app-canvas) 80%, transparent);
+  color: var(--text-primary);
+  border: 2px solid var(--selection);
 }
 .sel-box {
   position: absolute;
-  outline: 1px solid var(--blue);
+  outline: 1px solid var(--selection);
   pointer-events: none;
 }
 .marquee {
   position: absolute;
-  border: 1px solid var(--blue);
-  background: color-mix(in srgb, var(--blue) 13%, transparent);
+  border: 1px solid var(--selection);
+  background: color-mix(in srgb, var(--selection) 13%, transparent);
   pointer-events: none;
 }
 .empty {
@@ -1043,10 +1050,10 @@ kbd {
   max-height: calc(100% - 20px);
   overflow: auto;
   z-index: 6;
-  background: color-mix(in srgb, var(--slate-0) 95%, transparent);
-  border: 1px solid var(--gray-0);
-  border-radius: 6px;
-  box-shadow: 0 8px 30px color-mix(in srgb, var(--gray-0) 53%, transparent);
+  background: color-mix(in srgb, var(--app-chrome) 95%, transparent);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
   font-size: 12.5px;
 }
 .checks header {
@@ -1056,8 +1063,8 @@ kbd {
   gap: 6px;
   align-items: center;
   padding: 7px 10px;
-  background: var(--slate-0);
-  border-bottom: 1px solid var(--gray-0);
+  background: var(--app-chrome);
+  border-bottom: 1px solid var(--line-subtle);
 }
 .checks .issue {
   display: block;
@@ -1065,17 +1072,17 @@ kbd {
   text-align: left;
   padding: 7px 10px 7px 26px;
   border: 0;
-  border-bottom: 1px solid var(--slate-1);
+  border-bottom: 1px solid var(--line-subtle);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--slate-5);
+  color: var(--text-primary);
   line-height: 1.4;
   position: relative;
   white-space: normal;
 }
 .checks .issue:hover {
-  background: var(--slate-1);
+  background: var(--app-chrome);
 }
 .checks .issue::before {
   content: '';
@@ -1085,16 +1092,16 @@ kbd {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--yellow);
+  background: var(--state-warn);
 }
 .checks .issue.error::before {
-  background: var(--red-soft);
+  background: var(--state-danger);
 }
 .touch {
   position: absolute;
   pointer-events: none;
   border: 2px solid var(--touch);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   box-shadow: 0 0 12px color-mix(in srgb, var(--touch) 50%, transparent);
 }
 .touch span {
@@ -1102,13 +1109,10 @@ kbd {
   top: -18px;
   left: -2px;
   padding: 0 6px;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
   background: var(--touch);
-  color: var(--gray-0);
-  font:
-    600 11px/16px Lato,
-    system-ui,
-    sans-serif;
+  color: var(--text-on-lane);
+  font: 600 11px/16px var(--font-ui);
   white-space: nowrap;
 }
 </style>

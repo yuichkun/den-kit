@@ -225,7 +225,7 @@ defineExpose({ finishText });
         :data-kind="m.kind"
         class="mark"
         :class="{ sent: !!sent[m.id], draft: m.id === 'draft' }"
-        :style="{ color: m.color, '--ink': m.color }"
+        :style="{ color: m.color, '--pen': m.color }"
       >
         <polyline
           v-if="m.points"
@@ -343,15 +343,15 @@ defineExpose({ finishText });
   overflow-wrap: anywhere;
 }
 .note.note {
-  background: color-mix(in srgb, var(--ink) 28%, var(--cream));
-  color: var(--gray-3);
-  border: 2px solid var(--ink);
-  border-radius: 4px;
-  box-shadow: 0 3px 8px color-mix(in srgb, var(--gray-0) 40%, transparent);
+  background: color-mix(in srgb, var(--pen) 28%, var(--note-body));
+  color: var(--note-text);
+  border: 2px solid var(--pen);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-menu);
 }
 .note.text {
   color: currentColor;
-  text-shadow: 0 1px 3px color-mix(in srgb, var(--gray-0) 80%, transparent);
+  text-shadow: 0 1px 3px color-mix(in srgb, var(--app-canvas) 80%, transparent);
   font-weight: 700;
 }
 .note textarea {
@@ -366,6 +366,6 @@ defineExpose({ finishText });
   padding: 0;
 }
 .badge text {
-  font-family: Lato, system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 </style>

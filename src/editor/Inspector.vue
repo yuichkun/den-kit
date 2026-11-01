@@ -615,18 +615,18 @@ function updateMine() {
 }
 .mname {
   font-size: 15px;
-  color: var(--gray-18);
+  color: var(--text-primary);
 }
 .msub {
-  color: var(--gray-12);
+  color: var(--text-muted);
   font-size: 12px;
   margin: 2px 0 4px;
 }
 .mono {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 .summary {
-  color: var(--gray-14);
+  color: var(--text-muted);
   font-style: italic;
   font-size: 12.5px;
 }
@@ -662,8 +662,9 @@ function updateMine() {
   margin-top: 4px;
 }
 .buttons button.on {
-  background: var(--yellow);
-  color: var(--gray-1);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 .plist {
   margin-top: 8px;
@@ -695,10 +696,10 @@ function updateMine() {
   font-size: 11px;
 }
 .ptoggle {
-  color: var(--blue);
+  color: var(--accent-text);
 }
 .ptoggle.on {
-  background: color-mix(in srgb, var(--blue) 20%, transparent);
+  background: color-mix(in srgb, var(--selection) 20%, transparent);
 }
 .face {
   margin-top: 8px;
@@ -711,9 +712,9 @@ function updateMine() {
   gap: 4px;
 }
 .newer {
-  background: color-mix(in srgb, var(--sand) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--sand) 33%, transparent);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--note-body) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--note-body) 33%, transparent);
+  border-radius: var(--radius-control);
   padding: 6px 8px;
   font-size: 12px;
   display: flex;

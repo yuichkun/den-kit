@@ -115,7 +115,7 @@ function param(id: string, v: SkinParamValue | null, done = true) {
   font-size: 13px;
 }
 .doc {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12.5px;
   margin: 0 0 4px;
 }

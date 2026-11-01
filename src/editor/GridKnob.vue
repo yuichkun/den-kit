@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Grid-style knob: white disc with black pointer (big) or dark disc (small), a
-// dark 270° track and a coloured value arc. Vertical drag (Shift = fine), wheel,
+// A knob inside a module: a disc with a pointer, a 270° track and an arc in the value's
+// color, all from the module's colors (KitNode). Vertical drag (Shift = fine), wheel,
 // double-click resets. Emits one gesture id per drag so history merges it.
 import { computed, ref } from 'vue';
 import { formatValue } from './grid-style.ts';
@@ -19,7 +19,7 @@ const props = withDefaults(
     bipolar?: boolean;
     disabled?: boolean;
   }>(),
-  { size: 'big', color: '#ff3a5c', scale: 'linear' },
+  { size: 'big', color: 'var(--knob-arc, var(--accent))', scale: 'linear' },
 );
 const emit = defineEmits<{ (e: 'change', value: number, gesture: string): void }>();
 const active = ref(false);
@@ -123,7 +123,7 @@ function reset() {
       <path :d="arc(-135, 135)" class="track" :stroke-width="size === 'big' ? 4 : 3" />
       <path
         :d="arc(zeroAngle, angle)"
-        :stroke="color"
+        :style="{ stroke: color }"
         :stroke-width="size === 'big' ? 4 : 3"
         fill="none"
         stroke-linecap="butt"
@@ -170,32 +170,34 @@ function reset() {
   opacity: 0.4;
 }
 .track {
-  stroke: var(--gray-8);
+  stroke: color-mix(in srgb, var(--mod-ink, var(--text-primary)) 22%, transparent);
   fill: none;
 }
 .disc-big {
-  fill: url(#kit-knob-face);
-  fill: var(--gray-18);
-  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--gray-0) 60%, transparent));
+  fill: var(--mod-ink, var(--text-primary));
 }
 .disc-small {
-  fill: var(--gray-7);
-  stroke: var(--gray-8);
+  fill: color-mix(
+    in srgb,
+    var(--mod-ink, var(--text-primary)) 16%,
+    var(--mod-fill, var(--app-chrome))
+  );
+  stroke: color-mix(in srgb, var(--mod-ink, var(--text-primary)) 30%, transparent);
   stroke-width: 1;
 }
 .ptr-big {
-  stroke: var(--gray-1);
+  stroke: var(--mod-fill, var(--app-chrome));
   stroke-width: 3;
   stroke-linecap: round;
 }
 .ptr-small {
-  stroke: var(--gray-15);
+  stroke: var(--mod-ink, var(--text-primary));
   stroke-width: 2;
   stroke-linecap: round;
 }
 .label {
   font-size: 12px;
-  color: var(--gray-16);
+  color: var(--mod-ink, var(--text-primary));
   white-space: nowrap;
   line-height: 14px;
   min-width: 40px;
@@ -203,6 +205,6 @@ function reset() {
   font-variant-numeric: tabular-nums;
 }
 .active .disc-big {
-  fill: var(--gray-19);
+  fill: var(--knob-arc, var(--accent));
 }
 </style>

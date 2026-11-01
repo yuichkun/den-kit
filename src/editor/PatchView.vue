@@ -24,7 +24,8 @@ import KitNode from './KitNode.vue';
 import KitEdge from './KitEdge.vue';
 import Palette from './Palette.vue';
 import GridPalette from './GridPalette.vue';
-import { portColor } from './grid-style.ts';
+import { signalKind, typeGroup } from './grid-style.ts';
+import { theme } from './theme.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 import { claimEnter } from './keys.ts';
 import InkLayer from './InkLayer.vue';
@@ -91,11 +92,16 @@ const nodes = computed(() => {
 
 const edges = computed(() => {
   const doc = session.doc.value;
-  const colorOf = (node: string, port: string) => {
+  // A cable takes the color the theme gives cables from its source's type, and a line
+  // pattern for what it carries.
+  const look = (node: string, port: string) => {
     const n = doc.nodes[node];
     const def = n ? session.catalog.find(n.type) : undefined;
     const p = n ? session.catalog.output(n, port) : undefined;
-    return p ? portColor(def, p, 'out') : '#ff3a5c';
+    return {
+      color: `var(--cat-${typeGroup(def)}-cable)`,
+      kind: p ? signalKind(def, p, 'out') : 'audio',
+    };
   };
   // A cable from copies is thick (one signal per copy); into a single input it is summed there.
   const copies = (id: string) => copiesOf(session.catalog, doc.nodes[id]);
@@ -110,7 +116,7 @@ const edges = computed(() => {
       targetHandle: e.to.port,
       selected: selectedEdges.value.includes(e.id),
       data: {
-        color: colorOf(e.from.node, e.from.port),
+        ...look(e.from.node, e.from.port),
         copies: copies(e.from.node),
         sums:
           copies(e.from.node) > 1 &&
@@ -540,7 +546,13 @@ defineExpose({ openPalette, fit });
           ><KitNode v-bind="nodeProps" @edit-code="id => emit('edit-code', id)"
         /></template>
         <template #edge-kit="edgeProps"><KitEdge v-bind="edgeProps" /></template>
-        <Background variant="lines" :gap="120" :line-width="1" pattern-color="#1c1c1c" />
+        <Background
+          v-if="theme.canvas !== 'plain'"
+          :variant="theme.canvas === 'dots' ? 'dots' : 'lines'"
+          :gap="theme.canvas === 'dots' ? 12 : 96"
+          :size="1.2"
+          :line-width="1"
+        />
       </VueFlow>
       <InkLayer view="patch" :viewport="flow.viewport.value" />
       <InkToolbar v-if="inking" view="patch" />
@@ -562,7 +574,7 @@ defineExpose({ openPalette, fit });
         <template v-for="c in crumbs" :key="c.id"
           ><span class="sep">›</span
           ><button
-            class="crumb"
+            class="crumb as-written"
             :class="{ here: c.depth === crumbs.length }"
             :data-crumb="c.depth"
             @click="session.leavePart(crumbs.length - c.depth)"
@@ -596,14 +608,21 @@ defineExpose({ openPalette, fit });
   position: relative;
   flex: 1;
   outline: none;
-  background: var(--gray-1);
+  background: var(--app-canvas);
 }
 .patch-view .vue-flow__node-kit {
   padding: 0;
   border: 0;
   background: transparent;
   width: auto;
-  border-radius: 6px;
+  border-radius: var(--radius-module);
+}
+/* The canvas's rule in the theme's grid color (the Background draws it). */
+.patch-view .vue-flow__background path {
+  stroke: var(--app-grid);
+}
+.patch-view .vue-flow__background circle {
+  fill: var(--app-grid);
 }
 .patch-view .vue-flow__node-kit.selected,
 .patch-view .vue-flow__node-kit:focus {
@@ -611,18 +630,18 @@ defineExpose({ openPalette, fit });
   outline: none;
 }
 .patch-view .vue-flow__connection-path {
-  stroke: var(--gray-17);
-  stroke-width: 3;
+  stroke: var(--cable);
+  stroke-width: var(--cable-width);
 }
 .patch-view .vue-flow__edge.selected .vue-flow__edge-path {
   stroke: none;
 }
 .patch-view .vue-flow__selection {
-  border: 1px solid var(--blue);
-  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border: 1px solid var(--selection);
+  background: color-mix(in srgb, var(--selection) 12%, transparent);
 }
 .patch-view .vue-flow__nodesselection-rect {
-  border: 1px dashed color-mix(in srgb, var(--blue) 60%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--selection) 60%, transparent);
   background: transparent;
 }
 .patch-view .crumbs {
@@ -635,18 +654,18 @@ defineExpose({ openPalette, fit });
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  background: color-mix(in srgb, var(--gray-3) 93%, transparent);
-  border: 1px solid var(--gray-7);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--app-chrome) 93%, transparent);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
   font-size: 13px;
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--gray-0) 53%, transparent);
+  box-shadow: var(--shadow-menu);
 }
 .patch-view .crumb {
   flex: none;
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: var(--blue-light);
+  color: var(--accent-text);
   padding: 2px 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -655,15 +674,15 @@ defineExpose({ openPalette, fit });
   text-overflow: ellipsis;
 }
 .patch-view .crumb.here {
-  color: var(--gray-19);
+  color: var(--text-primary);
   font-weight: 600;
   cursor: default;
 }
 .patch-view .crumbs .sep {
-  color: var(--gray-10);
+  color: var(--text-muted);
 }
 .patch-view .crumbs .hint {
-  color: var(--gray-11);
+  color: var(--text-muted);
   font-size: 11.5px;
   margin: 0 6px;
   white-space: nowrap;
@@ -673,14 +692,14 @@ defineExpose({ openPalette, fit });
   white-space: nowrap;
   font-size: 11.5px;
   padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--gray-5);
-  color: var(--gray-16);
-  border: 1px solid var(--gray-8);
+  border-radius: var(--radius-panel);
+  background: var(--app-chrome);
+  color: var(--text-primary);
+  border: 1px solid var(--line-subtle);
 }
 .patch-view .crumbs .solo.on {
-  background: var(--yellow);
-  color: var(--gray-1);
-  border-color: var(--yellow);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
 }
 </style>

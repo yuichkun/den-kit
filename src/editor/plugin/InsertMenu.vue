@@ -69,7 +69,7 @@ onMounted(() => {
         v-for="(r, i) in rows"
         :key="`${r.key}-${r.asset ?? ''}`"
         type="button"
-        class="item"
+        class="item as-written"
         :class="{ current: i === current }"
         :data-insert="r.key"
         @mouseenter="current = i"
@@ -92,10 +92,10 @@ onMounted(() => {
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  background: var(--gray-4);
+  background: var(--app-chrome);
   border: 1px solid var(--accent);
-  border-radius: 8px;
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--gray-0) 80%, transparent);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
   overflow: hidden;
 }
 input {
@@ -115,26 +115,28 @@ input {
   width: 100%;
   text-align: left;
   background: transparent;
+  border: 0;
+  clip-path: none;
   box-shadow: none;
   padding: 6px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
 }
 .item.current {
-  background: var(--orange-dark);
+  background: var(--app-field);
 }
 .title {
-  color: var(--gray-18);
+  color: var(--text-primary);
   font-size: 14px;
 }
 .doc {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .group {
-  color: var(--gray-11);
+  color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;

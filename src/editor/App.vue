@@ -441,9 +441,8 @@ async function importPatch(e: Event) {
         Update ready
       </button>
       <button
-        v-if="account"
         data-testid="desktop-settings-open"
-        title="Settings (⌘,)"
+        :title="lifecycle ? 'Settings (⌘,)' : 'Settings'"
         @click="settingsOpen = true"
       >
         Settings
@@ -524,6 +523,7 @@ async function importPatch(e: Event) {
         <div class="resizer" title="Drag to resize" @pointerdown="resizeAi" />
         <AiPanel
           ref="ai"
+          class="docked"
           :requests="session.requests"
           :llm="session.llm"
           :view="view"
@@ -540,7 +540,7 @@ async function importPatch(e: Event) {
       @close="editing = null"
     />
     <Settings
-      v-if="settingsOpen && account"
+      v-if="settingsOpen"
       :account="account"
       :lifecycle="lifecycle"
       @close="settingsOpen = false"

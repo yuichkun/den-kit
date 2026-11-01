@@ -56,8 +56,17 @@ function onNote(e: Event) {
 .keyboard-bar {
   padding: 6px 12px 8px;
 }
+/* The work's keyboard control, in the theme's key colors. */
 .keys {
   display: block;
   height: 64px;
+  --dk-key-white: var(--key-white);
+  --dk-key-black: var(--key-black);
+  --dk-key-line: var(--line-subtle);
+  --dk-key-label: var(--key-label);
+  --dk-key-down: var(--key-down);
+  --dk-key-down-label: var(--key-down-label);
+  --dk-key-down-black: var(--key-down-black);
+  --dk-accent: var(--focus);
 }
 </style>

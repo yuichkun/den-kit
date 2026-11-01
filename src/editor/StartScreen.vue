@@ -214,7 +214,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
           v-for="(b, i) in built"
           :key="b.work.id"
           type="button"
-          class="work"
+          class="work as-written"
           :class="{
             current: i === work && section !== 'describe' && section !== 'sounds',
             picked: i === work,
@@ -272,7 +272,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
           v-for="(b, i) in built"
           :key="b.work.id"
           type="button"
-          class="chip"
+          class="chip as-written"
           :class="{ on: look === i }"
           :data-look="b.work.id"
           :style="{ '--a': b.accent, '--b': b.bg }"
@@ -290,7 +290,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
           v-for="(s, i) in sounds"
           :key="s.id"
           type="button"
-          class="chip"
+          class="chip as-written"
           :class="{ on: section === 'sounds' && i === sound }"
           :data-card="s.id"
           @mouseenter="sound = i"
@@ -317,7 +317,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   z-index: 1100;
   display: grid;
   place-items: start center;
-  background: color-mix(in srgb, var(--gray-1) 95%, transparent);
+  background: color-mix(in srgb, var(--app-canvas) 95%, transparent);
   backdrop-filter: blur(4px);
   overflow: auto;
 }
@@ -329,50 +329,50 @@ onBeforeUnmount(() => window.removeEventListener('keydown', key));
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--gray-17);
+  color: var(--text-primary);
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 12px;
 }
 .start-settings {
   float: right;
-  color: var(--gray-15);
-  border: 1px solid var(--gray-8);
-  background: var(--gray-4);
+  color: var(--text-primary);
+  border: 1px solid var(--line-subtle);
+  background: var(--app-chrome);
   padding: 7px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 h1 {
   margin: 0 0 16px;
   font-size: 30px;
   font-weight: 400;
-  color: var(--gray-18);
+  color: var(--text-primary);
 }
 .describe {
   width: 100%;
   font-size: 18px;
   padding: 13px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--gray-8);
-  background: var(--gray-2);
-  color: var(--gray-18);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-subtle);
+  background: var(--app-field);
+  color: var(--text-primary);
   outline: none;
 }
 .describe:focus,
 .describe.current {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--orange) 15%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 .or {
   margin: 20px 0 10px;
-  color: var(--gray-13);
+  color: var(--text-muted);
   font-size: 14.5px;
   display: flex;
   gap: 14px;
   align-items: baseline;
 }
 .hint {
-  color: var(--gray-10);
+  color: var(--text-muted);
   font-size: 13px;
 }
 .works {
@@ -386,25 +386,25 @@ h1 {
   gap: 5px;
   text-align: left;
   padding: 7px 7px 10px;
-  border-radius: 12px;
-  background: var(--gray-3);
-  border: 1px solid var(--gray-6);
+  border-radius: var(--radius-panel);
+  background: var(--app-chrome);
+  border: 1px solid var(--line-subtle);
   box-shadow: none;
 }
 .work.picked {
-  border-color: var(--gray-9);
+  border-color: var(--line-strong);
 }
 .work:hover,
 .work.current {
   border-color: var(--accent);
-  background: var(--gray-4);
+  background: var(--app-chrome);
 }
 .preview {
   position: relative;
   height: 128px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
-  background: var(--gray-0);
+  background: var(--app-canvas);
 }
 .meta {
   display: flex;
@@ -417,15 +417,15 @@ h1 {
   font-size: 11.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--gray-12);
+  color: var(--text-muted);
 }
 .title {
   font-size: 16.5px;
-  color: var(--gray-18);
+  color: var(--text-primary);
 }
 .prompt {
   font-size: 13px;
-  color: var(--gray-15);
+  color: var(--text-primary);
   line-height: 1.45;
   padding: 0 3px;
   display: -webkit-box;
@@ -440,16 +440,16 @@ h1 {
   align-items: center;
   margin-top: 14px;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   border: 1px solid transparent;
 }
 .row.current {
-  border-color: color-mix(in srgb, var(--orange) 40%, transparent);
-  background: color-mix(in srgb, var(--orange) 5%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .label {
   width: 92px;
-  color: var(--gray-13);
+  color: var(--text-muted);
   font-size: 14px;
 }
 .chip {
@@ -457,9 +457,9 @@ h1 {
   gap: 8px;
   align-items: center;
   padding: 6px 12px;
-  border-radius: 16px;
-  background: var(--gray-3);
-  border: 1px solid var(--gray-7);
+  border-radius: var(--radius-panel);
+  background: var(--app-chrome);
+  border: 1px solid var(--line-subtle);
   box-shadow: none;
   font-size: 14px;
 }
@@ -472,12 +472,12 @@ h1 {
 }
 .chip.on {
   border-color: var(--accent);
-  background: var(--orange-darker);
-  color: var(--gray-19);
+  background: var(--app-field);
+  color: var(--text-primary);
 }
 .keys {
   margin-top: 16px;
-  color: var(--gray-12);
+  color: var(--text-muted);
   font-size: 13.5px;
 }
 kbd {
@@ -485,15 +485,12 @@ kbd {
   min-width: 18px;
   padding: 0 6px;
   margin: 0 2px;
-  border: 1px solid var(--gray-9);
+  border: 1px solid var(--line-strong);
   border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--gray-4);
-  color: var(--gray-18);
-  font:
-    12px/1.6 Lato,
-    system-ui,
-    sans-serif;
+  border-radius: var(--radius-control);
+  background: var(--app-chrome);
+  color: var(--text-primary);
+  font: 12px/1.6 var(--font-ui);
   text-align: center;
 }
 </style>

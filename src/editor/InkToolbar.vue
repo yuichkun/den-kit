@@ -133,10 +133,10 @@ const all = computed(() => session.marksHere(props.view).length);
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  background: color-mix(in srgb, var(--gray-3) 95%, transparent);
-  border: 1px solid var(--gray-7);
-  border-radius: 10px;
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--gray-0) 67%, transparent);
+  background: color-mix(in srgb, var(--app-chrome) 95%, transparent);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
   font-size: 13px;
   white-space: nowrap;
   max-width: calc(100% - 16px);
@@ -146,16 +146,16 @@ const all = computed(() => session.marksHere(props.view).length);
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: var(--gray-16);
+  color: var(--text-primary);
   font-size: 16px;
   width: 30px;
   height: 28px;
   padding: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .tool.on {
-  background: var(--gray-7);
-  color: var(--gray-19);
+  background: var(--app-field);
+  color: var(--text-primary);
 }
 .tool:disabled {
   opacity: 0.35;
@@ -169,28 +169,28 @@ const all = computed(() => session.marksHere(props.view).length);
   box-shadow: none;
 }
 .swatch.on {
-  border-color: var(--gray-19);
+  border-color: var(--line-strong);
 }
 .sep {
   width: 1px;
   height: 20px;
-  background: var(--gray-7);
+  background: var(--app-field);
   margin: 0 4px;
 }
 .text-btn {
   font-size: 12px;
   padding: 3px 8px;
-  background: var(--gray-5);
-  border: 1px solid var(--gray-8);
-  color: var(--gray-17);
-  border-radius: 6px;
+  background: var(--app-chrome);
+  border: 1px solid var(--line-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
   box-shadow: none;
 }
 .text-btn:disabled {
   opacity: 0.4;
 }
 .stylus {
-  color: var(--gray-13);
+  color: var(--text-muted);
   font-size: 12px;
   display: inline-flex;
   align-items: center;
@@ -198,7 +198,7 @@ const all = computed(() => session.marksHere(props.view).length);
   margin-left: 6px;
 }
 .count {
-  color: var(--gray-13);
+  color: var(--text-muted);
   font-size: 12px;
   margin: 0 6px;
 }
