@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// The dialog that edits a codebox: its source, its inputs and outputs, and the problems
+// the type check and the compiler find.
 import { computed, ref } from 'vue';
 import { CODEBOX_TEMPLATE } from '../work/codebox-template.ts';
 import type { PortSpec } from '../work/schema.ts';

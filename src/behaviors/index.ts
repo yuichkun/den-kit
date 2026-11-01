@@ -4,7 +4,8 @@
 // `value` for each new value, `end` when it ends; in the editor, one gesture is one
 // undo step (src/work/history.ts). The plugin screen's input controls are built on
 // these, and code parts use the same behaviors through the kit; `listen` feeds an element's pointer, wheel and
-// keys to a behavior for both. Imports nothing.
+// keys to a behavior for both. den-kit's own editor controls are not bound by
+// these rules.
 //
 // The rules (test/unit/behaviors checks each):
 //  1. A knob turns by dragging up and down. Its sensitivity is the same wherever

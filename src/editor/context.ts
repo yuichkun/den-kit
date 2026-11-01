@@ -1,3 +1,4 @@
+// How components reach the editing session: provided by App.vue, read with useSession.
 import { inject, type InjectionKey } from 'vue';
 import type { KitSession } from './session.ts';
 

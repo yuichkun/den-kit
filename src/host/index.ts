@@ -10,7 +10,7 @@ export type * from './ai.ts';
 export type * from './workspace.ts';
 
 export interface Host {
-  /** Work records, which conversation belongs to which work, and settings. */
+  /** What den-kit keeps on this computer (docs/architecture.md, Interfaces: Storage). */
   storage: Storage;
   /** The AI, or null when this host offers none. */
   ai: AI | null;

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// Settings: the theme of den-kit's own screens, and what the host lets the person manage
+// there: the AI account and model, and updates. Every host has the theme; the rest shows
+// when the host provides it.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { AIAccount, AISettings } from '../host/ai.ts';
 import type { Lifecycle } from '../host/index.ts';
@@ -14,9 +17,6 @@ import {
 } from './settings-presentation.ts';
 import { THEMES, savedTheme, useTheme } from './theme.ts';
 
-// Settings: the theme of den-kit's own screens, and what the host lets the person manage
-// there: the AI account and model, and updates. Every host has the theme; the rest shows
-// when the host provides it.
 const props = defineProps<{ account: AIAccount | null; lifecycle: Lifecycle | null }>();
 const emit = defineEmits<{ close: [] }>();
 const themeId = ref(savedTheme());

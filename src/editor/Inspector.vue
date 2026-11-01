@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// The patch's inspector: what the selected module is and does, its label, copies
+// (×N), inputs, part, face and My parts actions, or what several selected modules share.
 import { computed, ref, watch } from 'vue';
 import { isParamInput, type ConfigDef, type PortDef } from '../work/catalog.ts';
 import type { ConfigValue } from '../work/schema.ts';

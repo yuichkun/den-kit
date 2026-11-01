@@ -4,5 +4,4 @@
 // installs packages (those in package.json, and one the pod check installs without
 // keeping it) with npm alone, from the npm registry, with everything else in the pod
 // stopped; the dev server starts again after.
-// workspace imports work and host only.
 export {};

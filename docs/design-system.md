@@ -1,8 +1,9 @@
 # Design system
 
-How den-kit's own screens look and what they say: the themes, the tokens the themes set, and
-the rules every editor component follows. A work's plugin screen is drawn in the work's own
-look ([architecture.md](architecture.md#terms)) and reads none of this.
+How den-kit's own screens, the editor in `src/editor`, look and what they say: the themes,
+the tokens the themes set, and the rules every editor component follows. A work's plugin
+screen is drawn in the work's own look ([architecture.md](architecture.md#terms)) and reads
+none of this.
 
 ## Themes
 
@@ -42,18 +43,21 @@ curved) and what rules the canvas (lines, dots or nothing).
 - Components take every color and every rounded corner from the tokens, set text in the
   theme's fonts (sticky notes keep their handwriting), and never ask which theme is on.
   Controls and small marks round with `radius-control`, panels, cards, menus and dialogs
-  with `radius-panel`, and modules with `radius-module`.
+  with `radius-panel`, docked panels with `dock-radius`, modules with `radius-module` and
+  ports with `port-radius`; a circle (50%) stays a circle in every theme.
 - Text is readable in every theme: the text, `accent-text` and state colors have a contrast
-  of at least 4.5:1 on every surface. Text in the accent's color uses `accent-text`, not
+  of at least 4.5:1 on den-kit's surfaces (the `app-*` tokens). Text in the accent's color uses `accent-text`, not
   `accent`.
-- [look.test.ts](../test/unit/editor/look.test.ts) checks that no style outside the tokens
-  names a color or a fixed radius, that every theme sets the same tokens and keeps that
-  contrast, and that only tokens.css and theme.ts know the themes.
+- [look.test.ts](../test/unit/editor/look.test.ts) checks the styles in `src/editor`: no
+  hex or functional color and no fixed radius outside the tokens, the same tokens in every
+  theme with that contrast, no `none` for a token used in a list of shadows (it would void
+  the list), and no theme known outside tokens.css and theme.ts.
 - A theme changes how things look, never the layout: modules, ports, rows and the snap grid
   keep their sizes, so a patch is laid out the same in every theme.
 - A module's type sets its color ([grid-style.ts](../src/editor/grid-style.ts)). What a
   cable carries is in its line, the same in every theme: audio solid, control dashed, gate
-  dotted. Ports have no color of their own.
+  dotted (the short arrow between neighboring modules is always solid). Ports have no color
+  of their own.
 - The theme's letter case is for den-kit's own words: labels of controls, tabs and headings.
   Names, of modules and their types, inputs, files, parts and works, and anything people or
   the AI wrote, are shown as written; a control that shows them has the `as-written` class.

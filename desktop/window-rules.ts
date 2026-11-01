@@ -1,5 +1,5 @@
 // What the sandbox's response headers cannot cover, set on the app and its window
-// (docs/architecture.md, Sandbox): no DNS prefetching (a <link rel="dns-prefetch">
+// (docs/architecture.md, Interfaces and Code in a work): no DNS prefetching (a <link rel="dns-prefetch">
 // looks names up whatever the CSP says), WebRTC only through the proxy (so no UDP
 // at all), a proxy rule that sends every connection except den-kit's own hosts and
 // the hosts the person allowed for the open works to a port that closes at once

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// den-kit's shell: the toolbar, the Patch, Plugin, Code and Project views, the
+// inspector, the AI panel, the keyboard bar, the dialogs and the app's shortcuts.
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
 import { POD } from '../screen/code-frames.ts';

@@ -34,8 +34,8 @@ you go on.
 - [docs/principles.md](docs/principles.md), and the sources in this repository for the
   area you will touch (see Where things are).
 
-The Codex review on GitHub is the one exception: it reads only the repository, because
-its comments are public (see Review guidelines).
+A review posted on GitHub, such as the Codex review, is the one exception: it reads only
+the repository, because its comments are public (see Review guidelines).
 
 ## Where things are
 
@@ -86,8 +86,8 @@ The repository and GitHub are public.
   or mention a GitHub account.
 - Notion and Linear are private. Do not copy, quote or summarize them in the repository
   or on GitHub; the one exception is README's description of what den-kit is for.
-- Keep issue IDs out of the commit messages, pull request titles and descriptions you write.
-  GitHub's merge commits name the branch, and that is fine.
+- Keep Linear issue IDs, such as SUA-123, out of the commit messages, pull request titles
+  and descriptions you write. GitHub's merge commits name the branch, and that is fine.
 - Docs and code comments describe the current state only: do not write how things used
   to be or what changed, such as "previously", "now uses" or "was changed to". Changes
   are recorded in commit messages, pull requests and release notes.
@@ -101,7 +101,7 @@ The repository and GitHub are public.
 ## Pull requests
 
 1. Branch from current `main`. Name the branch after the Linear issue when there is one,
-   such as `sua-123-short-name`.
+   such as `sua-123-short-name`, and after the change otherwise.
 2. Run the checks that cover the change; [docs/development.md](docs/development.md)
    lists them.
 3. Open the pull request ready for review and fill in the template. CI and the Codex
@@ -113,8 +113,8 @@ The repository and GitHub are public.
    the Linear issue for the work, or tell the person you work with when there is no
    issue: whether the change works against any value, which values it brings closer, and
    anything it adds that the list does not cover.
-6. When CI passes and the latest Codex review has no open findings, ask @yuichkun for a
-   review. A change to how a story looks keeps the Chromatic checks red until it is approved
+6. When CI passes and the latest Codex review has no open findings, request @yuichkun's
+   review on the pull request. A change to how a story looks keeps the Chromatic checks red until it is approved
    in Chromatic's UI Review: say in the pull request which stories changed and why. Only
    @yuichkun merges pull requests and publishes releases.
 

@@ -1,4 +1,4 @@
-// The sandbox in Electron (docs/architecture.md, Sandbox; desktop/sandbox.ts and
+// The sandbox in Electron (docs/architecture.md, Interfaces; desktop/sandbox.ts and
 // desktop/window-rules.ts): a work's code part reaches only the origins the person
 // allowed for that work, by every way a page has to reach out, and its frame never
 // navigates away; DNS prefetching, WebRTC's UDP and TURN to other hosts go nowhere;

@@ -4,5 +4,5 @@
 // storage, and plays it in an AudioWorklet. Audio assets reach the patch as samples
 // the page decodes and sends: a sampler's sound, and what a codebox reads through
 // `@den-kit/assets`; pointing a sampler at another sound sends new samples without
-// recompiling. sound imports only work.
+// recompiling.
 export {};

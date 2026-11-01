@@ -18,7 +18,7 @@ it there.
 
 ## Get den-kit
 
-Signed builds for macOS 13 or later (Apple silicon and Intel) are on
+Signed builds for macOS (Apple silicon and Intel) are on
 [GitHub Releases](https://github.com/yuichkun/den-kit/releases).
 
 ## Documentation

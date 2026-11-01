@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// The search popup (Tab on the patch) for adding a block, a control or a part by name.
 import { computed, nextTick, onMounted, ref } from 'vue';
 import type { NodeDef } from '../work/catalog.ts';
 import { partUses } from '../work/parts.ts';

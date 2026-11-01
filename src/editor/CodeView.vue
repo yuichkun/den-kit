@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// The Code view: the processor den-kit generates from the patch, read-only and
+// highlighted, with the lines of the selected modules marked.
 import { computed, nextTick, ref, watch } from 'vue';
 import { useSession } from './context.ts';
 import { highlightLines } from './highlight.ts';

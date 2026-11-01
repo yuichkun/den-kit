@@ -4,6 +4,6 @@
 // it replaces; an operation that does not fit is refused as a whole and leaves
 // the work as it was (docs/principles.md, principle 3). History undoes whole
 // steps. Works and their files are checked for type and size before they are
-// used. work imports no other module of den-kit; what it needs to know about
-// blocks it gets as a Catalog from whoever opens the work.
+// used. What it needs to know about blocks it gets as a Catalog from whoever
+// opens the work.
 export {};

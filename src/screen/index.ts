@@ -4,6 +4,5 @@
 // only through the kit (which carries the behaviors too), and
 // checks the screen the way a designer would (overlaps, contrast, text too
 // small). A moved control is reported to the entry that shows the screen: the
-// editor makes it an operation on the work, the player only plays it. screen
-// imports behaviors and work only, so the player runs it outside the editor.
+// editor makes it an operation on the work, the player only plays it.
 export {};

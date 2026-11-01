@@ -1,6 +1,5 @@
 // Every story shows its control on a plugin screen in the base theme picked in the toolbar
-// (Theme), with den-kit's built-in fonts. A story that breaks the accessibility check fails
-// as a test. Chromatic takes a snapshot of every story in each base theme.
+// (Theme), with den-kit's built-in fonts (docs/development.md, Storybook).
 import type { Preview } from '@storybook/web-components-vite';
 import { html } from 'lit';
 import { lookVars } from '../src/screen/build.ts';
