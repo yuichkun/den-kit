@@ -5,7 +5,9 @@
 Use **Node.js 24.11 or a later 24 release**, the [Vite+](https://viteplus.dev/guide/)
 command `vp`, a **ChatGPT account** for AI requests, and a **BrowserPod API key** for
 the required workspace. Dependencies are installed from npm; you do not need a
-separate checkout or build of den.
+separate checkout or build of den. Use `vp` instead of npm, pnpm, yarn and npx in this
+repository: `vp install`, `vp run <script>`, `vp exec <tool>`. CI installs with `npm ci`
+only to get `vp` itself.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git
@@ -32,6 +34,12 @@ vp run dev
 Open [http://127.0.0.1:5180/](http://127.0.0.1:5180/). Complete both ChatGPT
 authentication and BrowserPod configuration for the normal den-kit workflow.
 [Using den-kit](usage.md) covers the supported browser and the basic workflow.
+
+The development host keeps works in the browser's storage, and starts the project tools,
+which use BrowserPod, the first time it opens in a browser. To try a change without the AI and the project
+tools, run `KIT_CODEX=off BROWSERPOD_API_KEY= vp run dev` and open it in a browser profile
+of its own. AI agents try changes this way unless the change needs the AI or the project
+tools.
 
 ### AI configuration
 
@@ -62,13 +70,8 @@ and checks. First startup includes package installation and requires network
 access. BrowserPod also supplies the AI's project environment.
 
 Code parts load from each work's own address on the AI bridge's port
-(`http://<work id>.localhost:5181`), which passes their requests through to the
-project's dev server and sets the same response rules as the desktop app. A
-browser cannot apply the desktop app's window rules (the proxy that refuses
-connections, WebRTC without UDP, no DNS prefetching) or add its secret header, so
-the development server's sandbox answers any local request. The page keeps the
-contents of the work's files, so this sandbox serves only the dev server's pages:
-code parts show only while the project runs.
+(`http://<work id>.localhost:5181`), and show only while the project runs; the
+header of `dev/sandbox.ts` says why.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `vp run build` excludes
@@ -81,14 +84,25 @@ build environment, then run:
 
 ```sh
 vp run desktop:package
-vp run desktop:run
 ```
 
 The bundle is written to `release/mac-arm64/den-kit.app` on Apple silicon or
-`release/mac/den-kit.app` on Intel Macs. You can also open it from Finder.
-`vp run desktop:run` waits until you quit the app.
-The app includes the renderer and native Codex CLI, so running the bundle does
-not require Node.js or a development server.
+`release/mac/den-kit.app` on Intel Macs. The app includes the renderer and native
+Codex CLI, so running the bundle does not require Node.js or a development server.
+
+`vp run desktop:run` opens it with your own den-kit data, in
+`~/Library/Application Support/den-kit/`, and waits until you quit the app. To try a
+build as a fresh installation instead, give the app a data folder and a free port of
+its own, as `vp run desktop:check` does:
+
+```sh
+KIT_DESKTOP_USER_DATA="$(mktemp -d)" KIT_DESKTOP_CHECK_PORT=5299 release/mac-arm64/den-kit.app/Contents/MacOS/den-kit
+```
+
+The app then keeps everything in that folder, and neither offers to move itself into
+Applications nor looks for updates. AI agents try the app only this way: they never
+open, change or delete a person's own den-kit data, and never replace an installed
+den-kit.
 
 The build bundles the BrowserPod key, and it can be extracted from the app. Builders
 must supply a key they are authorized to distribute.
@@ -96,10 +110,11 @@ must supply a key they are authorized to distribute.
 The local packaging command creates an **unsigned, unnotarized** app for your
 Mac's architecture. The packaging scripts build macOS apps only. Signed releases follow
 [RELEASE.md](../RELEASE.md).
+`vp run desktop:icons` renders the app icon from the logo again.
 
 ### Reset the app's data
 
-To test a fresh installation, quit den-kit and run `vp run desktop:clean`.
+To start your own den-kit over, quit it and run `vp run desktop:clean`.
 This permanently deletes `~/Library/Application Support/den-kit/`, including
 ChatGPT sign-in, the autosaved work, conversations, imported assets, project
 disks and installed dependencies, settings, and caches. Export any work you want
@@ -165,7 +180,10 @@ vp run test:stories
 `dist/player/`: exported work files carry it, also from `vp run dev`, and the e2e
 tests need it.
 Run suites separately with `vp run test:unit`, `vp run test:integration`, and
-`vp run test:e2e`. `vp run test:stories` runs the controls' stories
+`vp run test:e2e`. Unit tests (`test/unit`, a folder per module) cover a module's own
+logic, integration tests run modules together in Node (compiling blocks, the AI bridge,
+the pod, the desktop app's server), and e2e tests drive the editor in Chromium. Run one
+file with `vp test run <file>`, or `node --test <file>` for an e2e file. `vp run test:stories` runs the controls' stories
 ([Storybook](#storybook)). `vp run test:desktop` checks the works' sandbox in Electron
 (what a code part can reach, its frame, WebRTC, DNS prefetching and devices); CI
 runs it on macOS. Browser tests need Chromium; `CHROMIUM_PATH` can select an

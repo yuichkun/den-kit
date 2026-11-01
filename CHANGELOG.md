@@ -1,9 +1,7 @@
 # Changelog
 
-Release pull requests add a dated version section here (`## X.Y.Z — YYYY-MM-DD`).
-Unreleased entries describe the main branch and are not yet available as an app download.
-
-## Unreleased
+Each release pull request adds a dated version section here (`## X.Y.Z — YYYY-MM-DD`);
+[RELEASE.md](RELEASE.md#prepare-a-release) says where its entries come from.
 
 ## 0.1.2 — 2026-10-17
 

@@ -1,7 +1,8 @@
 // The LLM's workbench. Every kit_* tool call runs here, in the browser, against
-// the live patch: an edit is tried on a copy first (validated and compiled), and
-// only an edit that passes lands on the live patch, at once, as one step of the
-// request. A failing edit never lands; its problems go back to the model. The
+// the live patch: an edit to the patch or the screen is tried on a copy first
+// (validated and compiled), and only an edit that passes lands, at once, as one step
+// of the request; a failing one never lands, and its problems go back to the model.
+// Files the model writes and its commands' changes land as they are. The
 // controller (src/ai/llm.ts) makes the steps of one request one undo step.
 import { textFiles } from '../work/files.ts';
 import { assetsOf, type AssetMeta } from '../work/ui.ts';

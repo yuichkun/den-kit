@@ -1,7 +1,7 @@
 // The LLM request controller. A request goes to the agent runtime through the
 // host's AI; the runtime works on the live work with the kit_* tools, which run
-// here in the page (src/ai/llm-workspace.ts). Each edit is tried on a copy first;
-// one that validates and compiles lands at once, so the person sees and hears the
+// here in the page (src/ai/llm-workspace.ts). Each edit to the patch or the screen
+// is tried on a copy first; one that validates and compiles lands at once, so the person sees and hears the
 // request being built. The person keeps playing and editing meanwhile; an edit
 // that no longer fits goes back to the runtime.
 //

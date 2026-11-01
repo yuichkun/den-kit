@@ -1,4 +1,4 @@
-// U5e faces through the real UI: a part's face goes on the plugin from the
+// Faces through the real UI: a part's face goes on the plugin from the
 // inspector as controls wired to that use (turning one plays the part, no
 // recompile); edited on the plugin and saved as the part's face, it is what
 // another use gets. A parameter takes its own knob range in the inspector, and

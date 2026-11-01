@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// The AI's status in the AI panel's header: signed in, starting, needing sign-in or
+// broken, as the host words it, and usage when it runs high.
 import { computed } from 'vue';
 import type { AI } from '../host/ai.ts';
 

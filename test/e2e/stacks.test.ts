@@ -1,4 +1,4 @@
-// U5c copies (×N) through the real UI: the inspector's count makes a module
+// Copies (×N) through the real UI: the inspector's count makes a module
 // run as copies (×N badge, stacked box, thick cable, Σ where it is summed) and
 // it plays; spreading a knob draws a bar per copy, and moving the spread or
 // drawing the bars changes the sound without recompiling and undoes in one

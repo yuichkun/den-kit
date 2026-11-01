@@ -1,6 +1,6 @@
 // Patch → one readable unworklet core-API processor module.
 //
-// Rules (see docs in README.md):
+// Rules:
 // - One AudioParam per unconnected control input, named `${node}_${port}`, declared
 //   with the descriptor default; current values are applied at node creation, so a
 //   knob turn never recompiles.

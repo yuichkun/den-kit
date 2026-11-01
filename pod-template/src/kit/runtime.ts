@@ -161,7 +161,7 @@ let gesture: string | null = null,
 function known(id: string): void {
   if (values[id] === undefined)
     throw new Error(
-      `No control "${id}". Controls: ${Object.keys(values).join(', ') || 'none (add a knob, slider, switch or XY pad to the patch first)'}.`,
+      `No control "${id}". Controls: ${Object.keys(values).join(', ') || 'none (add a knob, slider, switch, button or XY pad to the patch first)'}.`,
     );
 }
 function write(id: string, value: ControlValue) {

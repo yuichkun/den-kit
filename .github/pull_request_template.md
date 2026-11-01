@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- What this changes and why. -->
+<!-- What this changes and why, including any story whose look changed and any behavior a loosened test no longer checks. -->
 
 ## What people using den-kit will notice
 

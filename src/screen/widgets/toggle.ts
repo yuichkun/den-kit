@@ -1,6 +1,5 @@
 // On/off switch (toggle) or momentary button (`momentary`), moved by den-kit's
-// switch and button behaviors: a switch changes on each press, a button is on
-// while it is held; Space and Enter press both.
+// switch and button behaviors (rule 6 in src/behaviors/index.ts).
 // Skins: button (a labelled button that lights), footswitch (a round metal stomp
 // switch, optional LED), switch (a lever or slide with ON/OFF), image (off/on pictures).
 import { Button, Switch, listen } from '../../behaviors/index.ts';

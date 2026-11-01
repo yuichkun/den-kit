@@ -1,4 +1,5 @@
-// Small synchronous, isomorphic content hash (FNV-1a, 2×32-bit lanes). Used for
+// Small synchronous, isomorphic content hash (two 32-bit lanes: FNV-1a and a
+// Murmur-style mix). Used for
 // artifact caching and change detection, not for security.
 export function hashString(text: string): string {
   let h1 = 0x811c9dc5,

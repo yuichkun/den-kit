@@ -1,5 +1,4 @@
-// Sliders (faders): like a knob, but dragged along their own track; the value
-// moves by as much as the pointer moves along it, from wherever it was grabbed.
+// Sliders (faders, rule 5): like a knob, but dragged along their own track.
 import { Continuous } from './knob.ts';
 import type { PointerInput } from './events.ts';
 import type { Range } from './range.ts';

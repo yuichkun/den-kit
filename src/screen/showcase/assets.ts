@@ -1,12 +1,12 @@
-// Pictures that ship with den-kit for the showcase (kit/public/showcase). Each
+// Pictures that ship with den-kit for the showcase (public/showcase). Each
 // carries where it came from and its licence; only CC0, public domain and own
-// work are used (den is a public repository).
+// work are used (den-kit is a public repository).
 import type { AssetMeta, AssetSource } from '../../work/ui.ts';
 
 const own = (title: string) => ({
   title,
   author: 'den-kit',
-  license: 'Own work (Apache-2.0, like den)',
+  license: 'Own work (MIT OR Apache-2.0, like den-kit)',
 });
 const photo = (
   id: string,

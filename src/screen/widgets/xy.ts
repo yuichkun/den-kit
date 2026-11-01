@@ -1,5 +1,5 @@
-// Two-axis pad, x and y in [0,1], moved by den-kit's XY pad behavior: it jumps
-// to where it is clicked and follows the pointer; the arrow keys move x and y.
+// Two-axis pad, x and y in [0,1], moved by den-kit's XY pad behavior (rule 7 in
+// src/behaviors/index.ts).
 // Skins: pad (a flat pad with a dot), glow (a clear pad: a glowing dot with a
 // fading trail over whatever is behind it).
 import { XYPad, listen } from '../../behaviors/index.ts';

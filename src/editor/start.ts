@@ -1,8 +1,6 @@
-// The editing app's entry. A host calls startEditor with what it provides
-// (src/host); the editor opens the last work from the host's storage, wires the
-// AI and the workspace when the host has them, and mounts den-kit's screens; it
-// saves the record after each change, and before the host quits. Nothing here
-// knows which host it is.
+// startEditor, which a host calls with what it provides (src/host). It opens the
+// last work, or the start screen on the very first launch, mounts den-kit's
+// screens, and saves the record before the host quits.
 import { createApp, h } from 'vue';
 import type { Host } from '../host/index.ts';
 import { AiRequests } from '../ai/requests.ts';

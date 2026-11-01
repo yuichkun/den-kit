@@ -1,6 +1,5 @@
-// Keys that play notes, played by den-kit's keyboard behavior: dragging across the
-// keys plays each one it reaches, each finger plays its own key, and where a key
-// is pressed, top to bottom, sets how hard; emits `note` {note, on, velocity}. The
+// Keys that play notes, played by den-kit's keyboard behavior (rule 8 in
+// src/behaviors/index.ts); emits `note` {note, on, velocity}. The
 // computer keys are played by whoever shows the keyboard (they work without
 // focus), and the letters they play are printed here.
 // Skins: piano (black and white keys; `start`, `octaves`, `held`, and `pc` = the

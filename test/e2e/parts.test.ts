@@ -1,4 +1,4 @@
-// U5b parts through the real UI: ⌘G makes a part from the selection and the
+// Parts through the real UI: ⌘G makes a part from the selection and the
 // sound goes on; Enter / double-click go inside, breadcrumbs and Esc come out;
 // a knob of the part (◆) turned inside sets the use we came through, without
 // recompiling; edits inside reach every use; ⇧⌘G and ⌘Z put things back.

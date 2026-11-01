@@ -1,4 +1,4 @@
-// Audition phrases (den's sound-candidate fixtures, tests/sound-candidates-consumer/fixtures.mjs),
+// Audition phrases (den's sound-candidate fixtures),
 // in render quanta (128 samples at 48 kHz). Used by the engine's play buttons,
 // the listening tool and the equivalence tests.
 export interface PhraseEvent {

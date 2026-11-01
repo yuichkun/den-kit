@@ -2,8 +2,8 @@
 
 The rules every change to den-kit follows, which rule wins when they conflict, and the ways
 they are most often broken. The rules do not name modules: the structure that follows them
-is in [architecture.md](architecture.md), and a module's own rules are in the comment at the
-top of the module.
+is in [architecture.md](architecture.md), and what each file does is in the comment at its
+top.
 
 ## 1. Hold no secret you do not need
 

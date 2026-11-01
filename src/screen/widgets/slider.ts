@@ -1,6 +1,5 @@
 // Linear slider, vertical when taller than wide, moved by den-kit's slider
-// behavior: it moves from where it is grabbed (a click never jumps), and takes the
-// wheel and the arrow keys; a double-click returns it to its default.
+// behavior (rules 2-5 in src/behaviors/index.ts).
 // Skins: bar (a filled bar), fader (a slot with a desk fader cap and scale marks),
 // image (your track picture with your thumb picture sliding along it).
 import { Slider, listen } from '../../behaviors/index.ts';

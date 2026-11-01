@@ -1,8 +1,7 @@
 // The pod check: what working in the pod feels like, measured — the pod
 // starting (and npm install, the dev server), the usual tools, TypeScript,
 // ESLint, an install by den-kit, no network outside it, a build, git, a code part
-// loading from the dev server, and an edit reaching it. Run from the Project view (and once by itself the
-// first time den-kit has a BrowserPod key). It changes nothing in the work: the
+// loading from the dev server, and an edit reaching it. Run from the Project view (Run diagnostics). It changes nothing in the work: the
 // part it loads is a scratch file of the pod's own (CHECK_PART), removed after.
 import { ref } from 'vue';
 import type { PodSession } from './pod-session.ts';

@@ -1,8 +1,7 @@
 // The Workspace interface: a pod, a Linux-like machine where the work's files
 // run as a web project with bash, git, Node and npm. The host decides whether
-// there is one and provides it; den-kit's workspace module drives it. Each work
-// has a pod with a disk of its own, and a pod reaches the internet only while
-// den-kit installs packages. Types only.
+// there is one and provides it; den-kit's workspace module drives it
+// (src/workspace/index.ts). Types only.
 
 /** How one command runs. The command is a bash script, run with `bash` in `cwd`. */
 export interface PodRunOptions {

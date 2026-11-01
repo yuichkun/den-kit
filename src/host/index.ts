@@ -1,7 +1,8 @@
-// What a host provides to den-kit (docs/architecture.md, "Interfaces"). Types
-// only: den-kit's modules use a Host and never ask which host they run in
-// (docs/principles.md, principle 4). A feature some hosts lack is a null here,
-// never a check for a host. Each host implements these outside src/.
+// What a host provides to den-kit (docs/architecture.md, "Interfaces"): types, and
+// the AI interface's size limits (ai.ts). den-kit's modules use a Host and never ask
+// which host they run in (docs/principles.md, principle 4). A feature some hosts lack
+// is a null here (for the workspace, a null `kind`), never a check for a host. Each
+// host implements these outside src/.
 import type { AI } from './ai.ts';
 import type { PodFactory } from './workspace.ts';
 
@@ -9,7 +10,7 @@ export type * from './ai.ts';
 export type * from './workspace.ts';
 
 export interface Host {
-  /** Work records, which conversation belongs to which work, and settings. */
+  /** What den-kit keeps on this computer (docs/architecture.md, Interfaces: Storage). */
   storage: Storage;
   /** The AI, or null when this host offers none. */
   ai: AI | null;
@@ -48,7 +49,7 @@ export interface Account {
   signOut(): Promise<void>;
 }
 
-/** What a work's code parts may use, as the person allowed it for that work (kept in the host's settings, never in the work). */
+/** What a work's code parts may use, as the person allowed it for that work (kept in the host's storage, never in the work). */
 export interface Allowed {
   /** Origins they may connect to (https://api.example.com). */
   origins: string[];

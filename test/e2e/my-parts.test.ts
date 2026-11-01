@@ -1,4 +1,4 @@
-// U5d My parts through the real UI: a part saved from one patch is placed in
+// My parts through the real UI: a part saved from one patch is placed in
 // another from the palette and plays; a newer version is offered with what
 // changes and updating keeps the use's values (one ⌘Z undoes it); My parts go
 // out to a file and come back; a broken file is refused with a reason.

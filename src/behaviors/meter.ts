@@ -1,5 +1,4 @@
-// Scopes and meters (rule 9) only show: they take no input. A meter holds its
-// peak for a moment, then lets it fall.
+// Scopes and meters (rule 9). A meter's held peak falls after a moment.
 
 /** How long a meter holds its peak, and how fast it falls after (in level per second). */
 export const PEAK_HOLD_MS = 1000;
