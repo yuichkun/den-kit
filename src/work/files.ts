@@ -1,10 +1,6 @@
-// The work's files: one tree shaped as a web project. `package.json` and `src/`
-// hold the code parts, `assets/` holds the assets. The record keeps a text
-// file's contents as they are and refers to any other file's contents by a
-// SHA-256 hash; contents never change, and replacing a file points it at new
-// content. Files people bring in are data: den-kit only reads the kinds its own
-// features use (pictures, fonts and video on the screen, audio in the sound),
-// and checks that such a file is what it says before it is used.
+// The work's files (docs/architecture.md, "The work"): the record refers to a
+// non-text file's contents by their SHA-256 hash. den-kit checks that a file it
+// reads is what it says before it is used (docs/principles.md, principle 2).
 import type { Issue } from './issues.ts';
 
 /** A text file: sources, configuration, SVG, data in text. */

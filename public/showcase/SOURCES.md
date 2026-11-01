@@ -24,4 +24,4 @@ crop, metadata removed). None shows a brand, a logo or a person.
 | `sketch-pedal.svg`  | Layout sketch for the fuzz pedal                                     | den-kit                            | Own work (Apache-2.0) | drawn for den-kit                                                                                                                                                                             |
 
 The same source, author and licence travel with each picture inside den-kit
-(the asset panel shows them, and an exported patch keeps them).
+(the asset panel shows them, and an exported work file keeps them).

@@ -1,7 +1,7 @@
 // Starter patches: den's CANDIDATE instrument/delay settings rebuilt from
 // modules. They double as the codegen yardstick (equivalence tests against den's
-// createInstrument/delayFx). Values come from src/instrument-settings.ts and
-// src/delay-settings.ts; the audio is CANDIDATE, never an approved golden.
+// createInstrument/delayFx). Values come from den's instrument and delay
+// settings (@denaudio/den); the audio is CANDIDATE, never an approved golden.
 import type { Catalog } from './catalog.ts';
 import { applyIntents, type Intent } from './ops.ts';
 import { emptyDocument, type PatchDocument } from './schema.ts';

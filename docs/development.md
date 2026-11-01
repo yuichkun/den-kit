@@ -5,7 +5,8 @@
 Use **Node.js 24.11 or a later 24 release**, the [Vite+](https://viteplus.dev/guide/)
 command `vp`, a **ChatGPT account** for AI requests, and a **BrowserPod API key** for
 the required workspace. Dependencies are installed from npm; you do not need a
-separate checkout or build of den.
+separate checkout or build of den. Run every command in this repository through `vp`
+(`vp install`, `vp run <script>`, `vp exec <tool>`), not npm, pnpm, yarn or npx.
 
 ```sh
 git clone https://github.com/yuichkun/den-kit.git
@@ -81,14 +82,25 @@ build environment, then run:
 
 ```sh
 vp run desktop:package
-vp run desktop:run
 ```
 
 The bundle is written to `release/mac-arm64/den-kit.app` on Apple silicon or
-`release/mac/den-kit.app` on Intel Macs. You can also open it from Finder.
-`vp run desktop:run` waits until you quit the app.
-The app includes the renderer and native Codex CLI, so running the bundle does
-not require Node.js or a development server.
+`release/mac/den-kit.app` on Intel Macs. The app includes the renderer and native
+Codex CLI, so running the bundle does not require Node.js or a development server.
+
+`vp run desktop:run` opens it with your own den-kit data, in
+`~/Library/Application Support/den-kit/`, and waits until you quit the app. To try a
+build as a fresh installation instead, give the app a data folder and a free port of
+its own, as `vp run desktop:check` does:
+
+```sh
+KIT_DESKTOP_USER_DATA="$(mktemp -d)" KIT_DESKTOP_CHECK_PORT=5299 release/mac-arm64/den-kit.app/Contents/MacOS/den-kit
+```
+
+The app then keeps everything in that folder, and neither offers to move itself into
+Applications nor looks for updates. AI agents try the app only this way: they never
+open, change or delete a person's own den-kit data, and never replace an installed
+den-kit.
 
 The build bundles the BrowserPod key, and it can be extracted from the app. Builders
 must supply a key they are authorized to distribute.
@@ -96,10 +108,11 @@ must supply a key they are authorized to distribute.
 The local packaging command creates an **unsigned, unnotarized** app for your
 Mac's architecture. The packaging scripts build macOS apps only. Signed releases follow
 [RELEASE.md](../RELEASE.md).
+`vp run desktop:icons` renders the app icon from the logo again.
 
 ### Reset the app's data
 
-To test a fresh installation, quit den-kit and run `vp run desktop:clean`.
+To start your own den-kit over, quit it and run `vp run desktop:clean`.
 This permanently deletes `~/Library/Application Support/den-kit/`, including
 ChatGPT sign-in, the autosaved work, conversations, imported assets, project
 disks and installed dependencies, settings, and caches. Export any work you want

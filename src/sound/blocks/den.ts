@@ -1,6 +1,6 @@
 // den blocks as patchable nodes. Port ids equal den's argument/field names so
 // the descriptor maps 1:1 onto each block's tick signature; ranges follow the
-// clamps documented in den's source (src/*.ts). Bounds here are the AudioParam
+// clamps documented in den's source. Bounds here are the AudioParam
 // bounds used when an input is left unconnected.
 import type { ConfigDef, NodeDef, PortDef } from '../../work/catalog.ts';
 

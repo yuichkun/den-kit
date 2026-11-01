@@ -7,7 +7,7 @@ import type { WorkFile } from './files.ts';
 import { emptyUi, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
 
 export const PATCH_SCHEMA = 'den-kit/patch';
-/** 5: the work's files in one tree (sources and assets). Older documents are not read. */
+/** The document version den-kit reads and writes; documents of other versions are not read. */
 export const PATCH_VERSION = 5;
 
 export type NodeId = string;

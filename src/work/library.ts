@@ -2,8 +2,8 @@
 // palette shows them next to den's modules). Saving a part again makes a new
 // version; a patch keeps the contents of the version it placed, and is offered
 // a newer one with what changed shown first (like a Figma library update).
-// Pure data: the browser keeps the library in its storage (session.ts); files
-// carry it to other machines.
+// Pure data: the editor keeps the library in the host's storage
+// (src/editor/records.ts); files carry it to other machines.
 import {
   NODE_ID_PATTERN,
   PART_ID_PATTERN,

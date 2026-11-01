@@ -1,6 +1,5 @@
 // The computer keys as a musical keyboard, for whoever shows one: the keyboard
-// behavior's rule (A plays C, W and E the black keys above it, Z and X move an
-// octave), heard on the whole page. Keys typed into a text field, and shortcuts
+// behavior's rule 8 (src/behaviors/index.ts), heard on the whole page. Keys typed into a text field, and shortcuts
 // with Cmd, Ctrl or Alt, are left alone.
 import { Keyboard } from '../behaviors/index.ts';
 

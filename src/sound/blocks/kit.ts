@@ -401,7 +401,7 @@ export const kitIO: NodeDef[] = [
     title: 'Codebox',
     category: 'code',
     summary: 'Custom DSP written with the unworklet core API (like gen~ codebox).',
-    doc: 'Source is a module that default-exports defineSubgraph((config: { sampleRate: number }) => ({ tick(i) { ... return { out } } })). tick receives an object of the declared inputs and returns an object of the declared outputs. Only @unworklet/core may be imported.',
+    doc: 'Source is a module that default-exports defineSubgraph((config: { sampleRate: number }) => ({ tick(i) { ... return { out } } })). tick receives an object of the declared inputs and returns an object of the declared outputs. Only @unworklet/core and @den-kit/assets may be imported.',
     keywords: ['code', 'custom', 'gen', 'script', 'dsp'],
     config: [],
     inputs: (node: PatchNode) =>

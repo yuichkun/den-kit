@@ -1,4 +1,4 @@
-// Typed edits. Callers (UI, fast AI path, LLM tools) send *intents*; applying
+// Typed edits. Callers (the editor, the AI's tools, the workspace) send *intents*; applying
 // them yields *resolved ops* that carry their before-state, so every transaction
 // can be inverted exactly. Application is atomic: on any failure the input
 // document is untouched (documents are treated as immutable values).

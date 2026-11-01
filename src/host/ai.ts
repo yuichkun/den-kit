@@ -2,7 +2,8 @@
 // sends requests and answers the runtime's tool calls through it; the runtime
 // itself, the provider, the sign-in, the sub-agents and the conversations stay
 // on the host's side. A conversation is known by the runtime's id for it: den-kit
-// keeps which conversation belongs to which work, never what was said.
+// keeps which conversation belongs to which work, never what was said (the
+// development host's trace log, scripts/dev.ts, is the exception).
 import type { Ref } from 'vue';
 
 /** The agent runtime's state, as the host reports it. */

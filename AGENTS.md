@@ -26,7 +26,9 @@ you go on.
 - Value list: what den-kit delivers to the people who use it. It is the goal the team
   works toward.
   https://app.notion.com/p/3fd449b4e81d81b08b9ccba312262907
-- Design direction: https://app.notion.com/p/3f9449b4e81d81e5b63ad0b8c2ed3aa3
+- Design direction: what den-kit's own screens are meant to convey and why they look the
+  way they do.
+  https://app.notion.com/p/40b449b4e81d814ca953cb11d82a85c7
 - The Linear issue for the work, when there is one:
   `https://linear.app/escentier/issue/<ID>`, where `<ID>` is the issue in the branch name.
 - [docs/principles.md](docs/principles.md), and the sources in this repository for the
@@ -38,7 +40,8 @@ its comments are public (see Review guidelines).
 ## Where things are
 
 How the code works lives in this repository, next to the code, because it changes with
-the code. What den-kit is for, the plan and the decisions live in Notion and Linear.
+the code. What den-kit is for, the plan, and why things were decided live in Notion and
+Linear.
 
 | Topic                                                                    | Source of truth                                                                                                     |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
@@ -46,9 +49,10 @@ the code. What den-kit is for, the plan and the decisions live in Notion and Lin
 | Using den-kit, and its known limitations                                 | [docs/usage.md](docs/usage.md)                                                                                      |
 | Running from source, building the macOS app, Storybook, checks and tests | [docs/development.md](docs/development.md)                                                                          |
 | Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
-| Modules, how data moves between them, their interfaces                   | [docs/architecture.md](docs/architecture.md)                                                                        |
+| Modules and their roles, how data moves between them, their interfaces   | [docs/architecture.md](docs/architecture.md)                                                                        |
 | How den-kit's own screens look and what they say: themes, tokens, rules  | [docs/design-system.md](docs/design-system.md)                                                                      |
-| A module's role and its rules                                            | The comment at the top of the module                                                                                |
+| How the ready-made controls and code parts respond to input              | [src/behaviors/index.ts](src/behaviors/index.ts)                                                                    |
+| What a file's code does, and the rules that hold only there              | The comment at the top of the file                                                                                  |
 | Releases                                                                 | [RELEASE.md](RELEASE.md)                                                                                            |
 | Code parts, the `kit` API, and what the in-app AI reads in the workspace | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
 | What CI runs                                                             | [.github/workflows/](.github/workflows/)                                                                            |
@@ -82,7 +86,8 @@ The repository and GitHub are public.
   or mention a GitHub account.
 - Notion and Linear are private. Do not copy, quote or summarize them in the repository
   or on GitHub; the one exception is README's description of what den-kit is for.
-- Keep issue IDs out of commit messages and pull request titles and descriptions.
+- Keep issue IDs out of the commit messages, pull request titles and descriptions you write.
+  GitHub's merge commits name the branch, and that is fine.
 - Docs and code comments describe the current state only: do not write how things used
   to be or what changed, such as "previously", "now uses" or "was changed to". Changes
   are recorded in commit messages, pull requests and release notes.
@@ -109,7 +114,9 @@ The repository and GitHub are public.
    issue: whether the change works against any value, which values it brings closer, and
    anything it adds that the list does not cover.
 6. When CI passes and the latest Codex review has no open findings, ask @yuichkun for a
-   review. Only @yuichkun merges pull requests and publishes releases.
+   review. A change to how a story looks keeps the Chromatic checks red until it is approved
+   in Chromatic's UI Review: say in the pull request which stories changed and why. Only
+   @yuichkun merges pull requests and publishes releases.
 
 ## Review guidelines
 
@@ -118,8 +125,9 @@ These apply to the Codex review on GitHub and to any agent that reviews a pull r
 - On GitHub, use only this repository as the source of review criteria, and do not open
   or cite Notion or Linear: review comments are public.
 - Look for bugs and regressions first, then for anything that breaks
-  [docs/principles.md](docs/principles.md), then for changed behavior without tests.
-- Flag code that no longer matches a doc or a module's header comment, changes that make
+  [docs/principles.md](docs/principles.md) or, on den-kit's own screens,
+  [docs/design-system.md](docs/design-system.md), then for changed behavior without tests.
+- Flag code that no longer matches a doc or a file's header comment, changes that make
   a source of truth wrong without updating it in the same pull request, and added doc or
   comment text that repeats another source or leaves outdated text next to it.
 - Flag anything that breaks Rules for the repository or Rules for changes.

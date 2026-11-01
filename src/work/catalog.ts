@@ -1,6 +1,7 @@
-// Node descriptors: the single place that says what a node is. The patch view,
-// validation, code generation and the AI-facing descriptions are all derived
-// from these, so den's heterogeneous tick signatures are absorbed here.
+// The shape of a node descriptor (NodeDef) and the Catalog of them; the
+// descriptors are in src/sound/blocks. The patch view, validation, code generation
+// and the AI-facing descriptions all derive from the descriptors, which absorb
+// den's differing tick signatures.
 import type { ConfigValue, PatchNode, PortId, SignalType, Value } from './schema.ts';
 
 export type NodeKind =

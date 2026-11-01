@@ -5,8 +5,8 @@ instrument's interface inside den-kit.
 
 Click the start overlay to enable audio and MIDI.
 
-**Settings** → **Theme** changes how den-kit looks: three looks, each light or dark. Each
-work's plugin screen keeps its own look.
+**Settings** → **Theme** changes how den-kit looks. Each work's plugin screen keeps its own
+look.
 
 ## The macOS app
 
@@ -15,8 +15,7 @@ reasoning effort. ChatGPT sign-in is required for AI requests, which use the sig
 account's ChatGPT plan. BrowserPod is required and configured by the build: app users do
 not enter a separate key.
 
-The desktop app uses text input for AI requests. Its interface is in English, and it
-bundles only English localizations, so menus and dialogs provided by macOS and Chromium
+The desktop app's interface is in English, and it bundles only English localizations, so menus and dialogs provided by macOS and Chromium
 also appear in English.
 
 Installed from a release, den-kit downloads new versions in the background and installs

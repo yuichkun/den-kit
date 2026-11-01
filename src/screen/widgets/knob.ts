@@ -1,5 +1,5 @@
-// Rotary knob, moved by den-kit's knob behavior: drag up and down (Shift: finer),
-// the wheel, the arrow keys; a double-click returns it to its default.
+// Rotary knob, moved by den-kit's knob behavior (rules 1-4 in
+// src/behaviors/index.ts).
 // Skins: classic (disc over a value arc), ring (thick ring, value inside),
 // cap (hardware cap with a printed scale; line, dot or chicken-head pointer),
 // dot (soft round button with a travelling dot), image (your picture, turned).

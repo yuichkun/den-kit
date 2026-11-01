@@ -290,10 +290,15 @@ describe('every work is a finished first version', () => {
           expect(a.source?.url, `${a.id} source page`).toMatch(
             /^https:\/\/(commons\.wikimedia\.org|ambientcg\.com)\//,
           );
-        expect(
-          readFileSync('public/showcase/SOURCES.md', 'utf8'),
-          `${a.id} listed in SOURCES.md`,
-        ).toContain(`\`${a.url!.slice('/showcase/'.length)}\``);
+        // SOURCES.md lists the same credit for the repository: its row names the same
+        // author and, for a picture from elsewhere, the same source page.
+        const row = readFileSync('public/showcase/SOURCES.md', 'utf8')
+          .split('\n')
+          .find(line => line.includes(`\`${a.url!.slice('/showcase/'.length)}\``));
+        expect(row, `${a.id} listed in SOURCES.md`).toBeTruthy();
+        expect(row, `${a.id} author in SOURCES.md`).toContain(a.source!.author);
+        if (!a.source?.license?.startsWith('Own work'))
+          expect(row, `${a.id} source page in SOURCES.md`).toContain(a.source!.url);
       }
     });
   }

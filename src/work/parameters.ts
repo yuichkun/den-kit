@@ -1,7 +1,7 @@
-// The parameters a work exposes: its controls (knobs, sliders, switches,
-// buttons, XY pads), each with a name, a range, a unit, a default and its current
-// value. The sound plays with them; controls on the plugin screen and code parts
-// read and move them, and every move is an operation on the work.
+// The parameters a work exposes (docs/architecture.md, "Terms"): its controls
+// (knobs, sliders, switches, buttons, XY pads). While editing, every move of one is
+// an operation on the work; in the player, a move changes only the player's own
+// state.
 import { defaultValue, type Catalog } from './catalog.ts';
 import type { NodeId, PatchDocument, PatchNode } from './schema.ts';
 

@@ -1,8 +1,8 @@
 // The plugin's screen for the LLM: a readable account of what is on it, the
 // reference for what it can ask for (look, fonts, skins, elements, custom
 // canvases, the bundled pictures), and the shorthands it may use in kit_apply_ops
-// (addControl; bundled pictures by id). Pure functions over the patch; the
-// workspace (llm-workspace.ts) calls them.
+// (addControl; bundled pictures by id). Pure functions over the patch;
+// llm-workspace.ts calls them.
 import type { Catalog } from '../work/catalog.ts';
 import type { Transaction } from '../work/history.ts';
 import { OpError, applyIntents, type Intent } from '../work/ops.ts';

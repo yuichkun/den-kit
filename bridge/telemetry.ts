@@ -1,4 +1,5 @@
-// Append-only JSONL log (routing traces, adoption, errors). One file per day.
+// Append-only JSONL log (requests, agents, undo and redo, pod checks,
+// Codex events). One file per day.
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 

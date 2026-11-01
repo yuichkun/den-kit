@@ -1,10 +1,9 @@
 // What every plugin control shares. Controls are framework-free Web Components:
 // properties/attributes in, DOM events out (`input` while dragging, `change` on
 // release, `note` for keys), so a custom control or an isolated plugin page can
-// replace them. They are drawn from the plugin's tokens, published as CSS custom
-// properties (--dk-bg, --dk-fg, --dk-accent, --dk-track, --dk-knob, --dk-pointer,
-// --dk-muted, --dk-glow, --dk-font, --dk-label-font, --dk-value-font) that inherit
-// into each control's shadow root. A `skin` attribute picks how it looks and
+// replace them. They are drawn from the work's look tokens (COLOR_TOKENS and
+// FONT_TOKENS in src/work/ui.ts), published as --dk-* CSS custom properties that
+// inherit into each control's shadow root. A `skin` attribute picks how it looks and
 // `params` (JSON) tunes it; picture parameters arrive as URLs.
 
 export { formatValue, toUnit, fromUnit } from '../format.ts';

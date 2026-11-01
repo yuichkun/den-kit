@@ -1,6 +1,6 @@
 // How each kind of control can look: the skins the plugin renderer knows, with
 // their parameters. One table serves the checks (ops, loading), the inspector,
-// and later the AI's description of what it can ask for. Dependency-free.
+// and the AI's reference (src/ai/plugin-tools.ts). Dependency-free.
 
 export type ControlKind =
   | 'knob'

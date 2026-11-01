@@ -4,7 +4,8 @@
 // e is a press, a move, a release, a wheel turn, a double click or the mouse
 // leaving, at e.x, e.y in the canvas; f.set / f.setNorm move controls the way a hand
 // on them would (the page makes one press one undo step).
-// Nothing here can reach the page; network APIs are taken away before the code loads.
+// Nothing here can reach the page; fetch, sockets and storage are taken away before the
+// code loads (what still gets through is in docs/usage.md, Known limitations).
 /// <reference lib="webworker" />
 import {
   NO_POINTER,

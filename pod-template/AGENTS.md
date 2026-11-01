@@ -16,8 +16,9 @@ Use them as you would in any web project.
 
 ## Code parts
 
-A code part is a file `src/parts/<name>.ts` (name: lowercase letters, digits,
-dashes) whose default export is `part({...})`:
+A code part is a file `src/parts/<name>.ts` (name: a lowercase letter, then up to
+39 lowercase letters, digits or dashes; `.tsx` works too) whose default export is
+`part({...})`:
 
 ```ts
 import { CONTROLS, behaviors, part } from '../kit';
@@ -80,7 +81,7 @@ The same part can be placed several times with different props.
 ### What `kit` gives a part (src/kit/index.ts has the details)
 
 - `kit.value(id)`, `kit.norm(id)`, `kit.on(id, fn)` — the patch's controls (knobs,
-  sliders, switches, XY pads). **src/kit/controls.ts lists them** with their
+  sliders, switches, buttons, XY pads). **src/kit/controls.ts lists them** with their
   ranges and units; den-kit rewrites it whenever the patch changes (do not edit
   it). A wrong id is a type error.
 - `kit.set(id, v)`, `kit.setNorm(id, n)`, `kit.begin()` / `kit.end()` — move a

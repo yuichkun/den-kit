@@ -12,9 +12,11 @@ Releases. Ordinary pull requests and merges never publish anything.
    `1.0.0` are previews.
 2. Run `vp run release:version X.Y.Z`. This updates `package.json` and `package-lock.json` only.
    It does not create a tag, commit, push or publish.
-3. In `CHANGELOG.md`, move the relevant entries from **Unreleased** into `## X.Y.Z — YYYY-MM-DD`.
+3. In `CHANGELOG.md`, add `## X.Y.Z — YYYY-MM-DD` with what people using den-kit will notice since
+   the previous release, from the "What people using den-kit will notice" sections of the pull
+   requests merged since then.
 4. Open the pull request with the title `vX.Y.Z — <headline>`. Its description becomes the public
-   release notes.
+   release notes, so make it the new CHANGELOG section, without the pull request template's sections.
 5. Wait for all checks, including **desktop-package**, which builds unsigned packages for both
    architectures. Bring the branch up to date with `main` and review again if it changes. Merge only
    when the release is ready to publish.
@@ -119,7 +121,8 @@ None of this is needed to open or test pull requests.
 
 ## Failure and retry
 
-Merge release pull requests one at a time. Runs are serialized without canceling an active release.
+Merge release pull requests one at a time. Only the publish job is serialized: a release that waits
+to publish is canceled when another one queues behind it.
 
 Fix the cause of a failure and rerun the failed Release workflow. It keeps a tag only if it points at
 the same commit, completes an unfinished draft by replacing all of its files, and leaves a complete

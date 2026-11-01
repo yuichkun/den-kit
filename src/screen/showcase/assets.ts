@@ -1,4 +1,4 @@
-// Pictures that ship with den-kit for the showcase (kit/public/showcase). Each
+// Pictures that ship with den-kit for the showcase (public/showcase). Each
 // carries where it came from and its licence; only CC0, public domain and own
 // work are used (den is a public repository).
 import type { AssetMeta, AssetSource } from '../../work/ui.ts';

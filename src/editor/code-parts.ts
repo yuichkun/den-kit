@@ -5,8 +5,7 @@
 // code parts as last built (when the work was exported or imported), if that build
 // was made from the files the work has now. A host without a sandbox cannot isolate
 // code parts, so they do not run there. What the person allowed, and the last build,
-// are kept in the host's storage by work, never in the work, so a work never arrives
-// with network access already allowed.
+// are kept in the host's storage by work (docs/architecture.md, "Code in a work").
 import { computed, ref, shallowRef, watch } from 'vue';
 import type { Allowed, Device, Host } from '../host/index.ts';
 import type { CodePartSource } from '../screen/code-frames.ts';

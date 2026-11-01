@@ -46,7 +46,7 @@ export type PropValues<P extends PropSpecs> = {
       : string;
 };
 
-/** A knob or slider: its value in its own unit. A switch: on or off. An XY pad: x and y from 0 to 1. */
+/** A knob or slider: its value in its own unit. A switch or a button: on or off. An XY pad: x and y from 0 to 1. */
 export type ControlValue = number | boolean | { x: number; y: number };
 export interface Audio {
   /** Loudness of the plugin's output now (0..1, RMS-like) and its recent peak. */

@@ -1,7 +1,7 @@
 // Finding and running the pinned Codex CLI (`@openai/codex` 0.160.1 in
 // node_modules). The native binary is started directly (not through the npm
 // launcher) so there is one child process to stop, and it is isolated from the
-// user's own Codex setup and from the den repository:
+// user's own Codex setup and from den-kit's repository:
 //   CODEX_HOME  .codex-home (KIT_CODEX_HOME=~/.codex opts into the user's own)
 //   cwd         <os tmpdir>/den-kit-codex/<hash>, outside any git repository, so
 //               Codex finds no AGENTS.md

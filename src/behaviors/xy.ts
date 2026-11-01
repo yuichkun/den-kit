@@ -1,6 +1,4 @@
-// XY pads (rule 7): a click puts the point where the pointer is and it follows
-// the pointer; the arrow keys move x and y. Both axes have their own range;
-// y rises upward.
+// XY pads (rule 7). Both axes have their own range; y rises upward.
 import { Emitter, type KeyInput, type PointerInput } from './events.ts';
 import { KEY_BIG_STEP, KEY_STEP } from './knob.ts';
 import { defaultOf, fromPosition, toPosition, type Range } from './range.ts';

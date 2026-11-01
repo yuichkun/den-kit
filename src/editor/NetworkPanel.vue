@@ -2,7 +2,8 @@
 // What the open work's code parts may use on this computer: the origins they may
 // connect to and the devices they may use. The work lists the origins it needs,
 // each with a reason (the AI can add to the list); the person allows them here.
-// What is allowed is kept by the host for this work only, never in the work.
+// What is allowed is kept by the host for this work (docs/architecture.md, "Code in a
+// work").
 import { computed, ref } from 'vue';
 import { useSession } from './context.ts';
 import { DEVICES } from './code-parts.ts';

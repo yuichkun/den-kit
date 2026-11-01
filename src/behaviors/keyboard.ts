@@ -1,8 +1,4 @@
-// The musical keyboard (rule 8): the computer keys play notes along one row (A
-// is C, W and E the black keys above it), Z and X move an octave down and up,
-// and dragging across the keys with the mouse plays each key it reaches. Where
-// a key is clicked, from top to bottom, sets how hard the note is played. Each
-// finger on a touch screen plays its own key.
+// The musical keyboard (rule 8). Each finger on a touch screen plays its own key.
 import { Emitter, type KeyInput, type PointerInput } from './events.ts';
 
 /** A note starting (velocity 1–127) or ending (velocity 0). */

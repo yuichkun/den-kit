@@ -13,10 +13,7 @@
 // connect only to its own origin and the origins the person allowed for the work
 // (and run nothing from elsewhere), COEP and CORP for den-kit's cross-origin
 // isolated page, nosniff. What headers do not cover is set on the window
-// (window-rules.ts): DNS prefetching off, WebRTC only through the proxy, a proxy rule
-// that sends every connection except den-kit's own hosts and the open works'
-// allowed ones to a port that closes at once, frames that cannot navigate away,
-// devices by the frame's work, and no sound before the person touches it.
+// (window-rules.ts).
 // In the desktop app, requests reach the sandbox only with a per-launch secret
 // header the window adds (other programs and web pages do not have it); a browser
 // cannot add one, so the development host's sandbox answers without it.

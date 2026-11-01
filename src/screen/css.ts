@@ -1,5 +1,5 @@
 // The look's data turned into CSS declarations. Every value here already passed
-// the checks in core/ui.ts (colours, numbers, asset ids); picture assets become
+// the checks in src/work/ui.ts (colours, numbers, asset ids); picture assets become
 // URLs through `url` (null while loading or missing: the layer is left out).
 import {
   cssColor,

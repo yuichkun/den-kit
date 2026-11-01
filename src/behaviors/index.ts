@@ -1,9 +1,9 @@
 // behaviors: how den-kit's ready-made controls respond to input, without any
 // look. Each behavior takes input as plain values (pointer positions, wheel
 // notches, keys) and sends values and events: `begin` when a gesture starts,
-// `value` for each new value, `end` when it ends. One gesture is one undo step.
-// The controls on the plugin screen are built on these, and code parts use the
-// same behaviors through the kit; `listen` feeds an element's pointer, wheel and
+// `value` for each new value, `end` when it ends; in the editor, one gesture is one
+// undo step (src/work/history.ts). The plugin screen's input controls are built on
+// these, and code parts use the same behaviors through the kit; `listen` feeds an element's pointer, wheel and
 // keys to a behavior for both. Imports nothing.
 //
 // The rules (test/unit/behaviors checks each):
@@ -27,9 +27,10 @@
 //     down and up. Dragging across the keys with the mouse plays each key it
 //     reaches. Where a key is clicked, from top to bottom, sets how hard the note
 //     is played.
-//  9. A scope and a meter only show; they take no input. A meter holds its peak
-//     for a moment.
-// 10. Every control sends begin, value and end; one drag is one undo step.
+//  9. A scope and a meter only show; they take no input. The meter behavior holds
+//     its peak for a moment.
+// 10. Every control that takes input sends begin, value and end; one drag is one
+//     gesture.
 export * from './range.ts';
 export * from './events.ts';
 export * from './knob.ts';

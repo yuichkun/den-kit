@@ -1,6 +1,5 @@
 // Codebox type checking with the TypeScript language service over a snapshot of
-// @unworklet/core declarations (adapted from playground/src/typescript-project.ts)
-// and den-kit's own asset API.
+// @unworklet/core declarations and den-kit's own asset API.
 import ts from 'typescript';
 import { ASSET_API_TYPES } from '../assets.ts';
 import type { Issue } from '../../work/issues.ts';
