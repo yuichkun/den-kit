@@ -113,8 +113,9 @@ The repository and GitHub are public.
    the Linear issue for the work, or tell the person you work with when there is no
    issue: whether the change works against any value, which values it brings closer, and
    anything it adds that the list does not cover.
-6. When CI passes and the latest Codex review has no open findings, request @yuichkun's
-   review on the pull request. A change to how a story looks keeps the Chromatic checks red until it is approved
+6. When CI passes and the latest Codex review has no open findings, ask @yuichkun for a
+   review: as a review request on the pull request, or in chat when the pull request is
+   @yuichkun's own. A change to how a story looks keeps the Chromatic checks red until it is approved
    in Chromatic's UI Review: say in the pull request which stories changed and why. Only
    @yuichkun merges pull requests and publishes releases.
 
