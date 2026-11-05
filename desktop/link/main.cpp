@@ -4,6 +4,7 @@
 #include <ableton/Link.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -47,6 +48,15 @@ void error(const std::uint64_t id, const char* message)
 class Bridge
 {
 public:
+  Bridge()
+  {
+    mLink.setStartStopCallback([this](const bool playing)
+    {
+      if (!playing)
+        mObservedStop.store(true);
+    });
+  }
+
   void command(const std::uint64_t id, const std::vector<std::string>& words)
   {
     const auto& verb = words[1];
@@ -98,8 +108,14 @@ public:
       mLink.commitAppSessionState(state);
     }
 
+    // Link keeps receiving transport changes while stdin is idle. Consume the
+    // stop latch before capturing, so a later stop cannot be lost behind an
+    // earlier playing snapshot. A delayed callback for an accepted restart must
+    // not rebase that same start event twice.
+    const auto observedStop = mObservedStop.exchange(false);
     auto state = mLink.captureAppSessionState();
-    if (state.isPlaying() && !mPlaying)
+    const auto restarted = observedStop && state.timeForIsPlaying() != mTransportTime;
+    if (state.isPlaying() && (!mPlaying || restarted))
     {
       // Only a local stopped-to-playing transition starts a new sequence. A
       // peer pressing Play while we run must not reset our beat magnitude.
@@ -129,6 +145,8 @@ public:
   }
 
 private:
+  // Link's thread callback can access this until Link's destructor has finished.
+  std::atomic<bool> mObservedStop{false};
   ableton::Link mLink{120.0};
   bool mPlaying = false;
   std::chrono::microseconds mTransportTime{0};

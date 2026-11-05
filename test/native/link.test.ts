@@ -223,6 +223,31 @@ test(
       );
       assert.ok(Math.abs((((y.startTimeUs - y.timeUs) / 1e6) * y.tempo) / 60 + y.beat) < 0.001);
 
+      const beforeHiddenRestart = await a.state();
+      await b.state('play 0');
+      // Do not poll a: its Link callback must remember the intermediate stop
+      // even when the renderer is busy for the entire stop/start sequence.
+      await delay(180);
+      await b.state('play 1');
+      await delay(120);
+      const restarted = await a.state();
+      assert.equal(restarted.playing, true);
+      assert.notEqual(restarted.transportTimeUs, beforeHiddenRestart.transportTimeUs);
+      assert.ok(restarted.beat < 0, 'an unseen remote restart must rebase the local sequence');
+      assert.ok(
+        restarted.startTimeUs - restarted.timeUs > 140000,
+        'restart must remain schedulable',
+      );
+      await delay(40);
+      const afterRestart = await a.state();
+      assert.equal(afterRestart.transportTimeUs, restarted.transportTimeUs);
+      const resumedBeat =
+        restarted.beat + (((afterRestart.timeUs - restarted.timeUs) / 1e6) * restarted.tempo) / 60;
+      assert.ok(
+        Math.abs(afterRestart.beat - resumedBeat) < 0.02,
+        'a delayed stop callback must not rebase twice',
+      );
+
       await b.state('play 0');
       await until((x, y) => !x.playing && !y.playing);
       await a.state('play 1');
