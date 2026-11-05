@@ -24,8 +24,8 @@ instead of creating it again. The first build downloads checksum-pinned Ableton
 Link and Asio sources from GitHub and compiles the helper for your Mac. No
 separate helper install, service, or recursive submodule checkout is needed.
 
-The unsigned app is `release-link/mac-arm64/den-kit Link Prototype.app` on Apple
-silicon, or `release-link/mac/den-kit Link Prototype.app` on Intel. It uses
+The unsigned app is `release-link/mac-arm64/den-kit-link-prototype.app` on Apple
+silicon, or `release-link/mac/den-kit-link-prototype.app` on Intel. It uses
 `~/Library/Application Support/den-kit-link-prototype/` and local port `5257`.
 It neither moves itself into Applications nor checks for updates. Normal builds
 and releases use their own staging tree and do not bundle Link.
