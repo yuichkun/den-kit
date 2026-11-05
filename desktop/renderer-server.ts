@@ -16,7 +16,8 @@ export function appPort(env: NodeJS.ProcessEnv = process.env): number {
     ? requested
     : 5247;
 }
-export const APP_PORT = appPort();
+export const APP_PORT =
+  process.env.KIT_LINK_PROTOTYPE === '1' && !process.env.KIT_DESKTOP_USER_DATA ? 5257 : appPort();
 export const APP_ORIGIN = `http://127.0.0.1:${APP_PORT}`;
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

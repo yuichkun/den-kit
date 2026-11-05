@@ -21,6 +21,7 @@ import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
 import Settings from './Settings.vue';
+import LinkBar from './LinkBar.vue';
 
 const props = defineProps<{
   session: KitSession;
@@ -372,7 +373,7 @@ async function importPatch(e: Event) {
   <div
     v-else
     class="kit-shell"
-    :class="{ focus: focusMode }"
+    :class="{ focus: focusMode, 'with-link': !!session.host?.link }"
     :style="{ '--ai-w': aiOpen ? `${dockWidth}px` : '0px' }"
   >
     <div v-show="!focusMode" class="toolbar">
@@ -470,6 +471,7 @@ async function importPatch(e: Event) {
         ✦ AI <span class="kbd-hint">⌘J</span>
       </button>
     </div>
+    <LinkBar v-if="session.host?.link" :link="session.host.link" @show-patch="view = 'patch'" />
     <div class="body">
       <div class="left">
         <div class="main" :class="{ wide: view === 'project' }">

@@ -79,6 +79,9 @@ it from the web renderer.
 
 ## Build the macOS app
 
+For the isolated Ableton Link trial, follow the
+[standalone Link prototype guide](ableton-link-prototype.md#build-and-open).
+
 On macOS, install dependencies and set `BROWSERPOD_API_KEY` in `.env` or the
 build environment, then run:
 

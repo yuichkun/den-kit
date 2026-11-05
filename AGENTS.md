@@ -48,6 +48,7 @@ Linear.
 | Introduction and downloads                                               | [README.md](README.md)                                                                                              |
 | Using den-kit, and its known limitations                                 | [docs/usage.md](docs/usage.md)                                                                                      |
 | Running from source, building the macOS app, Storybook, checks and tests | [docs/development.md](docs/development.md)                                                                          |
+| Standalone Ableton Link trial: build, musical workflow and timing checks | [docs/ableton-link-prototype.md](docs/ableton-link-prototype.md)                                                    |
 | Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
 | Modules and their roles, how data moves between them, their interfaces   | [docs/architecture.md](docs/architecture.md)                                                                        |
 | How den-kit's own screens look and what they say: themes, tokens, rules  | [docs/design-system.md](docs/design-system.md)                                                                      |

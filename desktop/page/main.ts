@@ -14,6 +14,7 @@ import { desktopWording } from './ai-wording.ts';
 import { windowCapture } from './window-capture.ts';
 import { desktopProjectError } from './project-errors.ts';
 import type { DesktopInfo } from './api.ts';
+import { desktopLink } from './link.ts';
 
 // A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
 if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator)
@@ -86,6 +87,7 @@ const workspace: PodFactory = apiKey
       fix: 'Contact the app maintainer for an updated build.',
     };
 const host: Host = {
+  link: shell.runtime.link && shell.link ? desktopLink(command => shell.link!(command)) : null,
   storage: desktopStorage(shell),
   ai: new BridgeClient({ token: shell.runtime.token, wording: desktopWording, account }),
   account: null,

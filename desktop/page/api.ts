@@ -2,6 +2,7 @@
 // (desktop/preload.ts): what the page may ask the main process for.
 import type { PageRect, UpdateStatus } from '../../src/host/index.ts';
 import type { AIModel, AISettings, CodexStatus } from '../../src/host/ai.ts';
+import type { LinkCommand } from '../../src/host/link.ts';
 
 export type { UpdateStatus };
 export type DesktopSettings = AISettings;
@@ -21,9 +22,24 @@ export interface DesktopInfo {
 export interface DesktopRuntime {
   token: string;
   apiKey: string | null;
+  link?: boolean;
+}
+/** Link's clock belongs to the helper; the page maps it to performance.now(). */
+export interface DesktopLinkState {
+  enabled: boolean;
+  peers: number;
+  tempo: number;
+  beat: number;
+  phase: number;
+  playing: boolean;
+  startStopSync: boolean;
+  timeUs: number;
+  startTimeUs: number;
+  transportTimeUs: number;
 }
 export interface DesktopAPI {
   runtime: DesktopRuntime;
+  link?(command: LinkCommand): Promise<DesktopLinkState>;
   capturePage(rect: PageRect): Promise<string>;
   info(): Promise<DesktopInfo>;
   saveSettings(settings: DesktopSettings): Promise<DesktopInfo>;

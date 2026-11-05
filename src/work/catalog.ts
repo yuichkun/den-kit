@@ -10,6 +10,7 @@ export type NodeKind =
   | 'voiceIn'
   | 'voiceMix'
   | 'audioIn'
+  | 'transport'
   | 'out'
   | 'history'
   | 'codebox'

@@ -5,6 +5,9 @@ instrument's interface inside den-kit.
 
 Click the start overlay to enable audio and MIDI.
 
+The separate [Ableton Link prototype](ableton-link-prototype.md) can synchronize
+with Live or Cubase; its guide covers connecting, patching, and checking timing.
+
 **Settings** → **Theme** changes how den-kit looks. Each work's plugin screen keeps its own
 look.
 

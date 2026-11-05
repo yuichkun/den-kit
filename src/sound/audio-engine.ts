@@ -7,6 +7,7 @@ import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet';
 import type { Artifact } from './compile/protocol.ts';
 import { testSignal as testSignalData } from './analysis.ts';
 import { slotPayload, type AssetLoad } from './assets.ts';
+import { audioTransportSnapshot, type TransportSnapshot } from './transport.ts';
 
 export type EngineState = 'off' | 'starting' | 'running' | 'suspended' | 'error';
 /** What an effect patch hears: test material, the computer's audio input (`input`: a microphone or a line in), or nothing. */
@@ -85,6 +86,10 @@ export class AudioEngine {
   private urls = new Map<string, { moduleUrl: string; wasmUrl: string }>();
   private testSignal: TestSignal = 'chords';
   private inputBus: GainNode | null = null;
+  private transportSnapshot: TransportSnapshot | null = null;
+  private transportClick = false;
+  private transportNode: AudioWorkletNode | null = null;
+  private transportReady: Promise<AudioWorkletNode | null> | null = null;
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private inputSources: AudioScheduledSourceNode[] = [];
   private liveInput: { stream: MediaStream; source: MediaStreamAudioSourceNode } | null = null;
@@ -151,6 +156,8 @@ export class AudioEngine {
 
   private attachContext(ctx: AudioContext) {
     this.ctx = ctx;
+    this.transportNode = null;
+    this.transportReady = null;
     this.urls.clear();
     this.stats.registrations = 0;
     this.rawAnalyser = new AnalyserNode(ctx, { fftSize: 2048 });
@@ -181,14 +188,68 @@ export class AudioEngine {
           'suspended',
           'Audio was suspended by the browser or device. Click anywhere or press a key to resume.',
         );
-      else if (ctx.state === 'running' && this.state !== 'running')
+      else if (ctx.state === 'running' && this.state !== 'running') {
+        this.updateTransport();
         this.setState('running', 'Audio running.');
-      else if (ctx.state === 'closed' && this.ctx === ctx)
+      } else if (ctx.state === 'closed' && this.ctx === ctx)
         this.setState(
           'error',
           'Audio device closed. Press "Retry audio" next to the keyboard to restart.',
         );
     };
+    if (this.transportSnapshot || this.transportClick) void this.ensureTransport();
+  }
+
+  /** Live host clock input, outside the saved patch and its undo history. */
+  setTransport(snapshot: TransportSnapshot | null) {
+    this.transportSnapshot = snapshot;
+    this.updateTransport();
+    if (snapshot && this.ctx) void this.ensureTransport();
+  }
+
+  /** Audition the shared beat through the same output safety chain as the patch. */
+  setTransportClick(enabled: boolean) {
+    this.transportClick = enabled;
+    this.transportNode?.port.postMessage({ type: 'click', enabled });
+    if (enabled && this.ctx) void this.ensureTransport();
+  }
+
+  private updateTransport() {
+    if (!this.transportNode || !this.ctx) return;
+    this.transportNode.port.postMessage({
+      type: 'clock',
+      snapshot: this.transportSnapshot
+        ? audioTransportSnapshot(this.transportSnapshot, this.ctx, performance.now())
+        : null,
+    });
+  }
+
+  private ensureTransport(): Promise<AudioWorkletNode | null> {
+    if (!this.ctx) return Promise.resolve(null);
+    if (this.transportReady) return this.transportReady;
+    const ctx = this.ctx;
+    this.transportReady = (async () => {
+      await ctx.audioWorklet.addModule(new URL('./transport.worklet.js', import.meta.url));
+      if (this.ctx !== ctx) return null;
+      const node = new AudioWorkletNode(ctx, 'den-kit-transport', {
+        numberOfInputs: 0,
+        numberOfOutputs: 2,
+        outputChannelCount: [5, 1],
+        channelInterpretation: 'discrete',
+      });
+      this.transportNode = node;
+      node.connect(this.rawAnalyser!, 1);
+      node.port.postMessage({ type: 'click', enabled: this.transportClick });
+      this.updateTransport();
+      return node;
+    })().catch(error => {
+      if (this.ctx === ctx) {
+        this.transportReady = null;
+        this.events.error?.(`The transport clock could not start: ${(error as Error).message}`);
+      }
+      return null;
+    });
+    return this.transportReady;
   }
 
   get running() {
@@ -261,6 +322,11 @@ export class AudioEngine {
     node.outputs.main!.connect(gain);
     gain.connect(this.rawAnalyser!);
     if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
+    if (node.inputs.transport) {
+      const clock = await this.ensureTransport();
+      if (clock && this.ctx === ctx && serial === this.loadSerial)
+        clock.connect(node.inputs.transport, 0);
+    }
     node.onError(event => {
       if (event.code !== 'sab-unavailable')
         this.events.error?.('message' in event ? String(event.message) : JSON.stringify(event));
@@ -339,6 +405,7 @@ export class AudioEngine {
     }
     try {
       if (live.node.inputs.main) this.inputBus?.disconnect(live.node.inputs.main);
+      if (live.node.inputs.transport) this.transportNode?.disconnect(live.node.inputs.transport);
     } catch {
       /* ok */
     }
@@ -721,6 +788,9 @@ export class AudioEngine {
       URL.revokeObjectURL(wasmUrl);
     }
     this.urls.clear();
+    this.transportNode?.disconnect();
+    this.transportNode = null;
+    this.transportReady = null;
     await this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.setState('off', 'Audio is off.');

@@ -31,7 +31,11 @@
     "desktop:check-update": "node scripts/check-desktop-update.ts",
     "doctor": "node scripts/doctor.ts",
     "codex:login": "node scripts/codex-login.ts",
-    "release:version": "node scripts/release-version.ts"
+    "release:version": "node scripts/release-version.ts",
+    "desktop:link:build": "vp run build && node scripts/build-desktop.ts --link-prototype",
+    "desktop:link:package": "vp run desktop:link:build && node scripts/package-link.ts",
+    "desktop:link:run": "node scripts/run-link.ts",
+    "test:link:native": "node scripts/build-link.ts && node --test test/native/link.test.ts"
   },
   "dependencies": {
     "@denaudio/den": "0.1.0",

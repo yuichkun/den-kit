@@ -98,6 +98,11 @@ share. The entry that starts them also connects two streams that do not go throu
 work: notes from the on-screen keyboard to `sound`, and the level, waveform and spectrum of
 the sound to `screen`.
 
+The optional host Link capability supplies a live clock to `sound`, outside the work's
+saved values. A Transport node selects where it enters the patch. The
+[standalone prototype](ableton-link-prototype.md#scope-and-implementation) owns its
+native implementation and build.
+
 ## Sound
 
 - `sound` describes, wires, compiles and plays the blocks of the den package and den-kit's own
@@ -213,6 +218,7 @@ the sound to `screen`.
 | Screen capture | Pictures of den-kit as the person sees it                                                                                                                                                                                                          | A capture of the app's own window                                                                                                                                                                                          |
 | Consent        | Asking at first launch, sending analytics only with consent, and keeping the choice when the person makes an account                                                                                                                               | Not provided: den-kit sends no analytics                                                                                                                                                                                   |
 | Lifecycle      | Updates that download in the background and install on quit, and saving before a restart                                                                                                                                                           | electron-updater                                                                                                                                                                                                           |
+| Link           | Optional live tempo, beat phase, and transport state                                                                                                                                                                                               | Only in the [standalone prototype](ableton-link-prototype.md); unavailable in normal builds                                                                                                                                |
 
 The desktop app in `desktop/` is the host this repository ships; the [README](../README.md)
 says which systems it is released for. A host elsewhere, such as inside Suara Portal,

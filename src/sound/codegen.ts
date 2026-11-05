@@ -65,7 +65,7 @@ export interface Generated {
 const RESERVED = new Set(
   (
     'break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static implements interface package private protected public await async of ' +
-    'i n v p at core reset clear gate trigger sum blocks parts policy output input probes sig gat hist trace midi panic rendered live tuning voiceControls deferredRetrigger completed cleared health healthBad sampleRate select f32 f64 i32 bool state param event forSample instantiate defineProcessor audioInput audioOutput modulatePitch modulateCutoff assets kitAudio kitBytes residentSample CAPACITY_16'
+    'i n v p at core reset clear gate trigger sum blocks parts policy output input transport probes sig gat hist trace midi panic rendered live tuning voiceControls deferredRetrigger completed cleared health healthBad sampleRate select f32 f64 i32 bool state param event forSample instantiate defineProcessor audioInput audioOutput modulatePitch modulateCutoff assets kitAudio kitBytes residentSample CAPACITY_16'
   ).split(' '),
 );
 const jsName = (id: string) => (RESERVED.has(id) ? `${id}$` : id);
@@ -186,6 +186,7 @@ export function generate(
   const pre = analysis.order.pre.filter(id => live(id) && kind(id) !== 'voiceMix');
   const post = analysis.order.post.filter(id => live(id) && kind(id) !== 'voiceMix');
   const audioIn = Object.values(doc.nodes).some(n => n.type === 'kit.audioIn' && live(n.id));
+  const transport = Object.values(doc.nodes).some(n => n.type === 'kit.transport' && live(n.id));
 
   // ---- Params -------------------------------------------------------------
   const params: ParamInfo[] = [];
@@ -517,6 +518,17 @@ export function generate(
         outputs.set(`${id}.right`, { expr: 'input.ch(1).at(i)' });
         return;
       }
+      case 'transport': {
+        need('@unworklet/core', 'audioInput');
+        outputs.set(`${id}.tempo`, {
+          expr: 'select(transport.ch(0).at(i).gt(0), transport.ch(0).at(i), f32(120))',
+        });
+        outputs.set(`${id}.beat`, { expr: 'transport.ch(1).at(i)' });
+        outputs.set(`${id}.bar`, { expr: 'transport.ch(2).at(i)' });
+        outputs.set(`${id}.pulse`, { expr: 'transport.ch(3).at(i).gte(0.5)' });
+        outputs.set(`${id}.playing`, { expr: 'transport.ch(4).at(i).gte(0.5)' });
+        return;
+      }
       case 'out': {
         // The final mix is written once per sample (flushes |x| < 1e-30, i.e. below -600 dBFS)
         // and read back for both channels and the health check, instead of expanding it repeatedly.
@@ -825,6 +837,7 @@ export function generate(
   out.indent(() => {
     if (outNode) out.push("const output = audioOutput({ channels: 2, name: 'main' });");
     if (audioIn) out.push("const input = audioInput({ channels: 2, name: 'main' });");
+    if (transport) out.push("const transport = audioInput({ channels: 5, name: 'transport' });");
     if (probeNodes.length)
       out.push(`const probes = audioOutput({ channels: ${probeNodes.length}, name: 'probes' });`);
     out.push(

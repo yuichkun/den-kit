@@ -16,7 +16,8 @@ import { isProblem, resolveCodex } from '../bridge/codex/process.ts';
 import { MAC_ARCHES, stageMacCodex } from './codex-native.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const staging = join(root, '.desktop-build');
+const linkPrototype = process.argv.includes('--link-prototype');
+const staging = join(root, linkPrototype ? '.desktop-link-build' : '.desktop-build');
 const app = join(staging, 'app');
 const resources = join(staging, 'resources');
 // One native Codex CLI per architecture; electron-builder copies the matching one into Resources/codex.
@@ -24,7 +25,7 @@ const codex = join(staging, 'codex');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const env: NodeJS.ProcessEnv = { ...process.env };
 loadEnvFile(join(root, '.env'), env);
-if (!env.BROWSERPOD_API_KEY?.trim())
+if (!linkPrototype && !env.BROWSERPOD_API_KEY?.trim())
   throw new Error(
     'BrowserPod is required. The operator must set BROWSERPOD_API_KEY before building a desktop app; users must not supply their own key.',
   );
@@ -40,6 +41,7 @@ await build({
   external: ['electron'],
   target: 'node24',
   sourcemap: true,
+  define: { 'process.env.KIT_LINK_PROTOTYPE': JSON.stringify(linkPrototype ? '1' : '0') },
 });
 await build({
   entryPoints: [join(root, 'desktop/preload.ts')],
@@ -56,7 +58,7 @@ writeFileSync(
   join(app, 'package.json'),
   JSON.stringify(
     {
-      name: 'den-kit',
+      name: linkPrototype ? 'den-kit-link-prototype' : 'den-kit',
       version: pkg.version,
       description: pkg.description,
       author: pkg.author,
@@ -97,6 +99,15 @@ writeFileSync(
   'den-kit: MIT OR Apache-2.0. Native OpenAI Codex CLI: Apache-2.0; see den-kit-Apache-2.0.txt for the license text. Electron and Chromium notices are supplied with the framework. BrowserPod SDK/service use is subject to the operator’s commercial BrowserPod license. This folder preserves bundled package notices; formal publication review remains separate.\n',
 );
 
+if (linkPrototype) {
+  const { buildLink } = await import('./build-link.ts');
+  await buildLink();
+  const helper = process.platform === 'win32' ? 'den-kit-link.exe' : 'den-kit-link';
+  mkdirSync(join(resources, 'link'));
+  cpSync(join(root, '.link-build/bin', helper), join(resources, 'link', helper));
+  cpSync(join(root, '.link-build/licenses'), join(notices, 'ableton-link'), { recursive: true });
+}
+
 // Only operator-controlled service credentials. No ChatGPT login, local config or logs are ever packaged.
 // Shipping the BrowserPod key breaks principle 1 in docs/principles.md.
 writeFileSync(
@@ -121,5 +132,5 @@ if (process.platform === 'darwin') {
   codexVersion = command.version;
 }
 console.log(
-  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; BrowserPod configured.`,
+  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; ${linkPrototype ? 'Link prototype; updates disabled' : 'BrowserPod configured'}.`,
 );

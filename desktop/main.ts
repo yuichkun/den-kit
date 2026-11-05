@@ -32,6 +32,7 @@ import { SandboxServer, type SandboxWork } from './sandbox.ts';
 import { applyWindowRules, AUTOPLAY_POLICY, beforeReady } from './window-rules.ts';
 import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
+import { LinkService } from './link-service.ts';
 import { signInPending } from '../src/editor/settings-presentation.ts';
 
 interface OperatorConfig {
@@ -47,9 +48,13 @@ let operator: OperatorConfig = {};
 let updates = new DesktopUpdates({ updater: null, native: null });
 let quitting = false;
 let shutdownComplete = false;
+// Replaced with a literal at build time; ordinary builds cannot activate the prototype.
+const LINK_PROTOTYPE = process.env.KIT_LINK_PROTOTYPE === '1';
+let link: LinkService | null = null;
 
 // One stable application identity and storage root for development, installed versions and updates.
-app.setName('den-kit');
+app.setName(LINK_PROTOTYPE ? 'den-kit Link Prototype' : 'den-kit');
+if (LINK_PROTOTYPE) app.setPath('userData', join(app.getPath('appData'), 'den-kit-link-prototype'));
 beforeReady(app);
 /** The hosts den-kit's own page connects to (BrowserPod); everything else goes through the sandbox's rules. */
 const DIRECT_HOSTS = ['browserpod.io', '*.browserpod.io', 'browserportal.io', '*.browserportal.io'];
@@ -109,6 +114,7 @@ function info(): DesktopInfo {
 /** Updates install only into a writable app outside the disk image; offer the move before anything is running. */
 async function offerMoveToApplications(): Promise<'moved' | 'declined' | 'not-needed'> {
   if (
+    LINK_PROTOTYPE ||
     !app.isPackaged ||
     process.platform !== 'darwin' ||
     process.env.KIT_DESKTOP_USER_DATA ||
@@ -137,7 +143,7 @@ async function offerMoveToApplications(): Promise<'moved' | 'declined' | 'not-ne
 }
 
 function setupUpdates(): DesktopUpdates {
-  if (!app.isPackaged || process.platform !== 'darwin')
+  if (LINK_PROTOTYPE || !app.isPackaged || process.platform !== 'darwin')
     return new DesktopUpdates({ updater: null, native: null });
   const isolated = !!process.env.KIT_DESKTOP_USER_DATA;
   // Isolated update checks may point at a local feed; they never touch the published releases.
@@ -167,6 +173,7 @@ async function shutdown() {
     });
     await window.webContents.session.flushStorageData();
   }
+  link?.close();
   await bridge?.close();
   if (podFlushError) throw podFlushError;
 }
@@ -191,6 +198,10 @@ async function installUpdate() {
 async function start() {
   const root = app.getAppPath();
   const resources = app.isPackaged ? process.resourcesPath : resolve(root, '../resources');
+  if (LINK_PROTOTYPE)
+    link = new LinkService(
+      join(resources, 'link', process.platform === 'win32' ? 'den-kit-link.exe' : 'den-kit-link'),
+    );
   const icon = nativeImage.createFromPath(join(resources, 'icon.png'));
   app.dock?.setIcon(icon);
   app.setAboutPanelOptions({
@@ -251,7 +262,11 @@ async function start() {
   ipcMain.on('den-kit:runtime', event => {
     try {
       trusted(event);
-      event.returnValue = { token: bridge!.token, apiKey: operator.browserPodKey ?? null };
+      event.returnValue = {
+        token: bridge!.token,
+        apiKey: operator.browserPodKey ?? null,
+        link: LINK_PROTOTYPE,
+      };
     } catch {
       event.returnValue = null;
     }
@@ -262,6 +277,10 @@ async function start() {
       return action(arg);
     });
   handle('den-kit:info', () => info());
+  handle('den-kit:link', value => {
+    if (!link) throw new Error('Link is available only in the prototype build.');
+    return link.request(value);
+  });
   handle('den-kit:storage', value => {
     const r = value as {
       op: string;
@@ -396,7 +415,7 @@ async function start() {
   });
 
   window = new BrowserWindow({
-    title: 'den-kit',
+    title: LINK_PROTOTYPE ? 'den-kit Link Prototype' : 'den-kit',
     width: 1440,
     height: 960,
     minWidth: 1000,
@@ -413,6 +432,8 @@ async function start() {
       nodeIntegrationInSubFrames: false,
       nodeIntegrationInWorker: false,
       autoplayPolicy: AUTOPLAY_POLICY,
+      // DAW work keeps this window in the background; the clock must keep receiving snapshots.
+      backgroundThrottling: !LINK_PROTOTYPE,
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

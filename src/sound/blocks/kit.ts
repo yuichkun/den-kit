@@ -304,6 +304,26 @@ export const kitPrimitives: NodeDef[] = [
 
 export const kitIO: NodeDef[] = [
   {
+    type: 'kit.transport',
+    kind: 'transport',
+    title: 'Transport',
+    category: 'io',
+    singleton: true,
+    scope: 'global',
+    summary: 'The host clock: tempo, beat and four-beat phase, beat pulses and play state.',
+    doc: 'Connect tempo to a synced delay BPM input, beat or bar to modulation, and pulse to an envelope trigger. Phases run only during playback. Without a host clock, tempo is 120 and the other outputs are zero. The four-beat cycle is a Link quantum, not the DAW song position or time signature.',
+    keywords: ['link', 'sync', 'clock', 'tempo', 'bpm', 'beat', 'rhythm'],
+    config: [],
+    inputs: [],
+    outputs: [
+      { ...out('tempo', 'BPM'), unit: 'bpm' },
+      out('beat', 'Beat phase'),
+      out('bar', '4-beat phase'),
+      { id: 'pulse', type: 'gate', label: 'Beat pulse' },
+      { id: 'playing', type: 'gate' },
+    ],
+  },
+  {
     type: 'kit.voiceIn',
     kind: 'voiceIn',
     title: 'Voice In',

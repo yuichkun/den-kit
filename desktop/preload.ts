@@ -13,6 +13,7 @@ const expectedOrigin =
 if (process.isMainFrame && location.origin === expectedOrigin) {
   const api: DesktopAPI = {
     runtime: ipcRenderer.sendSync('den-kit:runtime') as DesktopRuntime,
+    link: command => ipcRenderer.invoke('den-kit:link', command),
     capturePage: rect => ipcRenderer.invoke('den-kit:capture', rect),
     info: () => ipcRenderer.invoke('den-kit:info'),
     saveSettings: settings => ipcRenderer.invoke('den-kit:settings', settings),

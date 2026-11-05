@@ -89,6 +89,12 @@ input[type='range'] {
 .kit-shell.focus {
   grid-template-rows: 1fr;
 }
+.kit-shell.with-link {
+  grid-template-rows: auto auto 1fr;
+}
+.kit-shell.with-link.focus {
+  grid-template-rows: auto 1fr;
+}
 .body {
   display: flex;
   min-height: 0;

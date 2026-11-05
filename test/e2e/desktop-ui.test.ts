@@ -92,6 +92,126 @@ describe('desktop interface', () => {
     await h?.close();
   });
 
+  it('Link joins deliberately, shares tempo, keeps transport optional, and adds an undoable clock block', async () => {
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      initScript:
+        nativeAPI(h.bridge!.token, info()) +
+        `
+        (() => {
+          const fixture = window.__linkTest = {
+            enabled: false, peers: 0, tempo: 120, playing: false,
+            startStopSync: false, startTimeUs: 0, calls: []
+          };
+          window.denKitShell.runtime.link = true;
+          window.denKitShell.link = async command => {
+            fixture.calls.push(command);
+            if (command.type === 'enable') {
+              fixture.enabled = command.value;
+              fixture.peers = command.value ? 1 : 0;
+              if (!command.value) fixture.playing = false;
+            }
+            if (command.type === 'tempo') fixture.tempo = command.value;
+            if (command.type === 'sync') fixture.startStopSync = command.value;
+            const timeUs = (performance.now() + 1000000) * 1000;
+            if (command.type === 'play') {
+              fixture.playing = command.value;
+              fixture.startTimeUs = timeUs + 400000;
+            }
+            const beat = timeUs / 1000000 * fixture.tempo / 60;
+            return {
+              enabled: fixture.enabled, peers: fixture.peers, tempo: fixture.tempo,
+              playing: fixture.playing, startStopSync: fixture.startStopSync,
+              timeUs, startTimeUs: fixture.startTimeUs, transportTimeUs: fixture.startTimeUs, beat, phase: beat % 4
+            };
+          };
+        })();`,
+    });
+    try {
+      await page.locator('[data-testid=link-bar]').waitFor();
+      const original = await page.evaluate(() => JSON.stringify((window as any).__kit.doc.value));
+      assert.equal(
+        await page.locator('[data-testid=link-enable]').getAttribute('aria-pressed'),
+        'false',
+      );
+      assert.equal(await page.locator('[data-testid=link-sync]').isChecked(), false);
+      assert.equal(await page.locator('[data-testid=link-play]').isDisabled(), true);
+      assert.ok(
+        await page.evaluate(() =>
+          (window as any).__linkTest.calls.every((c: any) => c.type === 'status'),
+        ),
+      );
+
+      await page.click('[data-testid=link-enable]');
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid=link-status]')?.textContent === '1 peer',
+      );
+      await page.evaluate(() => ((window as any).__linkTest.tempo = 137));
+      await page.waitForFunction(
+        () =>
+          (document.querySelector('[data-testid=link-tempo]') as HTMLInputElement)?.value === '137',
+      );
+      assert.equal(
+        await page.evaluate(() =>
+          (window as any).__linkTest.calls.some((c: any) => c.type === 'tempo'),
+        ),
+        false,
+      );
+      await page.fill('[data-testid=link-tempo]', '128');
+      await page.locator('[data-testid=link-tempo]').blur();
+      await page.waitForFunction(() => (window as any).__linkTest.tempo === 128);
+      await page.click('[data-testid=link-play]');
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-testid=link-play]')?.textContent?.trim() === 'Cancel start',
+      );
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid=link-play]')?.textContent?.trim() === 'Stop',
+      );
+      assert.equal(await page.locator('[data-testid=link-sync]').isChecked(), false);
+      await page.check('[data-testid=link-click]');
+      await page.check('[data-testid=link-sync]');
+      await page.waitForFunction(() => (window as any).__linkTest.startStopSync);
+      await page.click('[data-testid=link-play]');
+      assert.equal(
+        await page.evaluate(() => JSON.stringify((window as any).__kit.doc.value)),
+        original,
+      );
+
+      const body = await page.locator('.kit-shell > .body').boundingBox();
+      assert.ok(
+        body && body.height > 300 && body.y + body.height <= 901,
+        'Link bar leaves the editor inside the viewport',
+      );
+      await page.click('[data-testid=view-plugin]');
+      await page.click('[data-testid=link-add-transport]');
+      await page.locator('[data-testid=patch-view]').waitFor();
+      await page.waitForFunction(() =>
+        Object.values<any>((window as any).__kit.doc.value.nodes).some(
+          n => n.type === 'kit.transport',
+        ),
+      );
+      await page.evaluate(() => (window as any).__kit.undo());
+      const restored = await page.evaluate(() => structuredClone((window as any).__kit.doc.value));
+      const initial = JSON.parse(original);
+      // Undo is another operation, so revision advances while the work's content is restored.
+      assert.equal(restored.revision, initial.revision + 2);
+      delete restored.revision;
+      delete initial.revision;
+      assert.deepEqual(restored, initial);
+      await page.click('[data-testid=link-enable]');
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-testid=link-enable]')?.getAttribute('aria-pressed') ===
+          'false',
+      );
+      assert.equal(await page.locator('[data-testid=link-click]').isChecked(), false);
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('shows sign-in states honestly, keeps connection plumbing out of settings, and offers no voice input', async () => {
     const { page, errors } = await openKit(h, {
       path: 'desktop.html',

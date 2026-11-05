@@ -5,11 +5,15 @@
 // host implements these outside src/.
 import type { AI } from './ai.ts';
 import type { PodFactory } from './workspace.ts';
+import type { Link } from './link.ts';
 
 export type * from './ai.ts';
 export type * from './workspace.ts';
+export type * from './link.ts';
 
 export interface Host {
+  /** Live tempo and beat synchronization, when the host offers it. */
+  link?: Link | null;
   /** What den-kit keeps on this computer (docs/architecture.md, Interfaces: Storage). */
   storage: Storage;
   /** The AI, or null when this host offers none. */

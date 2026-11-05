@@ -1,0 +1,53 @@
+name: Link prototype
+on:
+  workflow_dispatch:
+  push:
+    branches: [prototype/standalone-ableton-link]
+  pull_request:
+    paths:
+      - '.github/workflows/link-prototype.yml'
+      - 'desktop/link/**'
+      - 'desktop/link-service.ts'
+      - 'desktop/main.ts'
+      - 'desktop/page/**'
+      - 'desktop/preload.ts'
+      - 'desktop/renderer-server.ts'
+      - 'scripts/*link*'
+      - 'scripts/build-desktop.ts'
+      - 'src/host/**'
+      - 'src/editor/*[Ll]ink*'
+      - 'src/sound/**'
+      - 'test/native/**'
+      - 'package*.json'
+permissions:
+  contents: read
+jobs:
+  prototype:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Build the pinned native helper
+        run: node scripts/build-link.ts
+      - name: Check actual Link peers
+        env:
+          KIT_LINK_NETWORK_TEST: '1'
+        run: node --test test/native/link.test.ts
+      # The normal CI checks the web app. This job also exercises the separate
+      # unsigned prototype bundle on the runner's native Mac architecture.
+      - if: runner.os == 'macOS'
+        run: npm ci
+      - if: runner.os == 'macOS'
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Package the isolated prototype without credentials or publication
+        if: runner.os == 'macOS'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: vp run desktop:link:package
