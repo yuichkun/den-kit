@@ -5,8 +5,8 @@ Each release pull request adds a dated version section here (`## X.Y.Z — YYYY-
 
 ## 0.2.0 — 2026-11-11
 
-A rebuilt den-kit with a new look. Works, My parts and settings from 0.1 are not carried
-over, and work files exported from 0.1 cannot be imported.
+A rebuilt den-kit with a new look. Works and My parts from 0.1 are not carried over, and
+work files exported from 0.1 cannot be imported.
 
 - den-kit opens in Tile Light. **Settings** → **Theme** offers Tile, Screen and Plate, each
   light or dark, and keeps the choice for the next start. Each work's plugin screen keeps
