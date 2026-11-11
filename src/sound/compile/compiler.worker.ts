@@ -4,8 +4,8 @@
 // runs here while the sound is built, on den-kit's own origin, so the worker has
 // no network or storage before it runs any: code in a work stays away from
 // den-kit's server and the person's accounts. The host's policy for this script
-// (worker-policy.ts) keeps it off the network whatever code it evaluates, and no
-// codebox's code runs without that policy.
+// (worker-policy.ts) lets it load nothing but den-kit's own scripts and make no other
+// request, whatever code it evaluates, and no codebox's code runs without that policy.
 import { compile, emitWorkletModuleSource, extractWorkletMeta } from '@unworklet/core';
 import { renderOffline } from '@unworklet/offline';
 import registry from 'virtual:kit-modules';
@@ -53,8 +53,8 @@ let project: ReturnType<typeof createTypeProject> | undefined;
 
 /**
  * Whether the host's policy is in force: it refuses a script from a data: URL, as it
- * refuses every script from outside den-kit's origin. Asked once, before any codebox's
- * code runs here.
+ * refuses every script but den-kit's own. Asked once, before any codebox's code runs
+ * here.
  */
 let guarded: Promise<boolean> | undefined;
 /** Issues for the codeboxes of a request that this worker must not run, or none. */

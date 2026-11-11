@@ -13,10 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rendererServer } from '../../desktop/renderer-server.ts';
-import {
-  COMPILE_WORKER_POLICY,
-  isCompileWorkerScript,
-} from '../../src/sound/compile/worker-policy.ts';
+import { isCompileWorkerScript } from '../../src/sound/compile/worker-policy.ts';
 
 const resources: Array<{ server: Server; dir: string }> = [];
 afterEach(async () => {
@@ -63,12 +60,13 @@ it('isolates the renderer and refuses foreign hosts, writes and paths outside it
   expect((await get('/missing')).status).toBe(404);
   expect((await get('/%')).status).toBe(400);
   expect((await get('/', '127.0.0.1:5247', 'HEAD')).body).toBe('');
-  // The compile worker's script carries its own policy, and only that script.
+  // The compile worker's script carries its own policy, and only that script: it loads
+  // only the build's scripts and makes no other request.
   mkdirSync(join(root, 'assets'));
   for (const name of ['compiler.worker-Ab_1-c.js', 'canvas.worker-Xy2.js', 'desktop-Q9z.js'])
     writeFileSync(join(root, 'assets', name), 'export {};');
   expect((await get('/assets/compiler.worker-Ab_1-c.js')).headers['content-security-policy']).toBe(
-    COMPILE_WORKER_POLICY,
+    "default-src 'none'; script-src http://127.0.0.1:5247/assets/ 'unsafe-eval' 'wasm-unsafe-eval'",
   );
   for (const path of ['/', '/assets/canvas.worker-Xy2.js', '/assets/desktop-Q9z.js'])
     expect((await get(path)).headers['content-security-policy']).toBe(

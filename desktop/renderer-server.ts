@@ -6,8 +6,9 @@ import { stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  COMPILE_WORKER_POLICY,
+  compileWorkerPolicy,
   isCompileWorkerScript,
+  WORKER_SCRIPTS,
 } from '../src/sound/compile/worker-policy.ts';
 
 /** Normal profiles keep a fixed origin; isolated checks can coexist with an open user app. */
@@ -76,7 +77,7 @@ export function rendererServer(root: string) {
         // Frames come only from the works' sandbox origins (desktop/sandbox.ts); the
         // compile worker's script has its own policy (src/sound/compile/worker-policy.ts).
         'content-security-policy': isCompileWorkerScript(name)
-          ? COMPILE_WORKER_POLICY
+          ? compileWorkerPolicy(APP_ORIGIN, WORKER_SCRIPTS.build)
           : `frame-src http://*.localhost:${APP_PORT}`,
         'x-content-type-options': 'nosniff',
         'cache-control': 'no-cache',

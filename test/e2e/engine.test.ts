@@ -295,6 +295,17 @@ describe('audio engine', () => {
   it("a codebox's code reaches no network while the sound is built, whatever code it evaluates", async () => {
     // A server that records every request; the codebox tries every way out of the worker it has.
     const reached: string[] = [];
+    // And den-kit's own server, which records the requests marked as the codebox's before it
+    // handles them: the AI bridge it passes requests to, and files of the checkout.
+    const local: string[] = [];
+    const recorder = {
+      route: '',
+      handle: (req: { url?: string }, _res: unknown, next: () => void) => {
+        if (req.url?.includes('codebox-probe')) local.push(req.url);
+        next();
+      },
+    };
+    h.server.middlewares.stack.unshift(recorder);
     const record = createServer((req, res) => {
       reached.push(req.url ?? '');
       res.writeHead(200, {
@@ -324,7 +335,10 @@ g.setTimeout("import('" + http + "/timer')", 0);
 settle((0, eval)("import('data:text/javascript,import \"" + http + "/data-module\"')"));
 settle((0, eval)("import(URL.createObjectURL(new Blob(['import \"" + http + "/blob-module\"'], { type: 'text/javascript' })))"));
 settle(new g.FontFace('probe', 'url(' + http + '/font)').load());
-try { settle(new g.WebSocketStream('ws://${at}/socket').opened); } catch {}`;
+try { settle(new g.WebSocketStream('ws://${at}/socket').opened); } catch {}
+settle((0, eval)("import('/__kit/token?codebox-probe')"));
+settle((0, eval)("import('/package.json?import&codebox-probe')"));
+settle((0, eval)("import('/package.json?codebox-probe', { with: { type: 'json' } })"));`;
       await kit(
         page,
         new Function(
@@ -358,9 +372,11 @@ try { settle(new g.WebSocketStream('ws://${at}/socket').opened); } catch {}`;
       // What the code started settles after the build; give it time to arrive.
       await page.waitForTimeout(2000);
       assert.deepEqual(reached, []);
+      assert.deepEqual(local, []);
       await page.close();
     } finally {
       record.close();
+      h.server.middlewares.stack.splice(h.server.middlewares.stack.indexOf(recorder), 1);
     }
   });
 
