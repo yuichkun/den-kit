@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from 'vite-plus/test/browser-playwright';
 import { THEMES } from './src/work/schema.ts';
+import { bundledPackages } from './scripts/licenses.ts';
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -138,6 +139,13 @@ function kitVirtual(): Plugin {
   };
 }
 
+/**
+ * The packages this build bundles, for the desktop app's license notices (scripts/licenses.ts), with
+ * the two whose files kitVirtual puts in as text: TypeScript's lib files, and @unworklet/core's types
+ * and worklet runtime.
+ */
+const packages = bundledPackages(kit, ['typescript', '@unworklet/core']);
+
 const alias = [
   // See src/sound/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
   { find: /^wavefile$/, replacement: join(kit, 'src/sound/compile/wavefile-default.ts') },
@@ -154,9 +162,10 @@ export default defineConfig({
     kitVirtual(),
     builtPlayer(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
+    packages.plugin(),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
-  worker: { format: 'es', plugins: () => [kitVirtual()] },
+  worker: { format: 'es', plugins: () => [kitVirtual(), packages.worker()] },
   server: {
     port: Number(process.env.KIT_PORT ?? 5180),
     strictPort: true,

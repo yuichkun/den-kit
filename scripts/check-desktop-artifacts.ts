@@ -114,6 +114,14 @@ async function checkApp(
     typeof operator.browserPodKey === 'string' && operator.browserPodKey.length > 0,
     'The operator BrowserPod key is missing.',
   );
+  // Help → Licenses (scripts/licenses.ts), and Electron's notices that it links to.
+  const licenses = readFileSync(join(app, 'Contents/Resources/licenses.html'), 'utf8');
+  for (const name of ['den-kit', 'Codex CLI', 'Electron', 'electron-updater', 'typescript'])
+    assert.ok(licenses.includes(`">${name}</a>`), `licenses.html does not list ${name}.`);
+  assert.ok(
+    existsSync(join(app, 'Contents/Resources/LICENSES.chromium.html')),
+    "Electron's notices for Chromium are missing.",
+  );
   if (!options.signed) return;
   report('codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
   for (const binary of [app, join(app, 'Contents/Resources/codex/bin/codex')]) {

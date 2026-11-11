@@ -1,7 +1,8 @@
 // The desktop app's main process: one window on the app's local server, which
 // serves den-kit's page, runs the AI bridge (with Codex) and the works' sandbox;
 // the host interfaces the page asks for over IPC (storage, fetch, the sandbox,
-// settings, updates); the window's rules; and saving before the app quits.
+// settings, updates); the window's rules; the app menu, whose Help → Licenses opens
+// windows of their own (desktop/licenses.ts); and saving before the app quits.
 import {
   app,
   autoUpdater as squirrel,
@@ -32,6 +33,7 @@ import { SandboxServer, type SandboxWork } from './sandbox.ts';
 import { applyWindowRules, AUTOPLAY_POLICY, beforeReady } from './window-rules.ts';
 import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
+import { NoticesWindows } from './licenses.ts';
 import { signInPending } from '../src/editor/settings-presentation.ts';
 
 interface OperatorConfig {
@@ -439,6 +441,15 @@ async function start() {
   window.on('closed', () => {
     window = null;
   });
+  // licenses.html (scripts/licenses.ts) and Electron's notices, which it links to.
+  const licenses = join(resources, 'licenses.html');
+  const notices = new NoticesWindows(
+    {
+      window: options => new BrowserWindow(options),
+      openExternal: url => void shell.openExternal(url),
+    },
+    [licenses, join(resources, 'LICENSES.chromium.html')],
+  );
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
@@ -474,6 +485,10 @@ async function start() {
         ? { label: 'View', submenu: [{ role: 'togglefullscreen' }] }
         : { role: 'viewMenu' },
       { role: 'windowMenu' },
+      {
+        role: 'help',
+        submenu: [{ label: 'Licenses', click: () => notices.show(licenses) }],
+      },
     ]),
   );
   await window.loadURL(APP_ORIGIN);
