@@ -60,8 +60,8 @@ let guarded: Promise<boolean> | undefined;
 /** Issues for the codeboxes of a request that this worker must not run, or none. */
 async function unguarded(codeboxes: CompileRequest['codeboxes']): Promise<Issue[]> {
   if (!codeboxes.length) return [];
-  // The URL is made at run time, so the bundler leaves the import to the browser.
-  guarded ??= import(/* @vite-ignore */ ['data:text/javascript', ''].join(',')).then(
+  // An import made from text, which neither Vite nor the bundler rewrites.
+  guarded ??= (new Function('return import("data:text/javascript,")')() as Promise<unknown>).then(
     () => false,
     () => true,
   );

@@ -10,7 +10,6 @@ export const WORKER_SCRIPTS = {
   development: [
     '/src/',
     '/node_modules/',
-    '/@vite/client',
     ...['modules', 'runtime', 'types'].map(name => `/@id/__x00__virtual:kit-${name}`),
   ],
 } as const;
