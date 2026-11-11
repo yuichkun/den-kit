@@ -126,29 +126,36 @@ The app bundle, exported files, and repository `.env` are preserved.
 
 [Storybook](https://storybook.js.org/docs) shows the plugin's ready-made controls
 (`src/screen/widgets`) on their own, in each skin and each base theme, and tries
-den-kit's control behaviors on them:
+den-kit's control behaviors on them. It also shows the main parts of den-kit's own
+screens (`src/editor`) in each of den-kit's themes:
 
 ```sh
 vp run storybook
 ```
 
-Open [http://localhost:6006/](http://localhost:6006/) and pick the base theme in the
-toolbar. Storybook's own test runner (**Run tests** in the sidebar, and the agent
-tools' `test run`) tries the stories in graphite. `vp run test:stories` runs every story in
-Chromium once in each base theme: its `play` function and an accessibility check,
-which fails the test unless the story file sets `a11y: { test: 'todo' }`.
-`vp run storybook:build` builds a static Storybook into `dist/storybook/`.
+Open [http://localhost:6006/](http://localhost:6006/) and pick the base theme (Theme)
+or den-kit's theme (den-kit theme) in the toolbar. Storybook's own test runner (**Run
+tests** in the sidebar, and the agent tools' `test run`) tries the stories in graphite
+and Tile Light. `vp run test:stories` runs every story in Chromium, a control's once in
+each base theme and those of den-kit's screens once in each of den-kit's themes: its
+`play` function and an accessibility check, which fails the test unless the story
+file sets `a11y: { test: 'todo' }`. `vp run storybook:build` builds a static Storybook
+into `dist/storybook/`.
 
 Every push publishes the built Storybook to [Chromatic](https://www.chromatic.com/docs/)
 ([.github/workflows/chromatic.yml](../.github/workflows/chromatic.yml)), with a snapshot
-of each story in each base theme. On a pull request, Chromatic's UI Review shows each
-changed story beside the base branch's, to comment on and approve, and reports to the
-pull request as the UI Review and UI Tests checks. The workflow needs the
+of each control's story in each base theme and of each story of den-kit's screens in
+each of den-kit's themes. On a pull request, Chromatic's UI Review shows each changed
+story beside the base branch's, to comment on and approve, and reports to the pull
+request as the UI Review and UI Tests checks. The workflow needs the
 `CHROMATIC_PROJECT_TOKEN` secret.
 
-A control's stories are in `<control>.stories.ts` beside it. A story file imports the
-control's class with a plain `import`, not `import type`: Storybook finds the stories
-of a changed file through the imports of story files.
+A control's stories are in `<control>.stories.ts` beside it. A part of den-kit's screens
+has its stories in `<Component>.stories.ts` beside it, tagged `editor`, and
+[story-frame.ts](../src/editor/story-frame.ts) gives them a work that makes no sound. A
+story file imports what it shows (the control's class, the component) with a plain
+`import`, not `import type`: Storybook finds the stories of a changed file through the
+imports of story files.
 
 Storybook's tools for AI agents run from the command line. Its help writes
 `npx storybook`; use `vp exec storybook`:

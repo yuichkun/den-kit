@@ -21,6 +21,9 @@ the person picks another theme in Settings.
   corners are square and controls have cut corners, cables turn at 45° and 90°, and a dot
   marks each point of the snap grid.
 
+Storybook shows the main parts of these screens in each theme
+([development.md](development.md#storybook)).
+
 ## Tokens
 
 A theme is one block of tokens.css, and every theme sets every token. Components read the
