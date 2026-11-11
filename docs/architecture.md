@@ -150,7 +150,10 @@ the sound to `screen`.
 ## Code in a work
 
 - A codebox's source is in the document. `sound` compiles it with the patch into the audio
-  processor that runs in the AudioWorklet.
+  processor that runs in the AudioWorklet. Its code runs while the sound is built, in a
+  worker on den-kit's own origin. Every host serves that worker's script with the policy in
+  `src/sound/compile/worker-policy.ts`, which keeps the code off the network whatever it
+  evaluates, and the worker runs no codebox's code without it.
 - A code part's source is in the work's files. The host's sandbox serves it in a frame from
   the work's own origin: while the person edits, it passes requests through to the
   workspace's dev server, and otherwise it serves the playable build. The frame has no host

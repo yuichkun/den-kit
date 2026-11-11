@@ -177,8 +177,8 @@ vp run test:stories
 `vp check` checks formatting and lint; `vp check --fix` fixes what it can.
 `vp run typecheck` checks types with vue-tsc, and `vp run build` runs it first.
 `vp run build` also builds the player, the page of a playable build, into
-`dist/player/`: exported work files carry it, also from `vp run dev`, and the e2e
-tests need it.
+`dist/player/`: exported work files carry it, also from `vp run dev`, and the
+integration and e2e tests need the build.
 Run suites separately with `vp run test:unit`, `vp run test:integration`, and
 `vp run test:e2e`. Unit tests (`test/unit`, a folder per module) cover a module's own
 logic, integration tests run modules together in Node (compiling blocks, the AI bridge,

@@ -3,7 +3,9 @@
 // timeout (a codebox loop cannot be interrupted any other way). A codebox's code
 // runs here while the sound is built, on den-kit's own origin, so the worker has
 // no network or storage before it runs any: code in a work stays away from
-// den-kit's server and the person's accounts.
+// den-kit's server and the person's accounts. The host's policy for this script
+// (worker-policy.ts) keeps it off the network whatever code it evaluates, and no
+// codebox's code runs without that policy.
 import { compile, emitWorkletModuleSource, extractWorkletMeta } from '@unworklet/core';
 import { renderOffline } from '@unworklet/offline';
 import registry from 'virtual:kit-modules';
@@ -13,6 +15,7 @@ import { createTypeProject } from './type-project.ts';
 import { evaluate, EvaluationError } from './evaluate.ts';
 import { attributeError } from './compile-errors.ts';
 import type { CompileRequest, CompileResponse, RenderRequest, RenderResponse } from './protocol.ts';
+import type { Issue } from '../../work/issues.ts';
 import { analyse, spectrogramPng, testSignal } from '../analysis.ts';
 
 for (const name of [
@@ -48,6 +51,31 @@ const worker = globalThis as unknown as {
 };
 let project: ReturnType<typeof createTypeProject> | undefined;
 
+/**
+ * Whether the host's policy is in force: it refuses a script from a data: URL, as it
+ * refuses every script from outside den-kit's origin. Asked once, before any codebox's
+ * code runs here.
+ */
+let guarded: Promise<boolean> | undefined;
+/** Issues for the codeboxes of a request that this worker must not run, or none. */
+async function unguarded(codeboxes: CompileRequest['codeboxes']): Promise<Issue[]> {
+  if (!codeboxes.length) return [];
+  // The URL is made at run time, so the bundler leaves the import to the browser.
+  guarded ??= import(/* @vite-ignore */ ['data:text/javascript', ''].join(',')).then(
+    () => false,
+    () => true,
+  );
+  if (await guarded) return [];
+  return codeboxes.map(b => ({
+    severity: 'error',
+    code: 'codebox-isolation',
+    node: b.node,
+    message: UNGUARDED,
+  }));
+}
+const UNGUARDED =
+  'Codeboxes cannot run here: den-kit cannot keep their code off the network. Remove the codebox to compile the patch.';
+
 /** Listening tool: evaluate → render offline → measure (→ spectrogram). */
 async function render(request: RenderRequest) {
   const { id } = request;
@@ -58,6 +86,11 @@ async function render(request: RenderRequest) {
   }));
   const started = performance.now();
   try {
+    const refused = await unguarded(request.codeboxes);
+    if (refused.length) {
+      worker.postMessage({ id, error: { message: UNGUARDED, issues: refused } });
+      return;
+    }
     let processor;
     try {
       processor = evaluate(request.source, registry).processor;
@@ -131,6 +164,11 @@ worker.onmessage = async event => {
   try {
     if (typeof request.source !== 'string' || request.source.length > 400_000)
       throw new Error('Generated source is too large (over 400,000 characters).');
+    const refused = await unguarded(request.codeboxes);
+    if (refused.length) {
+      worker.postMessage({ id, error: { message: UNGUARDED, issues: refused } });
+      return;
+    }
     if (request.codeboxes.length) {
       worker.postMessage({ id, phase: 'checking codebox types' });
       project ??= createTypeProject(types);
