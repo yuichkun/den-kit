@@ -120,4 +120,30 @@ describe('hearing one part alone', () => {
     session.setSolo(null);
     expect(session.solo.value).toBeNull();
   });
+  it("the assets the sound reads include a soloed part's, though the part does not reach Out", () => {
+    const { session } = makeSession();
+    const r = session.commit([
+      {
+        op: 'addAsset',
+        asset: {
+          id: 'assets/loop.wav',
+          name: 'loop.wav',
+          mime: 'audio/wav',
+          bytes: 44,
+          hash: `sha256-${'e'.repeat(64)}`,
+        },
+      },
+      {
+        op: 'addNode',
+        node: { id: 'smp1', type: 'den.samplePlayer', config: { sound: 'assets/loop.wav' } },
+      },
+      { op: 'addNode', node: { id: 'g9', type: 'kit.gain' } },
+      { op: 'connect', from: { node: 'smp1', port: 'out' }, to: { node: 'g9', port: 'in' } },
+      { op: 'makePart', ids: ['smp1'], name: 'Loop', id: 'loop', node: 'loop1' },
+    ]);
+    if (!r.ok) throw r.error;
+    expect(session.soundAssets()).not.toContain('assets/loop.wav');
+    session.setSolo(['loop1']);
+    expect(session.soundAssets()).toEqual(['assets/loop.wav']);
+  });
 });
