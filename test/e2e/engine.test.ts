@@ -1,8 +1,10 @@
 // The audio engine in a real browser: create → sound → rewire → keeps sounding →
 // failure keeps the previous sound; plus what goes wrong (runaway feedback, a
-// codebox that never finishes building, a device at another rate).
+// codebox that never finishes building or tries to reach out, a device at another rate).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { Page } from 'playwright';
 import {
   openKit,
@@ -287,6 +289,132 @@ describe('audio engine', () => {
     assert.equal(status.status, 'error');
     assert.match(status.message, /nothing reachable/);
     assert.equal(await kit(page, k => k.engine.currentHash), before);
+    await page.close();
+  });
+
+  it("a codebox's code reaches no network while the sound is built, whatever code it evaluates", async () => {
+    // A server that records every request; the codebox tries every way out of the worker it has.
+    const reached: string[] = [];
+    // And den-kit's own server, which records the requests marked as the codebox's before it
+    // handles them: the AI bridge it passes requests to, and files of the checkout.
+    const local: string[] = [];
+    const recorder = {
+      route: '',
+      handle: (req: { url?: string }, _res: unknown, next: () => void) => {
+        if (req.url?.includes('codebox-probe')) local.push(req.url);
+        next();
+      },
+    };
+    h.server.middlewares.stack.unshift(recorder);
+    const record = createServer((req, res) => {
+      reached.push(req.url ?? '');
+      res.writeHead(200, {
+        'content-type': 'text/javascript',
+        'access-control-allow-origin': '*',
+        'cross-origin-resource-policy': 'cross-origin',
+      });
+      res.end('export {};');
+    });
+    record.on('upgrade', (req, socket) => {
+      reached.push(req.url ?? '');
+      socket.destroy();
+    });
+    await new Promise<void>(resolve => record.listen(0, '127.0.0.1', resolve));
+    const at = `127.0.0.1:${(record.address() as AddressInfo).port}`;
+    try {
+      const { page } = await ready();
+      const tries = String.raw`
+const g = globalThis as unknown as Record<string, any>;
+const http = 'http://${at}';
+const settle = (p: any) => void p?.then?.(undefined, () => undefined);
+settle(import(http + '/import'));
+settle((0, eval)("import('" + http + "/eval')"));
+settle(new Function("return import('" + http + "/function')")());
+settle((async () => {}).constructor("return import('" + http + "/async-function')")());
+g.setTimeout("import('" + http + "/timer')", 0);
+settle((0, eval)("import('data:text/javascript,import \"" + http + "/data-module\"')"));
+settle((0, eval)("import(URL.createObjectURL(new Blob(['import \"" + http + "/blob-module\"'], { type: 'text/javascript' })))"));
+settle(new g.FontFace('probe', 'url(' + http + '/font)').load());
+try { settle(new g.WebSocketStream('ws://${at}/socket').opened); } catch {}
+settle((0, eval)("import('/__kit/token?codebox-probe')"));
+settle((0, eval)("import('/package.json?import&codebox-probe')"));
+settle((0, eval)("import('/package.json?codebox-probe', { with: { type: 'json' } })"));`;
+      await kit(
+        page,
+        new Function(
+          'k',
+          `return k.commit(${JSON.stringify([
+            {
+              op: 'addNode',
+              node: {
+                id: 'box1',
+                type: 'kit.codebox',
+                code: `import { defineSubgraph, type Node } from '@unworklet/core';\nexport default defineSubgraph(() => {${tries}\nif (Date.now() > 0) throw new Error('tried every way out'); return { tick(i: { in: Node<'f32'> }) { return { out: i.in }; } }; });`,
+              },
+            },
+            {
+              op: 'connect',
+              from: { node: 'gain1', port: 'out' },
+              to: { node: 'box1', port: 'in' },
+            },
+            {
+              op: 'connect',
+              from: { node: 'box1', port: 'out' },
+              to: { node: 'out1', port: 'left' },
+              replace: true,
+            },
+          ])})`,
+        ) as (k: any) => unknown,
+      );
+      const status = await waitCompiled(page, 30000);
+      assert.equal(status.status, 'error');
+      assert.match(status.message, /tried every way out/);
+      // What the code started settles after the build; give it time to arrive.
+      await page.waitForTimeout(2000);
+      assert.deepEqual(reached, []);
+      assert.deepEqual(local, []);
+      await page.close();
+    } finally {
+      record.close();
+      h.server.middlewares.stack.splice(h.server.middlewares.stack.indexOf(recorder), 1);
+    }
+  });
+
+  it("a compile worker without the host's policy runs no codebox's code", async () => {
+    const { page } = await ready();
+    // The compile worker started from a blob takes the page's policies, not its own.
+    const reply = await page.evaluate(async script => {
+      const { default: url } = await import(script);
+      const blob = new Blob([`import ${JSON.stringify(new URL(url, location.href).href)};`], {
+        type: 'text/javascript',
+      });
+      const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+      const data = await new Promise<{ error?: { message: string; issues: unknown[] } }>(
+        resolve => {
+          worker.onmessage = e => {
+            if (!('phase' in e.data)) resolve(e.data);
+          };
+          worker.postMessage({
+            id: 1,
+            hash: 'unguarded',
+            source: 'export default 1;',
+            nodes: ['box1'],
+            codeboxes: [{ node: 'box1', code: '', inputs: [], outputs: [], line: 1 }],
+          });
+        },
+      );
+      worker.terminate();
+      return data;
+    }, '/src/sound/compile/compiler.worker.ts?worker&url');
+    assert.match(reply.error?.message ?? '', /cannot keep their code off the network/);
+    assert.deepEqual(reply.error?.issues, [
+      {
+        severity: 'error',
+        code: 'codebox-isolation',
+        node: 'box1',
+        message: reply.error?.message,
+      },
+    ]);
     await page.close();
   });
 
