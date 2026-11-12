@@ -199,6 +199,29 @@ try {
     false,
     'The ordinary app menu must not expose developer tools.',
   );
+  // Help → Licenses shows the app's licenses.html in a window of its own.
+  await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()
+      ?.items.find(item => item.role === 'help')
+      ?.submenu?.items.find(item => item.label === 'Licenses')
+      ?.click(),
+  );
+  const licenses = await app.evaluate(async ({ BrowserWindow }) => {
+    for (let tries = 0; tries < 100; tries++) {
+      const window = BrowserWindow.getAllWindows().find(w =>
+        w.webContents.getURL().endsWith('/licenses.html'),
+      );
+      if (window?.isVisible() && !window.webContents.isLoading()) {
+        const title = window.getTitle();
+        window.close();
+        return { title };
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return null;
+  });
+  assert.deepEqual(licenses, { title: 'Licenses' });
+  console.log(JSON.stringify({ licenses }));
   await page.keyboard.press('Escape');
   if (await page.locator('[data-testid=start-overlay]').count())
     await page.click('[data-testid=start-overlay]');

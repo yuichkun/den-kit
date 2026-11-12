@@ -9,6 +9,7 @@ import {
   isCompileWorkerScript,
   WORKER_SCRIPTS,
 } from './src/sound/compile/worker-policy.ts';
+import { bundledPackages } from './scripts/licenses.ts';
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -168,6 +169,13 @@ function kitVirtual(): Plugin {
   };
 }
 
+/**
+ * The packages this build bundles, for the desktop app's license notices (scripts/licenses.ts), with
+ * the two whose files kitVirtual puts in as text: TypeScript's lib files, and @unworklet/core's types
+ * and worklet runtime.
+ */
+const packages = bundledPackages(kit, ['typescript', '@unworklet/core']);
+
 const alias = [
   // See src/sound/compile/wavefile-default.ts (needed by @unworklet/offline in the render worker).
   { find: /^wavefile$/, replacement: join(kit, 'src/sound/compile/wavefile-default.ts') },
@@ -185,9 +193,10 @@ export default defineConfig({
     builtPlayer(),
     compileWorkerHeaders(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
+    packages.plugin(),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
-  worker: { format: 'es', plugins: () => [kitVirtual()] },
+  worker: { format: 'es', plugins: () => [kitVirtual(), packages.worker()] },
   server: {
     port: Number(process.env.KIT_PORT ?? 5180),
     strictPort: true,

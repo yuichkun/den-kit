@@ -5,8 +5,11 @@ import { defineConfig } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bundledPackages } from './scripts/licenses.ts';
 
 const kit = dirname(fileURLToPath(import.meta.url));
+// The packages the player bundles, for the desktop app's license notices (scripts/licenses.ts).
+const packages = bundledPackages(kit);
 
 export default defineConfig({
   root: kit,
@@ -15,9 +18,10 @@ export default defineConfig({
   publicDir: false,
   plugins: [
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
+    packages.plugin(),
   ],
   resolve: { dedupe: ['@unworklet/core'] },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [packages.worker()] },
   build: {
     outDir: join(kit, 'dist/player'),
     emptyOutDir: true,

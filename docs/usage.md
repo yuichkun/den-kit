@@ -24,6 +24,9 @@ saved first. The app never restarts on its own and does not offer **Restart now*
 an AI request. Updates install only when den-kit is in the Applications folder; anywhere
 else, the app offers to move itself there.
 
+**Help** → **Licenses** shows den-kit's license and the licenses of the software it
+includes.
+
 ## Basic workflow
 
 1. Choose an example on the start screen, or open a new work.
