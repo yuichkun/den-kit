@@ -3,6 +3,16 @@
 Each release pull request adds a dated version section here (`## X.Y.Z — YYYY-MM-DD`);
 [RELEASE.md](RELEASE.md#prepare-a-release) says where its entries come from.
 
+## 0.2.1 — 2026-11-12
+
+- **Help** → **Licenses** shows den-kit's license and the licenses of the software it
+  includes.
+- Code in a codebox can no longer reach the network while the sound is built. Codeboxes
+  that only make sound compile and play as before.
+- den-kit runs on Electron 44.11.1. Its built-in Chromium and Node.js block the
+  compromised eMudhra intermediate certificates, and it has the latest Chromium security
+  fixes.
+
 ## 0.2.0 — 2026-11-11
 
 A rebuilt den-kit with a new look. Works and My parts from 0.1 are not carried over, and
