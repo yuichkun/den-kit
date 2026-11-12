@@ -532,9 +532,7 @@ export class PodSession {
             },
           });
         else {
-          // A copy of one of the work's assets (or one moved) comes from where that one came from.
-          const copied = Object.values(stored).find(a => a.hash === asset.hash);
-          const source = copied ? copied.source : MADE_IN_PROJECT;
+          const source = await this.sourceOf(asset, stored);
           intents.push({ op: 'addAsset', asset: { ...asset, ...(source ? { source } : {}) } });
         }
       }
@@ -667,38 +665,52 @@ export class PodSession {
         files[path] = null;
         this.known.delete(path);
       }
-    // The changed and new assets' contents, checked as a file added by hand is and kept; the work's limits hold.
-    const contents = await this.readBytes([...changed, ...made]);
+    // The changed and new assets' contents, checked as a file added by hand is and kept. Their sizes come first:
+    // a file is read, one at a time, only while the work stays within its limits with it.
+    const sizes = await this.sizes([...changed, ...made]);
     const next: Record<string, WorkFile> = { ...doc.files };
     for (const [path, text] of Object.entries(files))
       if (text === null) delete next[path];
       else next[path] = { text };
     for (const path of removed) if (assets.has(path)) delete next[path];
-    const keep = async (path: string): Promise<AssetMeta | string> => {
-      const got = contents.get(path);
-      if (got === undefined) return `${path} could not be read.`;
-      if (typeof got === 'number') return fileTooLarge(path, got)!;
-      let asset: AssetMeta;
+    const keep = async (path: string, read?: Uint8Array | null): Promise<AssetMeta | string> => {
+      const size = sizes.get(path);
+      if (size === undefined) return `${path} could not be read.`;
+      const large = fileTooLarge(path, size);
+      if (large) return large;
+      // Counted as new contents until they are read.
+      const was = next[path];
+      const back = () => {
+        if (was) next[path] = was;
+        else delete next[path];
+      };
+      next[path] = { hash: `unread:${path}`, bytes: size, type: 'application/octet-stream' };
+      const over = overLimits(next);
+      if (over) {
+        back();
+        return over;
+      }
+      const bytes = read === undefined ? await this.readBytes(path) : read;
+      if (!bytes) {
+        back();
+        return `${path} could not be read.`;
+      }
       try {
-        asset = await this.session.assets.keep(path, got);
+        const asset = await this.session.assets.keep(path, bytes);
+        next[path] = assetFile(asset);
+        return asset;
       } catch (error) {
+        back();
         return error instanceof Error ? error.message : String(error);
       }
-      const was = next[path];
-      next[path] = assetFile(asset);
-      const over = overLimits(next);
-      if (!over) return asset;
-      if (was) next[path] = was;
-      else delete next[path];
-      return over;
     };
     // A changed one the sound plays stays as it is: the sound changes on the patch, by reading another file.
     const sounding = new Set(changed.length ? this.session.soundAssets() : []);
     const unchanged: string[] = [];
     for (const path of changed) {
-      const got = contents.get(path);
-      if (got instanceof Uint8Array && (await sha256(got)) === stored[path]!.hash) {
-        // The same contents again (a file touched or written over): nothing to keep.
+      // As large as before: perhaps the same contents again (a file touched or written over), and nothing to keep.
+      const read = sizes.get(path) === stored[path]!.bytes ? await this.readBytes(path) : undefined;
+      if (read && (await sha256(read)) === stored[path]!.hash) {
         unchanged.push(path);
         continue;
       }
@@ -710,7 +722,7 @@ export class PodSession {
         );
         continue;
       }
-      const asset = await keep(path);
+      const asset = await keep(path, read);
       if (typeof asset !== 'string') assets.set(path, asset);
       else {
         restore.push(path);
@@ -947,30 +959,62 @@ export class PodSession {
   }
 
   /**
-   * Files of the project as bytes (the pod reads files back as text: each comes as base64, one per line, through
-   * den-kit's own folder of the pod's home); a file larger than a work may hold comes as its size alone.
+   * Where an asset a command made comes from: a copy of one of the work's assets (or one moved) comes from where
+   * that one came from (none, if it records none); anything else, from a command in the project.
    */
-  private async readBytes(paths: readonly string[]): Promise<Map<string, Uint8Array | number>> {
-    const out = new Map<string, Uint8Array | number>();
-    if (!paths.length) return out;
-    const host = this.host!;
-    const listing = `${host.home}/.den-kit/read-back.txt`;
-    const dump = await host.run(
-      `mkdir -p "${host.home}/.den-kit" && for f in ${paths.map(q).join(' ')}; do [ -f "$f" ] || continue; n=$(wc -c < "$f" | tr -d ' '); printf '%s\\t%s\\t' "$f" "$n"; [ "$n" -gt ${WORK_LIMITS.fileBytes} ] || base64 < "$f" | tr -d '\\n'; printf '\\n'; done > "${listing}"`,
-      { cwd: this.projectDir, timeoutMs: 120_000 },
-    );
-    const text = dump.exitCode === 0 ? await host.readFile(listing) : null;
-    await host.run(`rm -f "${listing}"`, { cwd: this.projectDir, timeoutMs: 10_000 });
-    for (const line of text?.split('\n') ?? []) {
-      const [path, size, data = ''] = line.split('\t');
-      if (!path || !size) continue;
-      const n = Number(size);
-      out.set(
-        path,
-        n > WORK_LIMITS.fileBytes ? n : Uint8Array.from(atob(data), c => c.charCodeAt(0)),
-      );
+  private async sourceOf(
+    asset: AssetMeta,
+    stored: Readonly<Record<string, AssetMeta>>,
+  ): Promise<FileSource | undefined> {
+    for (const other of Object.values(stored)) {
+      // A file den-kit ships has no hash in the work: its contents tell.
+      const same = other.hash
+        ? other.hash === asset.hash
+        : other.bytes === asset.bytes &&
+          (await sha256((await this.session.assets.read(other)) ?? new Uint8Array())) ===
+            asset.hash;
+      if (same) return other.source;
     }
-    return out;
+    return MADE_IN_PROJECT;
+  }
+
+  /**
+   * Run a command whose output goes to a file in den-kit's own folder of the pod's home (outside the project), and
+   * read that file back: command output comes trimmed, and only its end when it is long.
+   */
+  private async through(command: (out: string) => string): Promise<string | null> {
+    const host = this.host!;
+    const out = `${host.home}/.den-kit/read-back.txt`;
+    const r = await host.run(`mkdir -p "${host.home}/.den-kit" && ${command(`"${out}"`)}`, {
+      cwd: this.projectDir,
+      timeoutMs: 120_000,
+    });
+    const text = r.exitCode === 0 ? await host.readFile(out) : null;
+    await host.run(`rm -f "${out}"`, { cwd: this.projectDir, timeoutMs: 10_000 });
+    return text;
+  }
+
+  /** The sizes in bytes of files of the project (one that is not there is left out). */
+  private async sizes(paths: readonly string[]): Promise<Map<string, number>> {
+    const sizes = new Map<string, number>();
+    if (!paths.length) return sizes;
+    const text = await this.through(
+      out =>
+        `for f in ${paths.map(q).join(' ')}; do [ -f "$f" ] && printf '%s\\t%s\\n' "$f" "$(wc -c < "$f" | tr -d ' ')"; done > ${out}; true`,
+    );
+    for (const line of text?.split('\n') ?? []) {
+      const [path, size] = line.split('\t');
+      if (path && size && /^\d+$/.test(size)) sizes.set(path, Number(size));
+    }
+    return sizes;
+  }
+
+  /** A file of the project as bytes (the pod reads files back as text: it comes as base64), or null. */
+  private async readBytes(path: string): Promise<Uint8Array | null> {
+    const text = await this.through(
+      out => `set -o pipefail; [ -f ${q(path)} ] && base64 < ${q(path)} | tr -d '\\n' > ${out}`,
+    );
+    return text === null ? null : Uint8Array.from(atob(text.trim()), c => c.charCodeAt(0));
   }
 
   /** The project holds `doc`'s files: what den-kit last wrote or read back is theirs, and no command's changes wait to be read. */

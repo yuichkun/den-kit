@@ -2,8 +2,9 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sha256, textFiles } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
@@ -27,7 +28,11 @@ import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { LlmWorkspace } from '../../src/ai/llm-workspace.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 import { kitFiles } from '../../src/screen/kit-files.ts';
+import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
 import { throughSandbox } from '../helpers/sandboxed.ts';
+
+/** Where den-kit serves the files it ships (public/). */
+const PUBLIC = fileURLToPath(new URL('../../public', import.meta.url));
 
 /** Just what the pod session uses of the editor's session: the document, commit, the assets' contents and what the sound reads. */
 function session(start: PatchDocument) {
@@ -42,7 +47,10 @@ function session(start: PatchDocument) {
     contents,
     steps,
     assets: {
-      read: async (asset: AssetMeta) => contents.get(asset.hash ?? '') ?? (await store.read(asset)),
+      read: async (asset: AssetMeta) =>
+        contents.get(asset.hash ?? '') ??
+        (asset.url ? new Uint8Array(readFileSync(join(PUBLIC, asset.url))) : null) ??
+        (await store.read(asset)),
       keep: (path: string, bytes: Uint8Array) => store.keep(path, bytes),
     },
     soundAssets: () =>
@@ -688,6 +696,55 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     ).toContain('here');
     expect((await keep()).changes).toEqual({});
     expect(kit.steps.length).toBe(steps + 1);
+  }, 120_000);
+
+  it("a copy of one of the work's assets keeps where that one came from, a file den-kit ships included", async () => {
+    const knob = SHOWCASE_ASSETS['assets/den-kit/brass-knob.svg']!;
+    expect(kit.commit([{ op: 'addAsset', asset: knob }]).ok).toBe(true);
+    await settle(800);
+    await pod.bash(
+      'cp assets/den-kit/brass-knob.svg assets/knob-copy.svg && cp assets/logo.svg assets/logo-copy.svg',
+      { who: 'ai' },
+    );
+    expect((await keep()).changes).toEqual({
+      'assets/knob-copy.svg': 'new',
+      'assets/logo-copy.svg': 'new',
+    });
+    const assets = assetsOf(kit.doc.value.files);
+    expect(assets['assets/knob-copy.svg']!.source).toEqual(knob.source);
+    expect(assets['assets/logo-copy.svg']!.source).toEqual({ title: 'Logo', license: 'CC0' });
+  }, 120_000);
+
+  it('refuses an asset that would take the work over its limits, without reading its contents', async () => {
+    // Assets whose contents are not here make the work hold 490 MB (it holds at most 500 MB).
+    const mb = 1024 * 1024;
+    expect(
+      kit.commit(
+        [100, 100, 100, 100, 90].map((size, i): Intent => ({
+          op: 'addAsset',
+          asset: {
+            id: `assets/fill${i}.bin`,
+            name: `fill${i}.bin`,
+            mime: 'application/octet-stream',
+            bytes: size * mb,
+            hash: `sha256-${String(i + 1).repeat(64)}`,
+          },
+        })),
+      ).ok,
+    ).toBe(true);
+    await settle(800);
+    const reads = () => fake.commands.filter(c => c.includes("base64 < 'assets/big.bin'")).length;
+    await pod.bash(`head -c ${12 * mb} /dev/zero > assets/big.bin`, { who: 'ai' });
+    expect(await keep()).toEqual({
+      changes: {},
+      skipped: [
+        "assets/big.bin (A work's files hold at most 500 MB — den-kit took it out of the project)",
+      ],
+    });
+    expect(reads()).toBe(0);
+    expect(await pod.readFile('assets/big.bin')).toBeNull();
+    kit.undo();
+    await settle(800);
   }, 120_000);
 });
 
