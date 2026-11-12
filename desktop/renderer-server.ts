@@ -1,10 +1,15 @@
 // den-kit's built page on the app's local server: only for 127.0.0.1 on the app's
 // port, cross-origin isolated (COOP, COEP), with frames only from the works'
-// sandbox origins.
+// sandbox origins, and the compile worker's script with its own policy.
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import {
+  compileWorkerPolicy,
+  isCompileWorkerScript,
+  WORKER_SCRIPTS,
+} from '../src/sound/compile/worker-policy.ts';
 
 /** Normal profiles keep a fixed origin; isolated checks can coexist with an open user app. */
 export function appPort(env: NodeJS.ProcessEnv = process.env): number {
@@ -69,8 +74,11 @@ export function rendererServer(root: string) {
         'content-length': size,
         'cross-origin-opener-policy': 'same-origin',
         'cross-origin-embedder-policy': 'require-corp',
-        // Frames come only from the works' sandbox origins (desktop/sandbox.ts).
-        'content-security-policy': `frame-src http://*.localhost:${APP_PORT}`,
+        // Frames come only from the works' sandbox origins (desktop/sandbox.ts); the
+        // compile worker's script has its own policy (src/sound/compile/worker-policy.ts).
+        'content-security-policy': isCompileWorkerScript(name)
+          ? compileWorkerPolicy(APP_ORIGIN, WORKER_SCRIPTS.build)
+          : `frame-src http://*.localhost:${APP_PORT}`,
         'x-content-type-options': 'nosniff',
         'cache-control': 'no-cache',
       });

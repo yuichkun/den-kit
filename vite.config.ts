@@ -4,8 +4,14 @@ import vue from '@vitejs/plugin-vue';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from 'vite-plus/test/browser-playwright';
 import { THEMES } from './src/work/schema.ts';
+import {
+  compileWorkerPolicy,
+  isCompileWorkerScript,
+  WORKER_SCRIPTS,
+} from './src/sound/compile/worker-policy.ts';
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -105,6 +111,30 @@ function builtPlayer(): Plugin {
   };
 }
 
+/** The compile worker's script with its Content Security Policy (src/sound/compile/worker-policy.ts). */
+function compileWorkerHeaders(): Plugin {
+  const policy =
+    (paths: readonly string[]) => (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+      if (isCompileWorkerScript(new URL(req.url ?? '/', 'http://x').pathname)) {
+        const scheme = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
+        res.setHeader(
+          'content-security-policy',
+          compileWorkerPolicy(`${scheme}://${req.headers.host}`, paths),
+        );
+      }
+      next();
+    };
+  return {
+    name: 'den-kit-compile-worker-headers',
+    configureServer(server) {
+      server.middlewares.use(policy(WORKER_SCRIPTS.development));
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(policy(WORKER_SCRIPTS.build));
+    },
+  };
+}
+
 function kitVirtual(): Plugin {
   let serving = false;
   return {
@@ -153,6 +183,7 @@ export default defineConfig({
   plugins: lazyPlugins(() => [
     kitVirtual(),
     builtPlayer(),
+    compileWorkerHeaders(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
