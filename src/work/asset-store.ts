@@ -77,16 +77,22 @@ export class AssetStore {
         `"${file.name ?? 'file'}" is larger than ${MAX_ASSET_BYTES / 1024 / 1024} MB.`,
       );
     const path = freeAssetPath(file.name ?? 'file', taken);
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    return this.keep(path, new Uint8Array(await file.arrayBuffer()), file.name ?? 'file');
+  }
+
+  /**
+   * Check contents for an asset at `path` as a file added by hand is checked, keep them, and describe the asset they
+   * make (refused: too large, or not what the path's name says). `name` is what a refusal calls the file.
+   */
+  async keep(path: string, bytes: Uint8Array, name = path.split('/').at(-1)!): Promise<AssetMeta> {
     const checked = await checkFile(path, bytes, sha256, { content: true });
     if (!checked.ok) throw new AssetError(checked.reason);
     const { type, as } = typeOfPath(path);
-    const size = as === 'image' ? await imageSize(new Blob([bytes], { type }), type) : {};
+    const size =
+      as === 'image' ? await imageSize(new Blob([bytes as BlobPart], { type }), type) : {};
     // A picture the browser cannot decode would only ever show as a gap: say so instead of keeping it.
     if (as === 'image' && type !== 'image/svg+xml' && !size.width)
-      throw new AssetError(
-        `"${file.name ?? 'file'}" could not be read as a picture (the file may be damaged).`,
-      );
+      throw new AssetError(`"${name}" could not be read as a picture (the file may be damaged).`);
     const hash = await this.put(bytes);
     return {
       id: path,

@@ -156,6 +156,12 @@ export type Intent =
   | { op: 'setPanelSize'; width: number; height: number }
   | { op: 'addAsset'; asset: AssetMeta }
   | { op: 'updateAsset'; id: string; set: { name?: string; source?: AssetMeta['source'] | null } }
+  /** Put other contents in an asset's place; its path, type, source and licence stay. */
+  | {
+      op: 'replaceAsset';
+      id: string;
+      contents: { hash: string; bytes: number; width?: number; height?: number };
+    }
   | { op: 'removeAsset'; id: string }
   | { op: 'setUnderlay'; underlay: Underlay | null }
   /** The design brief (null or empty removes it). */
@@ -1113,6 +1119,27 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
         draft.apply({ op: 'setFile', path: asset.id, from: draft.doc.files[asset.id], to: file });
       return;
     }
+    case 'replaceAsset': {
+      const old = assetsOf(draft.doc.files)[intent.id];
+      if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
+      const c = intent.contents;
+      if (!c || typeof c !== 'object')
+        fail('bad-intent', 'contents is {hash, bytes} and, for a picture, {width, height}.');
+      // A file den-kit shipped (at a url) becomes the work's own contents.
+      const { hash: _hash, url: _url, width: _width, height: _height, ...kept } = old!;
+      const asset = checkAsset({
+        ...kept,
+        hash: c.hash,
+        bytes: c.bytes,
+        ...(c.width !== undefined ? { width: c.width } : {}),
+        ...(c.height !== undefined ? { height: c.height } : {}),
+      });
+      const file = assetFile(asset);
+      if (JSON.stringify(file) === JSON.stringify(draft.doc.files[asset.id])) return;
+      checkWorkSize(draft, asset.id, file);
+      draft.apply({ op: 'setFile', path: asset.id, from: draft.doc.files[asset.id], to: file });
+      return;
+    }
     case 'removeAsset': {
       const old = assetsOf(draft.doc.files)[intent.id];
       if (!old) fail('unknown-asset', `No asset "${intent.id}".`);
@@ -1265,7 +1292,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       fail(
         'bad-intent',
         `Unknown op "${(intent as { op?: unknown }).op}".`,
-        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
+        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, replaceAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
       );
   }
 }

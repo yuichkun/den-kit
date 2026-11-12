@@ -582,6 +582,92 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
       ],
     ).toBeUndefined();
   });
+  it("replaceAsset puts other contents in an asset's place: its path, type, source and licence stay, and it undoes", () => {
+    const doc = base();
+    const other = `sha256-${'c'.repeat(64)}`;
+    const r = undoes(doc, {
+      op: 'replaceAsset',
+      id: 'assets/wood.jpg',
+      contents: { hash: other, bytes: 2000, width: 32, height: 16 },
+    });
+    expect(r.ops).toEqual([expect.objectContaining({ op: 'setFile', path: 'assets/wood.jpg' })]);
+    expect(assetsOf(r.doc.files)['assets/wood.jpg']).toEqual({
+      ...wood,
+      hash: other,
+      bytes: 2000,
+      width: 32,
+      height: 16,
+    });
+    // The same contents again is nothing.
+    expect(
+      apply(doc, {
+        op: 'replaceAsset',
+        id: 'assets/wood.jpg',
+        contents: { hash: wood.hash!, bytes: wood.bytes, width: 64, height: 64 },
+      }).ops,
+    ).toEqual([]);
+    // A file den-kit shipped becomes the work's own contents.
+    const shipped = apply(doc, {
+      op: 'addAsset',
+      asset: {
+        id: 'assets/knob.svg',
+        name: 'knob.svg',
+        mime: 'image/svg+xml',
+        bytes: 6649,
+        width: 200,
+        height: 200,
+        url: '/showcase/brass-knob.svg',
+        source: { title: 'Brass knob, drawn in SVG' },
+      },
+    }).doc;
+    expect(
+      assetsOf(
+        apply(shipped, {
+          op: 'replaceAsset',
+          id: 'assets/knob.svg',
+          contents: { hash: other, bytes: 700, width: 100, height: 100 },
+        }).doc.files,
+      )['assets/knob.svg'],
+    ).toEqual({
+      id: 'assets/knob.svg',
+      name: 'knob.svg',
+      mime: 'image/svg+xml',
+      bytes: 700,
+      width: 100,
+      height: 100,
+      hash: other,
+      source: { title: 'Brass knob, drawn in SVG' },
+    });
+    const replace = (id: string, contents: { hash: string; bytes: number }) =>
+      failure(() => apply(doc, { op: 'replaceAsset', id, contents })).code;
+    expect(replace('assets/none.jpg', { hash: other, bytes: 10 })).toBe('unknown-asset');
+    expect(replace('assets/wood.jpg', { hash: 'sha256-nope', bytes: 10 })).toBe('bad-asset');
+    expect(replace('assets/wood.jpg', { hash: other, bytes: 9e9 })).toBe('too-large');
+    // The work's files stay within its limits (500 MB together).
+    const mb = 1024 * 1024;
+    const full = apply(
+      doc,
+      ...[100, 100, 100, 100, 99].map((size, i): Intent => ({
+        op: 'addAsset',
+        asset: {
+          id: `assets/big${i}.bin`,
+          name: `big${i}.bin`,
+          mime: 'application/octet-stream',
+          bytes: size * mb,
+          hash: `sha256-${String(i).repeat(64)}`,
+        },
+      })),
+    ).doc;
+    expect(
+      failure(() =>
+        apply(full, {
+          op: 'replaceAsset',
+          id: 'assets/wood.jpg',
+          contents: { hash: other, bytes: 2 * mb },
+        }),
+      ).code,
+    ).toBe('too-large');
+  });
   it('the underlay is a picture asset with an opacity, shown only while editing', () => {
     const r = undoes(base(), {
       op: 'setUnderlay',

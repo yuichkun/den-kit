@@ -935,6 +935,14 @@ export class KitSession {
     this.scheduleCompile();
   }
 
+  /** The paths of the assets the work's sound reads, as its patch is now (soloed or not): each sampler's sound and each asset a codebox reads. */
+  soundAssets(): string[] {
+    const doc = this.doc.value;
+    return currentAssets(doc, catalog, generate(doc, catalog)).flatMap(({ path }) =>
+      path ? [path] : [],
+    );
+  }
+
   /** What the sound's asset slots hold: each sampler's sound and each asset a codebox reads. */
   private assetLoads(): AssetLoad[] {
     const files = this.doc.value.files;

@@ -90,8 +90,9 @@ patch is compiled, codebox code included, in a disposable worker, and the result
 running audio with a short crossfade. The agent runtime runs in the host and reaches the work
 only through den-kit's tools, which run in the page: each edit to the patch or the plugin
 screen is tried on a copy of the work, checked and compiled, and lands only if it passes,
-while files the AI writes or its commands change land as they are. Undo goes back one step
-at a time, and a step can hold many operations; `src/work/history.ts` says which.
+while files the AI writes or its commands change land as they are, assets once checked.
+Undo goes back one step at a time, and a step can hold many operations;
+`src/work/history.ts` says which.
 
 `sound` and `screen` do not import each other, and the parameters are the only values they
 share. The entry that starts them also connects two streams that do not go through the
@@ -137,10 +138,11 @@ the sound to `screen`.
 - An asset can be any file: images, including HDR, 3D models, audio, video, fonts or data.
   den-kit reads only what its own features use: images, fonts and video on the plugin
   screen, and audio in `sound`. Code in a work reads anything else.
-- People and the AI add assets, and each addition is an operation; commands in the workspace
-  change only text files. The
-  host fetches a file from a URL, and den-kit checks the type and size before the file
-  becomes an asset. An asset records where it came from and its license.
+- People and the AI add assets, and each addition is an operation. den-kit checks a file's
+  type and size before it becomes an asset, whether a person adds it, the host fetches it
+  from a URL or a command in the workspace makes it. A command may also replace an asset's
+  contents or remove it, but not change an asset the sound reads: the sound changes only on
+  the patch. An asset records where it came from and its license.
 - The plugin screen refers to assets by path. A code part gets their URLs from the kit,
   served from the code part's own origin so that ordinary loaders work, and can also import
   them when it is built. den blocks take audio assets through asset parameters. A codebox reads
@@ -196,7 +198,8 @@ the sound to `screen`.
 
 - `workspace` keeps a working copy of the work's files in a workspace, installs packages,
   builds code parts, runs their dev server, and runs commands for the person and the AI.
-  Changed text files return to the work as operations made by whoever ran the command; the record
+  What a command changes returns to the work as operations made by whoever ran it, in one
+  step: text files, and assets once checked; other files stay in the workspace. The record
   stays in the work.
 - Each work has its own workspace, so no work reaches another's files or installed packages.
   The workspace reaches the network only while den-kit installs packages, with install

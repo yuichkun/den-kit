@@ -195,6 +195,16 @@ const CASES: Record<Intent['op'], Case> = {
     ok: () => [{ op: 'updateAsset', id: 'assets/dot.png', set: { source: { license: 'CC0' } } }],
     bad: () => [{ op: 'updateAsset', id: 'assets/none.png', set: { source: null } }],
   },
+  replaceAsset: {
+    ok: () => [
+      {
+        op: 'replaceAsset',
+        id: 'assets/dot.png',
+        contents: { hash: `sha256-${'f'.repeat(64)}`, bytes: 12 },
+      },
+    ],
+    bad: () => [{ op: 'replaceAsset', id: 'assets/none.png', contents: { hash: HASH, bytes: 12 } }],
+  },
   removeAsset: {
     ok: () => [{ op: 'removeAsset', id: 'assets/dot.png' }],
     bad: () => [{ op: 'removeAsset', id: 'assets/none.png' }],
