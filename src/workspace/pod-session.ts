@@ -513,14 +513,17 @@ export class PodSession {
       const base = textFiles(doc.files);
       const stored = assetsOf(doc.files);
       const changes: Record<string, FileChange> = {};
-      const intents: Intent[] = [];
+      // Removed assets go first: what lands after them may need the room they free (readBack counted it so).
+      const intents: Intent[] = [...assets]
+        .filter(([, asset]) => !asset)
+        .map(([path]): Intent => ({ op: 'removeAsset', id: path }));
       if (Object.keys(files).length) intents.push({ op: 'setProjectFiles', files });
       for (const [path, text] of Object.entries(files))
         changes[path] = text === null ? 'deleted' : path in base ? 'changed' : 'new';
       for (const [path, asset] of assets) {
         changes[path] = !asset ? 'deleted' : stored[path] ? 'changed' : 'new';
-        if (!asset) intents.push({ op: 'removeAsset', id: path });
-        else if (stored[path])
+        if (!asset) continue;
+        if (stored[path])
           intents.push({
             op: 'replaceAsset',
             id: path,

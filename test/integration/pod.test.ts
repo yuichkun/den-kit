@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sha256, textFiles } from '../../src/work/files.ts';
+import { WORK_LIMITS, sha256, textFiles, totalBytes } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/sound/blocks/index.ts';
@@ -744,6 +744,44 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(reads()).toBe(0);
     expect(await pod.readFile('assets/big.bin')).toBeNull();
     kit.undo();
+    await settle(800);
+  }, 120_000);
+
+  it('lets a command make room in a full work: what it removes goes first, so the files it adds fit', async () => {
+    const mb = 1024 * 1024;
+    // A stored asset nothing uses (1 MB), and assets whose contents are not here, fill the work to 100 KB below its limit.
+    const spare = new Uint8Array(mb).map((_, i) => i % 251);
+    const hash = await sha256(spare);
+    kit.contents.set(hash, spare);
+    const asset = (id: string, bytes: number, hash: string): Intent => ({
+      op: 'addAsset',
+      asset: { id, name: id.split('/').at(-1)!, mime: 'application/octet-stream', bytes, hash },
+    });
+    expect(kit.commit([asset('assets/spare.bin', spare.length, hash)]).ok).toBe(true);
+    const fill: Intent[] = [];
+    for (
+      let room = WORK_LIMITS.workBytes - totalBytes(kit.doc.value.files) - 100 * 1024;
+      room > 0;
+      room -= 100 * mb
+    )
+      fill.push(
+        asset(
+          `assets/fill${fill.length}.bin`,
+          Math.min(room, 100 * mb),
+          `sha256-${String(fill.length + 1).repeat(64)}`,
+        ),
+      );
+    expect(kit.commit(fill).ok).toBe(true);
+    await settle(800);
+    await pod.bash(
+      "rm assets/spare.bin && head -c 307200 /dev/zero | tr '\\0' a > notes.txt && head -c 307200 /dev/zero > assets/blank.bin",
+      { who: 'ai' },
+    );
+    expect(await keep()).toEqual({
+      changes: { 'assets/spare.bin': 'deleted', 'notes.txt': 'new', 'assets/blank.bin': 'new' },
+      skipped: [],
+    });
+    for (let i = 0; i < 3; i++) kit.undo();
     await settle(800);
   }, 120_000);
 });
