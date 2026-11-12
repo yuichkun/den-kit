@@ -3,6 +3,7 @@ import type { Plugin } from 'vite-plus';
 import vue from '@vitejs/plugin-vue';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from 'vite-plus/test/browser-playwright';
+import { THEMES as EDITOR_THEMES } from './src/editor/theme.ts';
 import { THEMES } from './src/work/schema.ts';
 import {
   compileWorkerPolicy,
@@ -241,15 +242,31 @@ export default defineConfig({
         extends: true,
         test: { name: 'unit', include: ['test/unit/**/*.test.ts'], environment: 'node' },
       },
-      // Every story of Storybook (.storybook) as a test, in Chromium: once in each base theme, or in
-      // the first alone when Storybook runs them (its test panel and tools run one project).
-      ...(process.env.VITEST_STORYBOOK === 'true' ? THEMES.slice(0, 1) : THEMES).map(theme => ({
-        plugins: [storybookTest({ configDir: join(kit, '.storybook'), initialGlobals: { theme } })],
+      // Every story of Storybook (.storybook) as a test, in Chromium: a control's once in each base
+      // theme, and those of den-kit's own screens (tagged editor) once in each of its themes. When
+      // Storybook runs them (its test panel and tools run one project), all of them run once, in
+      // the first base theme and den-kit's default theme.
+      ...(process.env.VITEST_STORYBOOK === 'true'
+        ? [{ name: 'stories', initialGlobals: { theme: THEMES[0] } }]
+        : [
+            ...THEMES.map(theme => ({
+              name: `stories-${theme}`,
+              initialGlobals: { theme },
+              tags: { exclude: ['editor'] },
+            })),
+            ...EDITOR_THEMES.map(({ id }) => ({
+              name: `stories-${id}`,
+              initialGlobals: { editorTheme: id },
+              tags: { include: ['editor'] },
+            })),
+          ]
+      ).map(({ name, ...run }) => ({
+        plugins: [storybookTest({ configDir: join(kit, '.storybook'), ...run })],
         // Another run (Storybook's) may hold the test port: take the next free one. `server`
         // above keeps only the editor to its own port.
         server: { strictPort: false },
         test: {
-          name: `stories-${theme}`,
+          name,
           browser: {
             enabled: true,
             headless: true,

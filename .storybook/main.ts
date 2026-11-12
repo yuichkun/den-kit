@@ -1,6 +1,7 @@
 // Storybook: the plugin's ready-made controls (src/screen/widgets), each skin in each base
-// theme, tried by hand and as tests (docs/development.md says how). It builds with its own
-// Vite config (vite.config.ts beside this file): den-kit's own serves the editor and the pod.
+// theme, and the main parts of den-kit's own screens (src/editor) in each of its themes, tried
+// by hand and as tests (docs/development.md says how). It builds with its own Vite config
+// (vite.config.ts beside this file): den-kit's own serves the editor and the pod.
 import type { StorybookConfig } from '@storybook/web-components-vite';
 
 const config: StorybookConfig = {
