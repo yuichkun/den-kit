@@ -11,69 +11,15 @@ import {
   WORKER_SCRIPTS,
 } from './src/sound/compile/worker-policy.ts';
 import { bundledPackages } from './scripts/licenses.ts';
-import { build } from 'esbuild';
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { compilerVirtualSource, denModules } from './scripts/compile-build.ts';
+export { denModules } from './scripts/compile-build.ts';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const kit = dirname(fileURLToPath(import.meta.url));
-const den = dirname(dirname(fileURLToPath(import.meta.resolve('@denaudio/den'))));
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
-
-/** Every public den entry, read from the root package exports (same source of truth as the playground). */
-export function denModules(): string[] {
-  const exports = JSON.parse(readFileSync(join(den, 'package.json'), 'utf8')).exports as Record<
-    string,
-    unknown
-  >;
-  return Object.keys(exports).map(key =>
-    key === '.' ? '@denaudio/den' : `@denaudio/den/${key.slice(2)}`,
-  );
-}
-
-let runtime: Promise<string> | undefined;
-function workletRuntime() {
-  runtime ??= build({
-    stdin: {
-      contents:
-        "import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet'; globalThis.__uwkMakeNs = makeWorkletNamespaceFromMeta;",
-      resolveDir: kit,
-    },
-    bundle: true,
-    write: false,
-    platform: 'browser',
-    format: 'iife',
-    target: 'es2022',
-    minify: true,
-  }).then(result => result.outputFiles[0]!.text);
-  return runtime;
-}
-
-/** Type declarations for codebox checking: @unworklet/core plus the ES libs (no DOM: codebox runs in the worklet). */
-function typeFiles() {
-  const files: Record<string, string> = {};
-  const core = realpathSync(join(kit, 'node_modules/@unworklet/core'));
-  const pkg = JSON.parse(readFileSync(join(core, 'package.json'), 'utf8'));
-  files['/project/node_modules/@unworklet/core/package.json'] = readFileSync(
-    join(core, 'package.json'),
-    'utf8',
-  );
-  for (const entry of readdirSync(join(core, 'dist')))
-    if (entry.endsWith('.d.mts'))
-      files[`/project/node_modules/@unworklet/core/dist/${entry}`] = readFileSync(
-        join(core, 'dist', entry),
-        'utf8',
-      );
-  const lib = join(kit, 'node_modules/typescript/lib');
-  for (const entry of readdirSync(lib))
-    if (/^lib\.(es\d{4}|es5|decorators)[\w.]*\.d\.ts$/.test(entry))
-      files[`/project/node_modules/typescript/lib/${entry}`] = readFileSync(
-        join(lib, entry),
-        'utf8',
-      );
-  return { files, packages: { '@unworklet/core': { version: pkg.version as string } } };
-}
 
 /**
  * The player den-kit puts in a work's playable build: its own build (vite.player.config.ts, made by vp run build),
@@ -149,16 +95,8 @@ function kitVirtual(): Plugin {
       if (id.startsWith('virtual:kit-')) return `\0${id}`;
     },
     async load(id) {
-      if (id === '\0virtual:kit-modules') {
-        const modules = ['@unworklet/core', ...denModules()];
-        return (
-          modules.map((name, i) => `import * as m${i} from ${JSON.stringify(name)};`).join('\n') +
-          `\nexport default {${modules.map((name, i) => `${JSON.stringify(name)}:m${i}`).join(',')}};`
-        );
-      }
-      if (id === '\0virtual:kit-runtime')
-        return `export default ${JSON.stringify(await workletRuntime())};`;
-      if (id === '\0virtual:kit-types') return `export default ${JSON.stringify(typeFiles())};`;
+      const compiler = await compilerVirtualSource(id);
+      if (compiler !== null) return compiler;
       // Set by scripts/dev.ts (and the e2e harness) after the bridge is listening; null in builds.
       if (id === '\0virtual:kit-bridge')
         return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null, port: bridgePort })};`;

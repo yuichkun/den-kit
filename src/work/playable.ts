@@ -3,12 +3,13 @@
 // player (its page at index.html, and its files), build.json (what the player
 // reads: the work's document for its screen and parameters, and the compiled
 // sound's description), the compiled sound (processor.js and processor.wasm), the
+// compiler for a different playback sample rate or render quantum, the
 // work's assets at their paths, and the built code parts under parts/. The code
 // parts are served from a second origin (the player is told where with ?parts=).
 import type { PatchDocument } from './schema.ts';
 
 export const PLAYABLE_FORMAT = 'den-kit/playable';
-export const PLAYABLE_VERSION = 1;
+export const PLAYABLE_VERSION = 2;
 /** What the player reads first. */
 export const PLAYABLE_MANIFEST = 'build.json';
 export const PROCESSOR_MODULE = 'processor.js';
@@ -27,6 +28,8 @@ export interface PlayableManifest {
     meta: unknown;
     processorName: string;
     sampleRate: number;
+    renderQuantumSize: number;
+    schemaHash: string;
   };
   /** The build carries the code parts' pages (under parts/). */
   parts: boolean;
@@ -46,7 +49,12 @@ export function readPlayableManifest(value: unknown): PlayableManifest | { error
     !p ||
     typeof p.hash !== 'string' ||
     typeof p.processorName !== 'string' ||
-    typeof p.sampleRate !== 'number' ||
+    !Number.isFinite(p.sampleRate) ||
+    p.sampleRate <= 0 ||
+    !Number.isInteger(p.renderQuantumSize) ||
+    p.renderQuantumSize <= 0 ||
+    typeof p.schemaHash !== 'string' ||
+    !p.schemaHash ||
     !p.meta
   )
     return { error: 'build.json does not describe the compiled sound.' };

@@ -11,6 +11,7 @@ import type { Library } from '../work/library.ts';
 import type { PatchDocument } from '../work/schema.ts';
 import type { AssetMeta } from '../work/ui.ts';
 import type { CompileClient } from '../sound/compile/compile-client.ts';
+import type { CompileTarget } from '../sound/compile/target.ts';
 import type { LookResult } from '../screen/look.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
 import type { PageRect, Picture } from '../host/index.ts';
@@ -32,6 +33,7 @@ export interface AiSession {
   readonly myParts: ShallowRef<Library>;
   readonly partPath: Ref<string[]>;
   readonly compiler: CompileClient;
+  readonly compileTarget: CompileTarget;
   readonly loadEpoch: Ref<number>;
   readonly assetUrls: ShallowRef<Record<string, string>>;
   /** The contents of the work's assets. */

@@ -17,6 +17,7 @@ import { attributeError } from './compile-errors.ts';
 import type { CompileRequest, CompileResponse, RenderRequest, RenderResponse } from './protocol.ts';
 import type { Issue } from '../../work/issues.ts';
 import { analyse, spectrogramPng, testSignal } from '../analysis.ts';
+import { compileKey } from './target.ts';
 
 for (const name of [
   'fetch',
@@ -200,13 +201,13 @@ worker.onmessage = async event => {
       });
       return;
     }
-    const compiled = await compile(processor, { sampleRate: 48000 });
+    const compiled = await compile(processor, request.target);
     // Validate now so the function-size limit is reported here, not when the worklet loads.
     await WebAssembly.compile(compiled.wasm as BufferSource);
     const meta = extractWorkletMeta(
       compiled.graph as unknown as Parameters<typeof extractWorkletMeta>[0],
     );
-    const processorName = `den-kit-${request.hash}`;
+    const processorName = `den-kit-${compileKey(request.hash, compiled)}`;
     const moduleSource = emitWorkletModuleSource(meta, {
       processorName,
       runtime: { kind: 'inline', code: runtime },
@@ -221,7 +222,9 @@ worker.onmessage = async event => {
           moduleSource,
           wasm,
           processorName,
-          sampleRate: 48000,
+          sampleRate: compiled.sampleRate,
+          renderQuantumSize: compiled.renderQuantumSize,
+          schemaHash: compiled.schemaHash,
           compileMs: performance.now() - started,
         },
       },

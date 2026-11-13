@@ -1,10 +1,17 @@
-// Live audio: one 48 kHz AudioContext, compiled artifacts swapped in with a short
-// crossfade, held notes re-sent across swaps, knob values applied as AudioParams,
+// Live audio at the context's rate and render quantum: compiled artifacts swapped
+// in with a short crossfade, held notes re-sent across swaps, knob values applied as AudioParams,
 // assets decoded and sent to the processor that reads them, and a safety stage
 // (limiter + clipper + health mute) in front of the speakers.
 import { createNode, type CompiledProcessor, type UnworkletNode } from '@unworklet/core';
 import { makeWorkletNamespaceFromMeta } from '@unworklet/core/worklet';
 import type { Artifact } from './compile/protocol.ts';
+import {
+  compileKey,
+  contextTarget,
+  DEFAULT_COMPILE_TARGET,
+  sameTarget,
+  type CompileTarget,
+} from './compile/target.ts';
 import { testSignal as testSignalData } from './analysis.ts';
 import { slotPayload, type AssetLoad } from './assets.ts';
 
@@ -95,6 +102,8 @@ export class AudioEngine {
   private incoming: Node | null = null;
   private healthMuted = false;
   private loadSerial = 0;
+  private pendingLoad: { info: LoadInfo; node?: Node; ctx?: AudioContext } | null = null;
+  private preparing = new Set<AudioContext>();
   private assetLoads: AssetLoad[] = [];
   private decoded = new Map<string, Promise<AudioBuffer | null>>();
   private incomingSent: Map<string, string> | null = null;
@@ -104,7 +113,7 @@ export class AudioEngine {
   constructor(events: EngineEvents = {}, options: EngineOptions = {}) {
     this.events = events;
     this.options = {
-      createContext: () => new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' }),
+      createContext: () => new AudioContext({ latencyHint: 'interactive' }),
       rotateAfter: options.rotateAfter ?? 40,
       crossfadeMs: options.crossfadeMs ?? 30,
       ...(options.createContext ? { createContext: options.createContext } : {}),
@@ -121,37 +130,51 @@ export class AudioEngine {
   async start(): Promise<boolean> {
     if (this.ctx && this.ctx.state === 'running') return true;
     if (this.ctx && this.ctx.state === 'suspended') {
+      const ctx = this.ctx;
+      const serial = ++this.loadSerial;
       try {
-        await timeout(this.ctx.resume(), 3000, 'Audio did not resume.');
+        await timeout(ctx.resume(), 3000, 'Audio did not resume.');
+        if (serial !== this.loadSerial || this.ctx !== ctx) return false;
         this.setState('running', 'Audio running.');
         return true;
       } catch (e) {
-        this.setState('suspended', `Audio is suspended: ${(e as Error).message} Click to retry.`);
+        if (serial === this.loadSerial && this.ctx === ctx)
+          this.setState('suspended', `Audio is suspended: ${(e as Error).message} Click to retry.`);
         return false;
       }
     }
     this.setState('starting', 'Starting audio…');
+    const serial = ++this.loadSerial;
+    const previous = this.ctx;
+    let ctx: AudioContext | undefined;
     try {
-      const ctx = this.options.createContext();
-      if (ctx.sampleRate !== 48000) {
-        await ctx.close().catch(() => {});
-        throw new Error(
-          `den-kit needs a 48 kHz AudioContext; this device gave ${ctx.sampleRate} Hz. Set your audio output to 48 kHz and reload.`,
-        );
-      }
+      ctx = this.options.createContext();
+      this.preparing.add(ctx);
       await timeout(ctx.resume(), 3000, 'Audio did not resume (the browser may need a click).');
+      if (serial !== this.loadSerial) {
+        await ctx.close().catch(() => {});
+        return false;
+      }
+      this.releaseSound();
       this.attachContext(ctx);
+      void previous?.close().catch(() => {});
       this.setState('running', 'Audio running.');
       return true;
     } catch (e) {
-      this.setState('error', (e as Error).message || String(e));
+      await ctx?.close().catch(() => {});
+      if (serial === this.loadSerial) this.setState('error', (e as Error).message || String(e));
       return false;
+    } finally {
+      if (ctx) this.preparing.delete(ctx);
     }
   }
 
   private attachContext(ctx: AudioContext) {
     this.ctx = ctx;
     this.urls.clear();
+    for (const key of this.decoded.keys())
+      if (!key.startsWith(`${ctx.sampleRate}:`)) this.decoded.delete(key);
+    this.guitar = null;
     this.stats.registrations = 0;
     this.rawAnalyser = new AnalyserNode(ctx, { fftSize: 2048 });
     this.master = new GainNode(ctx, { gain: this.volume });
@@ -200,127 +223,106 @@ export class AudioEngine {
   get currentHash() {
     return this.current?.artifact.hash ?? null;
   }
+  get target(): CompileTarget {
+    return this.ctx ? contextTarget(this.ctx) : { ...DEFAULT_COMPILE_TARGET };
+  }
 
   /** Swap in a compiled artifact. Keeps the previous sound if anything fails. */
-  async load(artifact: Artifact, info: LoadInfo): Promise<void> {
+  async load(
+    artifact: Artifact,
+    info: LoadInfo,
+    recompile?: (target: CompileTarget) => Promise<Artifact>,
+  ): Promise<void> {
     if (!this.ctx || !this.master) throw new Error('Audio is not running.');
     const serial = ++this.loadSerial;
-    if (this.stats.registrations >= this.options.rotateAfter && !this.urls.has(artifact.hash))
-      await this.rotate();
-    const ctx = this.ctx;
-    let urls = this.urls.get(artifact.hash);
-    if (!urls) {
-      urls = {
-        moduleUrl: URL.createObjectURL(
-          new Blob([artifact.moduleSource], { type: 'text/javascript' }),
-        ),
-        wasmUrl: URL.createObjectURL(new Blob([artifact.wasm], { type: 'application/wasm' })),
-      };
-      this.urls.set(artifact.hash, urls);
-      this.stats.registrations++;
-    }
-    const processor = {
-      worklet: {
-        ...makeWorkletNamespaceFromMeta(artifact.meta),
-        moduleUrl: urls.moduleUrl,
-        wasmUrl: urls.wasmUrl,
-        processorName: artifact.processorName,
-        displayName: 'den-kit patch',
-        bakedSampleRate: artifact.sampleRate,
-      },
-    } as unknown as CompiledProcessor<unknown>;
-    const pending = createNode(ctx, processor, { initial: info.values });
-    pending.then(
-      node => {
-        if (serial !== this.loadSerial || this.ctx !== ctx) {
-          node.dispose();
-          this.stats.disposed++;
-        }
-      },
-      () => {},
-    );
-    const node = (await timeout(
-      pending,
-      15000,
-      'The audio worklet did not become ready in 15 s.',
-    )) as Node;
-    this.stats.created++;
-    if (serial !== this.loadSerial || this.ctx !== ctx) return; // a newer load won; the late node was disposed above
-    const gain = new GainNode(ctx, { gain: 0 });
-    if (!Object.hasOwn(node.outputs, 'main')) {
-      node.dispose();
-      this.stats.disposed++;
-      throw new Error('The patch has no main output.');
-    }
-    this.incoming = node;
-    // Assets go in before the node is heard (they arrive at a block boundary).
-    const sent = new Map<string, string>();
-    this.incomingSent = sent;
-    this.assetLoads = info.assets ?? [];
-    void this.sendAssets(node, sent);
-    node.outputs.main!.connect(gain);
-    gain.connect(this.rawAnalyser!);
-    if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
-    node.onError(event => {
-      if (event.code !== 'sab-unavailable')
-        this.events.error?.('message' in event ? String(event.message) : JSON.stringify(event));
-    });
-    // The sounding node and the one being swapped in count (a patch can run away within its first
-    // render quanta, before it becomes current); a runaway node that is fading out must not mute its replacement.
-    if (node.events.kitHealth)
-      node.events.kitHealth.on(() => {
-        if (this.current?.node === node || this.incoming === node) this.onHealth();
+    const loading: NonNullable<AudioEngine['pendingLoad']> = { info };
+    this.pendingLoad = loading;
+    try {
+      const prepared = await this.prepare(artifact, info, serial, recompile);
+      if (!prepared) return;
+      const { node, ctx } = prepared;
+      artifact = prepared.artifact;
+      if (serial !== this.loadSerial || this.ctx !== ctx) {
+        node.dispose();
+        this.stats.disposed++;
+        return;
+      }
+      loading.node = node;
+      loading.ctx = ctx;
+      for (const [name, value] of Object.entries(info.values))
+        this.applyParam(node, ctx, name, value);
+      const gain = new GainNode(ctx, { gain: 0 });
+      this.incoming = node;
+      this.retryAfterChange(); // a new patch gets a fresh chance before its health is checked
+      while (prepared.health.pending > 0) {
+        prepared.health.pending--;
+        this.onHealth();
+      }
+      // Assets go in before the node is heard (they arrive at a block boundary).
+      const sent = prepared.sent;
+      this.incomingSent = sent;
+      this.assetLoads = info.assets ?? [];
+      void this.sendAssets(node, sent);
+      node.outputs.main!.connect(gain);
+      gain.connect(this.rawAnalyser!);
+      if (info.audioIn && node.inputs.main) this.inputBus!.connect(node.inputs.main);
+      node.onError(event => {
+        if (event.code !== 'sab-unavailable')
+          this.events.error?.('message' in event ? String(event.message) : JSON.stringify(event));
       });
-    this.attachProbes(node, info.probes);
-    const live: Live = { node, gain, artifact, info, ctx, sent };
-    // Wall time is not audio time: a newly resumed device may take longer to start rendering.
-    const rendered = ctx.currentTime + 256 / ctx.sampleRate;
-    const renderDeadline = performance.now() + 3000;
-    while (
-      ctx.state === 'running' &&
-      ctx.currentTime < rendered &&
-      serial === this.loadSerial &&
-      this.ctx === ctx
-    ) {
-      if (performance.now() >= renderDeadline) {
+      this.attachProbes(node, info.probes);
+      const live: Live = { node, gain, artifact, info, ctx, sent };
+      // Wall time is not audio time: a newly resumed device may take longer to start rendering.
+      const rendered =
+        ctx.currentTime + (2 * contextTarget(ctx).renderQuantumSize) / ctx.sampleRate;
+      const renderDeadline = performance.now() + 3000;
+      while (
+        ctx.state === 'running' &&
+        ctx.currentTime < rendered &&
+        serial === this.loadSerial &&
+        this.ctx === ctx
+      ) {
+        if (performance.now() >= renderDeadline) {
+          if (this.incoming === node) this.incoming = null;
+          node.dispose();
+          gain.disconnect();
+          this.stats.disposed++;
+          throw new Error('The audio device did not start rendering.');
+        }
+        await wait(4);
+      }
+      if (serial !== this.loadSerial || this.ctx !== ctx) {
         if (this.incoming === node) this.incoming = null;
         node.dispose();
-        gain.disconnect();
         this.stats.disposed++;
-        throw new Error('The audio device did not start rendering.');
+        return;
       }
-      await wait(4);
+      const now = ctx.currentTime,
+        fade = this.options.crossfadeMs / 1000;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(1, now + fade);
+      const previous = this.current;
+      this.current = live;
+      this.incoming = null;
+      this.incomingSent = null;
+      // Send held notes once the new node has started, including keys pressed while it was loading.
+      if (info.voices)
+        for (const [note, velocity] of this.held)
+          node.midi.midi?.send({ type: 'noteOn', channel: 0, note, velocity } as never);
+      this.stats.swaps++;
+      if (previous) {
+        previous.gain.gain.cancelScheduledValues(now);
+        previous.gain.gain.setValueAtTime(previous.gain.gain.value, now);
+        previous.gain.gain.linearRampToValueAtTime(0, now + fade);
+        this.fading.push(previous);
+        setTimeout(() => this.retire(previous), this.options.crossfadeMs + 40);
+      }
+      // At most two nodes alive: retire anything older immediately.
+      while (this.fading.length > 1) this.retire(this.fading[0]!);
+      this.applyTestSignal();
+    } finally {
+      if (this.pendingLoad === loading) this.pendingLoad = null;
     }
-    if (serial !== this.loadSerial || this.ctx !== ctx) {
-      if (this.incoming === node) this.incoming = null;
-      node.dispose();
-      this.stats.disposed++;
-      return;
-    }
-    const now = ctx.currentTime,
-      fade = this.options.crossfadeMs / 1000;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(1, now + fade);
-    const previous = this.current;
-    this.current = live;
-    this.incoming = null;
-    this.incomingSent = null;
-    // Send held notes once the new node has started, including keys pressed while it was loading.
-    if (info.voices)
-      for (const [note, velocity] of this.held)
-        node.midi.midi?.send({ type: 'noteOn', channel: 0, note, velocity } as never);
-    this.stats.swaps++;
-    this.retryAfterChange(); // a new patch gets a fresh chance if the old one had to be muted
-    if (previous) {
-      previous.gain.gain.cancelScheduledValues(now);
-      previous.gain.gain.setValueAtTime(previous.gain.gain.value, now);
-      previous.gain.gain.linearRampToValueAtTime(0, now + fade);
-      this.fading.push(previous);
-      setTimeout(() => this.retire(previous), this.options.crossfadeMs + 40);
-    }
-    // At most two nodes alive: retire anything older immediately.
-    while (this.fading.length > 1) this.retire(this.fading[0]!);
-    this.applyTestSignal();
   }
 
   private retire(live: Live) {
@@ -348,6 +350,8 @@ export class AudioEngine {
 
   /** Stop the current sound (patch has nothing to compile). */
   unload() {
+    ++this.loadSerial;
+    this.pendingLoad = null;
     if (!this.current) return;
     const live = this.current;
     this.current = null;
@@ -359,49 +363,214 @@ export class AudioEngine {
     setTimeout(() => this.retire(live), 80);
   }
 
-  private async rotate() {
-    const old = this.ctx;
-    this.stats.rotations++;
+  /** Prepare a replacement without interrupting the sounding context on a compile or load failure. */
+  private async prepare(
+    artifact: Artifact,
+    info: LoadInfo,
+    serial: number,
+    recompile?: (target: CompileTarget) => Promise<Artifact>,
+  ): Promise<
+    | {
+        artifact: Artifact;
+        node: Node;
+        ctx: AudioContext;
+        health: { pending: number };
+        sent: Map<string, string>;
+      }
+    | undefined
+  > {
+    const previous = this.ctx!;
+    const rotating =
+      this.stats.registrations >= this.options.rotateAfter &&
+      !this.urls.has(compileKey(artifact.hash, this.target));
+    const ctx = rotating ? this.options.createContext() : previous;
+    const urls = rotating ? new Map<string, { moduleUrl: string; wasmUrl: string }>() : this.urls;
+    let committed = !rotating;
+    let abandoned = false;
+    let disposedLate = false;
+    let node: Node | undefined;
+    if (rotating) this.preparing.add(ctx);
+    const stale = () => serial !== this.loadSerial || this.ctx !== previous;
+    try {
+      if (rotating && ctx.state !== 'suspended')
+        await timeout(ctx.suspend(), 3000, 'Audio did not pause while preparing its replacement.');
+      const target = contextTarget(ctx);
+      if (!sameTarget(artifact, target)) {
+        if (!recompile)
+          throw new Error(
+            `The sound needs compiling for ${target.sampleRate} Hz and ${target.renderQuantumSize} samples.`,
+          );
+        const hash = artifact.hash;
+        artifact = await recompile(target);
+        if (artifact.hash !== hash || !sameTarget(artifact, target))
+          throw new Error('The compiled sound does not match this patch and audio context.');
+      }
+      if (stale()) return;
+      const key = compileKey(artifact.hash, target);
+      let source = urls.get(key);
+      if (!source) {
+        source = {
+          moduleUrl: URL.createObjectURL(
+            new Blob([artifact.moduleSource], { type: 'text/javascript' }),
+          ),
+          wasmUrl: URL.createObjectURL(new Blob([artifact.wasm], { type: 'application/wasm' })),
+        };
+        urls.set(key, source);
+        if (!rotating) this.stats.registrations++;
+      }
+      const processor = {
+        schemaHash: artifact.schemaHash,
+        worklet: {
+          ...makeWorkletNamespaceFromMeta(artifact.meta),
+          ...source,
+          processorName: artifact.processorName,
+          displayName: 'den-kit patch',
+          bakedSampleRate: artifact.sampleRate,
+        },
+      } as unknown as CompiledProcessor<unknown>;
+      const pending = createNode(ctx, processor, { initial: info.values });
+      pending.then(
+        late => {
+          if (abandoned || stale()) {
+            late.dispose();
+            this.stats.disposed++;
+            disposedLate = true;
+          }
+        },
+        () => {},
+      );
+      node = await timeout(pending, 15000, 'The audio worklet did not become ready in 15 s.');
+      this.stats.created++;
+      if (stale()) {
+        if (disposedLate) node = undefined;
+        return;
+      }
+      if (!Object.hasOwn(node.outputs, 'main')) throw new Error('The patch has no main output.');
+      // A candidate can report its only health edge during silent prewarming.
+      // Keep it until that node is incoming, without muting the sound it may fail to replace.
+      const health = { pending: 0 };
+      const candidate = node;
+      candidate.events.kitHealth?.on(() => {
+        if (this.current?.node === candidate || this.incoming === candidate) this.onHealth();
+        else if (serial === this.loadSerial) health.pending++;
+      });
+      // Resident samples must arrive before the first gate is processed. A patch
+      // can start with a held gate, whose rising edge occurs only once.
+      const sent = new Map<string, string>();
+      let assets: LoadInfo['assets'];
+      do {
+        assets = info.assets;
+        await this.sendAssets(node, sent, ctx, () => (stale() ? [] : (info.assets ?? [])));
+      } while (!stale() && assets !== info.assets);
+      if (stale()) return;
+      if (rotating) {
+        // The new context stays suspended until its assets are queued: a worklet
+        // can process without a connection and consume a held gate before then.
+        await timeout(ctx.resume(), 3000, 'Audio did not resume after rotating the audio context.');
+        if (stale()) return;
+        // A silent connection starts rendering before the old sound is retired.
+        const silent = new GainNode(ctx, { gain: 0 });
+        node.outputs.main!.connect(silent);
+        silent.connect(ctx.destination);
+        const rendered = ctx.currentTime + (2 * target.renderQuantumSize) / target.sampleRate;
+        const deadline = performance.now() + 3000;
+        try {
+          while (ctx.currentTime < rendered && !stale()) {
+            if (ctx.state !== 'running' || performance.now() >= deadline)
+              throw new Error('The audio device did not start rendering.');
+            await wait(4);
+          }
+        } finally {
+          node.outputs.main!.disconnect();
+          silent.disconnect();
+        }
+        if (stale()) return;
+        this.releaseSound();
+        this.attachContext(ctx);
+        this.urls = urls;
+        this.stats.registrations = urls.size;
+        this.stats.rotations++;
+        committed = true;
+        void previous.close().catch(() => {});
+      }
+      const prepared = { artifact, node, ctx, health, sent };
+      node = undefined; // the caller owns the node
+      return prepared;
+    } catch (error) {
+      if (!stale()) throw error;
+    } finally {
+      abandoned = true;
+      if (node) {
+        node.dispose();
+        this.stats.disposed++;
+      }
+      if (rotating) {
+        this.preparing.delete(ctx);
+        if (!committed) {
+          for (const source of urls.values()) {
+            URL.revokeObjectURL(source.moduleUrl);
+            URL.revokeObjectURL(source.wasmUrl);
+          }
+          await ctx.close().catch(() => {});
+        }
+      }
+    }
+  }
+
+  private releaseSound() {
     for (const live of Array.from(this.fading)) this.retire(live);
     if (this.current) {
       this.fading.push(this.current);
       this.retire(this.current);
       this.current = null;
     }
+    this.incoming = null;
+    this.incomingSent = null;
     for (const { moduleUrl, wasmUrl } of this.urls.values()) {
       URL.revokeObjectURL(moduleUrl);
       URL.revokeObjectURL(wasmUrl);
     }
+    this.urls.clear();
     this.stopTestSignal();
-    const ctx = this.options.createContext();
-    await timeout(ctx.resume(), 3000, 'Audio did not resume after rotating the audio context.');
-    this.attachContext(ctx);
-    await old?.close().catch(() => {});
   }
 
   setParam(name: string, value: number) {
     this.retryAfterChange();
-    for (const live of [this.current, ...this.fading]) {
-      const param = live?.node.params[name];
-      if (!param || !live) continue;
-      const v = Math.fround(Math.max(param.minValue, Math.min(param.maxValue, value)));
-      param.setValueAtTime(v, live.ctx.currentTime);
+    for (const live of [this.current, ...this.fading])
+      if (live) this.applyParam(live.node, live.ctx, name, value);
+    if (this.pendingLoad) {
+      this.pendingLoad.info.values[name] = value;
+      const { node, ctx } = this.pendingLoad;
+      if (node && ctx) this.applyParam(node, ctx, name, value);
     }
     if (this.current) this.current.info.values[name] = value;
+  }
+
+  private applyParam(node: Node, ctx: AudioContext, name: string, value: number) {
+    const param = node.params[name];
+    if (!param) return;
+    const v = Math.fround(Math.max(param.minValue, Math.min(param.maxValue, value)));
+    param.setValueAtTime(v, ctx.currentTime);
   }
 
   /** What the asset slots should hold now: anything that changed is decoded and sent, without recompiling. */
   setAssets(loads: AssetLoad[]) {
     this.assetLoads = loads;
+    if (this.pendingLoad) this.pendingLoad.info.assets = loads;
     if (this.current) void this.sendAssets(this.current.node, this.current.sent);
     if (this.incoming && this.incomingSent) void this.sendAssets(this.incoming, this.incomingSent);
   }
 
-  private async sendAssets(node: Node, sent: Map<string, string>) {
+  private async sendAssets(
+    node: Node,
+    sent: Map<string, string>,
+    ctx = this.ctx,
+    loads = () => this.assetLoads,
+  ) {
     const events = node.events as unknown as Record<string, { emit?: (p: unknown) => void }>;
-    for (const load of this.assetLoads) {
+    for (const load of loads()) {
       // Superseded by newer loads: they are on their way, and the rest of these would send old contents.
-      if (!this.assetLoads.includes(load)) return;
+      if (!loads().includes(load)) return;
       if (sent.get(load.event) === load.key || !events[load.event]?.emit) continue;
       sent.set(load.event, load.key);
       let payload: unknown;
@@ -410,28 +579,35 @@ export class AudioEngine {
           ? null
           : load.kind === 'bytes'
             ? await load.read()
-            : await this.decode(load);
+            : await this.decode(load, ctx);
         payload = slotPayload(load.kind, contents);
       } catch (error) {
         this.events.error?.(`Could not read an asset: ${(error as Error).message}`);
         continue;
       }
       // Pointed elsewhere while this was read: the newer one is on its way.
-      if (sent.get(load.event) !== load.key) continue;
+      const current = loads().find(value => value.event === load.event);
+      if (
+        sent.get(load.event) !== load.key ||
+        current?.key !== load.key ||
+        current.kind !== load.kind
+      )
+        continue;
       events[load.event]!.emit!(payload);
     }
   }
 
-  private decode(load: AssetLoad): Promise<AudioBuffer | null> {
-    let decoding = this.decoded.get(load.key);
+  private decode(load: AssetLoad, ctx: AudioContext | null): Promise<AudioBuffer | null> {
+    if (!ctx) return Promise.resolve(null);
+    const key = `${ctx.sampleRate}:${load.key}`;
+    let decoding = this.decoded.get(key);
     if (!decoding) {
-      const ctx = this.ctx;
       decoding = load
         .read()
         .then(bytes =>
-          bytes && ctx ? ctx.decodeAudioData(bytes.slice().buffer).catch(() => null) : null,
+          bytes ? ctx.decodeAudioData(bytes.slice().buffer).catch(() => null) : null,
         );
-      this.decoded.set(load.key, decoding);
+      this.decoded.set(key, decoding);
       // Keep the few sounds in use, not every one ever heard.
       while (this.decoded.size > 16) this.decoded.delete(this.decoded.keys().next().value!);
     }
@@ -610,7 +786,7 @@ export class AudioEngine {
       return;
     }
     let next = ctx.currentTime + 0.05;
-    const noise = ctx.createBuffer(1, 48000, 48000);
+    const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const data = noise.getChannelData(0);
     let seed = 1234567;
     for (let i = 0; i < data.length; i++) {
@@ -707,21 +883,16 @@ export class AudioEngine {
   }
 
   async dispose() {
+    ++this.loadSerial;
+    this.pendingLoad = null;
     this.stopPhrase();
-    this.stopTestSignal();
-    for (const live of Array.from(this.fading)) this.retire(live);
-    if (this.current) {
-      this.fading.push(this.current);
-      this.retire(this.current);
-      this.current = null;
-    }
-    this.incoming = null;
-    for (const { moduleUrl, wasmUrl } of this.urls.values()) {
-      URL.revokeObjectURL(moduleUrl);
-      URL.revokeObjectURL(wasmUrl);
-    }
-    this.urls.clear();
-    await this.ctx?.close().catch(() => {});
+    this.releaseSound();
+    this.decoded.clear();
+    this.guitar = null;
+    const closing = Array.from(this.preparing, ctx => ctx.close().catch(() => {}));
+    if (this.ctx) closing.push(this.ctx.close().catch(() => {}));
+    this.preparing.clear();
+    await Promise.all(closing);
     this.ctx = null;
     this.setState('off', 'Audio is off.');
   }

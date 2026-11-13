@@ -63,7 +63,8 @@ const report = (status: Status, name: string, detail: string, fix?: string) => {
 const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 
 // 1. Node, in the range of package.json engines
-const nodeRange = json(join(kit, 'package.json')).engines.node as string;
+const manifest = json(join(kit, 'package.json'));
+const nodeRange = manifest.engines.node as string;
 if (inNodeRange(process.versions.node, nodeRange))
   report('PASS', 'Node.js', `v${process.versions.node}`);
 else
@@ -85,20 +86,21 @@ if (!existsSync(core))
   );
 else {
   const v = json(core).version;
+  const pinned = manifest.dependencies['@unworklet/core'];
   report(
-    v === '0.4.1' ? 'PASS' : 'FAIL',
+    v === pinned ? 'PASS' : 'FAIL',
     '@unworklet/core',
     v,
-    v === '0.4.1'
+    v === pinned
       ? undefined
-      : 'den-kit is pinned to unworklet 0.4.1: run `vp install --frozen-lockfile` at the repo root.',
+      : `den-kit is pinned to unworklet ${pinned}: run \`vp install --frozen-lockfile\` at the repo root.`,
   );
 }
 try {
   const denEntry = fileURLToPath(import.meta.resolve('@denaudio/den'));
   const denPackage = json(join(dirname(denEntry), '..', 'package.json'));
   report(
-    denPackage.version === '0.1.0' ? 'PASS' : 'FAIL',
+    denPackage.version === manifest.dependencies['@denaudio/den'] ? 'PASS' : 'FAIL',
     '@denaudio/den',
     denPackage.version,
     'Run `vp install --frozen-lockfile` in the den-kit repo root.',

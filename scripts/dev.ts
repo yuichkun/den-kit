@@ -70,7 +70,7 @@ try {
   });
   await server.listen();
   console.log(
-    `\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`,
+    `\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended)`,
   );
   console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  logs .logs`);
   // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.

@@ -5,6 +5,9 @@
 import type { Generated } from '../codegen.ts';
 import type { Issue } from '../../work/issues.ts';
 import type { Artifact, CompileRequest, CompileResponse } from './protocol.ts';
+import { emitWorkletModuleSource } from '@unworklet/core';
+import runtime from 'virtual:kit-runtime';
+import { compileKey, DEFAULT_COMPILE_TARGET, sameTarget, type CompileTarget } from './target.ts';
 
 export interface WorkerLike {
   onmessage: ((event: { data: CompileResponse }) => void) | null;
@@ -32,6 +35,7 @@ export interface CompileInputs {
 interface Job {
   generated: Generated;
   inputs: CompileInputs;
+  target: CompileTarget;
   resolve: (a: Artifact) => void;
   reject: (e: unknown) => void;
   onPhase?: (phase: string) => void;
@@ -75,15 +79,17 @@ export class CompileClient {
 
   /** Keep an artifact compiled elsewhere (an LLM draft), so applying that draft swaps in at once. */
   prime(artifact: Artifact) {
-    if (!this.disposed && !this.cache.has(artifact.hash)) this.remember(artifact);
+    if (!this.disposed && !this.cache.has(compileKey(artifact.hash, artifact)))
+      this.remember(artifact);
   }
 
-  /** Cached artifact for a hash (A/B and takes never recompile). */
-  cached(hash: string): Artifact | undefined {
-    const hit = this.cache.get(hash);
+  /** Cached artifact for a patch at this target (A/B and takes can reuse it). */
+  cached(hash: string, target: CompileTarget = DEFAULT_COMPILE_TARGET): Artifact | undefined {
+    const key = compileKey(hash, target);
+    const hit = this.cache.get(key);
     if (hit) {
-      this.cache.delete(hash);
-      this.cache.set(hash, hit);
+      this.cache.delete(key);
+      this.cache.set(key, hit);
     }
     return hit;
   }
@@ -91,17 +97,22 @@ export class CompileClient {
   compile(
     generated: Generated,
     inputs: CompileInputs,
+    target: CompileTarget = DEFAULT_COMPILE_TARGET,
     onPhase?: (phase: string) => void,
   ): Promise<Artifact> {
     if (this.disposed)
       return Promise.reject(new CompileFailure('Compiler is disposed.', [], 'disposed'));
-    const hit = this.cached(generated.hash);
+    const hit = this.cached(generated.hash, target);
     if (hit) {
       this.stats.cacheHits++;
       return Promise.resolve(hit);
     }
-    if (this.inflight?.generated.hash === generated.hash) {
-      // Same program already compiling: share the result.
+    if (
+      this.inflight &&
+      compileKey(this.inflight.generated.hash, this.inflight.target) ===
+        compileKey(generated.hash, target)
+    ) {
+      // Same program and target already compiling: share the result.
       const inflight = this.inflight;
       return new Promise((resolve, reject) => {
         const { resolve: r0, reject: j0 } = inflight;
@@ -118,7 +129,7 @@ export class CompileClient {
     return new Promise<Artifact>((resolve, reject) => {
       if (this.queued)
         this.queued.reject(new CompileFailure('Superseded by a newer edit.', [], 'superseded'));
-      this.queued = { generated, inputs, resolve, reject, onPhase };
+      this.queued = { generated, inputs, target: { ...target }, resolve, reject, onPhase };
       this.pump();
     });
   }
@@ -141,7 +152,7 @@ export class CompileClient {
     if (this.inflight || !this.queued || this.disposed) return;
     const job = this.queued;
     this.queued = null;
-    const hit = this.cached(job.generated.hash);
+    const hit = this.cached(job.generated.hash, job.target);
     if (hit) {
       this.stats.cacheHits++;
       job.resolve(hit);
@@ -157,6 +168,7 @@ export class CompileClient {
       id,
       hash: job.generated.hash,
       source: job.generated.source,
+      target: job.target,
       nodes: job.inputs.nodes,
       codeboxes: job.inputs.codeboxes,
     });
@@ -172,9 +184,35 @@ export class CompileClient {
     this.options.clearTimer(job.timer);
     this.inflight = null;
     if ('result' in data) {
-      this.stats.completed++;
-      this.remember(data.result);
-      job.resolve(data.result);
+      try {
+        const result = data.result;
+        if (
+          result.hash !== job.generated.hash ||
+          !sameTarget(result, job.target) ||
+          typeof result.schemaHash !== 'string' ||
+          !result.meta ||
+          typeof result.meta !== 'object' ||
+          !(result.wasm instanceof ArrayBuffer)
+        )
+          throw new Error('The compile result does not match the requested patch and target.');
+        // A codebox can change its worker's globals. Only data crosses that boundary:
+        // assemble executable worklet code here, using the application's own runtime.
+        const processorName = `den-kit-${compileKey(job.generated.hash, job.target)}`;
+        const artifact: Artifact = {
+          ...result,
+          processorName,
+          moduleSource: emitWorkletModuleSource(result.meta, {
+            processorName,
+            runtime: { kind: 'inline', code: runtime },
+          }),
+        };
+        this.stats.completed++;
+        this.remember(artifact);
+        job.resolve(artifact);
+      } catch (error) {
+        this.stats.failed++;
+        job.reject(new CompileFailure((error as Error).message, [], 'error'));
+      }
     } else {
       this.stats.failed++;
       job.reject(new CompileFailure(data.error.message, data.error.issues ?? [], 'error'));
@@ -227,7 +265,7 @@ export class CompileClient {
   }
 
   private remember(artifact: Artifact) {
-    this.cache.set(artifact.hash, artifact);
+    this.cache.set(compileKey(artifact.hash, artifact), artifact);
     while (this.cache.size > this.options.cacheSize)
       this.cache.delete(this.cache.keys().next().value!);
   }

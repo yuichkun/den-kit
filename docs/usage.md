@@ -97,6 +97,10 @@ a static web server and open its `index.html`. Click the page to start the sound
 with the computer keys, a MIDI controller or the controls. Moving a control changes only
 that page, never the work.
 
+Sound runs at the playback device's sample rate. When it differs from the build's
+audio settings, the page prepares the sound for that device before playing; the first
+start can take longer. The compiler is included in the build, so this needs no service.
+
 Code parts run from another origin than the page, so that a part cannot reach the page.
 Serve `build/parts/` from a second origin, such as another host name or port, and add its
 address to the page's address: `index.html?parts=https://parts.example.com/`. den-kit builds

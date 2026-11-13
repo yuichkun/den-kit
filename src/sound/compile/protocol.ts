@@ -2,11 +2,13 @@ import type { WorkletMeta } from '@unworklet/core/worklet';
 import type { Issue } from '../../work/issues.ts';
 import type { PortSpec } from '../../work/schema.ts';
 import type { ListenReport, TestSignal } from '../analysis.ts';
+import type { CompileTarget } from './target.ts';
 
 export interface CompileRequest {
   id: number;
   hash: string;
   source: string;
+  target: CompileTarget;
   /** Node ids, used to attribute unworklet compile errors (instance names) to nodes. */
   nodes: string[];
   codeboxes: Array<{
@@ -24,6 +26,8 @@ export interface Artifact {
   wasm: ArrayBuffer;
   processorName: string;
   sampleRate: number;
+  renderQuantumSize: number;
+  schemaHash: string;
   compileMs: number;
 }
 export type CompileResponse =

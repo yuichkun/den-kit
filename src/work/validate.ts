@@ -26,12 +26,12 @@ export interface Validation {
 export function validate(
   doc: PatchDocument,
   catalog: Catalog,
-  options: FlattenOptions = {},
+  options: FlattenOptions & { sampleRate?: number } = {},
 ): Validation {
   const flat = flatten(doc, catalog, options);
   const { issues, analysis } = validateGraph(flat.doc, catalog);
   // How big a patch may be is a matter of weight (what it expands into), not of how many boxes are drawn.
-  const cost = estimateCost(flat.doc, catalog, analysis, flat.origin);
+  const cost = estimateCost(flat.doc, catalog, analysis, flat.origin, options.sampleRate);
   const weight = weightIssues(doc, cost);
   if (!flat.expanded)
     return { issues: [...issues, ...weight], analysis, flat, flatAnalysis: analysis, cost };

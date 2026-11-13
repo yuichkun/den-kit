@@ -559,6 +559,7 @@ export class LlmController {
           const artifact = await this.compilerFor(agent).compile(
             generated,
             compileInputs(doc, generated),
+            this.session.compileTarget,
           );
           this.session.compiler.prime(artifact); // the live work then swaps it in without compiling again
           return { ok: true, ms: artifact.compileMs };

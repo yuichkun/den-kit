@@ -84,6 +84,13 @@ export function bundledPackages(root: string, embedded: readonly string[] = []) 
       }
   };
   return {
+    /** Inputs bundled separately as text, such as the player's self-contained compiler. */
+    addFiles(ids: readonly string[]) {
+      for (const id of ids) {
+        const dir = packageDir(id, base);
+        if (dir) found.add(dir);
+      }
+    },
     plugin: (): Plugin => ({
       name: 'den-kit-bundled-packages',
       apply: 'build',

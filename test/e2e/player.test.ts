@@ -7,7 +7,8 @@
 // the work as it was when the export started, and the build plays the whole
 // sound, whatever the editor has soloed. Needs den-kit's player build (vp run
 // build makes dist/player/).
-import { after, before, describe, it } from 'node:test';
+import { after, afterEach, before, describe, it } from 'node:test';
+import type { JSHandle, Page } from 'playwright';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -49,14 +50,38 @@ export default part({ mount(root) {
 } });
 `;
 /** A work file's entries by path. */
-const entriesOf = (bytes: number[]) =>
+const entriesOf = (bytes: Uint8Array) =>
   new Map(
-    readZip(new Uint8Array(bytes), {
+    readZip(bytes, {
       maxEntryBytes: 100 * 1024 * 1024,
       maxTotalBytes: 1024 * 1024 * 1024,
       maxEntries: 10000,
     }).map(e => [e.path, e.data] as const),
   );
+/** Transfer binary archives without expanding every byte into a JSON number. */
+async function transferBytes(handle: JSHandle<Uint8Array>): Promise<Uint8Array> {
+  try {
+    const encoded = await handle.evaluate(
+      bytes =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]!);
+          reader.onerror = () => reject(new Error('Could not read the exported work'));
+          reader.readAsDataURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
+        }),
+    );
+    return new Uint8Array(Buffer.from(encoded, 'base64'));
+  } finally {
+    await handle.dispose();
+  }
+}
+
+function exportBytes(page: Page): Promise<Uint8Array> {
+  return page
+    .evaluateHandle(async () => (window as any).__kit.exportWork() as Promise<Uint8Array>)
+    .then(transferBytes);
+}
+
 const json = (data: Uint8Array | undefined) => JSON.parse(new TextDecoder().decode(data));
 const servers: Server[] = [];
 async function serve(files: Map<string, Uint8Array>, headers: Record<string, string>) {
@@ -84,12 +109,272 @@ let h: Harness;
 before(async () => {
   h = await startHarness({ pod: true });
 });
+afterEach(async () => {
+  for (const context of h?.browser.contexts() ?? []) await context.close();
+});
 after(async () => {
   for (const s of servers) s.close();
   await h?.close();
 });
 
 describe('the playable build', () => {
+  it(
+    'recompiles a portable build at the playback target, with codeboxes isolated on a plain static host',
+    { timeout: 180000 },
+    async () => {
+      const reached: string[] = [];
+      const recorder = createServer((req, res) => {
+        reached.push(req.url ?? '');
+        res.writeHead(200, {
+          'content-type': 'text/javascript',
+          'access-control-allow-origin': '*',
+        });
+        res.end('export {};');
+      });
+      servers.push(recorder);
+      await new Promise<void>(resolve => recorder.listen(0, '127.0.0.1', resolve));
+      const probe = `http://127.0.0.1:${(recorder.address() as { port: number }).port}`;
+      const { page } = await openKit(h, {
+        initScript: `{
+          const Real = AudioContext;
+          window.AudioContext = class extends Real {
+            constructor(options) { super({ ...options, sampleRate: 48000 }); }
+          };
+        }`,
+      });
+      try {
+        await waitCompiled(page);
+        // This valid codebox also attempts to escape when compiled at another rate.
+        const source = String.raw`import { defineSubgraph, type Node } from '@unworklet/core';
+export default defineSubgraph((config: { sampleRate: number }) => {
+  if (config.sampleRate !== 48000) {
+    const g = globalThis as unknown as Record<string, any>;
+    if (g.location.origin !== 'null') throw new Error('The compiler has a host origin');
+    for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'Worker', 'SharedWorker', 'indexedDB', 'caches'])
+      if (g[name] !== undefined) throw new Error('Reachable: ' + name);
+    const tryIt = (run: () => any) => { try { run()?.catch?.(() => undefined); } catch {} };
+    tryIt(() => (0, eval)('import("${probe}/eval")'));
+    tryIt(() => new Function('return import("${probe}/function")')());
+    tryIt(() => (0, eval)('import("data:text/javascript,import%20%22${probe}/data%22")'));
+    tryIt(() => (0, eval)('import(URL.createObjectURL(new Blob([\'import "${probe}/blob"\'], {type:"text/javascript"})))'));
+    tryIt(() => new g.FontFace('probe', 'url(${probe}/font)').load());
+    tryIt(() => new g.WebSocketStream('${probe.replace('http:', 'ws:')}/socket').opened);
+  }
+  return { tick(input: { in: Node<'f32'> }) { return { out: input.in }; } };
+});`;
+        const result = await page.evaluate(source => {
+          const k = (window as any).__kit;
+          return k.commit([
+            {
+              op: 'addNode',
+              node: {
+                id: 'tone',
+                type: 'den.oscillator',
+                config: { waveform: 'sine' },
+                values: { frequency: 440 },
+              },
+            },
+            { op: 'addNode', node: { id: 'quiet', type: 'kit.gain', values: { gain: 0.1 } } },
+            { op: 'addNode', node: { id: 'box', type: 'kit.codebox', code: source } },
+            {
+              op: 'addNode',
+              node: {
+                id: 'pitch',
+                type: 'ui.knob',
+                label: 'Frequency',
+                panel: { x: 20, y: 20, w: 120, h: 140 },
+                config: { min: 100, max: 1000, scale: 'linear', unit: 'Hz' },
+                values: { value: 440 },
+              },
+            },
+            {
+              op: 'connect',
+              from: { node: 'pitch', port: 'out' },
+              to: { node: 'tone', port: 'frequency' },
+            },
+            {
+              op: 'connect',
+              from: { node: 'tone', port: 'out' },
+              to: { node: 'quiet', port: 'in' },
+            },
+            {
+              op: 'connect',
+              from: { node: 'quiet', port: 'out' },
+              to: { node: 'box', port: 'in' },
+            },
+            {
+              op: 'connect',
+              from: { node: 'box', port: 'out' },
+              to: { node: 'out1', port: 'left' },
+              replace: true,
+            },
+          ]);
+        }, source);
+        assert.equal(result.ok, true, JSON.stringify(result));
+        const compiled = await waitCompiled(page);
+        assert.equal(compiled.status, 'ok', JSON.stringify(compiled));
+        const entries = entriesOf(await exportBytes(page));
+        const build = new Map(
+          [...entries]
+            .filter(([path]) => path.startsWith('build/'))
+            .map(([path, data]) => [path.slice(6), data]),
+        );
+        const manifest = json(build.get('build.json'));
+        assert.equal(manifest.processor.sampleRate, 48000);
+        assert.equal(manifest.processor.renderQuantumSize, 128);
+        const compiler = [...build].find(([path]) => /player-compiler.*\.js$/.test(path));
+        assert.ok(compiler, 'the standalone compiler is in the export');
+        assert.ok(
+          compiler[1].byteLength < 100 * 1024 * 1024,
+          'compiler fits the work file entry limit',
+        );
+        const site = await serve(build, {});
+        for (const [sampleRate, renderQuantumSize] of [
+          [48000, 128],
+          [44100, 32],
+          [96000, 256],
+        ]) {
+          const player = await h.browser.newPage();
+          const fetched: string[] = [];
+          player.on('request', request => fetched.push(request.url()));
+          let releaseCompiler = () => {};
+          let requestedCompiler = () => {};
+          try {
+            const compilerRequested = new Promise<void>(resolve => {
+              requestedCompiler = resolve;
+            });
+            if (sampleRate === 44100) {
+              await player.clock.install();
+              const held = new Promise<void>(resolve => {
+                releaseCompiler = resolve;
+              });
+              await player.route(
+                url => url.pathname.includes('player-compiler'),
+                async route => {
+                  requestedCompiler();
+                  await held;
+                  await route.continue();
+                },
+              );
+            }
+            await player.addInitScript(
+              ({ sampleRate, renderQuantumSize }) => {
+                const Real = AudioContext;
+                window.AudioContext = class extends Real {
+                  constructor(options?: AudioContextOptions) {
+                    if (options?.sampleRate !== undefined)
+                      throw new Error('The player forced a rate');
+                    super({
+                      ...options,
+                      sampleRate,
+                      renderSizeHint: renderQuantumSize,
+                    } as AudioContextOptions);
+                  }
+                };
+              },
+              { sampleRate, renderQuantumSize },
+            );
+            await player.goto(site);
+            await player.click('[data-testid=player-start]');
+            let expectedFrequency = 440;
+            if (sampleRate === 44100) {
+              await compilerRequested;
+              // Slow downloads do not consume the worker's 20-second compile budget.
+              await player.clock.fastForward(20001);
+              assert.equal(
+                await player.getAttribute('[data-testid=player]', 'data-state'),
+                'starting',
+                'the compile watchdog must not time out while the compiler is downloading',
+              );
+              const before = await player.evaluate(() => (window as any).__player.values());
+              await player.locator('[data-widget=pitch] dk-knob').focus();
+              await player.keyboard.press('ArrowUp');
+              await player.waitForFunction(
+                before =>
+                  JSON.stringify((window as any).__player.values()) !== JSON.stringify(before),
+                before,
+              );
+              expectedFrequency = await player.evaluate(before => {
+                const values = (window as any).__player.values() as Record<string, number>;
+                return Object.entries(values).find(([name, value]) => value !== before[name])![1];
+              }, before);
+              assert.notEqual(
+                expectedFrequency,
+                440,
+                'the control moved while compilation was waiting',
+              );
+              releaseCompiler();
+            }
+            await player.waitForFunction(
+              () =>
+                ['playing', 'failed'].includes(
+                  document.querySelector('[data-testid=player]')?.getAttribute('data-state') ?? '',
+                ),
+              null,
+              { timeout: 45000 },
+            );
+            assert.equal(
+              await player.getAttribute('[data-testid=player]', 'data-state'),
+              'playing',
+              await player
+                .locator('[data-testid=player-message]')
+                .allTextContents()
+                .then(x => x.join('\n')),
+            );
+            const playing = await player.evaluate(async () => {
+              const engine = (window as any).__player.engine;
+              const analyser = engine.rawAnalyser as AnalyserNode;
+              const data = new Float32Array(analyser.fftSize);
+              let frequency = 0;
+              for (let attempt = 0; attempt < 50; attempt++) {
+                analyser.getFloatTimeDomainData(data);
+                const crossings: number[] = [];
+                for (let i = 1; i < data.length; i++)
+                  if (data[i - 1] < 0 && data[i] >= 0)
+                    crossings.push(i - 1 - data[i - 1] / (data[i] - data[i - 1]));
+                if (crossings.length >= 4) {
+                  frequency =
+                    ((crossings.length - 1) * engine.target.sampleRate) /
+                    (crossings.at(-1)! - crossings[0]);
+                  break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 20));
+              }
+              return {
+                target: engine.target,
+                artifact: {
+                  sampleRate: engine.current.artifact.sampleRate,
+                  renderQuantumSize: engine.current.artifact.renderQuantumSize,
+                  schemaHash: engine.current.artifact.schemaHash,
+                },
+                frequency,
+              };
+            });
+            assert.deepEqual(playing.target, { sampleRate, renderQuantumSize });
+            assert.equal(playing.artifact.sampleRate, sampleRate);
+            assert.equal(playing.artifact.renderQuantumSize, renderQuantumSize);
+            assert.ok(playing.artifact.schemaHash);
+            assert.ok(
+              Math.abs(playing.frequency - expectedFrequency) < 0.1,
+              `${sampleRate}/${renderQuantumSize}: ${playing.frequency} Hz`,
+            );
+            assert.equal(
+              fetched.some(url => url.includes('player-compiler')),
+              sampleRate !== 48000,
+              'a matching target reuses the compiled sound without fetching the compiler',
+            );
+          } finally {
+            releaseCompiler();
+            await player.close();
+          }
+        }
+        assert.deepEqual(reached, [], 'codebox evaluation made no external requests');
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
   it(
     'plays without den-kit from a static server, its code part from another origin; a moved control changes only the player',
     { timeout: 300000 },
@@ -185,11 +470,9 @@ describe('the playable build', () => {
       );
       assert.equal(placed.ok, true, placed.error);
       // The work file carries the playable build: the player, the compiled sound and the built code parts.
-      const bytes = await page.evaluate(async () =>
-        Array.from((await (window as any).__kit.exportWork()) as Uint8Array),
-      );
+      const bytes = await exportBytes(page);
       const build = new Map(
-        readZip(new Uint8Array(bytes), {
+        readZip(bytes, {
           maxEntryBytes: 100 * 1024 * 1024,
           maxTotalBytes: 1024 * 1024 * 1024,
           maxEntries: 10000,
@@ -324,7 +607,7 @@ describe('the playable build', () => {
         return k.generated.value.hash;
       }, METER);
       await waitCompiled(page);
-      const exported = await page.evaluate(async () => {
+      const exportedHandle = await page.evaluateHandle(async () => {
         const k = (window as any).__kit;
         const name = k.doc.value.name;
         const making = k.exportWork();
@@ -333,10 +616,12 @@ describe('the playable build', () => {
         k.commit([
           { op: 'setProjectFiles', files: { 'src/parts/meter.ts': `// changed\n${meter}` } },
         ]);
-        const bytes = Array.from((await making) as Uint8Array);
+        const bytes = (await making) as Uint8Array;
         return { name, bytes, toasts: k.toasts.value.map((t: { text: string }) => t.text) };
       });
-      const file = entriesOf(exported.bytes);
+      const exported = await exportedHandle.evaluate(({ name, toasts }) => ({ name, toasts }));
+      const file = entriesOf(await transferBytes(await exportedHandle.getProperty('bytes')));
+      await exportedHandle.dispose();
       const record = json(file.get('work.json')).document;
       const manifest = json(file.get('build/build.json'));
       assert.equal(record.name, exported.name);
@@ -354,11 +639,7 @@ describe('the playable build', () => {
         JSON.stringify(exported.toasts),
       );
       // Exported again, with nothing changing meanwhile: the edits are in it, the code parts built from them.
-      const again = entriesOf(
-        await page.evaluate(async () =>
-          Array.from((await (window as any).__kit.exportWork()) as Uint8Array),
-        ),
-      );
+      const again = entriesOf(await exportBytes(page));
       const record2 = json(again.get('work.json')).document;
       assert.equal(record2.name, 'Renamed while exporting');
       assert.match(JSON.stringify(record2), /\/\/ changed/);
