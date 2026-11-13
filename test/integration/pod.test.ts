@@ -698,7 +698,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(kit.steps.length).toBe(steps + 1);
   }, 120_000);
 
-  it("a copy of one of the work's assets keeps where that one came from, a file den-kit ships included", async () => {
+  it("a copy of one of the work's assets keeps where that one came from, a file den-kit ships and one the same command changed included", async () => {
     const knob = SHOWCASE_ASSETS['assets/den-kit/brass-knob.svg']!;
     expect(kit.commit([{ op: 'addAsset', asset: knob }]).ok).toBe(true);
     await settle(800);
@@ -713,6 +713,18 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     const assets = assetsOf(kit.doc.value.files);
     expect(assets['assets/knob-copy.svg']!.source).toEqual(knob.source);
     expect(assets['assets/logo-copy.svg']!.source).toEqual({ title: 'Logo', license: 'CC0' });
+    await pod.bash(
+      `cat > assets/logo.svg <<'EOF'\n${svg('#ff0')}EOF\ncp assets/logo.svg assets/logo-yellow.svg`,
+      { who: 'ai' },
+    );
+    expect((await keep()).changes).toEqual({
+      'assets/logo.svg': 'changed',
+      'assets/logo-yellow.svg': 'new',
+    });
+    expect(assetsOf(kit.doc.value.files)['assets/logo-yellow.svg']!.source).toEqual({
+      title: 'Logo',
+      license: 'CC0',
+    });
   }, 120_000);
 
   it('refuses an asset that would take the work over its limits, without reading its contents', async () => {

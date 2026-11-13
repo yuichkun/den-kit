@@ -513,6 +513,13 @@ export class PodSession {
       const base = textFiles(doc.files);
       const stored = assetsOf(doc.files);
       const changes: Record<string, FileChange> = {};
+      // What a new asset may be a copy of: the work's assets before this command, and those it changed, as changed.
+      const copied = [
+        ...Object.values(stored),
+        ...[...assets].flatMap(([path, asset]) =>
+          asset && stored[path] ? [{ ...asset, source: stored[path].source }] : [],
+        ),
+      ];
       // Removed assets go first: what lands after them may need the room they free (readBack counted it so).
       const intents: Intent[] = [...assets]
         .filter(([, asset]) => !asset)
@@ -535,7 +542,7 @@ export class PodSession {
             },
           });
         else {
-          const source = await this.sourceOf(asset, stored);
+          const source = await this.sourceOf(asset, copied);
           intents.push({ op: 'addAsset', asset: { ...asset, ...(source ? { source } : {}) } });
         }
       }
@@ -962,14 +969,14 @@ export class PodSession {
   }
 
   /**
-   * Where an asset a command made comes from: a copy of one of the work's assets (or one moved) comes from where
-   * that one came from (none, if it records none); anything else, from a command in the project.
+   * Where an asset a command made comes from: a copy of one of `assets` (or one moved) comes from where that one
+   * came from (none, if it records none); anything else, from a command in the project.
    */
   private async sourceOf(
     asset: AssetMeta,
-    stored: Readonly<Record<string, AssetMeta>>,
+    assets: readonly AssetMeta[],
   ): Promise<FileSource | undefined> {
-    for (const other of Object.values(stored)) {
+    for (const other of assets) {
       // A file den-kit ships has no hash in the work: its contents tell.
       const same = other.hash
         ? other.hash === asset.hash
