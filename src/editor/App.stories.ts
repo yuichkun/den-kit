@@ -2,6 +2,7 @@
 // keyboard bar and the AI panel around a work, and the overlay den-kit opens behind.
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { h } from 'vue';
+import { expect, waitFor } from 'storybook/test';
 import { kitFiles } from '../screen/kit-files.ts';
 import type { PodFactory } from '../host/index.ts';
 import { PodSession } from '../workspace/pod-session.ts';
@@ -35,6 +36,10 @@ const meta = {
   parameters: { ...editorParameters, a11y: { test: 'todo' } },
   play: async ({ canvasElement }) => {
     await patchDrawn(canvasElement);
+    // The corner says how long the compile took, once the work has compiled.
+    await waitFor(() =>
+      expect(canvasElement.querySelector('[data-testid=compile-status]')?.textContent).toMatch(/✓/),
+    );
   },
 } satisfies Meta;
 
