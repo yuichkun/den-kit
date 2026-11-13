@@ -192,7 +192,7 @@ const voiceText = computed(() =>
       [worst ?? '']: !!worst,
       comment: node.type === 'kit.comment',
       part: isPart,
-      port: !!portName,
+      'part-io': !!portName,
       stacked: copies > 1,
       touched: !!data.touch,
       [`cat-${group}`]: true,
@@ -647,7 +647,7 @@ header {
     0 0 0 4px var(--app-canvas),
     0 0 0 5px color-mix(in srgb, var(--selection) 40%, transparent);
 }
-.mod.port {
+.mod.part-io {
   outline: 1px dashed color-mix(in srgb, var(--selection) 40%, transparent);
   outline-offset: -1px;
 }

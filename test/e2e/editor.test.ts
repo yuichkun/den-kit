@@ -166,6 +166,146 @@ describe('patch editor', () => {
     await page.close();
   });
 
+  it('draws each module where the work puts it, from the first frame; a dragged one lands on the grid', async () => {
+    // Every place each module is drawn at, as the page shows it.
+    const { page } = await openKit(h, {
+      initScript: `window.__places = {};
+        new MutationObserver(() => {
+          for (const n of document.querySelectorAll('.vue-flow__node')) {
+            const seen = (window.__places[n.dataset.id] ??= []);
+            if (seen.at(-1) !== n.style.transform) seen.push(n.style.transform);
+          }
+        }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });`,
+    });
+    await waitCompiled(page);
+    const nodes: Array<{ id: string; x: number; y: number }> = await kit(page, k =>
+      Object.values<any>(k.doc.value.nodes).map(n => ({ id: n.id, ...n.pos })),
+    );
+    const between = nodes.find(n => n.x % 12 || n.y % 12);
+    // The starter's layout puts modules between points of the grid.
+    assert.ok(between);
+    const places = await page.evaluate(() => (window as any).__places);
+    for (const n of nodes) assert.deepEqual(places[n.id], [`translate(${n.x}px, ${n.y}px)`], n.id);
+    const header = page.locator(`.vue-flow__node[data-id="${between.id}"] header`);
+    const box = (await header.boundingBox())!;
+    await dragBetween(page, { x: box.x + 20, y: box.y + 8 }, { x: box.x + 85, y: box.y + 47 });
+    const pos = await page.evaluate(
+      id => (window as any).__kit.doc.value.nodes[id].pos,
+      between.id,
+    );
+    assert.notDeepEqual(pos, { x: between.x, y: between.y });
+    assert.deepEqual([pos.x % 12, pos.y % 12], [0, 0]);
+    assert.equal(
+      await page
+        .locator(`.vue-flow__node[data-id="${between.id}"]`)
+        .evaluate(n => (n as HTMLElement).style.transform),
+      `translate(${pos.x}px, ${pos.y}px)`,
+    );
+    await page.close();
+  });
+
+  it("fits the patch in view as the modules are drawn with den-kit's fonts, also when the fonts come late", async () => {
+    const { page } = await openKit(h, { holdFonts: 3000 });
+    // The modules are drawn before the font of their titles (in the default theme) arrives.
+    await page.waitForSelector('.vue-flow__node');
+    assert.ok(await page.evaluate(() => !document.fonts.check('700 13px "Schibsted Grotesk"')));
+    const view = () =>
+      page.evaluate(
+        () => document.querySelector<HTMLElement>('.vue-flow__transformationpane')!.style.transform,
+      );
+    await page.waitForFunction(() => {
+      const t = document.querySelector<HTMLElement>('.vue-flow__transformationpane')?.style
+        .transform;
+      return !!t && t !== 'translate(0px, 0px) scale(1)';
+    });
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const opened = await view();
+    // Shift+1 fits the modules again, with the sizes they have now.
+    await page.keyboard.press('Shift+Digit1');
+    await page.waitForTimeout(600);
+    assert.equal(await view(), opened);
+    await page.close();
+  });
+
+  it("draws every cable to its ports when den-kit's fonts come late, in the patch and inside a part", async () => {
+    // A work with a part of three modules.
+    const { page: first } = await fresh();
+    for (const [i, id] of ['osc1', 'filter1', 'vca1'].entries())
+      await first.click(`.vue-flow__node[data-id="${id}"] header`, {
+        modifiers: i ? ['Shift'] : [],
+      });
+    await first.keyboard.press('Control+KeyG');
+    await first.waitForSelector('[data-testid=toast]:has-text("Made a part")');
+    const use: string = await kit(first, k => k.selection.value[0]);
+    await kit(first, k => k.saveNow());
+    const work = await first.evaluate(() => localStorage.getItem('den-kit:editor:work'));
+    await first.close();
+    // The work opened with every font file held back, in a theme whose font changes the width
+    // of a short title.
+    const open = async () =>
+      (
+        await openKit(h, {
+          holdFonts: 6000,
+          initScript: `localStorage.setItem('den-kit:editor:work', ${JSON.stringify(work)});
+            localStorage.setItem('den-kit:theme', 'plate-light');`,
+        })
+      ).page;
+    // The font of the modules' titles in that theme has not arrived yet.
+    const titleFontLate = (p: Page) =>
+      p.evaluate(() => !document.fonts.check('600 13px "Inter Tight"'));
+    // The cables shown that do not start and end at their ports, once the fonts are in.
+    const offPorts = async (p: Page): Promise<string[]> => {
+      await p.evaluate(() => document.fonts.ready.then(() => undefined));
+      await p.waitForTimeout(300);
+      return kit(p, k => {
+        const off: string[] = [];
+        for (const g of document.querySelectorAll<SVGGElement>('.vue-flow__edge')) {
+          const e = k.doc.value.edges[g.dataset.id!];
+          const path = g.querySelector<SVGPathElement>('path.cable');
+          if (!e || !path) continue;
+          const port = (node: string, id: string, type: string) =>
+            document
+              .querySelector(
+                `.vue-flow__node[data-id="${node}"] .vue-flow__handle.${type}[data-handleid="${id}"]`,
+              )!
+              .getBoundingClientRect();
+          const at = (length: number) => {
+            const p = path.getPointAtLength(length);
+            return new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!);
+          };
+          const from = port(e.from.node, e.from.port, 'source');
+          const to = port(e.to.node, e.to.port, 'target');
+          const start = at(0);
+          const end = at(path.getTotalLength());
+          const startGap = Math.hypot(start.x - from.right, start.y - (from.top + from.height / 2));
+          // Between modules side by side, a cable ends in a short arrow before the port.
+          const endGap = g.querySelector('.kit-edge.adjacent')
+            ? 0
+            : Math.hypot(end.x - to.left, end.y - (to.top + to.height / 2));
+          if (startGap > 0.5 || endGap > 0.5)
+            off.push(
+              `${e.from.node}.${e.from.port} → ${e.to.node}.${e.to.port}: ${startGap.toFixed(1)} px, ${endGap.toFixed(1)} px`,
+            );
+        }
+        return off;
+      });
+    };
+    // The patch, drawn before the fonts arrive.
+    const page = await open();
+    await page.waitForSelector(`.vue-flow__node[data-id="${use}"]`);
+    assert.ok(await titleFontLate(page));
+    assert.deepEqual(await offPorts(page), []);
+    await page.close();
+    // Inside the part, gone into before the fonts arrive.
+    const inside = await open();
+    // Not a double-click: the use is clicked once it is in view, which is once the fonts are in.
+    assert.ok(await inside.evaluate(id => (window as any).__kit.enterPart(id), use));
+    await inside.waitForSelector('[data-testid=part-crumbs]');
+    assert.ok(await titleFontLate(inside));
+    assert.deepEqual(await offPorts(inside), []);
+    await inside.close();
+  });
+
   it('turning a face knob changes the AudioParam value without recompiling, as one undo step', async () => {
     const { page } = await fresh();
     const started = await kit(page, k => k.compiler.stats.started);

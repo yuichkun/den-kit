@@ -147,11 +147,10 @@ export function storySession(doc: PatchDocument = starter('bass', catalog)): Kit
 }
 
 /**
- * Waits until the patch view in `canvas` has drawn its modules and cables and fitted them in
- * view, as it does a moment after a work opens, with the theme's fonts.
+ * Waits until the patch view in `canvas` has fitted its modules and cables in view, which it does
+ * once they are drawn with the theme's fonts.
  */
 export async function patchDrawn(canvas: HTMLElement) {
-  await document.fonts.ready;
   await waitFor(
     () => {
       const pane = canvas.querySelector<HTMLElement>('.vue-flow__transformationpane');
