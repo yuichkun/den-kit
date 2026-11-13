@@ -412,7 +412,9 @@ export default part({ mount(root, kit) {
       const before = await steps();
       // Rule 1: 200 px of drag is the whole range, so 40 px up is 20 of 0–100, wherever it was grabbed.
       // The plugin is drawn scaled to fit: 40 of the part's pixels are 40 × scale on screen.
-      const pad = await f.locator('#own-knob').boundingBox();
+      // The pad fills the frame. Measure the frame in the host: a locator inside
+      // it can report unscaled dimensions even when the plugin is transformed.
+      const pad = await (await f.frameElement()).boundingBox();
       assert.ok(pad);
       const scale = pad.height / 240;
       const x = pad.x + pad.width / 2,

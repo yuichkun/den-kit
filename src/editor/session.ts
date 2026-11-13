@@ -60,6 +60,7 @@ import {
   type CompileClientOptions,
 } from '../sound/compile/compile-client.ts';
 import type { Artifact } from '../sound/compile/protocol.ts';
+import { DEFAULT_COMPILE_TARGET, sameTarget, type CompileTarget } from '../sound/compile/target.ts';
 import { AudioEngine, type EngineState, type TestSignal } from '../sound/audio-engine.ts';
 import {
   makeSaveRecord,
@@ -169,7 +170,10 @@ export class KitSession {
   /** What an effect patch hears (test material or the computer's audio input). */
   readonly input = ref<TestSignal>('chords');
   readonly generated = shallowRef<Generated>(generate(this.doc.value, catalog));
-  readonly validation = computed(() => validate(this.doc.value, catalog));
+  readonly audioSampleRate = ref(DEFAULT_COMPILE_TARGET.sampleRate);
+  readonly validation = computed(() =>
+    validate(this.doc.value, catalog, { sampleRate: this.audioSampleRate.value }),
+  );
   readonly issues = computed<Issue[]>(() => [
     ...this.validation.value.issues,
     ...this.compileIssues.value,
@@ -963,13 +967,21 @@ export class KitSession {
     }, 120);
   }
 
+  get compileTarget(): CompileTarget {
+    return this.engine.target ?? DEFAULT_COMPILE_TARGET;
+  }
+
   /** Compile a sound on a compiler of its own: the live work's compiles neither replace it nor are replaced by it. */
-  async compileApart(doc: PatchDocument, generated: Generated): Promise<Artifact> {
-    const hit = this.compiler.cached(generated.hash);
+  async compileApart(
+    doc: PatchDocument,
+    generated: Generated,
+    target: CompileTarget = this.compileTarget,
+  ): Promise<Artifact> {
+    const hit = this.compiler.cached(generated.hash, target);
     if (hit) return hit;
     const compiler = new CompileClient(this.compilerOptions);
     try {
-      const artifact = await compiler.compile(generated, compileInputs(doc, generated));
+      const artifact = await compiler.compile(generated, compileInputs(doc, generated), target);
       this.compiler.prime(artifact);
       return artifact;
     } finally {
@@ -997,6 +1009,7 @@ export class KitSession {
       return null;
     }
     const serial = ++this.compileSerial;
+    const target = this.compileTarget;
     const previousStatus = { status: this.compileStatus.value, message: this.compileMessage.value };
     this.compileStatus.value = 'compiling';
     this.compileMessage.value = 'Compiling…';
@@ -1004,11 +1017,14 @@ export class KitSession {
       const artifact = await this.compiler.compile(
         generated,
         compileInputs(doc, generated),
+        target,
         phase => {
           this.compileMessage.value = `${phase}…`;
         },
       );
-      if (this.generated.value.hash !== artifact.hash) return artifact; // a newer edit is on its way
+      if (serial !== this.compileSerial || this.generated.value.hash !== artifact.hash)
+        return artifact;
+      if (!sameTarget(target, this.compileTarget)) return this.compileNow();
       this.compileIssues.value = [];
       this.lastCompileMs.value = artifact.compileMs;
       this.wasmBytes.value = artifact.wasm.byteLength;
@@ -1020,7 +1036,7 @@ export class KitSession {
       if (error instanceof CompileFailure && error.kind === 'superseded') {
         // Superseded by something other than a newer compileNow: do not leave "Compiling…" behind.
         if (serial === this.compileSerial && !this.compileTimer) {
-          const cached = this.compiler.cached(this.generated.value.hash);
+          const cached = this.compiler.cached(this.generated.value.hash, this.compileTarget);
           this.compileStatus.value = cached
             ? 'ok'
             : previousStatus.status === 'compiling' || previousStatus.status === 'waiting'
@@ -1030,7 +1046,9 @@ export class KitSession {
         }
         return null;
       }
-      if (this.generated.value.hash !== generated.hash) return null;
+      if (serial !== this.compileSerial || this.generated.value.hash !== generated.hash)
+        return null;
+      if (!sameTarget(target, this.compileTarget)) return this.compileNow();
       this.compileStatus.value = 'error';
       this.compileMessage.value = error instanceof Error ? error.message : String(error);
       this.compileIssues.value = error instanceof CompileFailure ? error.issues : [];
@@ -1040,15 +1058,26 @@ export class KitSession {
 
   private async loadIntoEngine(artifact: Artifact) {
     const g = this.generated.value;
+    const doc = this.doc.value;
     try {
-      await this.engine.load(artifact, {
+      const info = {
         values: { ...g.values },
         voices: !!g.voices,
         audioIn: g.audioIn,
         probes: g.probes.length,
         assets: this.assetLoads(),
+      };
+      await this.engine.load(artifact, info, async target => {
+        const rebuilt = await this.compileApart(doc, g, target);
+        if (this.generated.value.hash !== g.hash)
+          throw new CompileFailure('Superseded by a newer edit.', [], 'superseded');
+        info.values = { ...this.generated.value.values };
+        info.assets = this.assetLoads();
+        return rebuilt;
       });
+      this.audioSampleRate.value = this.compileTarget.sampleRate;
     } catch (error) {
+      if (this.generated.value.hash !== g.hash) return;
       this.toast(
         'error',
         `Audio: ${error instanceof Error ? error.message : String(error)} (the previous sound keeps playing)`,
@@ -1069,11 +1098,10 @@ export class KitSession {
   async enableAudio() {
     const ok = await this.engine.start();
     if (!ok) return false;
-    const artifact = this.compiler.cached(this.generated.value.hash);
-    if (artifact) await this.loadIntoEngine(artifact);
-    // A compile already on its way loads itself once audio runs; do not start a second one.
-    else if (this.compileStatus.value !== 'compiling' && this.compileStatus.value !== 'waiting')
-      await this.compileNow();
+    this.audioSampleRate.value = this.compileTarget.sampleRate;
+    // The pre-start validation may belong to another target. Identical in-flight
+    // requests share a compile; a different context gets its own artifact.
+    await this.compileNow();
     return true;
   }
 

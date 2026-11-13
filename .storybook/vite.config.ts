@@ -13,9 +13,18 @@ function noCompiler(): Plugin {
   return {
     name: 'den-kit-stories-no-compiler',
     enforce: 'pre',
-    resolveId: id => (id.endsWith('/compiler.worker.ts?worker') ? empty : undefined),
+    resolveId: id =>
+      id === 'virtual:kit-runtime'
+        ? '\0' + id
+        : id.endsWith('/compiler.worker.ts?worker')
+          ? empty
+          : undefined,
     load: id =>
-      id === empty ? 'export default class { postMessage() {} terminate() {} }' : undefined,
+      id === empty
+        ? 'export default class { postMessage() {} terminate() {} }'
+        : id === '\0virtual:kit-runtime'
+          ? 'export default "";'
+          : undefined,
   };
 }
 

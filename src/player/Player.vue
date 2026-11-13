@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Plays a playable build (src/work/playable.ts) from the files next to its page:
 // the work's screen, drawn by `screen`, and its compiled sound, loaded by `sound`.
-// Nothing compiles here and nothing is saved: a value moved on the screen is the
-// player's own state (the sound follows it), never the work's record. The sound
+// A different playback target recompiles in the isolated worker (compiler.ts).
+// Nothing is saved: a value moved on the screen is the player's own state,
+// never the work's record. The sound
 // starts when the person clicks; the computer keys and MIDI play notes. The code
 // parts come from their own origin, named by ?parts=: never from the player's
 // origin, where they could reach the player.
@@ -11,6 +12,9 @@ import { catalog } from '../sound/blocks/index.ts';
 import { AudioEngine } from '../sound/audio-engine.ts';
 import { currentAssets, currentValues, generate, type Generated } from '../sound/codegen.ts';
 import type { Artifact } from '../sound/compile/protocol.ts';
+import { compileInputs } from '../sound/compile/compile-client.ts';
+import { sameTarget, type CompileTarget } from '../sound/compile/target.ts';
+import { playerCompiler } from './compiler.ts';
 import type { AssetLoad } from '../sound/assets.ts';
 import PluginWindow from '../screen/PluginWindow.vue';
 import { pluginSpec } from '../screen/build.ts';
@@ -34,6 +38,7 @@ const doc = shallowRef<PatchDocument | null>(null);
 const generated = shallowRef<Generated | null>(null);
 const held = ref<number[]>([]);
 let artifact: Artifact | null = null;
+const compiler = playerCompiler();
 const engine = new AudioEngine({
   state: (s, text) => {
     message.value = s === 'error' || s === 'suspended' ? text : '';
@@ -85,11 +90,16 @@ onMounted(async () => {
       wasm,
       processorName: manifest.processor.processorName,
       sampleRate: manifest.processor.sampleRate,
+      renderQuantumSize: manifest.processor.renderQuantumSize,
+      schemaHash: manifest.processor.schemaHash,
       compileMs: 0,
     };
     await registerFonts(read.doc);
     doc.value = read.doc;
     generated.value = generate(read.doc, catalog);
+    if (generated.value.hash !== artifact.hash)
+      throw new Error('The compiled sound does not match this work. Export it again.');
+    compiler.prime(artifact);
     partsAt.value = partsAddress(new URLSearchParams(location.search).get('parts'));
     if (!partsAt.value)
       partsMessage.value = manifest.parts
@@ -153,13 +163,23 @@ async function start() {
   }
   const g = generated.value;
   try {
-    await engine.load(artifact, {
-      values: { ...g.values },
+    const info = {
+      values: { ...generated.value.values },
       voices: !!g.voices,
       audioIn: g.audioIn,
       probes: g.probes.length,
       assets: loads(),
-    });
+    };
+    const forTarget = async (target: CompileTarget) => {
+      const compiled = await compiler.compile(g, compileInputs(doc.value!, g), target);
+      info.values = { ...generated.value!.values };
+      return compiled;
+    };
+    if (!sameTarget(artifact, engine.target)) artifact = await forTarget(engine.target);
+    await engine.load(artifact, info, forTarget);
+    // A control can move while the compiler or the AudioWorklet is starting.
+    for (const [name, value] of Object.entries(generated.value.values))
+      engine.setParam(name, value);
     state.value = 'playing';
   } catch (error) {
     state.value = 'failed';
@@ -220,6 +240,7 @@ function listenToMidi() {
   values: () => generated.value?.values ?? {},
 };
 onBeforeUnmount(() => {
+  compiler.dispose();
   keys.stop();
   midi?.inputs.forEach(input => (input.onmidimessage = null));
   void engine.dispose();

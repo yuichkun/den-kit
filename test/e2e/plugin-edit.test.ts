@@ -8,7 +8,14 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import {
+  openKit,
+  startHarness,
+  waitCompiled,
+  exportBytes,
+  importBytes,
+  type Harness,
+} from './harness.ts';
 
 const kit = (page: Page, fn: (k: any) => unknown): Promise<any> =>
   page.evaluate(`(${fn.toString()})(window.__kit)`);
@@ -247,12 +254,9 @@ describe('building the plugin screen by hand', () => {
       'Own work',
     );
     // The work file carries the bytes; a fresh page (its own storage) imports them back.
-    const file: number[] = await kit(page, async k => Array.from(await k.exportWork()));
+    const file = await exportBytes(page);
     const { page: other } = await openKit(h);
-    assert.equal(
-      await other.evaluate(bytes => (window as any).__kit.importWork(new Uint8Array(bytes)), file),
-      true,
-    );
+    assert.equal(await importBytes(other, file), true);
     await other.keyboard.press('Control+Alt+KeyE');
     await other.waitForFunction(
       () =>

@@ -48,7 +48,8 @@ function silentCompiler(): WorkerLike {
         moduleSource: '',
         wasm: new ArrayBuffer(0),
         processorName: '',
-        sampleRate: 48000,
+        ...request.target,
+        schemaHash: '',
         compileMs: 1200,
       };
       queueMicrotask(() => worker.onmessage?.({ data: { id: request.id, result } }));

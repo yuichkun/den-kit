@@ -104,6 +104,8 @@ export async function buildPlayable(
       meta: artifact.meta,
       processorName: artifact.processorName,
       sampleRate: artifact.sampleRate,
+      renderQuantumSize: artifact.renderQuantumSize,
+      schemaHash: artifact.schemaHash,
     },
     parts,
   };

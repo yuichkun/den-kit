@@ -6,8 +6,7 @@
 //   knob turn never recompiles.
 // - Voice In / Voice Mix replicate den's createInstrument loop exactly (voice
 //   controls, deferred retrigger, CC120 capture, release at block end).
-// - unworklet 0.4.1 expands expression DAGs recursively, so any non-trivial signal
-//   that is read more than once (or by every voice) is written once per sample into
+// - Any non-trivial signal read more than once (or by every voice) is written once per sample into
 //   a transient slot and read from there. Single-use signals stay expressions, like
 //   den's own final audio paths, so tiny values are never flushed needlessly.
 import { isParamInput, defaultValue, type Catalog, type PortDef } from '../work/catalog.ts';
@@ -39,7 +38,7 @@ export interface ParamInfo {
 export interface Generated {
   /** Empty when there is nothing to compile or errors block compilation. */
   source: string;
-  /** Hash of `source`; equal hashes mean the compiled artifact can be reused. */
+  /** Hash of `source`; equal hashes can reuse an artifact compiled for the same target. */
   hash: string;
   params: ParamInfo[];
   /** Current values for every param, from the document. */

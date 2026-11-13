@@ -1,6 +1,6 @@
 // The audio engine in a real browser: create → sound → rewire → keeps sounding →
-// failure keeps the previous sound; plus what goes wrong (runaway feedback, a
-// codebox that never finishes building or tries to reach out, a device at another rate).
+// failure keeps the previous sound; device rates and render quanta; plus runaway
+// feedback and a codebox that never finishes building or tries to reach out.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -46,6 +46,129 @@ async function settle(page: Page) {
     { timeout: 60000 },
   );
   await page.waitForTimeout(150);
+}
+
+/** A real device at each target, including hosts that do not expose their quantum. */
+function deviceScript(
+  targets: Array<{ sampleRate: number; renderQuantumSize: number }>,
+  hideQuantum = false,
+) {
+  return `{
+    const Real = AudioContext;
+    const targets = ${JSON.stringify(targets)};
+    let created = 0;
+    window.AudioContext = class extends Real {
+      constructor(options) {
+        if (options?.sampleRate !== undefined) throw new Error('The app forced a sample rate');
+        const target = targets[Math.min(created++, targets.length - 1)];
+        super({ ...options, sampleRate: target.sampleRate, renderSizeHint: target.renderQuantumSize });
+        ${hideQuantum ? "Object.defineProperty(this, 'renderQuantumSize', { value: undefined });" : ''}
+      }
+    };
+  }`;
+}
+
+async function sinePatch(page: Page) {
+  assert.equal(
+    await kit(
+      page,
+      k =>
+        k.commit([
+          {
+            op: 'addNode',
+            node: {
+              id: 'tone1',
+              type: 'den.oscillator',
+              config: { waveform: 'sine' },
+              values: { frequency: 440 },
+            },
+          },
+          { op: 'addNode', node: { id: 'quiet1', type: 'kit.gain', values: { gain: 0.1 } } },
+          {
+            op: 'connect',
+            from: { node: 'tone1', port: 'out' },
+            to: { node: 'quiet1', port: 'in' },
+          },
+          {
+            op: 'connect',
+            from: { node: 'quiet1', port: 'out' },
+            to: { node: 'out1', port: 'left' },
+            replace: true,
+          },
+        ]).ok,
+    ),
+    true,
+  );
+  assert.equal((await waitCompiled(page)).status, 'ok');
+}
+
+/** Interpolate positive zero crossings: checks pitch, not just nonzero output. */
+async function outputFrequency(page: Page) {
+  return page.evaluate(async () => {
+    const engine = (window as unknown as K).__kit.engine;
+    const analyser = engine.rawAnalyser as AnalyserNode;
+    const data = new Float32Array(analyser.fftSize);
+    for (let attempt = 0; attempt < 50; attempt++) {
+      analyser.getFloatTimeDomainData(data);
+      const crossings: number[] = [];
+      let peak = 0;
+      for (let i = 1; i < data.length; i++) {
+        peak = Math.max(peak, Math.abs(data[i]));
+        if (data[i - 1] < 0 && data[i] >= 0)
+          crossings.push(i - 1 - data[i - 1] / (data[i] - data[i - 1]));
+      }
+      if (peak > 0.01 && crossings.length > 4)
+        return (
+          ((crossings.length - 1) * engine.ctx.sampleRate) / (crossings.at(-1)! - crossings[0])
+        );
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error('No periodic audio reached the analyser');
+  });
+}
+
+async function samplerPatch(page: Page) {
+  return page.evaluate(async () => {
+    const rate = 48000;
+    const frames = rate / 4;
+    const wav = new DataView(new ArrayBuffer(44 + frames * 2));
+    const text = (at: number, value: string) =>
+      [...value].forEach((char, i) => wav.setUint8(at + i, char.charCodeAt(0)));
+    text(0, 'RIFF');
+    wav.setUint32(4, 36 + frames * 2, true);
+    text(8, 'WAVE');
+    text(12, 'fmt ');
+    wav.setUint32(16, 16, true);
+    wav.setUint16(20, 1, true);
+    wav.setUint16(22, 1, true);
+    wav.setUint32(24, rate, true);
+    wav.setUint32(28, rate * 2, true);
+    wav.setUint16(32, 2, true);
+    wav.setUint16(34, 16, true);
+    text(36, 'data');
+    wav.setUint32(40, frames * 2, true);
+    for (let i = 0; i < frames; i++)
+      wav.setInt16(44 + i * 2, Math.round(3276 * Math.sin((2 * Math.PI * 440 * i) / rate)), true);
+    const k = (window as unknown as K).__kit;
+    await k.addAssetFile(new File([wav.buffer], 'target-tone.wav', { type: 'audio/wav' }));
+    return k.commit([
+      {
+        op: 'addNode',
+        node: {
+          id: 'targetSampler',
+          type: 'den.samplePlayer',
+          config: { sound: 'assets/target-tone.wav', loop: true },
+          values: { gate: true },
+        },
+      },
+      {
+        op: 'connect',
+        from: { node: 'targetSampler', port: 'out' },
+        to: { node: 'out1', port: 'left' },
+        replace: true,
+      },
+    ]).ok;
+  });
 }
 
 describe('audio engine', () => {
@@ -463,30 +586,199 @@ settle((0, eval)("import('/package.json?codebox-probe', { with: { type: 'json' }
     await second.page.close();
   });
 
-  it('a non-48 kHz device is refused with a clear message (and compiling still works)', async () => {
-    const context = await h.browser.newContext();
-    const page = await context.newPage();
-    await page.addInitScript(() => {
-      const Real = AudioContext;
-      (window as unknown as { AudioContext: unknown }).AudioContext = class extends Real {
-        constructor(o?: AudioContextOptions) {
-          super({ ...o, sampleRate: 44100 });
+  for (const sampleRate of [44100, 48000, 96000]) {
+    for (const renderQuantumSize of [32, 128, 256]) {
+      it(`plays at the device's ${sampleRate} Hz / ${renderQuantumSize} samples after compiling before audio starts`, async () => {
+        const target = { sampleRate, renderQuantumSize };
+        const { page, errors } = await openKit(h, {
+          start: false,
+          initScript: deviceScript([target]),
+        });
+        try {
+          await waitCompiled(page);
+          await sinePatch(page);
+          assert.ok(await page.$('[data-testid=start-overlay]'));
+          await startAudio(page);
+          await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, {
+            timeout: 60000,
+          });
+          assert.deepEqual(
+            await kit(page, k => ({
+              sampleRate: k.engine.ctx.sampleRate,
+              renderQuantumSize: k.engine.ctx.renderQuantumSize,
+            })),
+            target,
+            'the browser renders at the requested target',
+          );
+          assert.deepEqual(
+            await kit(page, k => ({
+              sampleRate: k.engine.current.artifact.sampleRate,
+              renderQuantumSize: k.engine.current.artifact.renderQuantumSize,
+            })),
+            target,
+            'the loaded processor was compiled for that context',
+          );
+          const frequency = await outputFrequency(page);
+          assert.ok(Math.abs(frequency - 440) < 0.5, `440 Hz became ${frequency} Hz`);
+          assert.ok((await outputPeak(page, 100)) > 0.01, 'audio reaches the output');
+          assert.deepEqual(errors, []);
+        } finally {
+          await page.close();
         }
-      };
+      });
+    }
+  }
+
+  it('uses 128 samples on a browser without renderQuantumSize', async () => {
+    const { page, errors } = await openKit(h, {
+      start: false,
+      initScript: deviceScript([{ sampleRate: 44100, renderQuantumSize: 128 }], true),
     });
-    await page.goto(`${h.url}?noStart`);
-    await page.waitForFunction(() => (window as unknown as K).__kit, null, { timeout: 60000 });
-    await waitCompiled(page);
-    await page.click('[data-testid=start-overlay]');
-    await page.waitForFunction(() => (window as unknown as K).__kit.engineState.value === 'error');
-    assert.match(await kit(page, k => k.engineMessage.value), /48 kHz/);
-    assert.match(
-      (await page.textContent('[data-testid=start-error]')) ?? '',
-      /48 kHz/,
-      'the overlay explains it',
-    );
-    assert.equal(await kit(page, k => k.compileStatus.value), 'ok');
-    await page.close();
+    try {
+      await waitCompiled(page);
+      await sinePatch(page);
+      await startAudio(page);
+      await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, {
+        timeout: 60000,
+      });
+      assert.equal(await kit(page, k => k.engine.ctx.renderQuantumSize), undefined);
+      assert.equal(await kit(page, k => k.engine.current.artifact.renderQuantumSize), 128);
+      const frequency = await outputFrequency(page);
+      assert.ok(Math.abs(frequency - 440) < 0.5, `440 Hz became ${frequency} Hz`);
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('recompiles for a changed device target during context rotation', async () => {
+    const { page, errors } = await openKit(h, {
+      start: false,
+      query: '?rotateAfter=1',
+      initScript: deviceScript([
+        { sampleRate: 44100, renderQuantumSize: 32 },
+        { sampleRate: 96000, renderQuantumSize: 256 },
+      ]),
+    });
+    try {
+      await waitCompiled(page);
+      await sinePatch(page);
+      await startAudio(page);
+      await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, {
+        timeout: 60000,
+      });
+      assert.ok(Math.abs((await outputFrequency(page)) - 440) < 0.5);
+      for (const waveform of ['saw', 'sine']) {
+        assert.equal(
+          await page.evaluate(
+            value =>
+              (window as unknown as K).__kit.commit([
+                { op: 'setConfig', node: 'tone1', key: 'waveform', value },
+              ]).ok,
+            waveform,
+          ),
+          true,
+        );
+        await settle(page);
+        await page.waitForFunction(
+          () => {
+            const k = (window as unknown as K).__kit;
+            return k.engine.currentHash === k.generated.value.hash;
+          },
+          null,
+          { timeout: 60000 },
+        );
+      }
+      await page.waitForFunction(
+        () => {
+          const engine = (window as unknown as K).__kit.engine;
+          return engine.stats.rotations > 0 && engine.ctx.sampleRate === 96000;
+        },
+        null,
+        { timeout: 60000 },
+      );
+      assert.deepEqual(
+        await kit(page, k => ({
+          sampleRate: k.engine.current.artifact.sampleRate,
+          renderQuantumSize: k.engine.current.artifact.renderQuantumSize,
+        })),
+        { sampleRate: 96000, renderQuantumSize: 256 },
+      );
+      const frequency = await outputFrequency(page);
+      assert.ok(Math.abs(frequency - 440) < 0.5, `440 Hz became ${frequency} Hz after rotation`);
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('decodes an unchanged audio asset again at a new device rate without changing its pitch or duration', async () => {
+    const { page, errors } = await openKit(h, {
+      start: false,
+      query: '?rotateAfter=1',
+      initScript: deviceScript([
+        { sampleRate: 44100, renderQuantumSize: 32 },
+        { sampleRate: 96000, renderQuantumSize: 256 },
+      ]),
+    });
+    const decoded = () =>
+      kit(page, async k => {
+        const audio = (await Promise.all(k.engine.decoded.values()))[0] as AudioBuffer;
+        return { sampleRate: audio.sampleRate, duration: audio.duration, length: audio.length };
+      });
+    try {
+      await waitCompiled(page);
+      assert.equal(await samplerPatch(page), true);
+      assert.equal((await waitCompiled(page)).status, 'ok');
+      await startAudio(page);
+      await page.waitForFunction(() => (window as unknown as K).__kit.engine.hasNode, null, {
+        timeout: 60000,
+      });
+      assert.ok(Math.abs((await outputFrequency(page)) - 440) < 0.5);
+      const initial = await decoded();
+      assert.equal(initial.sampleRate, 44100);
+      // Browser resampling can round the decoded frame count down by one.
+      assert.ok(Math.abs(initial.length - 11025) <= 1, JSON.stringify(initial));
+      assert.ok(Math.abs(initial.duration - 0.25) * 44100 < 1.000001, JSON.stringify(initial));
+      for (const loop of [false, true]) {
+        assert.equal(
+          await page.evaluate(
+            value =>
+              (window as unknown as K).__kit.commit([
+                { op: 'setConfig', node: 'targetSampler', key: 'loop', value },
+              ]).ok,
+            loop,
+          ),
+          true,
+        );
+        await settle(page);
+        await page.waitForFunction(
+          () => {
+            const k = (window as unknown as K).__kit;
+            return k.engine.currentHash === k.generated.value.hash;
+          },
+          null,
+          { timeout: 60000 },
+        );
+      }
+      await page.waitForFunction(
+        () => {
+          const engine = (window as unknown as K).__kit.engine;
+          return engine.stats.rotations > 0 && engine.current?.artifact.sampleRate === 96000;
+        },
+        null,
+        { timeout: 60000 },
+      );
+      const frequency = await outputFrequency(page);
+      assert.ok(Math.abs(frequency - 440) < 0.5, `the asset became ${frequency} Hz`);
+      const rotated = await decoded();
+      assert.equal(rotated.sampleRate, 96000);
+      assert.ok(Math.abs(rotated.length - 24000) <= 1, JSON.stringify(rotated));
+      assert.ok(Math.abs(rotated.duration - 0.25) * 96000 < 1.000001, JSON.stringify(rotated));
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
   });
 
   it('autosave restores after reload; a corrupted autosave falls back with a warning', async () => {

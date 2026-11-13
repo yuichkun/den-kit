@@ -767,6 +767,17 @@ describe('edits', () => {
 });
 
 describe('weight instead of a node count', () => {
+  it('CPU estimates follow the playback rate while program size stays the same', () => {
+    const doc = rain(32);
+    const normal = validate(doc, catalog, { sampleRate: 48000 });
+    const high = validate(doc, catalog, { sampleRate: 96000 });
+    const low = validate(doc, catalog, { sampleRate: 44100 });
+    expect(high.cost.cpu).toBeCloseTo(normal.cost.cpu * 2);
+    expect(low.cost.cpu).toBeCloseTo((normal.cost.cpu * 44100) / 48000);
+    expect(high.cost.byNode.svf1).toBeCloseTo(normal.cost.byNode.svf1! * 2);
+    expect(high.cost.kB).toBe(normal.cost.kB);
+  });
+
   it('the cost is estimated from what the patch expands into; heavy patches warn, ones too big to build are refused', () => {
     const light = validate(rain(4), catalog);
     expect(light.cost.cpu).toBeGreaterThan(0);

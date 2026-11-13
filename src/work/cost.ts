@@ -5,7 +5,8 @@
 // controls moving), and WebAssembly bytes, per instance. Checked against
 // whole patches (the showcase, the starters, stacks up to ×48): within about
 // ±20%, except code-heavy codeboxes. A browser on a recent Mac is usually
-// faster; these are estimates.
+// faster; these are estimates. CPU estimates scale with the sample rate; quantum
+// scheduling and device-specific costs are not measured here.
 //
 // A big program runs slower per module than a small one (the whole program is
 // one function): a little past 200 kB (×1.3 at 500 kB), steeply past about
@@ -55,8 +56,6 @@ const MEASURED: Record<string, readonly [number, number]> = {
 const PRIM: readonly [number, number] = [0.005, 0.03];
 /** Whole patches against the sum of their modules (shared reads, the output stage): they matched, so 1. */
 const FIT = 1;
-/** Microseconds per sample at 48 kHz: one core. */
-const CORE_US = 1e6 / 48000;
 const BASE_KB = 1.5;
 
 export interface Cost {
@@ -101,6 +100,7 @@ export function estimateCost(
   catalog: Catalog,
   analysis: Analysis,
   origin: Record<NodeId, NodeId[]> = {},
+  sampleRate = 48000,
 ): Cost {
   const voiceIn = Object.values(flat.nodes).find(
     n => n.type === 'kit.voiceIn' && analysis.live.has(n.id),
@@ -122,7 +122,7 @@ export function estimateCost(
     kB += k * times;
     for (const id of new Set(origin[n.id] ?? [n.id])) raw[id] = (raw[id] ?? 0) + u * times;
   }
-  const scale = (FIT * sizePenalty(kB)) / CORE_US;
+  const scale = (FIT * sizePenalty(kB) * sampleRate) / 1e6;
   return {
     cpu: us * scale,
     kB,

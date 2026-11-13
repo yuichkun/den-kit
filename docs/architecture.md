@@ -122,11 +122,12 @@ the sound to `screen`.
 - `work` defines the versioned work file. It carries the record, the contents of its non-text
   files, and the playable build: the
   static files that play the work without the editor or a workspace. Those are `player`,
-  the compiled audio processor (JavaScript and WebAssembly), the plugin screen and
+  the compiled audio processor (JavaScript and WebAssembly), its compiler, the plugin screen and
   parameters (JSON), the built code parts and the assets. Serving a playable build needs a
   second origin for the code parts.
 - `player` never changes a work's record. Values moved while playing are the player's own
-  state.
+  state. It reuses the compiled sound when its sample rate and render quantum match the
+  AudioContext, and compiles for that context otherwise.
 - Conversations and settings are not part of a work. The agent runtime keeps each
   conversation. The host's storage keeps which conversation belongs to which work and what the
   person allowed for each work, the host keeps its own settings, such as the AI model, and the
@@ -154,7 +155,11 @@ the sound to `screen`.
   worker on den-kit's own origin. Every host serves that worker's script with the policy in
   `src/sound/compile/worker-policy.ts`, which lets the code load only den-kit's own scripts
   and make no other request, whatever it evaluates, and the worker runs no codebox's code
-  without it.
+  without it. A playable build uses the same compiler inside a worker created by an
+  opaque sandboxed frame. The worker inherits the frame's network-denying policy, so
+  a static host needs no special response headers for codebox isolation. The client
+  assembles the executable worklet module from the returned data and its own runtime;
+  it does not trust executable source from a worker that ran a codebox.
 - A code part's source is in the work's files. The host's sandbox serves it in a frame from
   the work's own origin: while the person edits, it passes requests through to the
   workspace's dev server, and otherwise it serves the playable build. The frame has no host
