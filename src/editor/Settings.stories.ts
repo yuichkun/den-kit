@@ -53,6 +53,17 @@ const meta = {
   title: 'Editor/Settings',
   tags: ['editor', '!autodocs'],
   parameters: editorParameters,
+  // A person opens Settings once den-kit's fonts have loaded. A select drawn before its font
+  // arrives can keep the fallback font in Chromium, so the story draws with the theme's font in.
+  loaders: [
+    async ({ globals }) => {
+      useTheme(globals.editorTheme as string);
+      const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui');
+      await Promise.all(
+        ['400', '700'].map(weight => document.fonts.load(`${weight} 14px ${font}`)),
+      );
+    },
+  ],
   // The dialog takes the focus once it has what the host says.
   play: async ({ canvasElement }) => {
     await waitFor(() =>
