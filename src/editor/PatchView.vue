@@ -2,12 +2,13 @@
 // Patch canvas (Vue Flow). The document is the source of truth: Vue Flow only
 // renders it; every user gesture becomes a session.commit() intent.
 import { useTouches } from './touches.ts';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
   SelectionMode,
   VueFlow,
   useVueFlow,
   type Connection,
+  type FitViewParams,
   type NodeDragEvent,
   type NodeChange,
   type EdgeChange,
@@ -42,8 +43,17 @@ const selectedEdges = computed({
   get: () => session.edgeSelection.value,
   set: ids => session.selectEdges(ids),
 });
-/** Positions while dragging (committed as one move on drag stop). */
-const dragging = ref<Record<string, { x: number; y: number }>>({});
+/** The patch's snap grid (docs/design-system.md): a module dragged or added lands on it. */
+const GRID = 12;
+type Point = { x: number; y: number };
+const onGrid = (p: Point): Point => ({
+  x: Math.round(p.x / GRID) * GRID,
+  y: Math.round(p.y / GRID) * GRID,
+});
+/** The point of the grid nearest to a point on the screen. */
+const gridAt = (screen: Point) => onGrid(flow.screenToFlowCoordinate(screen));
+/** Positions while dragging, on the grid (committed as one move on drag stop). */
+const dragging = ref<Record<string, Point>>({});
 
 // Inside a part the view shows its nodes; problems found in the use we came through are shown on them.
 const here = (node: { inside?: string }) => node.inside === session.scope.value;
@@ -150,22 +160,23 @@ function isValidConnection(c: Connection) {
 function onDragStop(event: NodeDragEvent) {
   const intents: Intent[] = event.nodes
     .filter(n => session.doc.value.nodes[n.id])
-    .map(n => ({
-      op: 'move',
-      node: n.id,
-      pos: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
-    }));
+    .map(n => ({ op: 'move', node: n.id, pos: onGrid(n.position) }));
   if (intents.length) commit(intents, 'Move');
   dragging.value = {};
 }
 function onNodesChange(changes: NodeChange[]) {
-  const moves = changes.filter(c => c.type === 'position');
-  if (moves.length) {
-    const next = { ...dragging.value };
-    for (const c of moves)
-      if (c.type === 'position' && c.position) next[c.id] = { x: c.position.x, y: c.position.y };
-    dragging.value = next;
-  }
+  // A dragged module snaps to the grid here: Vue Flow's own snapping would also move each module it
+  // draws for the first time onto the grid, away from where the document puts it.
+  const next = { ...dragging.value };
+  let moved = false;
+  for (const c of changes)
+    if (c.type === 'position' && c.position) {
+      const at = onGrid(c.position);
+      if (next[c.id]?.x === at.x && next[c.id]?.y === at.y) continue;
+      next[c.id] = at;
+      moved = true;
+    }
+  if (moved) dragging.value = next;
   const selects = changes.filter(c => c.type === 'select');
   if (!selects.length) return;
   const set = new Set(session.selection.value);
@@ -263,7 +274,7 @@ function onKey(e: KeyboardEvent) {
   } else if (ARROWS[e.key] && !mod && !e.altKey) {
     e.preventDefault();
     const [x, y] = ARROWS[e.key]!;
-    const step = e.shiftKey ? 48 : 12;
+    const step = e.shiftKey ? GRID * 4 : GRID;
     nudge(x * step, y * step);
   } else if (e.shiftKey && !mod && e.code === 'Digit1') {
     e.preventDefault();
@@ -379,21 +390,18 @@ function toggleSolo() {
 }
 watch(
   () => session.partPath.value.join('/'),
-  async () => {
-    await nextTick();
-    setTimeout(() => flow.fitView({ padding: 0.12, maxZoom: 1 }), 60);
-  },
+  () => fitWhenDrawn({ padding: 0.12, maxZoom: 1 }),
 );
 function openPalette(event?: MouseEvent) {
   const box = wrapper.value?.getBoundingClientRect();
   const x = event && box ? event.clientX - box.left : (box?.width ?? 600) / 2 - 160,
     y = event && box ? event.clientY - box.top : 80;
-  const p = flow.screenToFlowCoordinate({ x: (box?.left ?? 0) + x, y: (box?.top ?? 0) + y });
-  palette.value = { x, y, flowX: Math.round(p.x), flowY: Math.round(p.y) };
+  const p = gridAt({ x: (box?.left ?? 0) + x, y: (box?.top ?? 0) + y });
+  palette.value = { x, y, flowX: p.x, flowY: p.y };
 }
 /** Add a module (or a use of a part: `part:<id>`) where the view is: in the main patch or inside the part shown. */
 function addAt(type: string, x: number, y: number) {
-  const pos = { x: Math.round(x / 12) * 12, y: Math.round(y / 12) * 12 };
+  const pos = onGrid({ x, y });
   const inside = session.scope.value;
   if (type.startsWith('mine:')) {
     // From My parts: its definition comes into this patch (or another use of it, when it is already here).
@@ -410,7 +418,7 @@ function addAt(type: string, x: number, y: number) {
 }
 function addAtCenter(type: string) {
   const box = wrapper.value?.getBoundingClientRect();
-  const p = flow.screenToFlowCoordinate({
+  const p = gridAt({
     x: (box?.left ?? 0) + (box?.width ?? 800) / 2 - 60,
     y: (box?.top ?? 0) + (box?.height ?? 600) / 2,
   });
@@ -422,7 +430,7 @@ function onDrop(e: DragEvent) {
   const type = e.dataTransfer?.getData('application/x-den-kit');
   if (!type) return;
   e.preventDefault();
-  const p = flow.screenToFlowCoordinate({ x: e.clientX, y: e.clientY });
+  const p = gridAt({ x: e.clientX, y: e.clientY });
   addAt(type, p.x - 40, p.y - 20);
 }
 function pick(type: string) {
@@ -430,12 +438,44 @@ function pick(type: string) {
   palette.value = null;
   addAt(type, at?.flowX ?? 0, at?.flowY ?? 0);
 }
+// ---- fitting the patch in view ------------------------------------------------------
+/** Vue Flow can move the view, and knows the size of every module shown and where its ports are. */
+const measured = computed(
+  () =>
+    flow.viewportHelper.value.viewportInitialized &&
+    nodes.value.every(n => {
+      const node = flow.findNode(n.id);
+      return !!node?.dimensions.width && !!node.dimensions.height && !!node.handleBounds;
+    }),
+);
+/** The fit waiting for the modules to be drawn; a later one replaces it. */
+const waitingFit = shallowRef<FitViewParams | null>(null);
+let unmounted = false;
+/**
+ * Fits the modules in view once they are drawn with their final sizes: measured, with den-kit's
+ * fonts loaded and the sizes the fonts change measured again. Where the patch sits then never
+ * depends on how fast the machine or the network is.
+ */
+function fitWhenDrawn(params: FitViewParams) {
+  waitingFit.value = params;
+}
+watch(
+  [waitingFit, measured],
+  async ([params, ready]) => {
+    if (!params || !ready) return;
+    await document.fonts.ready;
+    // A size the fonts change reaches Vue Flow from its ResizeObserver, after the next layout.
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    if (unmounted || waitingFit.value !== params) return;
+    waitingFit.value = null;
+    void flow.fitView(params);
+  },
+  { flush: 'post' },
+);
 watch(
   () => session.loadEpoch.value,
-  async () => {
-    await nextTick();
-    setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1 }), 80);
-  },
+  () => fitWhenDrawn({ padding: 0.08, maxZoom: 1 }),
   { immediate: true },
 );
 // An LLM request lands step by step: refit at most every 1.5 s.
@@ -448,7 +488,7 @@ const offLlmFit = session.onTransaction(tx => {
   )
     return;
   lastFit = performance.now();
-  setTimeout(() => flow.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 80);
+  fitWhenDrawn({ padding: 0.08, maxZoom: 1, duration: 250 });
 });
 /** What the person sees of the patch: the zoom and the modules in sight. */
 const viewDetails = () => {
@@ -487,6 +527,7 @@ onMounted(() => {
   session.patchBoxes = patchBoxes;
 });
 onBeforeUnmount(() => {
+  unmounted = true;
   offLlmFit();
   releaseEnter();
   window.removeEventListener('keydown', onKey);
@@ -519,8 +560,6 @@ defineExpose({ openPalette, fit });
         :pan-activation-key-code="null"
         :min-zoom="0.2"
         :max-zoom="2"
-        :snap-to-grid="true"
-        :snap-grid="[12, 12]"
         :selection-key-code="true"
         :pan-on-drag="[1, 2]"
         :pan-on-scroll="true"
@@ -549,7 +588,7 @@ defineExpose({ openPalette, fit });
         <Background
           v-if="theme.canvas !== 'plain'"
           :variant="theme.canvas === 'dots' ? 'dots' : 'lines'"
-          :gap="theme.canvas === 'dots' ? 12 : 96"
+          :gap="theme.canvas === 'dots' ? GRID : 96"
           :size="1.2"
           :line-width="1"
         />

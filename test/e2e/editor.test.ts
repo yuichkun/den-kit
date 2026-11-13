@@ -3,7 +3,14 @@ import { writeZip } from '../../src/work/zip.ts';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import {
+  openKit,
+  reloadKit,
+  startAudio,
+  startHarness,
+  waitCompiled,
+  type Harness,
+} from './harness.ts';
 
 let h: Harness;
 before(async () => {
@@ -163,6 +170,71 @@ describe('patch editor', () => {
     assert.equal(await kit(page, k => k.history.size), size0 + 1);
     const moved = await kit(page, k => k.doc.value.nodes[k.selection.value[0]].pos);
     assert.ok(moved.x !== 0 || moved.y !== 0);
+    await page.close();
+  });
+
+  it('draws each module where the work puts it, from the first frame; a dragged one lands on the grid', async () => {
+    // Every place each module is drawn at, as the page shows it.
+    const { page } = await openKit(h, {
+      initScript: `window.__places = {};
+        new MutationObserver(() => {
+          for (const n of document.querySelectorAll('.vue-flow__node')) {
+            const seen = (window.__places[n.dataset.id] ??= []);
+            if (seen.at(-1) !== n.style.transform) seen.push(n.style.transform);
+          }
+        }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });`,
+    });
+    await waitCompiled(page);
+    const nodes: Array<{ id: string; x: number; y: number }> = await kit(page, k =>
+      Object.values<any>(k.doc.value.nodes).map(n => ({ id: n.id, ...n.pos })),
+    );
+    const between = nodes.find(n => n.x % 12 || n.y % 12);
+    // The starter's layout puts modules between points of the grid.
+    assert.ok(between);
+    const places = await page.evaluate(() => (window as any).__places);
+    for (const n of nodes) assert.deepEqual(places[n.id], [`translate(${n.x}px, ${n.y}px)`], n.id);
+    const header = page.locator(`.vue-flow__node[data-id="${between.id}"] header`);
+    const box = (await header.boundingBox())!;
+    await dragBetween(page, { x: box.x + 20, y: box.y + 8 }, { x: box.x + 85, y: box.y + 47 });
+    const pos = await page.evaluate(
+      id => (window as any).__kit.doc.value.nodes[id].pos,
+      between.id,
+    );
+    assert.notDeepEqual(pos, { x: between.x, y: between.y });
+    assert.deepEqual([pos.x % 12, pos.y % 12], [0, 0]);
+    assert.equal(
+      await page
+        .locator(`.vue-flow__node[data-id="${between.id}"]`)
+        .evaluate(n => (n as HTMLElement).style.transform),
+      `translate(${pos.x}px, ${pos.y}px)`,
+    );
+    await page.close();
+  });
+
+  it("fits the patch in view as the modules are drawn with den-kit's fonts, also when the fonts come late", async () => {
+    const { page } = await openKit(h);
+    // Open the work again with every font file held back (routing also keeps the files out of the cache).
+    await page.route(/\.woff2(\?|$)/, async route => {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await route.continue();
+    });
+    await reloadKit(page);
+    await startAudio(page);
+    const view = () =>
+      page.evaluate(
+        () => document.querySelector<HTMLElement>('.vue-flow__transformationpane')!.style.transform,
+      );
+    await page.waitForFunction(() => {
+      const t = document.querySelector<HTMLElement>('.vue-flow__transformationpane')?.style
+        .transform;
+      return !!t && t !== 'translate(0px, 0px) scale(1)';
+    });
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const opened = await view();
+    // Shift+1 fits the modules again, with the sizes they have now.
+    await page.keyboard.press('Shift+Digit1');
+    await page.waitForTimeout(600);
+    assert.equal(await view(), opened);
     await page.close();
   });
 
