@@ -129,12 +129,20 @@ export async function openKit(
     /** Show the first-launch start screen (fresh storage); off by default so tests begin on the bass starter. */ startScreen?: boolean;
     viewport?: { width: number; height: number };
     /** The page to open: the development host (default) or another host's page, such as desktop.html. */ path?: string;
+    /** Hold every font file back this many ms, from the first load on. */ holdFonts?: number;
   } = {},
 ): Promise<{ page: Page; errors: string[] }> {
   // A fresh context per page: isolated storage, so a page left open by a failed test cannot interfere.
   const context = await h.browser.newContext({
     viewport: options.viewport ?? { width: 1440, height: 900 },
   });
+  const holdFonts = options.holdFonts;
+  if (holdFonts)
+    // Routing also keeps the files out of the cache.
+    await context.route(/\.woff2(\?|$)/, async route => {
+      await new Promise(resolve => setTimeout(resolve, holdFonts));
+      await route.continue();
+    });
   const page = await context.newPage();
   // The context goes with its page; at the end of a file the browser may already be closing, which is fine.
   page.on('close', () => {
@@ -171,7 +179,10 @@ export async function openKit(
   const query = options.startScreen
     ? (options.query ?? '')
     : `${options.query ? `${options.query}&` : '?'}noStart`;
-  await page.goto(h.url + (options.path ?? '') + query);
+  // Fonts held back hold back the load event too.
+  await page.goto(h.url + (options.path ?? '') + query, {
+    waitUntil: holdFonts ? 'domcontentloaded' : 'load',
+  });
   await page.waitForFunction(
     () => (window as unknown as { __kit?: unknown }).__kit !== undefined,
     null,
