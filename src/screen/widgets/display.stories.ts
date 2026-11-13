@@ -24,11 +24,31 @@ function sine(): DkScope['analyser'] {
   } as unknown as AnalyserNode;
 }
 
+/**
+ * Waits until the control draws the same picture on frame after frame: the phosphor trace builds
+ * up and the needle swings over their first frames. Only for Chromatic, where the wave holds still.
+ */
+async function settled(scope: DkScope) {
+  if (!isChromatic()) return;
+  const canvas = scope.shadowRoot!.querySelector('canvas')!;
+  // After a frame's drawing.
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)));
+  let last = '';
+  for (let still = 0, frames = 0; still < 10; frames++) {
+    if (frames > 600) throw new Error('The drawing never held still.');
+    await frame();
+    const now = canvas.toDataURL();
+    still = now === last ? still + 1 : 0;
+    last = now;
+  }
+}
+
 const meta = {
   title: 'Controls/Scope and meter',
   component: 'dk-scope',
-  // The phosphor trace builds up over its first frames: Chromatic waits for it to settle.
-  parameters: { chromatic: { delay: 500 } },
+  play: async ({ canvasElement }) => {
+    await settled(canvasElement.querySelector('dk-scope') as DkScope);
+  },
   args: { mode: 'scope', label: 'Out', skin: 'line' },
   argTypes: {
     mode: { control: 'inline-radio', options: ['scope', 'meter'] },
