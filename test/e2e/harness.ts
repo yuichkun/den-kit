@@ -7,6 +7,7 @@ import {
   chromium,
   errors as playwrightErrors,
   type Browser,
+  type JSHandle,
   type Page,
   type Request,
 } from 'playwright';
@@ -300,4 +301,38 @@ export async function waitCompiled(page: Page, timeout = 60000) {
     ).__kit;
     return { status: k.compileStatus.value, message: k.compileMessage.value };
   });
+}
+
+/** Transfer binary archives without expanding every byte into a JSON number. */
+export async function transferBytes(handle: JSHandle<Uint8Array>): Promise<Uint8Array> {
+  try {
+    const encoded = await handle.evaluate(
+      bytes =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]!);
+          reader.onerror = () => reject(new Error('Could not read the exported work'));
+          reader.readAsDataURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
+        }),
+    );
+    return new Uint8Array(Buffer.from(encoded, 'base64'));
+  } finally {
+    await handle.dispose();
+  }
+}
+
+export function exportBytes(page: Page): Promise<Uint8Array> {
+  return page
+    .evaluateHandle(async () => (window as any).__kit.exportWork() as Promise<Uint8Array>)
+    .then(transferBytes);
+}
+
+/** Imports the same archive through the session API without a JSON number per byte. */
+export function importBytes(page: Page, bytes: Uint8Array): Promise<boolean> {
+  return page.evaluate(encoded => {
+    const raw = atob(encoded);
+    const data = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+    return (window as any).__kit.importWork(data) as Promise<boolean>;
+  }, Buffer.from(bytes).toString('base64'));
 }

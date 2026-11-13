@@ -3,7 +3,7 @@ import { writeZip } from '../../src/work/zip.ts';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import { openKit, startHarness, waitCompiled, exportBytes, type Harness } from './harness.ts';
 
 let h: Harness;
 before(async () => {
@@ -319,7 +319,7 @@ describe('patch editor', () => {
         /not a den-kit work file/.test(t.text),
       ),
     );
-    const exported: number[] = await kit(page, async k => Array.from(await k.exportWork()));
+    const exported = await exportBytes(page);
     await kit(page, k => k.loadStarter('chorus'));
     await page.setInputFiles('[data-testid=import-file]', {
       name: 'bass.denkit',

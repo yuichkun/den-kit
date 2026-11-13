@@ -8,12 +8,19 @@
 // sound, whatever the editor has soloed. Needs den-kit's player build (vp run
 // build makes dist/player/).
 import { after, afterEach, before, describe, it } from 'node:test';
-import type { JSHandle, Page } from 'playwright';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join } from 'node:path';
-import { kitRoot, openKit, startHarness, waitCompiled, type Harness } from './harness.ts';
+import {
+  kitRoot,
+  openKit,
+  startHarness,
+  waitCompiled,
+  exportBytes,
+  transferBytes,
+  type Harness,
+} from './harness.ts';
 import { catalog } from '../../src/sound/blocks/index.ts';
 import { generate } from '../../src/sound/codegen.ts';
 import { parseDocument } from '../../src/work/persistence.ts';
@@ -58,30 +65,6 @@ const entriesOf = (bytes: Uint8Array) =>
       maxEntries: 10000,
     }).map(e => [e.path, e.data] as const),
   );
-/** Transfer binary archives without expanding every byte into a JSON number. */
-async function transferBytes(handle: JSHandle<Uint8Array>): Promise<Uint8Array> {
-  try {
-    const encoded = await handle.evaluate(
-      bytes =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(',')[1]!);
-          reader.onerror = () => reject(new Error('Could not read the exported work'));
-          reader.readAsDataURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
-        }),
-    );
-    return new Uint8Array(Buffer.from(encoded, 'base64'));
-  } finally {
-    await handle.dispose();
-  }
-}
-
-function exportBytes(page: Page): Promise<Uint8Array> {
-  return page
-    .evaluateHandle(async () => (window as any).__kit.exportWork() as Promise<Uint8Array>)
-    .then(transferBytes);
-}
-
 const json = (data: Uint8Array | undefined) => JSON.parse(new TextDecoder().decode(data));
 const servers: Server[] = [];
 async function serve(files: Map<string, Uint8Array>, headers: Record<string, string>) {
