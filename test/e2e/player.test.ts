@@ -4,9 +4,10 @@
 // when clicked, the computer keys play notes, a code part shows from its own
 // origin, the work's own font and a control's pictures are loaded, and moving a
 // control changes only the player's own state. The record and the build are of
-// the work as it was when the export started, and the build plays the whole
-// sound, whatever the editor has soloed. Needs den-kit's player build (vp run
-// build makes dist/player/).
+// the work as it was when the export started: the build's document is the
+// record's without the text files, which only the record keeps. The build plays
+// the whole sound, whatever the editor has soloed. Needs den-kit's player build
+// (vp run build makes dist/player/).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -58,6 +59,11 @@ const entriesOf = (bytes: number[]) =>
     }).map(e => [e.path, e.data] as const),
   );
 const json = (data: Uint8Array | undefined) => JSON.parse(new TextDecoder().decode(data));
+/** A record's document without its text files, as the build's build.json has it. */
+const withoutText = (doc: { files: Record<string, object> }) => ({
+  ...doc,
+  files: Object.fromEntries(Object.entries(doc.files).filter(([, file]) => !('text' in file))),
+});
 const servers: Server[] = [];
 async function serve(files: Map<string, Uint8Array>, headers: Record<string, string>) {
   const server = createServer((req, res) => {
@@ -301,7 +307,7 @@ describe('the playable build', () => {
   );
 
   it(
-    'is of the work as it was when the export started, edits made meanwhile in neither the record nor the build, and plays the whole sound while the editor solos a part',
+    "is of the work as it was when the export started, edits made meanwhile in neither the record nor the build, has the record's document without its text files, and plays the whole sound while the editor solos a part",
     { timeout: 300000 },
     async () => {
       const { page, errors } = await openKit(h);
@@ -341,7 +347,17 @@ describe('the playable build', () => {
       const manifest = json(file.get('build/build.json'));
       assert.equal(record.name, exported.name);
       assert.doesNotMatch(JSON.stringify(record), /\/\/ changed/);
-      assert.deepEqual(manifest.document, record);
+      // The record keeps the work's text files; the build leaves them out.
+      for (const path of ['src/parts/meter.ts', 'package.json'])
+        assert.equal(typeof record.files[path]?.text, 'string', `${path} in the record`);
+      assert.deepEqual(
+        Object.keys(manifest.document.files).filter(
+          path => 'text' in manifest.document.files[path],
+        ),
+        [],
+        'no text file in the build',
+      );
+      assert.deepEqual(manifest.document, withoutText(record));
       const read = parseDocument(record, catalog);
       assert.ok(read.ok);
       const whole = generate(read.doc, catalog).hash;
@@ -362,7 +378,7 @@ describe('the playable build', () => {
       const record2 = json(again.get('work.json')).document;
       assert.equal(record2.name, 'Renamed while exporting');
       assert.match(JSON.stringify(record2), /\/\/ changed/);
-      assert.deepEqual(json(again.get('build/build.json')).document, record2);
+      assert.deepEqual(json(again.get('build/build.json')).document, withoutText(record2));
       assert.ok(again.has('build/parts/index.html'), 'the code parts were built');
       assert.deepEqual(errors, []);
       await page.close();

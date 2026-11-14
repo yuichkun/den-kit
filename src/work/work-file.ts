@@ -21,9 +21,9 @@ const RECORD = 'work.json';
 const CONTENTS = 'contents/';
 const BUILD = 'build/';
 /**
- * work.json and the build's build.json hold the document with every text file JSON-escaped (a quote,
- * backslash or line break takes two bytes), so they can take more than the work's files: twice the
- * most those may hold together.
+ * work.json holds the document with every text file JSON-escaped (a quote, backslash or line break
+ * takes two bytes), so it can take more than the work's files: twice the most those may hold
+ * together. A work file's build.json may hold the text files as well, so it gets the same limit.
  */
 const RECORD_BYTES = 2 * WORK_LIMITS.workBytes;
 

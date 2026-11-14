@@ -1,9 +1,9 @@
 // The open work's playable build (src/work/playable.ts), made from one document of
-// it and what the editor has: that document's compiled sound (nothing soloed), its
-// assets, the player den-kit was built with (player/ next to den-kit's page), and,
-// when the work has code parts, their build from the workspace (npm run build) while
-// it holds that document's files. A part that cannot be made is left out and said
-// so; the rest still plays.
+// it and what the editor has: that document without its text files (build.json),
+// its compiled sound (nothing soloed), its assets, the player den-kit was built with
+// (player/ next to den-kit's page), and, when the work has code parts, their build
+// from the workspace (npm run build) while it holds that document's files. A part
+// that cannot be made is left out and said so; the rest still plays.
 import { serializeDocument } from '../work/persistence.ts';
 import {
   PARTS_FOLDER,
@@ -98,7 +98,12 @@ export async function buildPlayable(
   const manifest: PlayableManifest = {
     format: PLAYABLE_FORMAT,
     version: PLAYABLE_VERSION,
-    document: JSON.parse(serializeDocument(doc)),
+    document: JSON.parse(
+      serializeDocument({
+        ...doc,
+        files: Object.fromEntries(Object.entries(doc.files).filter(([, file]) => isContent(file))),
+      }),
+    ),
     processor: {
       hash: artifact.hash,
       meta: artifact.meta,

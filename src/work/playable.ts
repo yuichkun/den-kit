@@ -1,10 +1,10 @@
 // The playable build: static files that play a work without the editor or a
 // workspace, carried in the work file's build/ folder (work-file.ts). It holds the
 // player (its page at index.html, and its files), build.json (what the player
-// reads: the work's document for its screen and parameters, and the compiled
-// sound's description), the compiled sound (processor.js and processor.wasm), the
-// work's assets at their paths, and the built code parts under parts/. The code
-// parts are served from a second origin (the player is told where with ?parts=).
+// reads: the work's document without its text files, and the compiled sound's
+// description), the compiled sound (processor.js and processor.wasm), the work's
+// assets at their paths, and the built code parts under parts/. The code parts are
+// served from a second origin (the player is told where with ?parts=).
 import type { PatchDocument } from './schema.ts';
 
 export const PLAYABLE_FORMAT = 'den-kit/playable';
@@ -19,7 +19,10 @@ export const PARTS_FOLDER = 'parts/';
 export interface PlayableManifest {
   format: typeof PLAYABLE_FORMAT;
   version: number;
-  /** The work's document: its screen and the parameters' values (its file contents are not in it). */
+  /**
+   * The work's document, for its screen and the parameters' values, without the text files: the
+   * player reads none of them, and the code parts are in the build as built.
+   */
   document: PatchDocument;
   /** The compiled sound: what the player loads into the audio worklet. */
   processor: {

@@ -95,7 +95,7 @@ describe('the work file', () => {
     const read = await readWorkFile(bytes, catalog);
     if (!read.ok) throw new Error(read.error);
     expect(read.doc.files).toEqual(doc.files);
-    // The build's build.json holds the document too.
+    // A work file's build.json may hold the text files as well.
     const build = { 'build.json': new Uint8Array(WORK_LIMITS.fileBytes + 1) };
     const withBuild = await readWorkFile(
       await writeWorkFile(starter('bass', catalog), async () => null, build),
