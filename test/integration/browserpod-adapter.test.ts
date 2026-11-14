@@ -15,6 +15,7 @@ import { shallowRef } from 'vue';
 import type { BrowserPod } from '@leaningtech/browserpod';
 import { catalog } from '../../src/sound/blocks/index.ts';
 import { starter } from '../../src/work/starters.ts';
+import type { Intent } from '../../src/work/ops.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import {
   BrowserPodHost,
@@ -240,8 +241,18 @@ describe('the pod session through the BrowserPod adapter', () => {
     expect((await pod.bash('git log --oneline', { who: 'ai' })).output).toContain('den-kit: start');
     expect((await pod.bash('npm run check && npm run lint', { who: 'ai' })).exitCode).toBe(0);
     await pod.writeFile('src/parts/meter.ts', starterPart('meter'));
-    const { files } = await pod.collect();
-    expect(files['src/parts/meter.ts']).toBe(starterPart('meter'));
+    let landed: Intent[] = [];
+    const { changes } = await pod.keepChanges(intents => {
+      landed = intents;
+      return { ok: true };
+    });
+    expect(changes['src/parts/meter.ts']).toBe('new');
+    expect(landed).toEqual([
+      {
+        op: 'setProjectFiles',
+        files: expect.objectContaining({ 'src/parts/meter.ts': starterPart('meter') }),
+      },
+    ]);
     const page = await throughSandbox(pod.portal.value!, '/?part=meter');
     expect(page.headers['cross-origin-embedder-policy']).toBe('require-corp');
     expect((await fetch(`${pod.portal.value}src/parts/meter.ts`)).status).toBe(200);

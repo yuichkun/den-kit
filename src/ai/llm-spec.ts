@@ -328,7 +328,8 @@ export const KIT_TOOLS: ToolSpec[] = [
     name: 'kit_bash',
     description: [
       "Run a bash command in the pod: a Linux environment inside the person's browser with bash, git, Node, npm and the usual tools, in the folder of the work's screen project (a Vite + TypeScript web project; read its AGENTS.md first). Use it as in any project: npm run check (TypeScript), npm run lint (ESLint), npm run build, git log / git diff, grep, sed, cat > file <<'EOF' … EOF. To add a package, add it with a version to package.json's dependencies: den-kit installs it from the npm registry.",
-      'Returns the output (stdout and stderr; the end of a long one) and the exit status. Files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). The dev server is already running (den-kit starts and restarts it): do not start one. The pod has no network: only installs by den-kit reach the npm registry (npm install <name>, curl and fetch fail).',
+      "Returns the output (stdout and stderr; the end of a long one) and the exit status. Text files the command changes in the project are kept in the work at once (one undo step with your request; node_modules, dist and .git stay in the pod). So are the assets it changes, makes under assets/ (pictures, fonts, sounds: any file whose name is not a text file's) or removes, once den-kit has checked them as it checks a file added by hand; the result says what was kept and what was not, and why. den-kit does not remove an asset something uses, or change one the sound plays: to change a sound, save it under a new name and point the Sampler, or the codebox's code, at it. Outside assets/, a file whose name is not a text file's (gen.sh, Makefile, icon.svg) stays in the pod only.",
+      'The dev server is already running (den-kit starts and restarts it): do not start one. The pod has no network: only installs by den-kit reach the npm registry (npm install <name>, curl and fetch fail).',
     ].join('\n'),
     inputSchema: {
       type: 'object',
@@ -358,7 +359,7 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_write_file',
     description:
-      "Write a whole file of the screen project (path relative to it; folders are made). It is kept in the work at once, and code parts that use it reload on the plugin (the result says how they are doing). src/kit/controls.ts is made by den-kit from the patch: change the patch's controls instead.",
+      "Write a whole file of the screen project (path relative to it; folders are made). It is kept in the work at once, as kit_bash keeps what a command changes (an SVG under assets/ becomes an asset once den-kit has checked it), and code parts that use it reload on the plugin (the result says how they are doing). src/kit/controls.ts is made by den-kit from the patch: change the patch's controls instead.",
     inputSchema: {
       type: 'object',
       properties: { path: { type: 'string' }, content: { type: 'string' } },
@@ -504,7 +505,7 @@ The screen project (code parts: when den-kit's own pieces are not enough)
 - Before your first code part, read the project's AGENTS.md (kit_read_file "AGENTS.md"): the part API (src/kit/index.ts), how parts reach the controls (src/kit/controls.ts, made from the patch), and the rules. A work without a project gets one from den-kit's template on your first kit_bash or kit_write_file.
 - Work as in any web project: write files, add the packages you need to package.json (den-kit installs them), run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
 - A control a code part reads or moves must exist in the patch (a knob wired to the input it stands for; it need not be on the plugin). Use the look's colours (the --dk-* CSS variables) so the part belongs to the plugin, and keep parts light (one animation loop through kit.frame).
-- Everything you change in the project lands in the work at once and undoes with your request; node_modules, dist and .git stay in the pod.
+- What you change in the project lands in the work at once (assets once den-kit has checked them; kit_bash says which files) and undoes with your request; node_modules, dist and .git stay in the pod.
 
 Module types
 ${blocks}`;

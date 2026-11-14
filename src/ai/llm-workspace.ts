@@ -2,9 +2,9 @@
 // the live patch: an edit to the patch or the screen is tried on a copy first
 // (validated and compiled), and only an edit that passes lands, at once, as one step
 // of the request; a failing one never lands, and its problems go back to the model.
-// Files the model writes and its commands' changes land as they are. The
-// controller (src/ai/llm.ts) makes the steps of one request one undo step.
-import { textFiles } from '../work/files.ts';
+// Files the model writes and its commands' changes land as they are, assets once
+// den-kit has checked them (src/workspace/pod-session.ts). The controller
+// (src/ai/llm.ts) makes the steps of one request one undo step.
 import { assetsOf, type AssetMeta } from '../work/ui.ts';
 import type { Catalog, PortDef } from '../work/catalog.ts';
 import { currentAssets, generate, type Generated } from '../sound/codegen.ts';
@@ -734,16 +734,14 @@ export class LlmWorkspace {
 
   /** Read the project back and keep what changed in the work (one step of this request); a line for the model. */
   private async keepProject(pod: PodAccess, what: string): Promise<string> {
-    const { files, skipped } = await pod.collect();
-    const paths = Object.keys(files).sort();
+    const { changes, skipped, refused } = await pod.keepChanges(intents =>
+      this.deps.land(intents, what, this.seen),
+    );
+    const paths = Object.keys(changes).sort();
     const lines: string[] = [];
     if (paths.length) {
-      const before = textFiles(this.deps.read().files);
-      const landed = this.deps.land([{ op: 'setProjectFiles', files }], what, this.seen);
-      const list = paths.map(
-        p => `${p} (${files[p] === null ? 'deleted' : p in before ? 'changed' : 'new'})`,
-      );
-      if (landed.ok) {
+      const list = paths.map(p => `${p} (${changes[p]})`);
+      if (!refused) {
         this.landed++;
         this.screenTouched = true;
         this.projectTouched = true;
@@ -756,7 +754,7 @@ export class LlmWorkspace {
         );
       } else
         lines.push(
-          `The project changed (${list.slice(0, 10).join(', ')}) but could not be kept in the work: ${landed.message}`,
+          `The project changed (${list.slice(0, 10).join(', ')}) but could not be kept in the work: ${refused}`,
         );
     }
     if (skipped.length) lines.push(`Not kept: ${skipped.slice(0, 10).join('; ')}.`);

@@ -196,13 +196,8 @@ export async function checkFile(
   options: Pick<ContentFile, 'width' | 'height' | 'source'> & { content?: boolean } = {},
 ): Promise<{ ok: true; file: WorkFile; data?: Uint8Array } | { ok: false; reason: string }> {
   const { content, ...extra } = options;
-  const bad = checkPath(path);
+  const bad = checkPath(path) ?? fileTooLarge(path, bytes.length);
   if (bad) return { ok: false, reason: bad };
-  if (bytes.length > WORK_LIMITS.fileBytes)
-    return {
-      ok: false,
-      reason: `${path} is ${mb(bytes.length)}; a file may hold at most ${mb(WORK_LIMITS.fileBytes)}.`,
-    };
   const { type, as } = typeOfPath(path);
   if (isTextPath(path) && !content) {
     const text = asText(bytes);
@@ -224,6 +219,13 @@ export async function checkFile(
     file: { hash: await hash(bytes), bytes: bytes.length, type, ...extra },
     data: bytes,
   };
+}
+
+/** Why a file of this many bytes cannot be part of a work, or null. */
+export function fileTooLarge(path: string, bytes: number): string | null {
+  return bytes > WORK_LIMITS.fileBytes
+    ? `${path} is ${mb(bytes)}; a file may hold at most ${mb(WORK_LIMITS.fileBytes)}.`
+    : null;
 }
 
 const describeType = (type: string) => {

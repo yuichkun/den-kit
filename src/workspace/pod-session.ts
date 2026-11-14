@@ -1,12 +1,13 @@
 // The work's pod: boots it when the work first needs it (the AI's first command,
 // a code part to show, the Project drawer), keeps its copy of the screen project,
 // the work's assets included so code can import them, in step with the document
-// (an undo, an edit in den-kit or another work loaded is written into the pod,
-// and a stored asset a command changed is put back), installs packages when
-// package.json changes, keeps
+// (an undo, an edit in den-kit or another work loaded is written into the pod),
+// installs packages when package.json changes, keeps
 // the dev server running and knows its address (the portal), runs commands for
 // the AI and the person (logged, with their output), and reads the project back
-// after a command so what changed lands in the document (and undoes with it).
+// after a command so what changed lands in the document as one step (and undoes
+// with it): text files as they are, assets once they pass the checks a file added
+// by hand passes. What a command did to an asset that does not land is put back.
 //
 // The document is the record; the pod is the workbench. node_modules, .git and
 // dist live only in the pod.
@@ -15,8 +16,21 @@ import type { Author } from '../work/history.ts';
 import type { OpError } from '../work/op-error.ts';
 import type { Intent } from '../work/ops.ts';
 import type { PatchDocument } from '../work/schema.ts';
-import { WORK_LIMITS, checkPath, isGenerated, textFiles } from '../work/files.ts';
-import { assetSource, assetsOf, type AssetMeta } from '../work/ui.ts';
+import {
+  ASSETS,
+  WORK_LIMITS,
+  checkPath,
+  fileTooLarge,
+  isGenerated,
+  isTextPath,
+  overLimits,
+  sha256,
+  textFiles,
+  type FileSource,
+  type WorkFile,
+} from '../work/files.ts';
+import { usesOfAsset } from '../work/asset-uses.ts';
+import { assetFile, assetSource, assetsOf, type AssetMeta } from '../work/ui.ts';
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
 import { controlsSource, templateFiles } from './template.ts';
@@ -26,17 +40,35 @@ import { CHECK_FILE } from './pod-check.ts';
 import type { PodFactory, PodHost, PodProcess, PodRunResult } from '../host/workspace.ts';
 import { PodUnavailable, keepEnd } from './pod-io.ts';
 
-/** What the workspace needs from the editing session: the work, and commit() for the files that changed. */
+/** What the workspace needs from the editing session: the work, its assets' contents, and commit() for what changed. */
 export interface WorkspaceSession {
   readonly doc: Readonly<Ref<PatchDocument>>;
-  /** The contents of the work's assets (written into the pod too). */
-  readonly assets: { read(asset: AssetMeta): Promise<Uint8Array | null> };
+  readonly assets: {
+    /** The contents of one of the work's assets (written into the pod too). */
+    read(asset: AssetMeta): Promise<Uint8Array | null>;
+    /** Check contents a command made for an asset at `path`, as a file added by hand is checked, and keep them: the asset they make (throws why not). */
+    keep(path: string, bytes: Uint8Array): Promise<AssetMeta>;
+  };
+  /** The paths of the assets the work's sound reads, as its patch is now. */
+  soundAssets(): string[];
   commit(
     intents: Intent[],
     options?: { author?: Author; label?: string },
   ): { ok: true } | { ok: false; error: OpError };
   /** What the work's blocks and controls are (its parameters go into the pod as src/kit/controls.ts). */
   readonly catalog: Catalog;
+}
+
+/** Lands operations on the work as one step, or says why it cannot. */
+export type Land = (intents: Intent[]) => { ok: true } | { ok: false; message: string };
+/** How a file of the project changed. */
+export type FileChange = 'changed' | 'new' | 'deleted';
+/** What reading the project back did: how each file changed (kept in the work unless refused), what was left out and why. */
+export interface ReadBack {
+  changes: Record<string, FileChange>;
+  skipped: string[];
+  /** Why the changes could not be kept: the work is as it was. */
+  refused?: string;
 }
 
 /** The pod as an AI's tools use it. */
@@ -48,8 +80,8 @@ export interface PodAccess {
   bash(command: string, timeoutMs: number): Promise<PodRunResult>;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, text: string): Promise<void>;
-  /** The project's files that differ from the work (null: deleted), and what was left out. */
-  collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }>;
+  /** Read the project back and keep what changed in the work through `land`, as one step. */
+  keepChanges(land: Land): Promise<ReadBack>;
   /** The project's folder in the pod. */
   projectDir(): string;
   /** The code parts on the plugin as they reported (element id → report). */
@@ -112,7 +144,11 @@ const LIST_FILES = `${GIT} ls-files -co --exclude-standard 2>/dev/null || find .
 /** den-kit's own git index of the stored assets as it wrote them: what a command changed or removed shows against it. */
 const ASSET_INDEX = '.git/den-kit-assets';
 const ASSET_MARK = '--den-kit-assets--';
+/** Where an asset a command made comes from, as the work records it. */
+const MADE_IN_PROJECT: FileSource = { title: 'Made by a command in the project' };
 const binary = (text: string) => text.includes('\u0000') || text.includes('\uFFFD');
+/** A reason without its full stop, to go on with what den-kit did. */
+const unstop = (reason: string) => reason.replace(/\.$/, '');
 /** A change the parts' pages are made of (sources, the page, static files): parts reload unless the dev server did it. */
 const shown = (path: string) =>
   path.startsWith('src/') || path.startsWith('public/') || path === 'index.html';
@@ -463,73 +499,256 @@ export class PodSession {
   }
 
   /**
-   * Read the project back (after a command, or the AI's write): the files that
-   * differ from the document (null for deleted ones), and what was left out and why.
+   * Read the project back (after a command, or the AI's write) and keep what changed in the work with `land`, as one
+   * step: text files as they are, and the assets a command changed, made under assets/ or removed once they pass
+   * the checks a file added by hand passes. What a command did to an asset that does not land is put back, so the
+   * project's assets stay the work's.
    */
-  async collect(): Promise<{ files: Record<string, string | null>; skipped: string[] }> {
-    const host = this.host;
-    if (!host) return { files: {}, skipped: [] };
+  async keepChanges(land: Land): Promise<ReadBack> {
+    if (!this.host) return { changes: {}, skipped: [] };
     return this.enqueue(async () => {
       this.unread = false;
-      const restored = await this.restoreAssets();
-      const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
-      // While the work has no sources, the pod holds the template: it all becomes the work's.
-      const base = textFiles(this.session.doc.value.files);
-      const stored = assetsOf(this.session.doc.value.files);
-      const files: Record<string, string | null> = {};
-      const skipped = restored.map(
-        path =>
-          `${path} (one of the work's stored assets: den-kit put its contents back, as commands do not change them)`,
-      );
-      const seen = new Set<string>();
-      for (const line of listed.output.split('\n')) {
-        const path = line.trim().replace(/^\.\//, '');
-        // The work's stored assets are den-kit's to write: what a command did to one was undone above.
-        if (!path || seen.has(path) || path === CHECK_FILE || stored[path]) continue;
-        if (isGenerated(path)) {
-          const made = this.generated(path);
-          const text = await host.readFile(`${this.projectDir}/${path}`);
-          if (text !== null && text !== made) {
-            if (made === undefined)
-              await host.run(`rm -f -- ${q(path)}`, { cwd: this.projectDir, timeoutMs: 10_000 });
-            else await host.writeFile(`${this.projectDir}/${path}`, made);
-            skipped.push(
-              path === 'src/kit/controls.ts'
-                ? `${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`
-                : `${path} (den-kit's own kit; your change was undone)`,
-            );
-          }
-          continue;
+      const doc = this.session.doc.value;
+      const { files, assets, skipped } = await this.readBack(doc);
+      const base = textFiles(doc.files);
+      const stored = assetsOf(doc.files);
+      const changes: Record<string, FileChange> = {};
+      // What a new asset may be a copy of: the work's assets before this command, and those it changed, as changed.
+      const copied = [
+        ...Object.values(stored),
+        ...[...assets].flatMap(([path, asset]) =>
+          asset && stored[path] ? [{ ...asset, source: stored[path].source }] : [],
+        ),
+      ];
+      // Removed assets go first: what lands after them may need the room they free (readBack counted it so).
+      const intents: Intent[] = [...assets]
+        .filter(([, asset]) => !asset)
+        .map(([path]): Intent => ({ op: 'removeAsset', id: path }));
+      if (Object.keys(files).length) intents.push({ op: 'setProjectFiles', files });
+      for (const [path, text] of Object.entries(files))
+        changes[path] = text === null ? 'deleted' : path in base ? 'changed' : 'new';
+      for (const [path, asset] of assets) {
+        changes[path] = !asset ? 'deleted' : stored[path] ? 'changed' : 'new';
+        if (!asset) continue;
+        if (stored[path])
+          intents.push({
+            op: 'replaceAsset',
+            id: path,
+            contents: {
+              hash: asset.hash!,
+              bytes: asset.bytes,
+              width: asset.width,
+              height: asset.height,
+            },
+          });
+        else {
+          const source = await this.sourceOf(asset, copied);
+          intents.push({ op: 'addAsset', asset: { ...asset, ...(source ? { source } : {}) } });
         }
-        const bad = checkPath(path);
-        if (bad) {
-          skipped.push(`${path} (${bad})`);
-          continue;
-        }
-        const text = await host.readFile(`${this.projectDir}/${path}`);
-        if (text === null) continue;
-        if (binary(text)) {
-          skipped.push(
-            `${path} (not text: pictures, fonts and sounds go in den-kit's assets, kit.asset(id) reads them)`,
-          );
-          continue;
-        }
-        if (byteLength(text) > WORK_LIMITS.textBytes) {
-          skipped.push(`${path} (over ${WORK_LIMITS.textBytes / 1024 / 1024} MB)`);
-          continue;
-        }
-        seen.add(path);
-        this.known.set(path, text);
-        if (base[path] !== text) files[path] = text;
       }
-      for (const path of Object.keys(base))
-        if (!seen.has(path)) {
-          files[path] = null;
-          this.known.delete(path);
-        }
       if (Object.keys(files).some(shown)) this.reloads.value++;
-      return { files, skipped };
+      if (!intents.length) return { changes, skipped };
+      const landed = land(intents);
+      if (!landed.ok) {
+        await this.putBack([...assets.keys()]);
+        return { changes, skipped, refused: landed.message };
+      }
+      // The project holds the work's assets as den-kit would have written them.
+      const before = [...this.knownAssets.keys()].sort().join('\n');
+      for (const [path, asset] of assets)
+        if (asset) this.knownAssets.set(path, assetSource(asset));
+        else this.knownAssets.delete(path);
+      if ([...this.knownAssets.keys()].sort().join('\n') !== before) await this.excludeAssets();
+      await this.indexAssets(
+        [...assets].filter(([, a]) => a).map(([p]) => p),
+        [...assets].filter(([, a]) => !a).map(([p]) => p),
+      );
+      return { changes, skipped };
     });
+  }
+
+  /**
+   * What differs between the project and `doc`: text files (null for deleted ones), checked assets (their new
+   * contents, null for removed ones), and what was left out and why. What a command did to an asset that is left
+   * out is put back here.
+   */
+  private async readBack(doc: PatchDocument): Promise<{
+    files: Record<string, string | null>;
+    assets: Map<string, AssetMeta | null>;
+    skipped: string[];
+  }> {
+    const host = this.host!;
+    // While the work has no sources, the pod holds the template: it all becomes the work's.
+    const base = textFiles(doc.files);
+    const stored = assetsOf(doc.files);
+    const files: Record<string, string | null> = {};
+    const assets = new Map<string, AssetMeta | null>();
+    const skipped: string[] = [];
+    // Stored assets a command changed or removed: a removed one goes unless something uses it.
+    const { changed, removed } = await this.storedChanges(doc);
+    const restore: string[] = [];
+    for (const path of removed) {
+      const uses = usesOfAsset(doc, path);
+      if (!uses.length) {
+        assets.set(path, null);
+        continue;
+      }
+      restore.push(path);
+      skipped.push(
+        `${path} (used by ${uses.join(', ')}, so den-kit put it back: change those first)`,
+      );
+    }
+    const listed = await host.run(LIST_FILES, { cwd: this.projectDir, timeoutMs: 60_000 });
+    const made: string[] = [];
+    const gone: string[] = [];
+    const seen = new Set<string>();
+    for (const line of listed.output.split('\n')) {
+      const path = line.trim().replace(/^\.\//, '');
+      // The work's stored assets were read through den-kit's index above.
+      if (
+        !path ||
+        seen.has(path) ||
+        path === CHECK_FILE ||
+        stored[path] ||
+        this.knownAssets.has(path)
+      )
+        continue;
+      if (isGenerated(path)) {
+        const own = this.generated(path);
+        const text = await host.readFile(`${this.projectDir}/${path}`);
+        if (text !== null && text !== own) {
+          if (own === undefined)
+            await host.run(`rm -f -- ${q(path)}`, { cwd: this.projectDir, timeoutMs: 10_000 });
+          else await host.writeFile(`${this.projectDir}/${path}`, own);
+          skipped.push(
+            path === 'src/kit/controls.ts'
+              ? `${path} (made by den-kit from the patch; your change was undone — change the patch's controls instead)`
+              : `${path} (den-kit's own kit; your change was undone)`,
+          );
+        }
+        continue;
+      }
+      // A file under assets/ whose name is not a text file's is a new asset.
+      const fresh = path.startsWith(ASSETS) && !isTextPath(path) && !(path in base);
+      const bad = checkPath(path);
+      if (bad) {
+        if (fresh) gone.push(path);
+        skipped.push(
+          fresh
+            ? `${path} (${unstop(bad)} — den-kit took it out of the project)`
+            : `${path} (${bad})`,
+        );
+        continue;
+      }
+      if (fresh) {
+        made.push(path);
+        continue;
+      }
+      if (!isTextPath(path)) {
+        // Kept as it is in the work, when the work has it as text (a work file made elsewhere).
+        seen.add(path);
+        if (path in base && (await host.readFile(`${this.projectDir}/${path}`)) === base[path])
+          continue;
+        skipped.push(
+          `${path} (outside assets/, den-kit keeps only text files, with names such as .ts, .js, .json or .md: rename it, or put a picture, sound or other asset under assets/)`,
+        );
+        continue;
+      }
+      const text = await host.readFile(`${this.projectDir}/${path}`);
+      if (text === null) continue;
+      if (binary(text)) {
+        skipped.push(
+          `${path} (not text, though its name is a text file's: pictures, fonts and sounds go under assets/, named by their kind, such as .png or .wav)`,
+        );
+        continue;
+      }
+      if (byteLength(text) > WORK_LIMITS.textBytes) {
+        skipped.push(`${path} (over ${WORK_LIMITS.textBytes / 1024 / 1024} MB)`);
+        continue;
+      }
+      seen.add(path);
+      this.known.set(path, text);
+      if (base[path] !== text) files[path] = text;
+    }
+    for (const path of Object.keys(base))
+      if (!seen.has(path)) {
+        files[path] = null;
+        this.known.delete(path);
+      }
+    // The changed and new assets' contents, checked as a file added by hand is and kept. Their sizes come first:
+    // a file is read, one at a time, only while the work stays within its limits with it.
+    const sizes = await this.sizes([...changed, ...made]);
+    const next: Record<string, WorkFile> = { ...doc.files };
+    for (const [path, text] of Object.entries(files))
+      if (text === null) delete next[path];
+      else next[path] = { text };
+    for (const path of removed) if (assets.has(path)) delete next[path];
+    const keep = async (path: string, read?: Uint8Array | null): Promise<AssetMeta | string> => {
+      const size = sizes.get(path);
+      if (size === undefined) return `${path} could not be read.`;
+      const large = fileTooLarge(path, size);
+      if (large) return large;
+      // Counted as new contents until they are read.
+      const was = next[path];
+      const back = () => {
+        if (was) next[path] = was;
+        else delete next[path];
+      };
+      next[path] = { hash: `unread:${path}`, bytes: size, type: 'application/octet-stream' };
+      const over = overLimits(next);
+      if (over) {
+        back();
+        return over;
+      }
+      const bytes = read === undefined ? await this.readBytes(path) : read;
+      if (!bytes) {
+        back();
+        return `${path} could not be read.`;
+      }
+      try {
+        const asset = await this.session.assets.keep(path, bytes);
+        next[path] = assetFile(asset);
+        return asset;
+      } catch (error) {
+        back();
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+    // A changed one the sound plays stays as it is: the sound changes on the patch, by reading another file.
+    const sounding = new Set(changed.length ? this.session.soundAssets() : []);
+    const unchanged: string[] = [];
+    for (const path of changed) {
+      // As large as before: perhaps the same contents again (a file touched or written over), and nothing to keep.
+      const read = sizes.get(path) === stored[path]!.bytes ? await this.readBytes(path) : undefined;
+      if (read && (await sha256(read)) === stored[path]!.hash) {
+        unchanged.push(path);
+        continue;
+      }
+      if (sounding.has(path)) {
+        const uses = usesOfAsset(doc, path);
+        restore.push(path);
+        skipped.push(
+          `${path} (the sound plays it, so den-kit put it back: save the new contents under another name and point ${uses.length ? uses.join(' and ') : 'what plays it'} at that file)`,
+        );
+        continue;
+      }
+      const asset = await keep(path, read);
+      if (typeof asset !== 'string') assets.set(path, asset);
+      else {
+        restore.push(path);
+        skipped.push(`${path} (${unstop(asset)} — den-kit put the work's version back)`);
+      }
+    }
+    for (const path of made) {
+      const asset = await keep(path);
+      if (typeof asset === 'string') {
+        gone.push(path);
+        skipped.push(`${path} (${unstop(asset)} — den-kit took it out of the project)`);
+      } else assets.set(path, asset);
+    }
+    await this.putBack([...restore, ...gone]);
+    await this.indexAssets(unchanged, []);
+    return { files, assets, skipped };
   }
 
   async readFile(path: string): Promise<string | null> {
@@ -579,16 +798,17 @@ export class PodSession {
     command: string,
   ): Promise<{ result: PodRunResult; changed: string[]; skipped: string[] }> {
     const result = await this.bash(command, { who: 'you' });
-    const { files, skipped } = await this.collect();
-    const changed = Object.keys(files);
-    if (changed.length) {
-      const r = this.session.commit([{ op: 'setProjectFiles', files }], {
+    const { changes, skipped, refused } = await this.keepChanges(intents => {
+      const r = this.session.commit(intents, {
         author: { kind: 'human' },
         label: `Terminal: ${command.slice(0, 60)}`,
       });
-      if (!r.ok) this.note(`The project's changes could not be kept: ${r.error.message}`);
-    }
-    return { result, changed, skipped };
+      return r.ok ? r : { ok: false, message: r.error.message };
+    });
+    const changed = Object.keys(changes);
+    if (!refused) return { result, changed, skipped };
+    this.note(`The project's changes could not be kept: ${refused}`);
+    return { result, changed: [], skipped: [`${changed.join(', ')} (${refused})`, ...skipped] };
   }
 
   /** den-kit's own steps (logged too, so the person can see what happened). */
@@ -668,38 +888,69 @@ export class PodSession {
   }
 
   /**
-   * Put back the stored assets a command changed or removed (den-kit writes them from the work; commands do
-   * not change them), and those den-kit's index does not hold, to be sure. Returns the ones a command changed.
+   * The stored assets a command changed or removed since den-kit wrote them (den-kit's index), of those the work
+   * still has as den-kit wrote them (one the work has changed since is written with the next sync). Those the
+   * index does not hold are put back, to be sure.
    */
-  private async restoreAssets(): Promise<string[]> {
-    const host = this.host!;
-    if (!this.knownAssets.size) return [];
+  private async storedChanges(
+    doc: PatchDocument,
+  ): Promise<{ changed: string[]; removed: string[] }> {
+    if (!this.knownAssets.size) return { changed: [], removed: [] };
     let indexed = new Set<string>(),
-      changed = new Set<string>();
+      modified = new Set<string>(),
+      deleted = new Set<string>();
     if (this.repository) {
       const git = `GIT_INDEX_FILE=${q(`${this.projectDir}/${ASSET_INDEX}`)} ${GIT}`;
-      const r = await host.run(`${git} ls-files && echo ${ASSET_MARK} && ${git} ls-files -m -d`, {
-        cwd: this.projectDir,
-        timeoutMs: 60_000,
-      });
-      const [all, diff] = r.output.split(`${ASSET_MARK}\n`);
-      if (r.exitCode === 0 && diff !== undefined) {
-        const paths = (text: string) =>
-          text
-            .split('\n')
-            .map(l => l.trim())
-            .filter(Boolean);
-        indexed = new Set(paths(all!));
-        changed = new Set(paths(diff));
-      }
+      const r = await this.host!.run(
+        `${git} ls-files && echo ${ASSET_MARK} && ${git} ls-files -m && echo ${ASSET_MARK} && ${git} ls-files -d`,
+        { cwd: this.projectDir, timeoutMs: 60_000 },
+      );
+      // The output comes trimmed: the lists are told apart by the marks between them.
+      const lists: string[][] = [[]];
+      for (const line of r.output.split('\n').map(l => l.trim()))
+        if (line === ASSET_MARK) lists.push([]);
+        else if (line) lists.at(-1)!.push(line);
+      if (r.exitCode === 0 && lists.length === 3)
+        [indexed, modified, deleted] = lists.map(list => new Set(list)) as [
+          Set<string>,
+          Set<string>,
+          Set<string>,
+        ];
     }
-    const assets = assetsOf(this.session.doc.value.files);
-    const put: string[] = [];
+    const assets = assetsOf(doc.files);
+    const changed: string[] = [],
+      removed: string[] = [],
+      unheld: string[] = [];
     for (const [path, source] of this.knownAssets) {
-      if (indexed.has(path) && !changed.has(path)) continue;
       const asset = assets[path];
-      // One the work has changed since is written with the next sync.
       if (!asset || assetSource(asset) !== source) continue;
+      if (!indexed.has(path)) unheld.push(path);
+      else if (deleted.has(path)) removed.push(path);
+      else if (modified.has(path)) changed.push(path);
+    }
+    await this.putBack(unheld);
+    return { changed, removed };
+  }
+
+  /**
+   * Put the work's version of these assets back in the project, and take out what a command made at a path where
+   * the work has nothing (what a command did to them is not kept). One the work changed since den-kit wrote it
+   * is left to the next sync.
+   */
+  private async putBack(paths: readonly string[]) {
+    if (!paths.length) return;
+    const host = this.host!;
+    const assets = assetsOf(this.session.doc.value.files);
+    const written: string[] = [],
+      gone: string[] = [];
+    for (const path of paths) {
+      const asset = assets[path],
+        known = this.knownAssets.get(path);
+      if (!asset) {
+        if (known === undefined && !(path in this.session.doc.value.files)) gone.push(path);
+        continue;
+      }
+      if (known === undefined || assetSource(asset) !== known) continue;
       const bytes = await this.session.assets.read(asset);
       if (!bytes) {
         // Not here: written with the next change, and the project does not hold the work until then.
@@ -707,10 +958,73 @@ export class PodSession {
         continue;
       }
       await host.writeFile(`${this.projectDir}/${path}`, bytes);
-      put.push(path);
+      written.push(path);
     }
-    await this.indexAssets(put, []);
-    return put.filter(p => changed.has(p));
+    if (gone.length)
+      await host.run(`rm -f -- ${gone.map(q).join(' ')}`, {
+        cwd: this.projectDir,
+        timeoutMs: 60_000,
+      });
+    await this.indexAssets(written, []);
+  }
+
+  /**
+   * Where an asset a command made comes from: a copy of one of `assets` (or one moved) comes from where that one
+   * came from (none, if it records none); anything else, from a command in the project.
+   */
+  private async sourceOf(
+    asset: AssetMeta,
+    assets: readonly AssetMeta[],
+  ): Promise<FileSource | undefined> {
+    for (const other of assets) {
+      // A file den-kit ships has no hash in the work: its contents tell.
+      const same = other.hash
+        ? other.hash === asset.hash
+        : other.bytes === asset.bytes &&
+          (await sha256((await this.session.assets.read(other)) ?? new Uint8Array())) ===
+            asset.hash;
+      if (same) return other.source;
+    }
+    return MADE_IN_PROJECT;
+  }
+
+  /**
+   * Run a command whose output goes to a file in den-kit's own folder of the pod's home (outside the project), and
+   * read that file back: command output comes trimmed, and only its end when it is long.
+   */
+  private async through(command: (out: string) => string): Promise<string | null> {
+    const host = this.host!;
+    const out = `${host.home}/.den-kit/read-back.txt`;
+    const r = await host.run(`mkdir -p "${host.home}/.den-kit" && ${command(`"${out}"`)}`, {
+      cwd: this.projectDir,
+      timeoutMs: 120_000,
+    });
+    const text = r.exitCode === 0 ? await host.readFile(out) : null;
+    await host.run(`rm -f "${out}"`, { cwd: this.projectDir, timeoutMs: 10_000 });
+    return text;
+  }
+
+  /** The sizes in bytes of files of the project (one that is not there is left out). */
+  private async sizes(paths: readonly string[]): Promise<Map<string, number>> {
+    const sizes = new Map<string, number>();
+    if (!paths.length) return sizes;
+    const text = await this.through(
+      out =>
+        `for f in ${paths.map(q).join(' ')}; do [ -f "$f" ] && printf '%s\\t%s\\n' "$f" "$(wc -c < "$f" | tr -d ' ')"; done > ${out}; true`,
+    );
+    for (const line of text?.split('\n') ?? []) {
+      const [path, size] = line.split('\t');
+      if (path && size && /^\d+$/.test(size)) sizes.set(path, Number(size));
+    }
+    return sizes;
+  }
+
+  /** A file of the project as bytes (the pod reads files back as text: it comes as base64), or null. */
+  private async readBytes(path: string): Promise<Uint8Array | null> {
+    const text = await this.through(
+      out => `set -o pipefail; [ -f ${q(path)} ] && base64 < ${q(path)} | tr -d '\\n' > ${out}`,
+    );
+    return text === null ? null : Uint8Array.from(atob(text.trim()), c => c.charCodeAt(0));
   }
 
   /** The project holds `doc`'s files: what den-kit last wrote or read back is theirs, and no command's changes wait to be read. */
@@ -955,7 +1269,7 @@ export class PodSession {
       bash: (command, timeoutMs) => this.bash(command, { who: 'ai', timeoutMs }),
       readFile: path => this.readFile(path),
       writeFile: (path, text) => this.writeFile(path, text),
-      collect: () => this.collect(),
+      keepChanges: land => this.keepChanges(land),
       projectDir: () => this.projectDir,
       parts: () => this.parts.value,
       status: () => ({

@@ -45,12 +45,24 @@ function fakePod(
     writeFile: async (path, text) => {
       state.files[path] = text;
     },
-    collect: async () => {
+    keepChanges: async land => {
       const out: Record<string, string | null> = {};
       for (const [p, t] of Object.entries(state.files)) if (state.base[p] !== t) out[p] = t;
       for (const p of Object.keys(state.base)) if (!(p in state.files)) out[p] = null;
+      const changes = Object.fromEntries(
+        Object.entries(out).map(([p, t]) => [
+          p,
+          t === null
+            ? ('deleted' as const)
+            : p in state.base
+              ? ('changed' as const)
+              : ('new' as const),
+        ]),
+      );
       state.base = { ...state.files };
-      return { files: out, skipped: [] };
+      if (!Object.keys(out).length) return { changes, skipped: [] };
+      const r = land([{ op: 'setProjectFiles', files: out }]);
+      return r.ok ? { changes, skipped: [] } : { changes, skipped: [], refused: r.message };
     },
     projectDir: () => '/home/user/work',
     parts: () => state.parts,
@@ -144,6 +156,37 @@ describe('pod tools', () => {
       "cat > src/parts/meter.ts <<'EOF'\nexport default 1;\nEOF",
       'npm run check',
     ]);
+  });
+  it('kit_bash says which files and assets the work kept, what it left out and why, and why nothing could be kept', async () => {
+    const { pod } = fakePod({});
+    const { ws, landed } = workspace(pod);
+    pod.keepChanges = async land => {
+      expect(land([{ op: 'setName', name: 'Kept' }]).ok).toBe(true);
+      return {
+        changes: {
+          'assets/logo.svg': 'changed',
+          'assets/kick.wav': 'new',
+          'assets/old.png': 'deleted',
+          'src/main.ts': 'changed',
+        },
+        skipped: ['gen.sh (why)', 'assets/loop.wav (why)'],
+      };
+    };
+    const r = await ws.call('kit_bash', { command: 'node gen.mjs' });
+    expect(r.text).toContain(
+      'Kept in the work: assets/kick.wav (new), assets/logo.svg (changed), assets/old.png (deleted), src/main.ts (changed).',
+    );
+    expect(r.text).toContain('Not kept: gen.sh (why); assets/loop.wav (why).');
+    expect(landed).toHaveLength(1);
+    expect(ws.projectTouched).toBe(true);
+    pod.keepChanges = async () => ({
+      changes: { 'src/main.ts': 'changed' },
+      skipped: [],
+      refused: 'The work changed meanwhile.',
+    });
+    expect((await ws.call('kit_bash', { command: 'true' })).text).toContain(
+      'The project changed (src/main.ts (changed)) but could not be kept in the work: The work changed meanwhile.',
+    );
   });
   it('a command that runs too long says so', async () => {
     const { pod } = fakePod({}, () => ({ output: 'partial', exitCode: null, timedOut: true }));

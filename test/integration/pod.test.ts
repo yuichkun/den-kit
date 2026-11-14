@@ -2,12 +2,14 @@
 // behind the same interface as BrowserPod): the screen project's whole loop with
 // the real tools — npm install, the Vite dev server, TypeScript, ESLint, git —
 // and the document staying the record (changes read back, undo written in).
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { sha256, textFiles } from '../../src/work/files.ts';
+import { fileURLToPath } from 'node:url';
+import { WORK_LIMITS, sha256, textFiles, totalBytes } from '../../src/work/files.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/sound/blocks/index.ts';
+import { currentAssets, generate } from '../../src/sound/codegen.ts';
 import {
   applyIntents,
   applyResolvedOps,
@@ -16,26 +18,45 @@ import {
   type ResolvedOp,
 } from '../../src/work/ops.ts';
 import type { PatchDocument } from '../../src/work/schema.ts';
-import type { AssetMeta } from '../../src/work/ui.ts';
+import { assetsOf, type AssetMeta } from '../../src/work/ui.ts';
+import { AssetStore } from '../../src/work/asset-store.ts';
 import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import { connectFakePod } from '../../dev/fake-pod.ts';
 import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart, withTemplate } from '../../src/workspace/template.ts';
+import { LlmWorkspace } from '../../src/ai/llm-workspace.ts';
 import { startFakePod, type FakePod } from '../fakes/pod/fake-pod.ts';
 import { kitFiles } from '../../src/screen/kit-files.ts';
+import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
 import { throughSandbox } from '../helpers/sandboxed.ts';
 
-/** Just what the pod session uses of the editor's session: the document, commit and the assets' contents. */
+/** Where den-kit serves the files it ships (public/). */
+const PUBLIC = fileURLToPath(new URL('../../public', import.meta.url));
+
+/** Just what the pod session uses of the editor's session: the document, commit, the assets' contents and what the sound reads. */
 function session(start: PatchDocument) {
   const doc = shallowRef(start);
   const steps: ResolvedOp[][] = [];
   const contents = new Map<string, Uint8Array>();
+  // Contents a command made are checked and kept as the editor's store does it.
+  const store = new AssetStore();
   const s = {
     catalog,
     doc,
     contents,
-    assets: { read: async (asset: AssetMeta) => contents.get(asset.hash ?? '') ?? null },
+    steps,
+    assets: {
+      read: async (asset: AssetMeta) =>
+        contents.get(asset.hash ?? '') ??
+        (asset.url ? new Uint8Array(readFileSync(join(PUBLIC, asset.url))) : null) ??
+        (await store.read(asset)),
+      keep: (path: string, bytes: Uint8Array) => store.keep(path, bytes),
+    },
+    soundAssets: () =>
+      currentAssets(doc.value, catalog, generate(doc.value, catalog))
+        .map(a => a.path)
+        .filter(Boolean),
     commit(intents: Intent[]) {
       try {
         const r = applyIntents(doc.value, intents, catalog);
@@ -51,14 +72,56 @@ function session(start: PatchDocument) {
       if (ops) doc.value = applyResolvedOps(doc.value, invertAll(ops));
     },
   };
-  return s as unknown as KitSession & { undo(): void; contents: Map<string, Uint8Array> };
+  return s as unknown as KitSession & {
+    undo(): void;
+    contents: Map<string, Uint8Array>;
+    steps: ResolvedOp[][];
+  };
 }
 const settle = (ms = 300) => new Promise(r => setTimeout(r, ms));
+
+/** A mono 16-bit WAV of a tone. */
+function wav(frequency: number, frames = 4800): Uint8Array {
+  const view = new DataView(new ArrayBuffer(44 + frames * 2));
+  const text = (at: number, s: string) =>
+    [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + frames * 2, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 48000, true);
+  view.setUint32(28, 96000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, 'data');
+  view.setUint32(40, frames * 2, true);
+  for (let i = 0; i < frames; i++)
+    view.setInt16(
+      44 + i * 2,
+      Math.round(8000 * Math.sin((2 * Math.PI * frequency * i) / 48000)),
+      true,
+    );
+  return new Uint8Array(view.buffer);
+}
+/** A command that writes the same WAV with Node, in the pod. */
+const wavCommand = (path: string, frequency: number) =>
+  `node -e 'const n=4800,b=Buffer.alloc(44+n*2);b.write("RIFF",0);b.writeUInt32LE(36+n*2,4);b.write("WAVE",8);b.write("fmt ",12);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(48000,24);b.writeUInt32LE(96000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write("data",36);b.writeUInt32LE(n*2,40);for(let i=0;i<n;i++)b.writeInt16LE(Math.round(8000*Math.sin(2*Math.PI*${frequency}*i/48000)),44+i*2);require("fs").writeFileSync("${path}",b)'`;
+const svg = (fill: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="${fill}"/></svg>\n`;
 
 describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
   let fake: FakePod;
   let kit: ReturnType<typeof session>;
   let pod: PodSession;
+  /** Read the project back and keep what changed in the work, as one step of the person's. */
+  const keep = () =>
+    pod.keepChanges(intents => {
+      const r = kit.commit(intents);
+      return r.ok ? r : { ok: false, message: r.error.message };
+    });
 
   beforeAll(async () => {
     fake = await startFakePod();
@@ -140,26 +203,36 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
 
   it("reads the project back: the template becomes the work's, a new part lands, generated files stay den-kit's", async () => {
     await pod.writeFile('src/parts/meter.ts', starterPart('meter'));
-    await pod.bash("echo '// mine' >> src/kit/controls.ts && head -c 64 /dev/urandom > logo.bin", {
-      who: 'ai',
+    await pod.bash(
+      "echo '// mine' >> src/kit/controls.ts && head -c 64 /dev/urandom > logo.bin && printf '{\"a\":1}\\0' > data.json",
+      { who: 'ai' },
+    );
+    const steps = kit.steps.length;
+    const { changes, skipped, refused } = await keep();
+    expect(refused).toBeUndefined();
+    expect(changes).toMatchObject({
+      'src/parts/meter.ts': 'new',
+      'package.json': 'new',
+      'AGENTS.md': 'new',
     });
-    const { files, skipped } = await pod.collect();
+    expect(changes['src/kit/controls.ts']).toBeUndefined();
+    expect(
+      Object.keys(changes).some(p => p.startsWith('node_modules/') || p.startsWith('dist/')),
+    ).toBe(false);
+    expect(skipped.join('\n')).toMatch(/controls\.ts \(made by den-kit/);
+    expect(skipped.join('\n')).toMatch(/logo\.bin \(outside assets\/, den-kit keeps only text/);
+    expect(skipped.join('\n')).toMatch(/data\.json \(not text/);
+    expect(await pod.readFile('src/kit/controls.ts')).not.toContain('// mine');
+    // One step of the work's.
+    expect(kit.steps.length).toBe(steps + 1);
+    const files = textFiles(kit.doc.value.files);
     expect(files['src/parts/meter.ts']).toBe(starterPart('meter'));
     expect(files['package.json']).toContain('"den-kit-screen"');
     expect(files['AGENTS.md']).toContain('Code parts');
-    expect(files['src/kit/controls.ts']).toBeUndefined();
-    expect(
-      Object.keys(files).some(p => p.startsWith('node_modules/') || p.startsWith('dist/')),
-    ).toBe(false);
-    expect(skipped.join('\n')).toMatch(/controls\.ts \(made by den-kit/);
-    expect(skipped.join('\n')).toMatch(/logo\.bin \(not text/);
-    expect(await pod.readFile('src/kit/controls.ts')).not.toContain('// mine');
-    const r = kit.commit([{ op: 'setProjectFiles', files }]);
-    expect(r.ok).toBe(true);
-    expect(textFiles(kit.doc.value.files)['src/parts/meter.ts']).toBeDefined();
-    await pod.bash('rm logo.bin', { who: 'ai' });
+    await pod.bash('rm logo.bin data.json', { who: 'ai' });
     // Nothing changed since: nothing to land.
-    expect((await pod.collect()).files).toEqual({});
+    expect((await keep()).changes).toEqual({});
+    expect(kit.steps.length).toBe(steps + 1);
   }, 60_000);
 
   it("the dev server serves a part page that den-kit may embed (cross-origin isolated page), with the sandbox's rules", async () => {
@@ -227,9 +300,8 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     const build = await pod.bash('npm run build', { who: 'ai', timeoutMs: 180_000 });
     expect(build.exitCode, build.output).toBe(0);
     // The install updated the lockfile (it lands with the next change read back); dist/ stays in the pod.
-    const { files } = await pod.collect();
-    expect(Object.keys(files)).toEqual(['package-lock.json']);
-    expect(files['package-lock.json']).toContain('node_modules/is-number');
+    expect((await keep()).changes).toEqual({ 'package-lock.json': 'changed' });
+    expect(textFiles(kit.doc.value.files)['package-lock.json']).toContain('node_modules/is-number');
   }, 300_000);
 
   it("commits each request in the pod's git", async () => {
@@ -299,9 +371,10 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     await settle(800);
     expect(await ignored('assets/curve.json')).not.toContain('ignored');
     await pod.bash('true', { who: 'ai' });
-    expect((await pod.collect()).files).not.toHaveProperty(['assets/curve.json']);
+    expect((await keep()).changes).not.toHaveProperty(['assets/curve.json']);
     await pod.bash(`printf '{"a":2}\\n' > assets/curve.json`, { who: 'ai' });
-    expect((await pod.collect()).files['assets/curve.json']).toBe('{"a":2}\n');
+    expect((await keep()).changes['assets/curve.json']).toBe('changed');
+    expect(textFiles(kit.doc.value.files)['assets/curve.json']).toBe('{"a":2}\n');
     kit.commit([{ op: 'setProjectFiles', files: { 'assets/curve.json': null } }]);
     await settle(800);
     // A text file that takes a stored asset's path stays in the project.
@@ -310,7 +383,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': '{"text":1}\n' } }]);
     await settle(800);
     expect(await pod.readFile('assets/table.json')).toBe('{"text":1}\n');
-    expect((await pod.collect()).files).not.toHaveProperty(['assets/table.json']);
+    expect((await keep()).changes).not.toHaveProperty(['assets/table.json']);
     kit.commit([{ op: 'setProjectFiles', files: { 'assets/table.json': null } }]);
     await settle(800);
     // Replaced at the same path, then removed.
@@ -331,14 +404,14 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
       return b && b !== 'changed' ? Object.keys(b) : b;
     };
     // What the commands so far changed lands in the work first.
-    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await keep();
     await settle(800);
     expect(await built(kit.doc.value)).toContain('index.html');
     // A command's change that is not read back yet is in the project, not in the work.
     await pod.bash("printf '// more\\n' >> src/parts/dial.ts", { who: 'ai' });
     const before = kit.doc.value;
     expect(await built(before)).toBe('changed');
-    kit.commit([{ op: 'setProjectFiles', files: (await pod.collect()).files }]);
+    await keep();
     await settle(800);
     expect(textFiles(kit.doc.value.files)['src/parts/dial.ts']).toContain('// more');
     expect(await built(before)).toBe('changed');
@@ -367,25 +440,362 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     expect(await built(kit.doc.value)).toContain('index.html');
   }, 300_000);
 
-  it('puts back a stored asset that a command changed or removed, and says so', async () => {
-    // assets/late.png ("a picture") is one of the work's stored assets (the test before added it).
+  it('puts back what a command did to a stored asset that fails the checks a file added by hand passes, and says why', async () => {
+    // assets/late.png ("a picture") is one of the work's stored assets (the test before added it): its name says PNG, its contents do not.
     const after = async (command: string) => {
       await pod.bash(command, { who: 'ai' });
-      const { skipped } = await pod.collect();
+      const { changes, skipped } = await keep();
       return {
+        changes,
         said: skipped.filter(s => s.startsWith('assets/late.png')),
         now: await pod.readFile('assets/late.png'),
       };
     };
-    const putBack = { said: [expect.stringContaining('put its contents back')], now: 'a picture' };
+    const putBack = {
+      changes: {},
+      said: [
+        "assets/late.png (assets/late.png is named as a PNG picture, but its contents are not; den-kit does not use it — den-kit put the work's version back)",
+      ],
+      now: 'a picture',
+    };
     expect(await after("printf 'other' > assets/late.png")).toEqual(putBack);
-    expect(await after('rm assets/late.png')).toEqual(putBack);
     // As large as before, in the same second den-kit put it back.
     expect(await after("printf 'b picture' > assets/late.png")).toEqual(putBack);
-    expect(await after('true')).toEqual({ said: [], now: 'a picture' });
+    expect(await after('true')).toEqual({ changes: {}, said: [], now: 'a picture' });
     // The project holds the work again: its parts build.
     expect(await pod.buildParts(kit.doc.value)).not.toBe('changed');
   }, 300_000);
+
+  it("keeps a picture a command changed: its new contents replace the asset's as one step, its source and licence stay, den-kit does not write it again, and undo puts the old contents back", async () => {
+    const bytes = new TextEncoder().encode(svg('#00f'));
+    const hash = await sha256(bytes);
+    kit.contents.set(hash, bytes);
+    const logo = {
+      id: 'assets/logo.svg',
+      name: 'logo.svg',
+      mime: 'image/svg+xml',
+      bytes: bytes.length,
+      hash,
+      width: 10,
+      height: 10,
+      source: { title: 'Logo', license: 'CC0' },
+    };
+    expect(kit.commit([{ op: 'addAsset', asset: logo }]).ok).toBe(true);
+    await settle(800);
+    const written = async () =>
+      (
+        await pod.bash(
+          `node -e 'process.stdout.write(String(require("fs").statSync("assets/logo.svg").mtimeMs))'`,
+          { who: 'den-kit' },
+        )
+      ).output;
+    const steps = kit.steps.length;
+    await pod.bash(`cat > assets/logo.svg <<'EOF'\n${svg('#f00')}EOF`, { who: 'ai' });
+    const at = await written();
+    expect(await keep()).toEqual({ changes: { 'assets/logo.svg': 'changed' }, skipped: [] });
+    expect(kit.steps.length).toBe(steps + 1);
+    const now = assetsOf(kit.doc.value.files)['assets/logo.svg']!;
+    expect(now).toEqual({ ...logo, hash: await sha256(new TextEncoder().encode(svg('#f00'))) });
+    expect(new TextDecoder().decode((await kit.assets.read(now))!)).toBe(svg('#f00'));
+    // The project holds the work: the file stays as the command left it, nothing is read back again, the parts build.
+    await settle(800);
+    expect(await written()).toBe(at);
+    expect((await keep()).changes).toEqual({});
+    expect(await pod.buildParts(kit.doc.value)).not.toBe('changed');
+    // Undo puts the old contents back, in the work and in the project.
+    kit.undo();
+    await settle(800);
+    expect(assetsOf(kit.doc.value.files)['assets/logo.svg']).toEqual(logo);
+    expect(await pod.readFile('assets/logo.svg')).toBe(svg('#00f'));
+    expect((await keep()).changes).toEqual({});
+  }, 300_000);
+
+  it('kit_bash keeps a sound a command made under assets/ with the text files it changed, as one step, says what it kept, and takes out a picture that is not one', async () => {
+    const ai = new LlmWorkspace({
+      catalog,
+      images: false,
+      read: () => kit.doc.value,
+      land: intents => {
+        const r = kit.commit(intents);
+        return r.ok ? { ok: true } : { ok: false, message: r.error.message };
+      },
+      compile: async () => ({ ok: true, ms: 1 }),
+      render: () => Promise.reject(new Error('no rendering here')),
+      look: () => Promise.reject(new Error('no looking here')),
+      pod: pod.access(),
+    });
+    const steps = kit.steps.length;
+    const r = await ai.call('kit_bash', {
+      command: `${wavCommand('assets/kick.wav', 110)} && printf '// kick\\n' >> src/main.ts && printf 'not a picture' > assets/fake.png`,
+    });
+    expect(r.text).toContain('Kept in the work: assets/kick.wav (new), src/main.ts (changed).');
+    expect(r.text).toContain(
+      'Not kept: assets/fake.png (assets/fake.png is named as a PNG picture, but its contents are not; den-kit does not use it — den-kit took it out of the project).',
+    );
+    expect(kit.steps.length).toBe(steps + 1);
+    const kick = assetsOf(kit.doc.value.files)['assets/kick.wav']!;
+    expect(kick).toMatchObject({
+      mime: 'audio/wav',
+      bytes: wav(110).length,
+      source: { title: 'Made by a command in the project' },
+    });
+    expect(await kit.assets.read(kick)).toEqual(wav(110));
+    expect(textFiles(kit.doc.value.files)['src/main.ts']).toContain('// kick');
+    expect(await pod.readFile('assets/fake.png')).toBeNull();
+    // The new asset is the work's like any other: outside the project's git, and not read back again.
+    expect(
+      (await pod.bash('git check-ignore -q assets/kick.wav && echo ignored', { who: 'den-kit' }))
+        .output,
+    ).toContain('ignored');
+    expect((await keep()).changes).toEqual({});
+    // One undo takes both back, in the work and in the project.
+    kit.undo();
+    await settle(800);
+    expect(assetsOf(kit.doc.value.files)['assets/kick.wav']).toBeUndefined();
+    expect(await pod.readFile('assets/kick.wav')).toBeNull();
+    expect(await pod.readFile('src/main.ts')).not.toContain('// kick');
+    expect((await keep()).changes).toEqual({});
+  }, 120_000);
+
+  it('does not keep a change to a sound the patch plays: puts it back and says how to change the sound on the patch', async () => {
+    const bytes = wav(220);
+    const hash = await sha256(bytes);
+    kit.contents.set(hash, bytes);
+    expect(
+      kit.commit([
+        {
+          op: 'addAsset',
+          asset: {
+            id: 'assets/loop.wav',
+            name: 'loop.wav',
+            mime: 'audio/wav',
+            bytes: bytes.length,
+            hash,
+          },
+        },
+        {
+          op: 'addNode',
+          node: { id: 'sampler1', type: 'den.samplePlayer', config: { sound: 'assets/loop.wav' } },
+        },
+        {
+          op: 'connect',
+          from: { node: 'sampler1', port: 'out' },
+          to: { node: 'out1', port: 'right' },
+        },
+      ]).ok,
+    ).toBe(true);
+    await settle(800);
+    expect(kit.soundAssets()).toContain('assets/loop.wav');
+    const digest = async () =>
+      `sha256-${
+        (
+          await pod.bash(
+            `node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync("assets/loop.wav")).digest("hex"))'`,
+            { who: 'den-kit' },
+          )
+        ).output
+      }`;
+    await pod.bash(wavCommand('assets/loop.wav', 440), { who: 'ai' });
+    expect(await digest()).not.toBe(hash);
+    expect(await keep()).toEqual({
+      changes: {},
+      skipped: [
+        "assets/loop.wav (the sound plays it, so den-kit put it back: save the new contents under another name and point sampler1's sound at that file)",
+      ],
+    });
+    expect(await digest()).toBe(hash);
+    expect(assetsOf(kit.doc.value.files)['assets/loop.wav']!.hash).toBe(hash);
+    // Under another name it is a new asset, which the patch can then play.
+    await pod.bash(wavCommand('assets/loop-high.wav', 440), { who: 'ai' });
+    expect((await keep()).changes).toEqual({ 'assets/loop-high.wav': 'new' });
+  }, 120_000);
+
+  it('removes an asset a command removed when nothing uses it; one something uses is put back, with where it is used', async () => {
+    // assets/logo.svg goes on the plugin; assets/loop-high.wav (the test before made it) is not used.
+    expect(
+      kit.commit([
+        {
+          op: 'addElement',
+          element: {
+            id: 'logo1',
+            kind: 'image',
+            asset: 'assets/logo.svg',
+            fit: 'contain',
+            rect: { x: 0, y: 0, w: 40, h: 40 },
+          },
+        },
+      ]).ok,
+    ).toBe(true);
+    await settle(800);
+    const steps = kit.steps.length;
+    const here = async (path: string) =>
+      (await pod.bash(`test -f ${path} && echo here || echo gone`, { who: 'den-kit' })).output;
+    await pod.bash('rm assets/logo.svg assets/loop-high.wav', { who: 'ai' });
+    expect(await keep()).toEqual({
+      changes: { 'assets/loop-high.wav': 'deleted' },
+      skipped: ['assets/logo.svg (used by logo1, so den-kit put it back: change those first)'],
+    });
+    expect(kit.steps.length).toBe(steps + 1);
+    expect(assetsOf(kit.doc.value.files)['assets/loop-high.wav']).toBeUndefined();
+    expect(await pod.readFile('assets/logo.svg')).toBe(svg('#00f'));
+    expect((await keep()).changes).toEqual({});
+    // Undo brings it back, in the work and in the project.
+    kit.undo();
+    await settle(800);
+    expect(assetsOf(kit.doc.value.files)['assets/loop-high.wav']).toBeDefined();
+    expect(await here('assets/loop-high.wav')).toContain('here');
+  }, 120_000);
+
+  it('leaves out a file den-kit does not keep as text, says why, and keeps the rest of each command', async () => {
+    const steps = kit.steps.length;
+    await pod.bash(
+      "printf '#!/bin/sh\\necho hi\\n' > gen.sh && printf 'all:\\n\\ttrue\\n' > Makefile && printf '<svg/>' > src/icon.svg && printf '// one\\n' >> src/main.ts",
+      { who: 'ai' },
+    );
+    const first = await keep();
+    expect(first.changes).toEqual({ 'src/main.ts': 'changed' });
+    expect(first.skipped).toHaveLength(3);
+    for (const path of ['gen.sh', 'Makefile', 'src/icon.svg'])
+      expect(first.skipped).toContain(
+        `${path} (outside assets/, den-kit keeps only text files, with names such as .ts, .js, .json or .md: rename it, or put a picture, sound or other asset under assets/)`,
+      );
+    // They stay in the project, and the next command's changes land too.
+    expect(await pod.readFile('gen.sh')).toBe('#!/bin/sh\necho hi\n');
+    await pod.bash("printf '// two\\n' >> src/main.ts", { who: 'ai' });
+    expect((await keep()).changes).toEqual({ 'src/main.ts': 'changed' });
+    expect(textFiles(kit.doc.value.files)['src/main.ts']).toMatch(/\/\/ one\n\/\/ two\n$/);
+    expect(kit.steps.length).toBe(steps + 2);
+    await pod.bash('rm gen.sh Makefile src/icon.svg', { who: 'ai' });
+  }, 60_000);
+
+  it("the person's command lands as one step of theirs; when the work refuses what a command changed, the project's assets go back to the work's", async () => {
+    const steps = kit.steps.length;
+    const r = await pod.runForYou(wavCommand('assets/tone.wav', 330));
+    expect(r).toMatchObject({ changed: ['assets/tone.wav'], skipped: [] });
+    expect(kit.steps.length).toBe(steps + 1);
+    expect(assetsOf(kit.doc.value.files)['assets/tone.wav']).toBeDefined();
+    await pod.bash(
+      `cat > assets/logo.svg <<'EOF'\n${svg('#0f0')}EOF\n${wavCommand('assets/new.wav', 550)}\nrm assets/tone.wav`,
+      { who: 'ai' },
+    );
+    expect(
+      await pod.keepChanges(() => ({ ok: false, message: 'The work changed meanwhile.' })),
+    ).toEqual({
+      changes: {
+        'assets/logo.svg': 'changed',
+        'assets/new.wav': 'new',
+        'assets/tone.wav': 'deleted',
+      },
+      skipped: [],
+      refused: 'The work changed meanwhile.',
+    });
+    expect(await pod.readFile('assets/logo.svg')).toBe(svg('#00f'));
+    expect(await pod.readFile('assets/new.wav')).toBeNull();
+    expect(
+      (await pod.bash('test -f assets/tone.wav && echo here', { who: 'den-kit' })).output,
+    ).toContain('here');
+    expect((await keep()).changes).toEqual({});
+    expect(kit.steps.length).toBe(steps + 1);
+  }, 120_000);
+
+  it("a copy of one of the work's assets keeps where that one came from, a file den-kit ships and one the same command changed included", async () => {
+    const knob = SHOWCASE_ASSETS['assets/den-kit/brass-knob.svg']!;
+    expect(kit.commit([{ op: 'addAsset', asset: knob }]).ok).toBe(true);
+    await settle(800);
+    await pod.bash(
+      'cp assets/den-kit/brass-knob.svg assets/knob-copy.svg && cp assets/logo.svg assets/logo-copy.svg',
+      { who: 'ai' },
+    );
+    expect((await keep()).changes).toEqual({
+      'assets/knob-copy.svg': 'new',
+      'assets/logo-copy.svg': 'new',
+    });
+    const assets = assetsOf(kit.doc.value.files);
+    expect(assets['assets/knob-copy.svg']!.source).toEqual(knob.source);
+    expect(assets['assets/logo-copy.svg']!.source).toEqual({ title: 'Logo', license: 'CC0' });
+    await pod.bash(
+      `cat > assets/logo.svg <<'EOF'\n${svg('#ff0')}EOF\ncp assets/logo.svg assets/logo-yellow.svg`,
+      { who: 'ai' },
+    );
+    expect((await keep()).changes).toEqual({
+      'assets/logo.svg': 'changed',
+      'assets/logo-yellow.svg': 'new',
+    });
+    expect(assetsOf(kit.doc.value.files)['assets/logo-yellow.svg']!.source).toEqual({
+      title: 'Logo',
+      license: 'CC0',
+    });
+  }, 120_000);
+
+  it('refuses an asset that would take the work over its limits, without reading its contents', async () => {
+    // Assets whose contents are not here make the work hold 490 MB (it holds at most 500 MB).
+    const mb = 1024 * 1024;
+    expect(
+      kit.commit(
+        [100, 100, 100, 100, 90].map((size, i): Intent => ({
+          op: 'addAsset',
+          asset: {
+            id: `assets/fill${i}.bin`,
+            name: `fill${i}.bin`,
+            mime: 'application/octet-stream',
+            bytes: size * mb,
+            hash: `sha256-${String(i + 1).repeat(64)}`,
+          },
+        })),
+      ).ok,
+    ).toBe(true);
+    await settle(800);
+    const reads = () => fake.commands.filter(c => c.includes("base64 < 'assets/big.bin'")).length;
+    await pod.bash(`head -c ${12 * mb} /dev/zero > assets/big.bin`, { who: 'ai' });
+    expect(await keep()).toEqual({
+      changes: {},
+      skipped: [
+        "assets/big.bin (A work's files hold at most 500 MB — den-kit took it out of the project)",
+      ],
+    });
+    expect(reads()).toBe(0);
+    expect(await pod.readFile('assets/big.bin')).toBeNull();
+    kit.undo();
+    await settle(800);
+  }, 120_000);
+
+  it('lets a command make room in a full work: what it removes goes first, so the files it adds fit', async () => {
+    const mb = 1024 * 1024;
+    // A stored asset nothing uses (1 MB), and assets whose contents are not here, fill the work to 100 KB below its limit.
+    const spare = new Uint8Array(mb).map((_, i) => i % 251);
+    const hash = await sha256(spare);
+    kit.contents.set(hash, spare);
+    const asset = (id: string, bytes: number, hash: string): Intent => ({
+      op: 'addAsset',
+      asset: { id, name: id.split('/').at(-1)!, mime: 'application/octet-stream', bytes, hash },
+    });
+    expect(kit.commit([asset('assets/spare.bin', spare.length, hash)]).ok).toBe(true);
+    const fill: Intent[] = [];
+    for (
+      let room = WORK_LIMITS.workBytes - totalBytes(kit.doc.value.files) - 100 * 1024;
+      room > 0;
+      room -= 100 * mb
+    )
+      fill.push(
+        asset(
+          `assets/fill${fill.length}.bin`,
+          Math.min(room, 100 * mb),
+          `sha256-${String(fill.length + 1).repeat(64)}`,
+        ),
+      );
+    expect(kit.commit(fill).ok).toBe(true);
+    await settle(800);
+    await pod.bash(
+      "rm assets/spare.bin && head -c 307200 /dev/zero | tr '\\0' a > notes.txt && head -c 307200 /dev/zero > assets/blank.bin",
+      { who: 'ai' },
+    );
+    expect(await keep()).toEqual({
+      changes: { 'assets/spare.bin': 'deleted', 'notes.txt': 'new', 'assets/blank.bin': 'new' },
+      skipped: [],
+    });
+    for (let i = 0; i < 3; i++) kit.undo();
+    await settle(800);
+  }, 120_000);
 });
 
 describe('pod session without a pod', () => {
