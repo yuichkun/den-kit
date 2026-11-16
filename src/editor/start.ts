@@ -1,8 +1,9 @@
 // startEditor, which a host calls with what it provides (src/host). It opens the
 // last work, or the start screen on the very first launch, mounts den-kit's
-// screens, and saves the record before the host quits.
+// screens, counts den-kit's use as the person allowed it, and saves the record
+// before the host quits.
 import { createApp, h } from 'vue';
-import type { Host } from '../host/index.ts';
+import type { DataKind, Host } from '../host/index.ts';
 import { AiRequests } from '../ai/requests.ts';
 import { LlmController } from '../ai/llm.ts';
 import { PodSession } from '../workspace/pod-session.ts';
@@ -13,6 +14,8 @@ import { kitFiles } from '../screen/kit-files.ts';
 import { CodeParts } from './code-parts.ts';
 import { hostRecords } from './records.ts';
 import { savedTheme, useTheme } from './theme.ts';
+import { countUsage, Usage } from './usage.ts';
+import { unasked } from './data-consent.ts';
 import './styles.ts';
 
 export interface EditorOptions {
@@ -52,6 +55,15 @@ export async function startEditor(host: Host, options: EditorOptions): Promise<K
   }
   session.pod = new PodSession(session, host.workspace, kitFiles());
   session.codeParts = new CodeParts(session, session.pod, host);
+  // Kinds of data the person has not answered about are asked first; until then, nothing is counted.
+  let asking: DataKind[] = [];
+  if (host.analytics) {
+    const usage = (session.usage = new Usage(host.analytics, records));
+    const choice = await host.analytics.choice().catch(() => null);
+    if (choice) asking = unasked(host.analytics.kinds, choice);
+    if (choice && !asking.length) usage.allow(choice.usage === true);
+    countUsage(session, usage);
+  }
   host.lifecycle?.beforeQuit(async () => {
     session.saveNow();
     try {
@@ -60,6 +72,6 @@ export async function startEditor(host: Host, options: EditorOptions): Promise<K
       await session.pod?.flush();
     }
   });
-  createApp({ render: () => h(App, { session, firstRun }) }).mount(options.mount);
+  createApp({ render: () => h(App, { session, firstRun, asking }) }).mount(options.mount);
   return session;
 }

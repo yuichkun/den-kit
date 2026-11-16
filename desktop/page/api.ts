@@ -1,6 +1,12 @@
 // The preload bridge between the desktop app's main process and its page
 // (desktop/preload.ts): what the page may ask the main process for.
-import type { PageRect, UpdateStatus } from '../../src/host/index.ts';
+import type {
+  DataChoice,
+  DataKind,
+  PageRect,
+  UpdateStatus,
+  UsageEvent,
+} from '../../src/host/index.ts';
 import type { AIModel, AISettings, CodexStatus } from '../../src/host/ai.ts';
 
 export type { UpdateStatus };
@@ -21,6 +27,8 @@ export interface DesktopInfo {
 export interface DesktopRuntime {
   token: string;
   apiKey: string | null;
+  /** The data this build may send and where a person asks about it; null when it sends nothing (desktop/analytics.ts). */
+  analytics: { kinds: DataKind[]; contact: string | null } | null;
 }
 export interface DesktopAPI {
   runtime: DesktopRuntime;
@@ -41,6 +49,8 @@ export interface DesktopAPI {
   fetch(url: string, maxBytes: number): Promise<{ bytes: Uint8Array; type: string; url: string }>;
   /** Open or close a work's sandbox origin (desktop/sandbox.ts). */
   sandbox(request: SandboxRequest): Promise<void>;
+  /** The person's answers about the data den-kit may send, the install's ID, and usage events (desktop/analytics.ts). */
+  analytics(request: AnalyticsRequest): Promise<unknown>;
   /** A work's code part tried to reach something it may not. */
   onSandboxRefused(
     listener: (refusal: { work: string; blocked: string; directive: string }) => void,
@@ -52,6 +62,10 @@ export type StorageRequest =
   | { op: 'keys'; prefix: string }
   | { op: 'readContent'; hash: string }
   | { op: 'writeContent'; hash: string; bytes: Uint8Array };
+export type AnalyticsRequest =
+  | { op: 'choice' | 'installId' }
+  | { op: 'choose'; choice: DataChoice }
+  | { op: 'record'; event: UsageEvent };
 export type SandboxRequest =
   | {
       op: 'open';

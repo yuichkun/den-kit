@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // Settings: the theme of den-kit's own screens, and what the host lets the person manage
-// there: the AI account and model, and updates. Every host has the theme; the rest shows
-// when the host provides it.
+// there: the data den-kit may send (with the install's ID and how to have its data
+// deleted), the AI account and model, and updates. Every host has the theme; the rest
+// shows when the host provides it.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { AIAccount, AISettings } from '../host/ai.ts';
-import type { Lifecycle } from '../host/index.ts';
+import type { Analytics, DataChoice, DataKind, Lifecycle } from '../host/index.ts';
+import { DATA_KIND_TEXT } from './data-consent.ts';
 import {
   accountActions,
   accountStatus,
@@ -17,8 +19,13 @@ import {
 } from './settings-presentation.ts';
 import { THEMES, savedTheme, useTheme } from './theme.ts';
 
-const props = defineProps<{ account: AIAccount | null; lifecycle: Lifecycle | null }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{
+  account: AIAccount | null;
+  lifecycle: Lifecycle | null;
+  analytics: Analytics | null;
+}>();
+/** `chosen`: the person changed what den-kit may send; the answers as the host keeps them. */
+const emit = defineEmits<{ close: []; chosen: [choice: DataChoice] }>();
 const themeId = ref(savedTheme());
 const chooseTheme = () => useTheme(themeId.value, { keep: true });
 const api = {
@@ -59,6 +66,45 @@ const efforts = computed(
 const controls = computed(() => (info.value ? accountActions(info.value, busy.value) : null));
 const locked = computed(() => controls.value?.locked ?? true);
 const update = computed(() => updatePresentation(info.value?.update));
+/** What den-kit may send, as the host keeps it (null until read), and the install's ID. */
+const choice = ref<DataChoice | null>(null);
+const installId = ref<string | null>(null);
+const dataBusy = ref(false);
+const dataError = ref('');
+const copied = ref(false);
+
+async function readData() {
+  try {
+    choice.value = await props.analytics!.choice();
+    installId.value = await props.analytics!.installId();
+  } catch {
+    dataError.value = 'den-kit could not read what it may send. Close Settings and try again.';
+  }
+}
+async function choose(kind: DataKind, box: HTMLInputElement) {
+  const on = box.checked;
+  dataBusy.value = true;
+  dataError.value = '';
+  try {
+    await props.analytics!.choose({ [kind]: on });
+    choice.value = { ...choice.value, [kind]: on };
+    installId.value = await props.analytics!.installId();
+    emit('chosen', choice.value);
+  } catch {
+    box.checked = !on;
+    dataError.value = 'den-kit could not keep this choice. Try again.';
+  } finally {
+    dataBusy.value = false;
+  }
+}
+async function copyId() {
+  try {
+    await navigator.clipboard.writeText(installId.value!);
+    copied.value = true;
+  } catch {
+    dataError.value = 'The ID could not be copied. Select it and copy it instead.';
+  }
+}
 
 async function refresh(first = false) {
   const id = ++refreshId;
@@ -137,6 +183,7 @@ function keys(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', keys, true);
+  if (props.analytics) void readData();
   if (!props.account) {
     loading.value = false;
     void nextTick().then(() => dialog.value?.focus());
@@ -182,6 +229,37 @@ onBeforeUnmount(() => {
         <p class="help">
           The theme changes how den-kit looks. Each work's plugin screen keeps its own look.
         </p>
+      </div>
+      <div v-if="analytics && choice" class="settings-body" data-testid="settings-data">
+        <h3>Help improve den-kit</h3>
+        <label v-for="kind in analytics.kinds" :key="kind" class="kind">
+          <input
+            type="checkbox"
+            :checked="choice[kind] === true"
+            :disabled="dataBusy"
+            :data-testid="`settings-data-${kind}`"
+            @change="choose(kind, $event.target as HTMLInputElement)"
+          />
+          <span
+            ><b>{{ DATA_KIND_TEXT[kind].title }}</b> — {{ DATA_KIND_TEXT[kind].detail }}</span
+          >
+        </label>
+        <template v-if="installId">
+          <div class="actions">
+            <span
+              >Your ID:
+              <code class="install-id" data-testid="settings-install-id">{{
+                installId
+              }}</code></span
+            ><button data-testid="settings-copy-id" @click="copyId">Copy ID</button
+            ><span v-if="copied" role="status">Copied</span>
+          </div>
+          <p v-if="analytics.contact" class="help">
+            To see or delete the usage data sent with this ID, email {{ analytics.contact }} with
+            the ID.
+          </p>
+        </template>
+        <p v-if="dataError" class="settings-error" role="alert">{{ dataError }}</p>
       </div>
       <div v-if="info" class="settings-body">
         <h3>ChatGPT</h3>
@@ -401,5 +479,20 @@ select:disabled {
 }
 .settings-body .settings-error {
   padding: 0;
+}
+.kind {
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.kind input {
+  margin-top: 4px;
+  flex: none;
+}
+.install-id {
+  font-family: var(--font-mono);
+  user-select: all;
 }
 </style>

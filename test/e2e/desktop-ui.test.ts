@@ -3,7 +3,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DesktopInfo } from '../../desktop/page/api.ts';
-import { openKit, startAudio, startHarness, type Harness } from './harness.ts';
+import { openKit, startAudio, startHarness, waitCompiled, type Harness } from './harness.ts';
 
 const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
   version: '0.1.0',
@@ -26,11 +26,27 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
   ...overrides,
 });
 
-function nativeAPI(token: string, initial: DesktopInfo): string {
+/** The data a build may send (desktop/analytics.ts), or null for a build that sends none. */
+type AnalyticsConfig = { kinds: string[]; contact: string } | null;
+
+function nativeAPI(token: string, initial: DesktopInfo, analytics: AnalyticsConfig = null): string {
   return `(() => {
-    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [], captures: [], holdCapture: false, finishCapture: null, captureResult: null };
+    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [], captures: [], holdCapture: false, finishCapture: null, captureResult: null, choice: {}, installId: null, chosen: [], events: [] };
     window.denKitShell = {
-      runtime: { token: ${JSON.stringify(token)}, apiKey: null },
+      runtime: { token: ${JSON.stringify(token)}, apiKey: null, analytics: ${JSON.stringify(analytics)} },
+      // The main process's answers, install ID and events (desktop/analytics.ts), kept in the page here.
+      analytics: async r => {
+        switch (r.op) {
+          case 'choice': return { ...fixture.choice };
+          case 'choose':
+            fixture.chosen.push(structuredClone(r.choice));
+            Object.assign(fixture.choice, r.choice);
+            if (r.choice.usage && !fixture.installId) fixture.installId = '3f2c8f8e-5b7a-4c1e-9d2a-6b0e4f1a7c55';
+            return;
+          case 'installId': return fixture.installId;
+          case 'record': fixture.events.push(r.event); return;
+        }
+      },
       info: async () => structuredClone(fixture.info),
       saveSettings: async settings => {
         fixture.saved.push(structuredClone(settings));
@@ -90,6 +106,124 @@ describe('desktop interface', () => {
   });
   after(async () => {
     await h?.close();
+  });
+
+  it('asks what data it may send before anything else, and sends nothing the person did not choose', async () => {
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      start: false,
+      initScript: nativeAPI(h.bridge!.token, info(), {
+        kinds: ['usage'],
+        contact: 'privacy@example.com',
+      }),
+    });
+    const test = () => page.evaluate(() => (window as any).__desktopTest);
+    try {
+      const consent = page.locator('[data-testid=data-consent]');
+      await consent.waitFor();
+      assert.equal(await page.locator('[data-testid=start-overlay]').count(), 0);
+      assert.equal(
+        await consent.innerText(),
+        [
+          'Help improve den-kit',
+          'Choose what den-kit may send to Escentier.',
+          'Usage data — Which features you use and how far you get, with a random ID for this install. Never your works, code, sounds, images, AI conversations, files or sign-in details.',
+          'You can change this, see your ID, and ask us to delete your data anytime in Settings.',
+          'Continue',
+        ].join('\n\n'),
+      );
+      assert.equal(await page.locator('[data-testid=data-consent-usage]').isChecked(), false);
+      // Settings from the app menu and the editor's keys wait until the person answers.
+      await page.evaluate(() => window.dispatchEvent(new Event('den-kit:show-settings')));
+      await page.keyboard.press('Meta+J');
+      assert.equal(await page.locator('[data-testid=desktop-settings]').count(), 0);
+      assert.equal(await page.locator('[data-testid=ai-dock]').isVisible(), true);
+
+      await page.click('[data-testid=data-consent-continue]');
+      await consent.waitFor({ state: 'detached' });
+      assert.deepEqual((await test()).chosen, [{ usage: false }]);
+      await startAudio(page);
+      await page.evaluate(() => (window as any).__kit.commit([{ op: 'setName', name: 'Mine' }]));
+      assert.deepEqual((await test()).events, []);
+
+      // Settings changes the answer, shows the install's ID and where to ask about the data.
+      await page.click('[data-testid=desktop-settings-open]');
+      const usage = page.locator('[data-testid=settings-data-usage]');
+      await usage.waitFor();
+      assert.equal(await usage.isChecked(), false);
+      assert.equal(await page.locator('[data-testid=settings-install-id]').count(), 0);
+      assert.doesNotMatch(
+        await page.locator('[data-testid=desktop-settings]').innerText(),
+        /Escentier/,
+      );
+      await usage.check();
+      await page.locator('[data-testid=settings-install-id]').waitFor();
+      assert.equal(
+        await page.locator('[data-testid=settings-install-id]').innerText(),
+        '3f2c8f8e-5b7a-4c1e-9d2a-6b0e4f1a7c55',
+      );
+      assert.match(
+        await page.locator('[data-testid=settings-data]').innerText(),
+        /To see or delete the usage data sent with this ID, email privacy@example\.com with the ID\./,
+      );
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await page.evaluate(() => (window as any).__kit.commit([{ op: 'setName', name: 'Again' }]));
+      await page.evaluate(() => (window as any).__kit.commit([{ op: 'setName', name: 'Once' }]));
+      assert.deepEqual((await test()).events, ['app_used', 'work_edited']);
+
+      await page.click('[data-testid=desktop-settings-open]');
+      await usage.uncheck();
+      await page.waitForFunction(() => (window as any).__desktopTest.chosen.length === 3);
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await page.evaluate(() =>
+        (window as any).__kit.commit([{ op: 'setName', name: 'Not counted' }]),
+      );
+      assert.deepEqual((await test()).chosen, [
+        { usage: false },
+        { usage: true },
+        { usage: false },
+      ]);
+      assert.deepEqual((await test()).events, ['app_used', 'work_edited']);
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('counts the first sound and export once the person allows usage data', async () => {
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      start: false,
+      initScript: nativeAPI(h.bridge!.token, info(), {
+        kinds: ['usage'],
+        contact: 'privacy@example.com',
+      }),
+    });
+    const events = () => page.evaluate(() => (window as any).__desktopTest.events as string[]);
+    try {
+      await page.locator('[data-testid=data-consent-usage]').check();
+      await page.click('[data-testid=data-consent-continue]');
+      await page.waitForFunction(() => (window as any).__desktopTest.events.length === 1);
+      assert.deepEqual(await events(), ['app_used']);
+      await startAudio(page);
+      await waitCompiled(page);
+      await page.evaluate(() => (window as any).__kit.engine.noteOn(48, 100));
+      await page.waitForFunction(() =>
+        (window as any).__desktopTest.events.includes('sound_played'),
+      );
+      await page.evaluate(() => (window as any).__kit.engine.noteOff(48));
+      await page.click('[data-testid=patch-menu]');
+      const download = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await download;
+      await page.waitForFunction(() =>
+        (window as any).__desktopTest.events.includes('work_exported'),
+      );
+      assert.deepEqual(await events(), ['app_used', 'sound_played', 'work_exported']);
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
   });
 
   it('shows sign-in states honestly, keeps connection plumbing out of settings, and offers no voice input', async () => {

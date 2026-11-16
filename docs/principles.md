@@ -8,11 +8,13 @@ top.
 ## 1. Hold no secret you do not need
 
 **The best defense is not to hold a secret at all. den-kit holds no secret, and no
-information about the person, that it can work without.** Anyone who has the app can read
-what is in it, so the app ships only values that are safe to publish. What den-kit must use
-that costs money or can be abused is handed out by a server, so that its use can be limited,
-changed and stopped without a new release. Sign-in tokens stay with the host, and the page
-never sees them.
+information about the person, that it can work without.** The one exception is data a
+person chooses to send to help improve den-kit: they answer for each kind of data before
+any is sent, and can stop it at any time ([usage.md](usage.md#help-improve-den-kit)).
+Anyone who has the app can read what is in it, so the app ships only values that are safe
+to publish. What den-kit must use that costs money or can be abused is handed out by a
+server, so that its use can be limited, changed and stopped without a new release.
+Sign-in tokens stay with the host, and the page never sees them.
 
 ## 2. Assume the worst intent
 
