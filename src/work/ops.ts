@@ -1,7 +1,9 @@
 // Typed edits. Callers (the editor, the AI's tools, the workspace) send *intents*; applying
 // them yields *resolved ops* that carry their before-state, so every transaction
 // can be inverted exactly. Application is atomic: on any failure the input
-// document is untouched (documents are treated as immutable values).
+// document is untouched (documents are treated as immutable values). The work's
+// size limits (files.ts) are checked once, on the files the whole transaction
+// leaves, so the room one intent frees counts for the others in any order.
 import {
   checkConfigValue,
   checkPortValue,
@@ -537,7 +539,10 @@ export function applyIntents(
   const draft = new Draft(base, catalog);
   const created: NodeId[] = [],
     createdBy: number[] = [];
+  /** The last intent that changed a file: a transaction over the work's limits fails there. */
+  let lastFile = -1;
   intents.forEach((intent, index) => {
+    const before = draft.ops.length;
     // Ports of parts follow each edit, so a later edit in the same transaction can use a new input or parameter.
     try {
       resolveIntent(draft, intent, created);
@@ -547,6 +552,7 @@ export function applyIntents(
         throw new OpError(error.message, index, error.code, error.hint);
       throw new OpError(error instanceof Error ? error.message : String(error), index, 'internal');
     }
+    if (draft.ops.slice(before).some(op => op.op === 'setFile')) lastFile = index;
     while (createdBy.length < created.length) createdBy.push(index);
   });
   // Every use of a part follows its definition; parts nothing uses go.
@@ -559,6 +565,8 @@ export function applyIntents(
       error instanceof OpError ? error.code : 'internal',
     );
   }
+  const over = lastFile < 0 ? null : overLimits(draft.doc.files);
+  if (over) throw new OpError(over, lastFile, 'too-large');
   draft.doc.revision = base.revision + 1;
   return { doc: draft.doc, ops: draft.ops, created, createdBy };
 }
@@ -1082,7 +1090,6 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
           'Give the asset another name, or remove the old one first.',
         );
       }
-      checkWorkSize(draft, asset.id, file);
       draft.apply({ op: 'setFile', path: asset.id, from: undefined, to: file });
       return;
     }
@@ -1136,7 +1143,6 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       });
       const file = assetFile(asset);
       if (JSON.stringify(file) === JSON.stringify(draft.doc.files[asset.id])) return;
-      checkWorkSize(draft, asset.id, file);
       draft.apply({ op: 'setFile', path: asset.id, from: draft.doc.files[asset.id], to: file });
       return;
     }
@@ -1241,8 +1247,6 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
           next[path] = { text };
         }
       }
-      const over = overLimits(next);
-      if (over) fail('too-large', over);
       for (const path of Object.keys(intent.files).sort()) {
         const from = current[path],
           to = next[path];
@@ -1596,12 +1600,6 @@ function defaultStem(type: string): string {
 }
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
-
-/** A work's files stay within the size limits (see files.ts). */
-function checkWorkSize(draft: Draft, path: string, file: WorkFile) {
-  const over = overLimits({ ...draft.doc.files, [path]: file });
-  if (over) fail('too-large', over);
-}
 
 /** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay, part faces, node settings and what codeboxes read. */
 function moveAssetRefs(draft: Draft, from: string, to: string) {
