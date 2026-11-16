@@ -690,16 +690,20 @@ export class PodSession {
       if (size === undefined) return `${path} could not be read.`;
       const large = fileTooLarge(path, size);
       if (large) return large;
-      // Counted as new contents until they are read.
+      // Counted as new contents until they are read, and as the contents they hold once read.
       const was = next[path];
       const back = () => {
         if (was) next[path] = was;
         else delete next[path];
       };
-      next[path] = { hash: `unread:${path}`, bytes: size, type: 'application/octet-stream' };
+      next[path] = {
+        hash: read ? await sha256(read) : `unread:${path}`,
+        bytes: size,
+        type: 'application/octet-stream',
+      };
       const over = overLimits(next);
-      // Too much as new contents, it may be a copy of contents the work holds, which count once: the pod says
-      // which, and den-kit checks the hash of what it reads.
+      // Too much as new contents, an unread file may be a copy of contents the work holds, which count once: the
+      // pod says which, and den-kit checks the hash of what it reads.
       const copy =
         over && read === undefined && askPod ? await this.copyOf(path, size, next) : null;
       if (copy) next[path] = { hash: copy, bytes: size, type: 'application/octet-stream' };

@@ -840,6 +840,29 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     await settle(800);
   }, 120_000);
 
+  it("keeps a command's copy of an asset over one as large in a full work, though another asset holds the old contents", async () => {
+    const hash = await addSpare();
+    // assets/spare-2.bin holds the spare asset's contents too, and assets/other.bin other contents as large.
+    const other = new Uint8Array(mb).map((_, i) => (i * 7) % 253);
+    const otherHash = await sha256(other);
+    kit.contents.set(otherHash, other);
+    expect(
+      kit.commit([
+        binAsset('assets/spare-2.bin', mb, hash),
+        binAsset('assets/other.bin', mb, otherHash),
+      ]).ok,
+    ).toBe(true);
+    fillTo(100 * 1024);
+    await settle(800);
+    const total = totalBytes(kit.doc.value.files);
+    await pod.bash('cp assets/other.bin assets/spare.bin', { who: 'ai' });
+    expect(await keep()).toEqual({ changes: { 'assets/spare.bin': 'changed' }, skipped: [] });
+    expect(assetsOf(kit.doc.value.files)['assets/spare.bin']!.hash).toBe(otherHash);
+    expect(totalBytes(kit.doc.value.files)).toBe(total);
+    for (let i = 0; i < 4; i++) kit.undo();
+    await settle(800);
+  }, 120_000);
+
   it('reads one file at most on the pod saying it is a copy, when it is not', async () => {
     const hash = await addSpare();
     fillTo(100 * 1024);
