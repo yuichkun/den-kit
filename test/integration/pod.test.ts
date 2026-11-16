@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WORK_LIMITS, sha256, textFiles, totalBytes } from '../../src/work/files.ts';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import { shallowRef } from 'vue';
 import { catalog } from '../../src/sound/blocks/index.ts';
 import { currentAssets, generate } from '../../src/sound/codegen.ts';
@@ -23,6 +23,7 @@ import { AssetStore } from '../../src/work/asset-store.ts';
 import { starter } from '../../src/work/starters.ts';
 import type { KitSession } from '../../src/editor/session.ts';
 import { connectFakePod } from '../../dev/fake-pod.ts';
+import type { PodHost } from '../../src/host/workspace.ts';
 import { PodSession } from '../../src/workspace/pod-session.ts';
 import { starterPart, withTemplate } from '../../src/workspace/template.ts';
 import { LlmWorkspace } from '../../src/ai/llm-workspace.ts';
@@ -116,12 +117,44 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
   let fake: FakePod;
   let kit: ReturnType<typeof session>;
   let pod: PodSession;
+  /** The pod's connection, as den-kit uses it. */
+  let host: PodHost;
   /** Read the project back and keep what changed in the work, as one step of the person's. */
   const keep = () =>
     pod.keepChanges(intents => {
       const r = kit.commit(intents);
       return r.ok ? r : { ok: false, message: r.error.message };
     });
+  const mb = 1024 * 1024;
+  const binAsset = (id: string, bytes: number, hash: string): Intent => ({
+    op: 'addAsset',
+    asset: { id, name: id.split('/').at(-1)!, mime: 'application/octet-stream', bytes, hash },
+  });
+  /** A stored asset nothing uses, assets/spare.bin (1 MB, its contents here), as one step; its hash. */
+  const addSpare = async () => {
+    const spare = new Uint8Array(mb).map((_, i) => i % 251);
+    const hash = await sha256(spare);
+    kit.contents.set(hash, spare);
+    expect(kit.commit([binAsset('assets/spare.bin', spare.length, hash)]).ok).toBe(true);
+    return hash;
+  };
+  /** Assets whose contents are not here fill the work to `below` bytes under its limit (500 MB), as one step. */
+  const fillTo = (below: number) => {
+    const fill: Intent[] = [];
+    for (
+      let room = WORK_LIMITS.workBytes - totalBytes(kit.doc.value.files) - below;
+      room > 0;
+      room -= 100 * mb
+    )
+      fill.push(
+        binAsset(
+          `assets/fill${fill.length}.bin`,
+          Math.min(room, 100 * mb),
+          `sha256-${String(fill.length + 1).repeat(64)}`,
+        ),
+      );
+    expect(kit.commit(fill).ok).toBe(true);
+  };
 
   beforeAll(async () => {
     fake = await startFakePod();
@@ -143,7 +176,7 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     kit = session(doc);
     pod = new PodSession(
       kit,
-      { kind: 'fake', create: work => connectFakePod(fake.url, work) },
+      { kind: 'fake', create: async work => (host = await connectFakePod(fake.url, work)) },
       kitFiles(),
     );
   }, 30_000);
@@ -759,31 +792,10 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
     await settle(800);
   }, 120_000);
 
-  it('lets a command make room in a full work: what it removes goes first, so the files it adds fit', async () => {
-    const mb = 1024 * 1024;
+  it('lets a command make room in a full work: the files it adds fit in the room of an asset it removes', async () => {
     // A stored asset nothing uses (1 MB), and assets whose contents are not here, fill the work to 100 KB below its limit.
-    const spare = new Uint8Array(mb).map((_, i) => i % 251);
-    const hash = await sha256(spare);
-    kit.contents.set(hash, spare);
-    const asset = (id: string, bytes: number, hash: string): Intent => ({
-      op: 'addAsset',
-      asset: { id, name: id.split('/').at(-1)!, mime: 'application/octet-stream', bytes, hash },
-    });
-    expect(kit.commit([asset('assets/spare.bin', spare.length, hash)]).ok).toBe(true);
-    const fill: Intent[] = [];
-    for (
-      let room = WORK_LIMITS.workBytes - totalBytes(kit.doc.value.files) - 100 * 1024;
-      room > 0;
-      room -= 100 * mb
-    )
-      fill.push(
-        asset(
-          `assets/fill${fill.length}.bin`,
-          Math.min(room, 100 * mb),
-          `sha256-${String(fill.length + 1).repeat(64)}`,
-        ),
-      );
-    expect(kit.commit(fill).ok).toBe(true);
+    await addSpare();
+    fillTo(100 * 1024);
     await settle(800);
     await pod.bash(
       "rm assets/spare.bin && head -c 307200 /dev/zero | tr '\\0' a > notes.txt && head -c 307200 /dev/zero > assets/blank.bin",
@@ -794,6 +806,75 @@ describe('pod session (test pod: real npm, Vite, tsc, ESLint, git)', () => {
       skipped: [],
     });
     for (let i = 0; i < 3; i++) kit.undo();
+    await settle(800);
+  }, 120_000);
+
+  it('lets a command make an asset smaller in a full work and use the room for a text file, in the same run', async () => {
+    await addSpare();
+    fillTo(100 * 1024);
+    await settle(800);
+    await pod.bash(
+      "head -c 102400 /dev/zero > assets/spare.bin && head -c 307200 /dev/zero | tr '\\0' a > notes.txt",
+      { who: 'ai' },
+    );
+    expect(await keep()).toEqual({
+      changes: { 'assets/spare.bin': 'changed', 'notes.txt': 'new' },
+      skipped: [],
+    });
+    expect(assetsOf(kit.doc.value.files)['assets/spare.bin']!.bytes).toBe(102400);
+    expect(textFiles(kit.doc.value.files)['notes.txt']).toHaveLength(307200);
+    for (let i = 0; i < 3; i++) kit.undo();
+    await settle(800);
+  }, 120_000);
+
+  it("keeps a command's copy of an asset in a full work: the work holds the same contents once", async () => {
+    const hash = await addSpare();
+    fillTo(100 * 1024);
+    await settle(800);
+    const total = totalBytes(kit.doc.value.files);
+    await pod.bash('cp assets/spare.bin assets/spare-copy.bin', { who: 'ai' });
+    expect(await keep()).toEqual({ changes: { 'assets/spare-copy.bin': 'new' }, skipped: [] });
+    expect(assetsOf(kit.doc.value.files)['assets/spare-copy.bin']!.hash).toBe(hash);
+    expect(totalBytes(kit.doc.value.files)).toBe(total);
+    for (let i = 0; i < 3; i++) kit.undo();
+    await settle(800);
+  }, 120_000);
+
+  it('reads one file at most on the pod saying it is a copy, when it is not', async () => {
+    const hash = await addSpare();
+    fillTo(100 * 1024);
+    await settle(800);
+    // The pod says every file den-kit asks about holds the spare asset's contents.
+    const run = host.run.bind(host);
+    const asked = vi
+      .spyOn(host, 'run')
+      .mockImplementation((script, options) =>
+        run(
+          script.replace(/node -e '[^']*createHash[^']*' '[^']*'/, `printf %s ${hash.slice(7)}`),
+          options,
+        ),
+      );
+    try {
+      await pod.bash(
+        `head -c ${mb} /dev/urandom > assets/a.bin && head -c ${mb} /dev/urandom > assets/b.bin`,
+        { who: 'ai' },
+      );
+      expect(await keep()).toEqual({
+        changes: {},
+        skipped: ['a', 'b'].map(
+          name =>
+            `assets/${name}.bin (A work's files hold at most 500 MB — den-kit took it out of the project)`,
+        ),
+      });
+      // den-kit read the first and saw it is not a copy; it asked the pod no more, and read nothing else.
+      expect(asked.mock.calls.filter(([script]) => script.includes('createHash'))).toHaveLength(1);
+      const reads = (path: string) =>
+        fake.commands.filter(c => c.includes(`base64 < '${path}'`)).length;
+      expect([reads('assets/a.bin'), reads('assets/b.bin')]).toEqual([1, 0]);
+    } finally {
+      asked.mockRestore();
+    }
+    for (let i = 0; i < 2; i++) kit.undo();
     await settle(800);
   }, 120_000);
 });

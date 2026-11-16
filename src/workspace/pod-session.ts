@@ -21,6 +21,7 @@ import {
   WORK_LIMITS,
   checkPath,
   fileTooLarge,
+  isContent,
   isGenerated,
   isTextPath,
   overLimits,
@@ -520,7 +521,6 @@ export class PodSession {
           asset && stored[path] ? [{ ...asset, source: stored[path].source }] : [],
         ),
       ];
-      // Removed assets go first: what lands after them may need the room they free (readBack counted it so).
       const intents: Intent[] = [...assets]
         .filter(([, asset]) => !asset)
         .map(([path]): Intent => ({ op: 'removeAsset', id: path }));
@@ -683,6 +683,8 @@ export class PodSession {
       if (text === null) delete next[path];
       else next[path] = { text };
     for (const path of removed) if (assets.has(path)) delete next[path];
+    /** The pod may be asked about copies: not after it named a file a copy that was not one. */
+    let askPod = true;
     const keep = async (path: string, read?: Uint8Array | null): Promise<AssetMeta | string> => {
       const size = sizes.get(path);
       if (size === undefined) return `${path} could not be read.`;
@@ -696,14 +698,25 @@ export class PodSession {
       };
       next[path] = { hash: `unread:${path}`, bytes: size, type: 'application/octet-stream' };
       const over = overLimits(next);
-      if (over) {
+      // Too much as new contents, it may be a copy of contents the work holds, which count once: the pod says
+      // which, and den-kit checks the hash of what it reads.
+      const copy =
+        over && read === undefined && askPod ? await this.copyOf(path, size, next) : null;
+      if (copy) next[path] = { hash: copy, bytes: size, type: 'application/octet-stream' };
+      const still = copy ? overLimits(next) : over;
+      if (still) {
         back();
-        return over;
+        return still;
       }
       const bytes = read === undefined ? await this.readBytes(path) : read;
       if (!bytes) {
         back();
         return `${path} could not be read.`;
+      }
+      if (copy && (await sha256(bytes)) !== copy) {
+        askPod = false;
+        back();
+        return over!;
       }
       try {
         const asset = await this.session.assets.keep(path, bytes);
@@ -1017,6 +1030,28 @@ export class PodSession {
       if (path && size && /^\d+$/.test(size)) sizes.set(path, Number(size));
     }
     return sizes;
+  }
+
+  /**
+   * The contents of `files`, other than at `path`, that the file at `path` is a copy of, as the pod tells: their hash,
+   * or null. Only contents as large as the file can be, so the pod is asked only when there are some.
+   */
+  private async copyOf(
+    path: string,
+    size: number,
+    files: Readonly<Record<string, WorkFile>>,
+  ): Promise<string | null> {
+    const held = new Set<string>();
+    for (const [other, f] of Object.entries(files))
+      if (other !== path && isContent(f) && f.hash && !f.url && f.bytes === size) held.add(f.hash);
+    if (!held.size) return null;
+    const hex = (
+      await this.through(
+        out =>
+          `node -e 'const h=require("crypto").createHash("sha256");require("fs").createReadStream(process.argv[1]).on("data",d=>h.update(d)).on("end",()=>process.stdout.write(h.digest("hex")))' ${q(path)} > ${out}`,
+      )
+    )?.trim();
+    return hex && held.has(`sha256-${hex}`) ? `sha256-${hex}` : null;
   }
 
   /** A file of the project as bytes (the pod reads files back as text: it comes as base64), or null. */
