@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // den-kit's shell: the toolbar, the Patch, Plugin, Code and Project views, the
 // inspector, the AI panel, the keyboard bar, the dialogs and the app's shortcuts.
+// On a first launch it asks what data den-kit may send before anything else.
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
 import { POD } from '../screen/code-frames.ts';
@@ -21,10 +22,14 @@ import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
 import Settings from './Settings.vue';
+import DataConsent from './DataConsent.vue';
+import type { DataChoice, DataKind } from '../host/analytics.ts';
 
 const props = defineProps<{
   session: KitSession;
   /** Nothing was saved yet: open on the start screen. */ firstRun?: boolean;
+  /** The kinds of data to ask about before anything else (src/editor/DataConsent.vue). */
+  asking?: readonly DataKind[];
 }>();
 const session = props.session;
 provide(SESSION, session);
@@ -54,14 +59,29 @@ watch(
   },
 );
 const starting = ref(!!props.firstRun);
-// What the host lets the person manage here: the AI account and model, and updates.
+// What the host lets the person manage here: the data den-kit may send, the AI account and model, and updates.
 const account = session.host?.ai?.account ?? null;
 const lifecycle = session.host?.lifecycle ?? null;
+const analytics = session.host?.analytics ?? null;
+const asking = ref<readonly DataKind[]>(analytics ? (props.asking ?? []) : []);
 const settingsOpen = ref(false);
 const stopHost: Array<() => void> = [];
 const openSettings = () => {
-  settingsOpen.value = true;
+  if (!asking.value.length) settingsOpen.value = true;
 };
+/** den-kit counts its own use while the person allows usage data. */
+const follow = (choice: DataChoice) => session.usage?.allow(choice.usage === true);
+async function answered(answer: DataChoice | null) {
+  asking.value = [];
+  if (!answer)
+    session.toast(
+      'warn',
+      'den-kit could not keep your choice, so it sends nothing. It asks again next time.',
+    );
+  follow(await analytics!.choice().catch(() => ({})));
+}
+/** Left open overnight, den-kit is used again on the new day from its first click or key. */
+const used = () => session.usage?.count('app_used');
 /** Version of a downloaded update waiting to be installed; Settings offers the restart. */
 const updateReady = ref<string | null>(null);
 async function refreshUpdate() {
@@ -190,7 +210,7 @@ const banner = computed(() => {
 const TEXT_FIELD =
   'textarea, [contenteditable], input:not([type]), input[type=text], input[type=number], input[type=search]';
 function keys(e: KeyboardEvent) {
-  if (starting.value) return; // the start screen has the keys
+  if (starting.value || asking.value.length) return; // the start screen, or the question about data, has the keys
   const mod = e.metaKey || e.ctrlKey;
   // In the AI prompt the view keys still work (no reaching for the mouse); in other text fields (code, names) they do not.
   const field = (e.target as HTMLElement).closest(TEXT_FIELD);
@@ -299,6 +319,8 @@ onMounted(() => {
   window.addEventListener('focus', focused);
   window.addEventListener('keydown', keys);
   window.addEventListener('pointerdown', closeMenu, true);
+  window.addEventListener('pointerdown', used, true);
+  window.addEventListener('keydown', used, true);
   // The audio closes before the page goes away (unless it waits in the back/forward cache). Chrome can deadlock tearing
   // down a page whose AudioWorklet still plays: the page's main thread waits for the audio output thread, which never
   // returns, so a reload or a navigation never finishes. Closing the context stops the output while the worklet runs.
@@ -316,6 +338,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', focused);
   window.removeEventListener('keydown', keys);
   window.removeEventListener('pointerdown', closeMenu, true);
+  window.removeEventListener('pointerdown', used, true);
+  window.removeEventListener('keydown', used, true);
   document.removeEventListener('fullscreenchange', fullscreenChange);
   window.removeEventListener('resize', onResize);
 });
@@ -340,6 +364,7 @@ async function exportPatch() {
     session.toast('error', error instanceof Error ? error.message : String(error));
     return;
   }
+  session.usage?.count('work_exported');
   const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -545,7 +570,9 @@ async function importPatch(e: Event) {
       v-if="settingsOpen"
       :account="account"
       :lifecycle="lifecycle"
+      :analytics="analytics"
       @close="settingsOpen = false"
+      @chosen="follow"
     />
     <CanvasEditor
       v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]"
@@ -563,7 +590,13 @@ async function importPatch(e: Event) {
         {{ t.text }}
       </div>
     </div>
-    <StartOverlay v-if="!starting" />
-    <StartScreen v-if="starting" @close="started" @settings="openSettings" />
+    <DataConsent
+      v-if="analytics && asking.length"
+      :analytics="analytics"
+      :kinds="asking"
+      @done="answered"
+    />
+    <StartOverlay v-else-if="!starting" />
+    <StartScreen v-else @close="started" @settings="openSettings" />
   </div>
 </template>

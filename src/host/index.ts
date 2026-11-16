@@ -1,12 +1,15 @@
-// What a host provides to den-kit (docs/architecture.md, "Interfaces"): types, and
-// the AI interface's size limits (ai.ts). den-kit's modules use a Host and never ask
-// which host they run in (docs/principles.md, principle 4). A feature some hosts lack
-// is a null here (for the workspace, a null `kind`), never a check for a host. Each
-// host implements these outside src/.
+// What a host provides to den-kit (docs/architecture.md, "Interfaces"): types, the AI
+// interface's size limits (ai.ts), and the kinds of data and usage events den-kit may
+// send (analytics.ts). den-kit's modules use a Host and never ask which host they run
+// in (docs/principles.md, principle 4). A feature some hosts lack is a null here (for
+// the workspace, a null `kind`), never a check for a host. Each host implements these
+// outside src/.
 import type { AI } from './ai.ts';
+import type { Analytics } from './analytics.ts';
 import type { PodFactory } from './workspace.ts';
 
 export type * from './ai.ts';
+export type * from './analytics.ts';
 export type * from './workspace.ts';
 
 export interface Host {
@@ -24,8 +27,8 @@ export interface Host {
   fetch: Fetch | null;
   /** Pictures of den-kit as the person sees it, or null when the host cannot take them. */
   screenCapture: ScreenCapture | null;
-  /** Asking for and keeping the person's consent to analytics, or null when nothing is sent. */
-  consent: Consent | null;
+  /** What den-kit may send to improve itself, as the person chose, or null when this host sends nothing. */
+  analytics: Analytics | null;
   /** Updates, quitting and restarting, or null when the host does not manage them. */
   lifecycle: Lifecycle | null;
 }
@@ -129,12 +132,6 @@ export interface ScreenCapture {
   picture(rect: PageRect, maxSide: number, wanted: () => boolean): Promise<Picture>;
   /** Sharing ended from outside den-kit (the browser's own Stop sharing). */
   onEnded(listener: () => void): () => void;
-}
-
-export interface Consent {
-  /** null until the person has chosen. */
-  state(): Promise<boolean | null>;
-  set(allowed: boolean): Promise<void>;
 }
 
 /** In-app updates. `off` where the host does not update itself; `move` when the app runs where it cannot update. */

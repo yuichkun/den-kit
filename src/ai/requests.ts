@@ -83,6 +83,7 @@ export class AiRequests {
   readonly session: AiSession;
   /** The conversation whose earlier lines were read. */
   private readFor: string | null = null;
+  private taken = new Set<(line: Outcome) => void>();
 
   constructor(session: AiSession) {
     this.session = session;
@@ -165,7 +166,11 @@ export class AiRequests {
     options: { via?: 'typed' | 'voice'; attached?: Attachment[]; sketch?: SentSketch } = {},
   ): Outcome {
     const text = raw.trim().slice(0, 600);
-    if (text && this.session.llm) return this.session.llm.run(text, options);
+    if (text && this.session.llm) {
+      const line = this.session.llm.run(text, options);
+      if (line.status !== 'failed') for (const listener of this.taken) listener(line);
+      return line;
+    }
     const line: Outcome = {
       id: randomId('rq'),
       text,
@@ -181,5 +186,11 @@ export class AiRequests {
     };
     this.upsert(line);
     return line;
+  }
+
+  /** Each request the AI takes: sent, added to the running one, or waiting for it. */
+  onRun(listener: (line: Outcome) => void): () => void {
+    this.taken.add(listener);
+    return () => this.taken.delete(listener);
   }
 }

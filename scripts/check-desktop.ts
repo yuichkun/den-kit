@@ -142,6 +142,15 @@ try {
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, {
     timeout: 60000,
   });
+  // A build that sends usage data asks about it first: the check chooses nothing, so it sends nothing.
+  if (operator.usageUrl) {
+    const consent = page.locator('[data-testid=data-consent]');
+    await consent.waitFor();
+    assert.equal(await consent.locator('input[type=checkbox]:checked').count(), 0);
+    await page.click('[data-testid=data-consent-continue]');
+    await consent.waitFor({ state: 'detached' });
+    console.log(JSON.stringify({ dataConsent: 'answered with nothing chosen' }));
+  }
   await waitForShell(page, info => ['login', 'ok', 'error'].includes(info.codex.state));
   assert.deepEqual(
     await page.evaluate(() => {
@@ -231,8 +240,17 @@ try {
     await page.locator('[data-testid=desktop-settings]').innerText(),
     /BrowserPod|Escentier|Codex is|Starting Codex|app-server|codex:login|\bLLM\b|copy the conversation|fork|API key/i,
   );
+  // The only boxes are the data den-kit may send, none of them checked.
   assert.equal(
-    await page.locator('[data-testid=desktop-settings] input[type=checkbox]').count(),
+    await page
+      .locator(
+        '[data-testid=desktop-settings] input[type=checkbox]:not([data-testid^=settings-data-])',
+      )
+      .count(),
+    0,
+  );
+  assert.equal(
+    await page.locator('[data-testid=desktop-settings] input[type=checkbox]:checked').count(),
     0,
   );
   await page.screenshot({ path: join(profile, 'settings.png') });

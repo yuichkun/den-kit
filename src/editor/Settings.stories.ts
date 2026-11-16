@@ -1,10 +1,11 @@
-// Settings (Settings.vue) in Storybook: the theme in every host, and the ChatGPT account, AI
-// settings and updates in a host that lets the person manage them in den-kit.
+// Settings (Settings.vue) in Storybook: the theme in every host; the ChatGPT account, AI
+// settings and updates in a host that lets the person manage them in den-kit; and the data
+// den-kit may send in a build that sends it.
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { h } from 'vue';
 import { expect, waitFor } from 'storybook/test';
 import type { AIAccount, AIAccountInfo } from '../host/ai.ts';
-import type { Lifecycle } from '../host/index.ts';
+import type { Analytics, Lifecycle } from '../host/index.ts';
 import Settings from './Settings.vue';
 import { editorParameters, mount, storySession } from './story-frame.ts';
 import { theme, useTheme } from './theme.ts';
@@ -40,8 +41,22 @@ const lifecycle: Lifecycle = {
   beforeQuit: () => () => {},
 };
 
+/** A build that sends usage data and crash reports, where the person allowed usage data. */
+const analytics: Analytics = {
+  kinds: ['usage', 'crashes'],
+  contact: 'privacy@example.com',
+  choice: async () => ({ usage: true, crashes: false }),
+  choose: async () => {},
+  installId: async () => '3f2c8f8e-5b7a-4c1e-9d2a-6b0e4f1a7c55',
+  record: () => {},
+};
+
 /** The Settings dialog with what the host provides. */
-const dialog = (host: { account: AIAccount | null; lifecycle: Lifecycle | null }): StoryObj => ({
+const dialog = (host: {
+  account: AIAccount | null;
+  lifecycle: Lifecycle | null;
+  analytics: Analytics | null;
+}): StoryObj => ({
   render: () => {
     // Settings shows the person's choice: the theme picked in the toolbar is kept as it.
     useTheme(theme.value.id, { keep: true });
@@ -76,7 +91,23 @@ export default meta;
 type Story = StoryObj;
 
 /** A host where the person signs in outside den-kit, such as the development host: the theme. */
-export const Theme: Story = dialog({ account: null, lifecycle: null });
+export const Theme: Story = dialog({ account: null, lifecycle: null, analytics: null });
 
 /** The desktop app: the theme, the ChatGPT account and AI settings, and an update to install. */
-export const Account: Story = dialog({ account, lifecycle });
+export const Account: Story = dialog({ account, lifecycle, analytics: null });
+
+/** A build that sends data: what the person allowed, the install's ID and how to have its data deleted. */
+export const Data: Story = {
+  ...dialog({ account: null, lifecycle: null, analytics }),
+  play: async context => {
+    await meta.play(context);
+    const { canvasElement } = context;
+    await waitFor(() =>
+      expect(canvasElement.querySelector('[data-testid=settings-install-id]')?.textContent).toBe(
+        '3f2c8f8e-5b7a-4c1e-9d2a-6b0e4f1a7c55',
+      ),
+    );
+    const boxes = canvasElement.querySelectorAll<HTMLInputElement>('input[type=checkbox]');
+    await expect([...boxes].map(box => box.checked)).toEqual([true, false]);
+  },
+};

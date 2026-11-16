@@ -1,8 +1,9 @@
 // The desktop app's main process: one window on the app's local server, which
 // serves den-kit's page, runs the AI bridge (with Codex) and the works' sandbox;
 // the host interfaces the page asks for over IPC (storage, fetch, the sandbox,
-// settings, updates); the window's rules; the app menu, whose Help → Licenses opens
-// windows of their own (desktop/licenses.ts); and saving before the app quits.
+// settings, updates, usage data); the window's rules; the app menu, whose Help →
+// Licenses opens windows of their own (desktop/licenses.ts); and saving before the
+// app quits.
 import {
   app,
   autoUpdater as squirrel,
@@ -34,10 +35,14 @@ import { applyWindowRules, AUTOPLAY_POLICY, beforeReady } from './window-rules.t
 import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
 import { NoticesWindows } from './licenses.ts';
+import { DesktopAnalytics, osName } from './analytics.ts';
 import { signInPending } from '../src/editor/settings-presentation.ts';
 
 interface OperatorConfig {
   browserPodKey?: string;
+  /** Where usage events go, and where a person asks to see or delete their usage data (desktop/analytics.ts). */
+  usageUrl?: string;
+  dataContact?: string;
 }
 let window: BrowserWindow | null = null;
 let bridge: Bridge | null = null;
@@ -46,6 +51,7 @@ let sandbox: SandboxServer;
 let codex: CodexClient;
 let settings: DesktopSettings;
 let operator: OperatorConfig = {};
+let analytics: DesktopAnalytics | null = null;
 let updates = new DesktopUpdates({ updater: null, native: null });
 let quitting = false;
 let shutdownComplete = false;
@@ -169,6 +175,8 @@ async function shutdown() {
     });
     await window.webContents.session.flushStorageData();
   }
+  await analytics?.flush(2000);
+  analytics?.dispose();
   await bridge?.close();
   if (podFlushError) throw podFlushError;
 }
@@ -210,6 +218,14 @@ async function start() {
   } catch {
     /* build reports missing operator configuration */
   }
+  analytics = new DesktopAnalytics({
+    directory: data,
+    usageUrl: operator.usageUrl ?? null,
+    contact: operator.dataContact ?? null,
+    version: app.getVersion(),
+    os: osName(process.platform, process.getSystemVersion()),
+    arch: process.arch,
+  });
   const home = join(data, 'codex');
   const cwd = join(data, 'codex-work');
   mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -253,7 +269,11 @@ async function start() {
   ipcMain.on('den-kit:runtime', event => {
     try {
       trusted(event);
-      event.returnValue = { token: bridge!.token, apiKey: operator.browserPodKey ?? null };
+      event.returnValue = {
+        token: bridge!.token,
+        apiKey: operator.browserPodKey ?? null,
+        analytics: analytics!.runtime(),
+      };
     } catch {
       event.returnValue = null;
     }
@@ -264,6 +284,21 @@ async function start() {
       return action(arg);
     });
   handle('den-kit:info', () => info());
+  handle('den-kit:analytics', value => {
+    const r = value as { op?: string; choice?: unknown; event?: unknown };
+    switch (r?.op) {
+      case 'choice':
+        return analytics!.choice();
+      case 'choose':
+        return analytics!.choose(r.choice);
+      case 'installId':
+        return analytics!.installId();
+      case 'record':
+        return analytics!.record(r.event);
+      default:
+        throw new Error('Unknown analytics operation.');
+    }
+  });
   handle('den-kit:storage', value => {
     const r = value as {
       op: string;
@@ -494,6 +529,7 @@ async function start() {
   await window.loadURL(APP_ORIGIN);
   void codex.start();
   updates.start();
+  analytics.start();
 }
 
 app.on('window-all-closed', () => app.quit());

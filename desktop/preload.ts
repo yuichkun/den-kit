@@ -26,6 +26,7 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     storage: request => ipcRenderer.invoke('den-kit:storage', request),
     fetch: (url, maxBytes) => ipcRenderer.invoke('den-kit:fetch', { url, maxBytes }),
     sandbox: request => ipcRenderer.invoke('den-kit:sandbox', request),
+    analytics: request => ipcRenderer.invoke('den-kit:analytics', request),
     onSandboxRefused: listener => {
       const handler = (_event: unknown, refusal: Parameters<typeof listener>[0]) =>
         listener(refusal);

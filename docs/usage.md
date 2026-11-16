@@ -27,6 +27,31 @@ else, the app offers to move itself there.
 **Help** → **Licenses** shows den-kit's license and the licenses of the software it
 includes.
 
+## Help improve den-kit
+
+On its first launch, the macOS app from a release asks what den-kit may send to Escentier,
+with a box for each kind of data and none of them checked: den-kit sends only what you choose.
+**Settings** changes your answers at any time. A build from source asks nothing and sends
+nothing.
+
+**Usage data** is these events. Each carries only its own random ID, a random ID for this
+install, den-kit's version, the OS, the CPU type and the time.
+
+| Event             | When                                                                                                                          |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `app_used`        | The first time each day (UTC) that den-kit is used: when it opens, or, if it stays open, at the first click or key that day   |
+| `sound_played`    | The first time each day (UTC) that sound comes out                                                                            |
+| `work_edited`     | The first time each day (UTC) that you change a work yourself, which includes moving a control; the AI's changes do not count |
+| `ai_requested`    | Each time the AI takes a request                                                                                              |
+| `code_part_added` | Each time a code part is added to a work's plugin screen                                                                      |
+| `work_exported`   | Each time you export a work                                                                                                   |
+
+Usage data never includes your works, code, sounds, images, AI conversations, the names or
+places of files, or sign-in details. Events that could not be sent wait in the app's data
+folder and go later; turning usage data off deletes them. The install's ID is made when you
+first allow usage data. Settings shows it, and the email address to write to with the ID to
+see or delete the usage data sent with it.
+
 ## Basic workflow
 
 1. Choose an example on the start screen, or open a new work.
