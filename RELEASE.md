@@ -88,14 +88,23 @@ None of this is needed to open or test pull requests.
    To notarize with an Apple ID instead of an API key, set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
    and `APPLE_TEAM_ID`, and leave the three `APPLE_API_*` secrets empty.
 
-   For [usage data](docs/usage.md#help-improve-den-kit), add these variables (not secrets:
-   the app shows and sends them) to the same environment. Without them, the app neither asks about
-   usage data nor sends any.
+   For [usage data and crash reports](docs/usage.md#help-improve-den-kit), add these variables
+   (not secrets: the app shows and sends them) to the same environment. Without the first two,
+   the app neither asks about usage data nor sends any; without the third, the same goes for
+   crash reports.
 
    | Variable               | Value                                                                |
    | ---------------------- | -------------------------------------------------------------------- |
    | `DEN_KIT_USAGE_URL`    | The `https` address that receives usage events                       |
    | `DEN_KIT_DATA_CONTACT` | The email address where people ask to see or delete their usage data |
+   | `DEN_KIT_SENTRY_DSN`   | The DSN of the Sentry project that receives crash reports            |
+
+   So that crash reports show den-kit's own code, the build uploads its source maps to that
+   project when it also has a Sentry
+   [organization auth token](https://docs.sentry.io/product/accounts/auth-tokens/#organization-auth-tokens)
+   as the secret `DEN_KIT_SENTRY_AUTH_TOKEN`, and the organization's and the project's slugs as
+   the variables `DEN_KIT_SENTRY_ORG` and `DEN_KIT_SENTRY_PROJECT`. A build that cannot upload
+   them stops.
 
 5. **Repository settings.** Enable immutable releases, and allow only collaborators to create pull
    requests (Settings → General → Features). Protect `main` with pull requests and the `verify` and

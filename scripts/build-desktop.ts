@@ -7,6 +7,8 @@ import { isProblem, resolveCodex } from '../bridge/codex/process.ts';
 import { MAC_ARCHES, stageMacCodex } from './codex-native.ts';
 import { BUNDLED_PACKAGES, desktopLicenses } from './licenses.ts';
 import { usageConfig } from '../desktop/analytics.ts';
+import { crashDsn } from '../desktop/crash-reports.ts';
+import { sourceMapUpload } from './sentry-sourcemaps.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const staging = join(root, '.desktop-build');
@@ -30,6 +32,14 @@ if ((env.DEN_KIT_USAGE_URL || env.DEN_KIT_DATA_CONTACT) && !usage)
   throw new Error(
     'Usage data needs both DEN_KIT_USAGE_URL (an https address) and DEN_KIT_DATA_CONTACT (an email address for requests about the data).',
   );
+// Crash reports go only to the operator's Sentry project (desktop/crash-reports.ts).
+const sentryDsn = env.DEN_KIT_SENTRY_DSN ? crashDsn(env.DEN_KIT_SENTRY_DSN) : null;
+if (env.DEN_KIT_SENTRY_DSN && !sentryDsn)
+  throw new Error(
+    'DEN_KIT_SENTRY_DSN must be a Sentry DSN, https://<public key>@<host>/<project number>.',
+  );
+// Set for a release: the main process's source maps go to Sentry too (scripts/sentry-sourcemaps.ts).
+const upload = sourceMapUpload(env, pkg.version);
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(app, { recursive: true });
 mkdirSync(resources, { recursive: true });
@@ -45,6 +55,7 @@ const main = await build({
   target: 'node24',
   sourcemap: true,
   metafile: true,
+  plugins: upload ? [(await import('@sentry/esbuild-plugin')).sentryEsbuildPlugin(upload)] : [],
 });
 const preload = await build({
   absWorkingDir: root,
@@ -90,6 +101,7 @@ writeFileSync(
     browserPodKey: env.BROWSERPOD_API_KEY || undefined,
     usageUrl: usage?.usageUrl,
     dataContact: usage?.contact,
+    sentryDsn: sentryDsn ?? undefined,
   }),
   { mode: 0o600 },
 );
@@ -126,5 +138,5 @@ writeFileSync(
   }),
 );
 console.log(
-  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; BrowserPod configured; ${usage ? `usage data goes to ${new URL(usage.usageUrl).host}` : 'no usage data'}.`,
+  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; BrowserPod configured; ${usage ? `usage data goes to ${new URL(usage.usageUrl).host}` : 'no usage data'}; ${sentryDsn ? `crash reports go to ${new URL(sentryDsn).host}` : 'no crash reports'}.`,
 );

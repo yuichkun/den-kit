@@ -191,10 +191,10 @@ Run suites separately with `vp run test:unit`, `vp run test:integration`, and
 logic, integration tests run modules together in Node (compiling blocks, the AI bridge,
 the pod, the desktop app's server), and e2e tests drive the editor in Chromium. Run one
 file with `vp test run <file>`, or `node --test <file>` for an e2e file. `vp run test:stories` runs the controls' stories
-([Storybook](#storybook)). `vp run test:desktop` checks the works' sandbox in Electron
-(what a code part can reach, its frame, WebRTC, DNS prefetching and devices); CI
-runs it on macOS. Browser tests need Chromium; `CHROMIUM_PATH` can select an
-existing installation. Automated regression tests use model and pod substitutes
+([Storybook](#storybook)). `vp run test:desktop` checks the works' sandbox
+(what a code part can reach, its frame, WebRTC, DNS prefetching and devices) and crash
+reports in Electron; CI runs it on macOS. Browser tests need Chromium; `CHROMIUM_PATH`
+can select an existing installation. Automated regression tests use model and pod substitutes
 rather than paid AI or BrowserPod services. Pod tests execute local commands
 and may download npm dependencies.
 

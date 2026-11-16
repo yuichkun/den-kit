@@ -142,8 +142,9 @@ try {
   await page.waitForFunction(() => !!(window as unknown as { __kit?: unknown }).__kit, undefined, {
     timeout: 60000,
   });
-  // A build that sends usage data asks about it first: the check chooses nothing, so it sends nothing.
-  if (operator.usageUrl) {
+  // A build that sends usage data or crash reports asks about them first: the check chooses
+  // nothing, so it sends nothing.
+  if (operator.usageUrl || operator.sentryDsn) {
     const consent = page.locator('[data-testid=data-consent]');
     await consent.waitFor();
     assert.equal(await consent.locator('input[type=checkbox]:checked').count(), 0);
