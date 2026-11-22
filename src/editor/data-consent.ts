@@ -10,7 +10,7 @@ export const DATA_KIND_TEXT: Record<DataKind, { title: string; detail: string }>
   },
   crashes: {
     title: 'Crash reports',
-    detail: 'What went wrong when den-kit crashes. Sent to Sentry.',
+    detail: 'What went wrong when den-kit crashes or hits an unexpected error. Sent to Sentry.',
   },
 };
 
