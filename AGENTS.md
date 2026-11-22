@@ -54,6 +54,7 @@ Linear.
 | How the ready-made controls and code parts respond to input              | [src/behaviors/index.ts](src/behaviors/index.ts)                                                                    |
 | What a file's code does, and the rules that hold only there              | The comment at the top of the file                                                                                  |
 | Releases                                                                 | [RELEASE.md](RELEASE.md)                                                                                            |
+| Usage receiver: what it keeps and counts, deploying it, data requests    | [docs/usage-receiver.md](docs/usage-receiver.md)                                                                    |
 | Code parts, the `kit` API, and what the in-app AI reads in the workspace | [pod-template/AGENTS.md](pod-template/AGENTS.md) and [pod-template/src/kit/index.ts](pod-template/src/kit/index.ts) |
 | What CI runs                                                             | [.github/workflows/](.github/workflows/)                                                                            |
 | What a pull request description holds                                    | [.github/pull_request_template.md](.github/pull_request_template.md)                                                |

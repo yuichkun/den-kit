@@ -20,6 +20,7 @@
     "bridge/**/*.ts",
     "desktop/**/*.ts",
     "scripts/**/*.ts",
+    "receiver/**/*.ts",
     "test/**/*.ts",
     "env.d.ts",
     "vite.config.ts",

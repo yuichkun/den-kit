@@ -6,6 +6,7 @@ release/
 .env.*
 !.env.example
 .codex-home/
+.wrangler/
 .logs/
 test-results/
 .DS_Store

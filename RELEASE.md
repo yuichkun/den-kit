@@ -94,7 +94,7 @@ None of this is needed to open or test pull requests.
 
    | Variable               | Value                                                                |
    | ---------------------- | -------------------------------------------------------------------- |
-   | `DEN_KIT_USAGE_URL`    | The `https` address that receives usage events                       |
+   | `DEN_KIT_USAGE_URL`    | The [usage receiver](docs/usage-receiver.md)'s `/events` address     |
    | `DEN_KIT_DATA_CONTACT` | The email address where people ask to see or delete their usage data |
 
 5. **Repository settings.** Enable immutable releases, and allow only collaborators to create pull

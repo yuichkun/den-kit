@@ -1,0 +1,13 @@
+{
+  "name": "den-kit-usage-receiver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "wrangler d1 migrations apply den-kit-usage --remote",
+    "deploy": "wrangler deploy",
+    "data": "node data-request.ts"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}

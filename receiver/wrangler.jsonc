@@ -1,0 +1,26 @@
+// The usage receiver's Worker (worker.ts) and its database. docs/usage-receiver.md says how to set
+// them up and deploy.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "den-kit-usage",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-01",
+  // Wrangler sends Cloudflare nothing about its own use from this project.
+  "send_metrics": false,
+  // Reached only at its own host name.
+  "workers_dev": false,
+  "routes": [{ "pattern": "usage.den-kit.com", "custom_domain": true }],
+  // No logs: a request's log would hold where it came from.
+  "observability": { "enabled": false },
+  // The daily run (store.ts, count), shortly after each UTC day ends.
+  "triggers": { "crons": ["15 0 * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "den-kit-usage",
+      // The ID `wrangler d1 create` prints.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+}
