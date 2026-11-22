@@ -115,11 +115,15 @@ export function moduleBox(
     Math.ceil((left + faceW + right + 8) / 12) * 12 - 6,
   );
   const rows = Math.max(shown.length + (hidden ? 1 : 0), outputs.length, 1);
+  // A knob's or slider's value wraps onto a second line (19 px) when it is wider than the face,
+  // which depends on the value and on the theme's font: their height leaves room for it.
+  const wraps = node.type === 'ui.knob' || node.type === 'ui.slider';
   const faceH =
     (enumCfg || node.type === 'kit.voiceIn' ? 20 : 0) +
     (viz ? (node.type === 'den.envelope' || node.type === 'den.curvedAdsr' ? 50 : 40) : 0) +
     (knobs ? 64 : 0) +
     (widget ? 40 : 0) +
+    (wraps ? 19 : 0) +
     (def?.kind === 'codebox' ? 34 : 0) +
     (node.type === 'kit.comment' ? 40 : 0) +
     (part ? 40 : 0);
