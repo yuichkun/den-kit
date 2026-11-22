@@ -47,6 +47,7 @@ Linear.
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | Introduction and downloads                                               | [README.md](README.md)                                                                                              |
 | Using den-kit, and its known limitations                                 | [docs/usage.md](docs/usage.md)                                                                                      |
+| What to try when something in the app does not work                      | [docs/troubleshooting.md](docs/troubleshooting.md)                                                                  |
 | Running from source, building the macOS app, Storybook, checks and tests | [docs/development.md](docs/development.md)                                                                          |
 | Rules every change follows, and their priority                           | [docs/principles.md](docs/principles.md)                                                                            |
 | Modules and their roles, how data moves between them, their interfaces   | [docs/architecture.md](docs/architecture.md)                                                                        |
