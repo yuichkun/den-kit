@@ -12,13 +12,14 @@ den-kit starts its sound on the first click or key press. What it shows, and wha
 - **Sound paused**: click anywhere to resume.
 - **No sound**, with the reason under it: click anywhere to try again.
 - **Nothing to play** in the toolbar: connect a module to **Out**.
-- **Error** in the toolbar: the patch does not compile, and the sound from before the change
-  keeps playing. The reason shows at the top of the view, or on the module marked **!** when
-  you hold the pointer over the mark. Fix the patch, or undo (`⌘Z`).
+- **Error** in the toolbar: the patch does not compile, so den-kit keeps playing the last
+  version that did. The reason shows at the top of the view, or on the module marked **!**
+  when you hold the pointer over the mark. Fix the patch, or undo (`⌘Z`).
 - **Sound is muted** at the top of the view: the patch kept making runaway or invalid audio,
   often from a feedback loop. Change the patch or undo, and the sound comes back. `⌘.` also
   turns it back on, and den-kit mutes it again if the patch still runs away.
 
+An instrument sounds while you play it ([Basic workflow](usage.md#basic-workflow) says how).
 An effect plays only what it hears. Choose that in **Input**, on the Plugin view or in the
 inspector of the **Audio In** module: **Silence** plays nothing, and **Audio input (mic /
 line)** uses your Mac's audio input. If den-kit says the audio input could not be opened,
@@ -53,9 +54,9 @@ meanwhile.
 
 ## The project tools do not start
 
-Code parts and the **Project** tab run on the project tools, which use BrowserPod. They start
-by themselves when a code part or the AI needs them, and the top of the **Project** tab shows
-how they are doing:
+Code parts and the terminal in the **Project** tab run on the project tools, which use
+BrowserPod. They start by themselves when a code part or the AI needs them, and the top of the
+**Project** tab shows how they are doing:
 
 - **Not started**: **Start project tools** starts them.
 - **Preparing** or **Starting**: wait. The first start takes a few minutes, because den-kit
