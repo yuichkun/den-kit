@@ -44,7 +44,7 @@ of the AI panel (`⌘J`) shows the connection:
   For the last two, **Reconnect AI** in Settings does the same. If den-kit still does not
   connect, quit and reopen it.
 
-When a request fails, the AI panel says why under the request, and what to do.
+When a request fails, the AI panel says what to do under the request.
 
 Requests count toward your ChatGPT plan's usage limits. Once half of the current usage window
 is used, the status shows how much, such as **AI 72%**; hold the pointer over it to see when
