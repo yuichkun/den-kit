@@ -21,6 +21,7 @@ import {
   type AssetMeta,
 } from '../../../src/work/ui.ts';
 import { CONTROL_KINDS, DEFAULT_SKIN, SKINS, skinDef } from '../../../src/work/skins.ts';
+import { WORK_LIMITS, totalBytes } from '../../../src/work/files.ts';
 
 const apply = (doc: PatchDocument, ...intents: Intent[]) => applyIntents(doc, intents, catalog);
 const failure = (fn: () => unknown) => {
@@ -667,6 +668,55 @@ describe('the plugin screen: look, widget styles, size, assets, underlay', () =>
         }),
       ).code,
     ).toBe('too-large');
+  });
+  it("the work's limits hold for what a whole edit leaves: the room one change frees counts for the others, in any order", () => {
+    const mb = 1024 * 1024;
+    const room = (doc: PatchDocument) => WORK_LIMITS.workBytes - totalBytes(doc.files);
+    // Assets bring the work to 100 KB below its limit (500 MB).
+    let full = base();
+    for (let i = 0; room(full) > 100 * 1024; i++)
+      full = apply(full, {
+        op: 'addAsset',
+        asset: {
+          id: `assets/big${i}.bin`,
+          name: `big${i}.bin`,
+          mime: 'application/octet-stream',
+          bytes: Math.min(room(full) - 100 * 1024, 100 * mb),
+          hash: `sha256-${String(i).repeat(64)}`,
+        },
+      }).doc;
+    const shrink = (bytes: number): Intent => ({
+      op: 'replaceAsset',
+      id: 'assets/big0.bin',
+      contents: { hash: `sha256-${'e'.repeat(64)}`, bytes },
+    });
+    const text: Intent = { op: 'setProjectFiles', files: { 'notes.txt': 'a'.repeat(200 * 1024) } };
+    // An asset 1 MB smaller makes room for 200 KB of text, whichever comes first.
+    for (const intents of [
+      [text, shrink(99 * mb)],
+      [shrink(99 * mb), text],
+    ])
+      expect(room(apply(full, ...intents).doc)).toBe(100 * 1024 + mb - 200 * 1024);
+    // A new asset fits in the room of one removed after it.
+    const added = apply(
+      full,
+      {
+        op: 'addAsset',
+        asset: {
+          id: 'assets/new.bin',
+          name: 'new.bin',
+          mime: 'application/octet-stream',
+          bytes: mb,
+          hash: `sha256-${'f'.repeat(64)}`,
+        },
+      },
+      { op: 'removeAsset', id: 'assets/big1.bin' },
+    ).doc;
+    expect(Object.keys(assetsOf(added.files))).toContain('assets/new.bin');
+    // An edit whose files do not fit is refused at its last change to a file.
+    expect(
+      failure(() => apply(full, text, shrink(100 * mb - 50 * 1024), { op: 'setName', name: 'x' })),
+    ).toMatchObject({ code: 'too-large', index: 1 });
   });
   it('the underlay is a picture asset with an opacity, shown only while editing', () => {
     const r = undoes(base(), {

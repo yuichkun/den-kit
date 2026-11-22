@@ -9,7 +9,6 @@ import type { ResolvedOp } from './ops.ts';
 import { checkFace } from './face.ts';
 import { assetFile, assetsOf, checkAsset } from './ui.ts';
 import { usesOfAsset } from './asset-uses.ts';
-import { overLimits } from './files.ts';
 import { checkBundle, extractBundle, type PartBundle } from './library.ts';
 import {
   RANGE_UNITS,
@@ -1043,9 +1042,9 @@ function addBundle(
 }
 
 /**
- * The assets a bundle uses come into the work's files, within the work's limits; one already there is
- * the same file. An update puts other contents in place of a file the part's earlier version used
- * (`earlier`) when nothing else in the work uses it.
+ * The assets a bundle uses come into the work's files; one already there is the same file. An update
+ * puts other contents in place of a file the part's earlier version used (`earlier`) when nothing else
+ * in the work uses it.
  */
 function addAssets(
   draft: PartDraft,
@@ -1067,8 +1066,6 @@ function addAssets(
           `Rename that asset, then ${update ? 'update' : 'place'} the part again.`,
         );
     }
-    const over = overLimits({ ...draft.doc.files, [asset.id]: file });
-    if (over) fail('too-large', over);
     draft.apply({ op: 'setFile', path: asset.id, from: here, to: file });
   }
 }
