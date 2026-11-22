@@ -128,9 +128,14 @@ describe('what a session counts', () => {
       'work_edited',
       'code_part_added',
     ]);
+    // Each code part counts, also when one change adds several, as an AI request can.
+    k.commit([codePart, { op: 'setName', name: 'Two more' }, codePart], {
+      author: { kind: 'ai-llm', take: 'rq2' },
+    });
+    expect(analytics.events.slice(4)).toEqual(['code_part_added', 'code_part_added']);
     stop();
     k.commit([codePart]);
-    expect(analytics.events).toHaveLength(4);
+    expect(analytics.events).toHaveLength(6);
   });
 
   it('counts each request the AI takes, not one it could not take', () => {

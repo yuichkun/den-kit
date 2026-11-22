@@ -79,8 +79,8 @@ export function countUsage(session: KitSession, usage: Usage, everyMs = 250): ()
   const stops: Array<() => unknown> = [
     session.onTransaction(tx => {
       if (tx.author.kind === 'human') usage.count('work_edited');
-      if (tx.ops.some(op => op.op === 'addElement' && op.element.kind === 'code'))
-        usage.count('code_part_added');
+      for (const op of tx.ops)
+        if (op.op === 'addElement' && op.element.kind === 'code') usage.count('code_part_added');
     }),
   ];
   if (session.requests) stops.push(session.requests.onRun(() => usage.count('ai_requested')));
