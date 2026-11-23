@@ -17,7 +17,7 @@
 // heard. Jawari, the pace and the hall are set on the drawing itself (the thread
 // on the strings, the staff, the room round the gourd), the setting written by
 // the hand, and the tonic stands in the corner as a singer asks for it. The
-// work's name is written on the gourd under the strings, as a maker signs one.
+// work's name is written on the gourd over the strings, as a maker signs one.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
@@ -266,25 +266,27 @@ export default {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    // The thread: drag it along the strings, away from the bridge, for more buzz.
+    // The thread: drag it along the strings, away from the bridge, for more buzz. A cotton thread laid under the
+    // strings, its loose ends curling away.
     const hot = under === 'jaw', treach = 15 - (7 * (tx - BX)) / (NUT - BX) + 7;
-    ctx.strokeStyle = field;
-    ctx.lineWidth = hot ? 3 : 2;
-    ctx.beginPath(); ctx.moveTo(tx, CY - treach); ctx.lineTo(tx, CY + treach); ctx.stroke();
-    ctx.fillStyle = field;
-    for (const ey of [CY - treach, CY + treach]) { ctx.beginPath(); ctx.arc(tx, ey, hot ? 5.5 : 4.5, 0, TAU); ctx.fill(); }
+    ctx.strokeStyle = field; ctx.lineWidth = hot ? 3 : 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(tx + 7, CY - treach - 7);
+    ctx.quadraticCurveTo(tx, CY - treach - 3, tx, CY - treach + 3);
+    ctx.lineTo(tx, CY + treach - 3);
+    ctx.quadraticCurveTo(tx, CY + treach + 3, tx - 7, CY + treach + 7);
+    ctx.stroke(); ctx.lineCap = 'butt';
     // The tonic, as a singer asks for it: the note and its octave, and its pitch.
     const midi = Math.round(f.value('ksa')), hz = 440 * Math.pow(2, (midi - 69) / 12);
     ctx.fillStyle = wine; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
     const note = NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
-    ctx.font = '700 46px system-ui, sans-serif';
+    ctx.font = '700 32px system-ui, sans-serif';
     ctx.fillText(note, TONIC.x, TONIC.bot - 34);
-    const nm = ctx.measureText(note), nw = typeof nm.width === 'number' ? nm.width : note.length * 28;
+    const nm = ctx.measureText(note), nw = typeof nm.width === 'number' ? nm.width : note.length * 20;
     ctx.font = '700 14px system-ui, sans-serif';
     ctx.fillText('Sa  ' + hz.toFixed(1) + ' Hz', TONIC.x, TONIC.bot - 12);
     if (under === 'tonic') {
       // Up or down a semitone: a wedge each way, by the note.
-      const wx = TONIC.x - nw - 16, wy = TONIC.bot - 48;
+      const wx = TONIC.x - nw - 16, wy = TONIC.bot - 44;
       ctx.beginPath(); ctx.moveTo(wx - 7, wy - 10); ctx.lineTo(wx + 7, wy - 10); ctx.lineTo(wx, wy - 20); ctx.closePath();
       ctx.moveTo(wx - 7, wy + 4); ctx.lineTo(wx + 7, wy + 4); ctx.lineTo(wx, wy + 14); ctx.closePath(); ctx.fill();
     }
@@ -494,12 +496,12 @@ export function tonic(catalog: Catalog) {
           },
         }),
         wire('gl1.out', 'mlevel.in'),
-        // The name, signed on the gourd under the strings, in bone.
+        // The name, signed on the gourd over the strings, in bone.
         el({
           kind: 'text',
           name: 'Title',
           text: 'Tonic',
-          rect: r(CENTRE.x - 60, CENTRE.y + 42, 120, 38),
+          rect: r(CENTRE.x - 60, CENTRE.y - 82, 120, 38),
           textStyle: { font: 'kalam', size: 28, weight: 700, color: '#fff1d6', align: 'center' },
         }),
         ...NOTE_NAMES.map((name, pc) => {
