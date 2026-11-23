@@ -9,7 +9,9 @@
 // Shift+Space adds, Enter edits text, ⌘G / ⇧⌘G group, ⌘] ⌘[ ⌥⌘] ⌥⌘[ stack,
 // ⌥A ⌥D ⌥W ⌥S ⌥H ⌥V align, ⌃⌥H ⌃⌥V spread, ⇧⌘L lock, ⇧⌘H hide, Delete removes,
 // ⌘C ⌘V ⌘D copy. Files dropped on it become pictures. Every change is a commit
-// like in the patch, so ⌘Z undoes it.
+// like in the patch, so ⌘Z undoes it. In Play, ● Rec records a take (how the
+// person plays it, kept in the work: editor/takes.ts), and Takes ▾ lists them and
+// opens the work as the person it is handed to sees it with them (TakeRoom.vue).
 import { useTouches } from './touches.ts';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Intent } from '../work/ops.ts';
@@ -39,6 +41,9 @@ import { useSession } from './context.ts';
 import { copySelection, duplicate, paste, typing } from './clipboard.ts';
 import { claimEnter } from './keys.ts';
 import { controlWriter } from './play.ts';
+import { TakeRecorder } from './takes.ts';
+import TakeRoom from './TakeRoom.vue';
+import { serializeTake, takesOf } from '../work/takes.ts';
 import InkLayer from './InkLayer.vue';
 import InkToolbar from './InkToolbar.vue';
 import { underlayPicture } from './sketch-picture.ts';
@@ -51,6 +56,8 @@ const emit = defineEmits<{
 }>();
 defineExpose({ action });
 const session = useSession();
+/** Records a take while the person plays (● Rec). */
+const recorder = new TakeRecorder(session);
 /** What the AIs of a request with members just changed (outlined in their colour). */
 const touches = useTouches(session);
 const touchBoxes = computed(() =>
@@ -93,7 +100,12 @@ const selected = computed(
 );
 // What the plugin window shows, built from the patch (a drag in progress moves things live).
 const spec = computed<PluginSpec>(() => {
-  const base = pluginSpec(doc.value, session.catalog, session.generated.value);
+  // While a take records, the controls show where the person has them, not the work.
+  const base = pluginSpec(
+    recorder.doc.value ?? doc.value,
+    session.catalog,
+    session.generated.value,
+  );
   const rects = drag.value?.rects;
   if (!rects) return base;
   const move = (item: PluginItem): PluginItem =>
@@ -122,7 +134,66 @@ function commit(intents: Intent[], label: string, gesture?: string) {
 }
 
 // ---- playing ------------------------------------------------------------------------
-const onChange = controlWriter(session);
+const write = controlWriter(session);
+function onChange(
+  id: string,
+  values: Record<string, number | boolean>,
+  end: boolean,
+  gesture?: string,
+  by?: string,
+) {
+  // While a take records, what the person moves is the take's, not the work's.
+  if (recorder.active.value && !by) recorder.move(id, values);
+  else write(id, values, end, gesture, by);
+}
+
+// ---- takes: recording how the person plays, and trying the work as the person it is handed to ----
+const takeList = computed(() => takesOf(doc.value.files));
+const takesOpen = ref(false);
+const room = ref<{ first?: string } | null>(null);
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+function toggleRec() {
+  if (recorder.active.value) {
+    if (recorder.stop()) takesOpen.value = true;
+  } else {
+    takesOpen.value = false;
+    void session.ensureAudio();
+    recorder.begin();
+  }
+}
+function renameTake(path: string, name: string) {
+  const read = takeList.value.find(t => t.path === path);
+  if (!read || !('take' in read) || !name.trim() || name.trim() === read.take.name) return;
+  commit(
+    [
+      {
+        op: 'setProjectFiles',
+        files: { [path]: serializeTake({ ...read.take, name: name.trim() }) },
+      },
+    ],
+    'Rename take',
+  );
+}
+function removeTake(path: string, name: string) {
+  commit([{ op: 'setProjectFiles', files: { [path]: null } }], `Delete ${name}`);
+}
+function openRoom(first?: string) {
+  takesOpen.value = false;
+  room.value = { first };
+}
+watch(
+  () => props.edit,
+  edit => {
+    if (edit) {
+      recorder.stop();
+      takesOpen.value = false;
+      room.value = null;
+    }
+  },
+);
 
 // ---- checking (the same look-over the AI gets: overlaps, edges, fit, contrast, labels, wiring) ----
 const checks = ref<{ running: boolean; issues: PluginIssue[]; stale: boolean } | null>(null);
@@ -635,6 +706,7 @@ onMounted(() => {
   session.viewDetails = viewDetails;
 });
 onBeforeUnmount(() => {
+  recorder.stop();
   releaseEnter();
   window.removeEventListener('keydown', onKey);
   window.removeEventListener('keydown', onEnter, true);
@@ -691,6 +763,32 @@ const selectionBox = computed(() => {
         <option v-for="t in THEMES" :key="t" :value="t">{{ t }}</option>
       </select>
       <label v-if="hasInput" class="input">Input <InputSelect /></label>
+      <template v-if="!edit">
+        <button
+          class="small rec"
+          :class="{ on: recorder.active.value }"
+          data-testid="take-rec"
+          :title="
+            recorder.active.value
+              ? 'Stop, and keep what you played as a take in the work'
+              : 'Record a take: how you play it (the controls and the notes), handed over with the work'
+          "
+          @click="toggleRec"
+        >
+          <span class="rec-dot" />{{
+            recorder.active.value ? `Stop ${clock(recorder.elapsed.value)}` : 'Rec'
+          }}
+        </button>
+        <button
+          v-if="takeList.length && !recorder.active.value"
+          class="small"
+          data-testid="takes-open"
+          title="The takes in the work, and the work as the person you hand it to sees it"
+          @click="takesOpen = !takesOpen"
+        >
+          Takes ({{ takeList.length }}) ▾
+        </button>
+      </template>
       <button
         v-if="edit"
         class="small"
@@ -712,7 +810,9 @@ const selectionBox = computed(() => {
       <span class="muted hint">{{
         edit
           ? 'drag · handles resize · ⌥A/D/W/S align · ⌘G group · ⌘]/[ stack · Tab next · Enter text'
-          : `${W} × ${H} · scales to the window`
+          : recorder.active.value
+            ? 'Recording: play the controls and the keys. When you stop, the controls go back to where they were.'
+            : `${W} × ${H} · scales to the window`
       }}</span>
       <span style="flex: 1" />
       <template v-if="edit && hiddenWidgets.length">
@@ -841,6 +941,37 @@ const selectionBox = computed(() => {
         @pick="insert"
         @close="menu = null"
       />
+      <div v-if="takesOpen && !edit" class="takes" data-testid="takes-menu" @pointerdown.stop>
+        <header>
+          <b>Takes</b>
+          <span class="muted">how you played it, handed over with the work</span>
+          <span style="flex: 1" />
+          <button class="small" title="Close" @click="takesOpen = false">✕</button>
+        </header>
+        <div v-for="t in takeList" :key="t.path" class="take-row" :data-take="t.path">
+          <template v-if="'take' in t">
+            <input
+              class="as-written"
+              :value="t.take.name"
+              aria-label="Take name"
+              @change="renameTake(t.path, ($event.target as HTMLInputElement).value)"
+            />
+            <span class="muted">{{ clock(t.take.length) }}{{ t.take.demo ? ' · demo' : '' }}</span>
+            <button class="small" data-testid="take-try" @click="openRoom(t.path)">
+              Try as the recipient
+            </button>
+            <button
+              class="small"
+              title="Delete (⌘Z brings it back)"
+              @click="removeTake(t.path, t.take.name)"
+            >
+              Delete
+            </button>
+          </template>
+          <span v-else class="muted as-written">{{ t.error }}</span>
+        </div>
+      </div>
+      <TakeRoom v-if="room && !edit" :first="room.first" @close="room = null" />
       <div v-if="checks && edit" class="checks" data-testid="plugin-checks" @pointerdown.stop>
         <header>
           <b>{{
@@ -1096,6 +1227,61 @@ kbd {
 }
 .checks .issue.error::before {
   background: var(--state-danger);
+}
+.rec {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-danger);
+}
+.rec.on {
+  color: var(--state-danger);
+  border-color: var(--state-danger);
+}
+.rec.on .rec-dot {
+  animation: rec-blink 1s steps(2, start) infinite;
+}
+@keyframes rec-blink {
+  to {
+    visibility: hidden;
+  }
+}
+.takes {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: min(460px, calc(100% - 20px));
+  max-height: calc(100% - 20px);
+  overflow: auto;
+  z-index: 6;
+  background: color-mix(in srgb, var(--app-chrome) 95%, transparent);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
+  font-size: 12.5px;
+}
+.takes header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.take-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.take-row input {
+  flex: 1;
+  min-width: 0;
 }
 .touch {
   position: absolute;

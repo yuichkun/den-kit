@@ -220,6 +220,7 @@ export class KitSession {
   private fontFaces = new Map<string, FontFace>();
   private listeners = new Set<TransactionListener>();
   private historyListeners = new Set<HistoryListener>();
+  private noteListeners = new Set<(note: number, on: boolean, velocity: number) => void>();
   private compileSerial = 0;
   private compileTimer: ReturnType<typeof setTimeout> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1099,10 +1100,17 @@ export class KitSession {
   noteOn(note: number, velocity = 100) {
     this.engine.noteOn(note, velocity);
     this.heldNotes.value = this.engine.heldNotes;
+    for (const l of this.noteListeners) l(note, true, velocity);
   }
   noteOff(note: number) {
     this.engine.noteOff(note);
     this.heldNotes.value = this.engine.heldNotes;
+    for (const l of this.noteListeners) l(note, false, 0);
+  }
+  /** Hear every note played (the plugin's keys, the keyboard bar, the computer keys, MIDI), as a take records them. */
+  onNote(listener: (note: number, on: boolean, velocity: number) => void) {
+    this.noteListeners.add(listener);
+    return () => this.noteListeners.delete(listener);
   }
   /** Stop everything (⌘.): release notes and reset DSP state. */
   panic() {

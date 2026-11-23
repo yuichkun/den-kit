@@ -5,7 +5,9 @@
 // player's own state (the sound follows it), never the work's record. The sound
 // starts when the person clicks; the computer keys and MIDI play notes. The code
 // parts come from their own origin, named by ?parts=: never from the player's
-// origin, where they could reach the player.
+// origin, where they could reach the player. When the work came with takes (how its
+// maker played it), the screen shows with them (screen/takes/TakeStage.vue), and
+// what a take plays is the player's own state too.
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
 import { AudioEngine } from '../sound/audio-engine.ts';
@@ -13,12 +15,14 @@ import { currentAssets, currentValues, generate, type Generated } from '../sound
 import type { Artifact } from '../sound/compile/protocol.ts';
 import type { AssetLoad } from '../sound/assets.ts';
 import PluginWindow from '../screen/PluginWindow.vue';
+import TakeStage from '../screen/takes/TakeStage.vue';
 import { pluginSpec } from '../screen/build.ts';
 import { POD, type CodePartSource } from '../screen/code-frames.ts';
 import { computerKeys } from '../screen/computer-keys.ts';
 import { applyIntents, type Intent } from '../work/ops.ts';
 import { parseDocument } from '../work/persistence.ts';
 import type { PatchDocument } from '../work/schema.ts';
+import { takesOf, type Take } from '../work/takes.ts';
 import { assetFontFamily, assetsOf, isFontAsset } from '../work/ui.ts';
 import {
   PARTS_FOLDER,
@@ -33,6 +37,10 @@ const message = ref('');
 const doc = shallowRef<PatchDocument | null>(null);
 const generated = shallowRef<Generated | null>(null);
 const held = ref<number[]>([]);
+/** The takes that came with the work, and the ones that could not be read. */
+const takes = shallowRef<Array<{ path: string; take: Take }>>([]);
+const takeProblems = ref<string[]>([]);
+const stage = ref<InstanceType<typeof TakeStage> | null>(null);
 let artifact: Artifact | null = null;
 const engine = new AudioEngine({
   state: (s, text) => {
@@ -88,6 +96,9 @@ onMounted(async () => {
       compileMs: 0,
     };
     await registerFonts(read.doc);
+    const readTakes = takesOf(read.doc.files);
+    takes.value = readTakes.flatMap(t => ('take' in t ? [t] : []));
+    takeProblems.value = readTakes.flatMap(t => ('error' in t ? [t.error] : []));
     doc.value = read.doc;
     generated.value = generate(read.doc, catalog);
     partsAt.value = partsAddress(new URLSearchParams(location.search).get('parts'));
@@ -190,9 +201,14 @@ function note(n: number, on: boolean, velocity = 100) {
   held.value = engine.heldNotes;
 }
 
+/** A note the person played on the computer keys or MIDI: it sounds, and a take playing leaves the keys to them. */
+function personNote(n: number, on: boolean, velocity = 100) {
+  note(n, on, velocity);
+  stage.value?.heard(n, on);
+}
 const keys = computerKeys({
   octaveStart: 60,
-  onNote: (n, velocity) => note(n, velocity > 0, velocity),
+  onNote: (n, velocity) => personNote(n, velocity > 0, velocity),
 });
 let midi: MIDIAccess | null = null;
 /** MIDI controllers play notes too; asked for when the person starts the sound, like den-kit's start overlay. */
@@ -204,8 +220,8 @@ function listenToMidi() {
       const listen = (input: MIDIInput) => {
         input.onmidimessage = e => {
           const [status = 0, n = 0, velocity = 0] = e.data ?? [];
-          if ((status & 0xf0) === 0x90 && velocity > 0) note(n, true, velocity);
-          else if ((status & 0xf0) === 0x80 || (status & 0xf0) === 0x90) note(n, false);
+          if ((status & 0xf0) === 0x90 && velocity > 0) personNote(n, true, velocity);
+          else if ((status & 0xf0) === 0x80 || (status & 0xf0) === 0x90) personNote(n, false);
         };
       };
       access.inputs.forEach(listen);
@@ -218,6 +234,7 @@ function listenToMidi() {
 (window as unknown as { __player: unknown }).__player = {
   engine,
   values: () => generated.value?.values ?? {},
+  takes: () => takes.value.map(t => t.path),
 };
 onBeforeUnmount(() => {
   keys.stop();
@@ -228,8 +245,22 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="player" data-testid="player" :data-state="state">
+    <TakeStage
+      v-if="spec && takes.length"
+      ref="stage"
+      :spec="spec"
+      :takes="takes"
+      :problems="takeProblems"
+      :held="held"
+      :analyser="analyser"
+      :asset-urls="assetUrls"
+      :sounding="state === 'playing'"
+      @change="change"
+      @note="note"
+      @start="start"
+    />
     <PluginWindow
-      v-if="spec"
+      v-else-if="spec"
       class="window"
       :spec="spec"
       :held="held"
@@ -242,6 +273,7 @@ onBeforeUnmount(() => {
       v-if="state === 'ready' || state === 'starting'"
       type="button"
       class="start"
+      :class="{ 'over-takes': takes.length }"
       data-testid="player-start"
       :disabled="state === 'starting'"
       @click="start"
@@ -282,6 +314,10 @@ body,
   border-radius: 8px;
   border: 0;
   cursor: pointer;
+}
+.start.over-takes {
+  bottom: 76px;
+  box-shadow: 0 6px 24px #000c;
 }
 .message {
   position: absolute;

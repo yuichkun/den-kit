@@ -5,6 +5,7 @@
 // is a type error).
 import { GENERATED_FILES, textFiles, type WorkFile } from '../work/files.ts';
 import type { Parameter } from '../work/parameters.ts';
+import { isTakePath } from '../work/takes.ts';
 
 const raw = import.meta.glob('/pod-template/**/*', {
   query: '?raw',
@@ -26,14 +27,17 @@ export function templateFiles(): Record<string, string> {
 }
 
 /**
- * Files to put in a work: while the work has no sources yet, the template comes
- * with them (a part never arrives without the project that shows it).
+ * Files to put in a work: while the work has no sources yet (its takes are not
+ * sources), the template comes with them (a part never arrives without the project
+ * that shows it).
  */
 export function withTemplate(
   work: Readonly<Record<string, WorkFile>>,
   files: Record<string, string | null>,
 ): Record<string, string | null> {
-  return Object.keys(textFiles(work)).length ? files : { ...templateFiles(), ...files };
+  return Object.keys(textFiles(work)).some(path => !isTakePath(path))
+    ? files
+    : { ...templateFiles(), ...files };
 }
 
 /** A new code part's file (Insert ▸ Code part): something that moves, to start from. */

@@ -9,6 +9,7 @@
 // --dk-key-down-label and --dk-key-down-black: den-kit's keyboard bar sets them from
 // its theme, and a plugin leaves them unset.
 import { Keyboard, listen, velocityAt } from '../../behaviors/index.ts';
+import { noteName } from '../format.ts';
 import { BASE_CSS, DkElement, col, escapeHtml } from './base.ts';
 
 const SCALES: Record<string, number[]> = {
@@ -18,8 +19,6 @@ const SCALES: Record<string, number[]> = {
   pentatonic: [0, 2, 4, 7, 9],
   same: [0],
 };
-const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-export const noteName = (n: number) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 /** The notes of `count` pads starting at `start`, stepping through `scale` (octave by octave). */
 export function padNotes(count: number, start: number, scale: string): number[] {
   const steps = SCALES[scale] ?? SCALES.major!;

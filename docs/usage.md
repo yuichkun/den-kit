@@ -103,6 +103,25 @@ address to the page's address: `index.html?parts=https://parts.example.com/`. de
 the code parts when it exports the work; when the project tools cannot run, or the project
 changes while den-kit builds them, the work file has no code parts and den-kit says so.
 
+## Takes: handing over how you play it
+
+A take records how you play a work: the notes, and each move of the controls on the plugin
+screen, with their timing. In **Plugin**'s Play mode, press **● Rec**, play the controls and
+the keys, and press **Stop**. The controls go back to where they were, and the take is kept
+in the work as a file under `takes/`, so `⌘Z` takes it back and exporting carries it.
+**Takes ▾** renames or deletes a take, and **Try as the recipient** shows the work the way
+its playable build opens with the takes; nothing played there changes the work.
+
+The playable build shows a work's takes under its plugin screen. **Play** plays a take on
+the screen: the controls move by themselves and the keys light up. Grab a control, or play
+the keys, and that part is yours while the take plays the rest; **Who plays** gives a part
+back to the take. **Steps** splits a take into steps to do at your own pace: **Watch**
+plays one, and **Your turn** draws where the take went and ticks the step off when you let
+go of the control there, or have played the step's notes.
+
+Acid Line and Afterglow on the start screen come with a demo take, written by hand rather
+than recorded, marked **demo**.
+
 ## Custom code parts
 
 A code part is part of the plugin screen written in code, in the web project that the
@@ -138,3 +157,5 @@ files have not changed since.
 - The Sampler and a codebox's `audio()` use the first 65,536 samples of a file (about
   1.4 seconds), and the Sampler plays them in mono. `bytes()` reads the first 64 KB.
 - Works do not export as DAW plugins.
+- A take records the controls you move by hand on the plugin screen, not the moves a canvas
+  or a code part makes.

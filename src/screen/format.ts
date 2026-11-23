@@ -1,4 +1,5 @@
-// How a control's value reads as text (knob readouts, bound text on the plugin).
+// How a control's value reads as text (knob readouts, bound text on the plugin), and
+// how a note reads (the keyboard's pads, a take's steps).
 const digits = (v: number) => {
   const a = Math.abs(v);
   return a === 0
@@ -30,3 +31,7 @@ export function fromUnit(u: number, min: number, max: number, log: boolean) {
   if (log && min > 0) return min * (max / min) ** t;
   return min + (max - min) * t;
 }
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+/** A MIDI note's name, middle C (60) as C4. */
+export const noteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;

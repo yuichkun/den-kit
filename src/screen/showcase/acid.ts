@@ -3,6 +3,7 @@
 // and glide; the screen is one colour on black, two big knobs, no pictures.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, r, wire, work } from './build.ts';
+import { acidTake, takeFile } from './takes.ts';
 
 export function acid(catalog: Catalog) {
   const small = { skin: { name: 'ring', params: { thickness: 5, ticks: 0, round: false } } };
@@ -209,6 +210,8 @@ export function acid(catalog: Catalog) {
         },
       }),
       ...control('keys1', 'ui.keyboard', 'Keys', null, r(32, 334, 540, 42)),
+      // ---- how to play it, handed over with it ----
+      takeFile(acidTake()),
     ],
   );
 }

@@ -117,14 +117,15 @@ the sound to `screen`.
   parameters the patch exposes, and the plugin screen (its size, look, controls, decorations
   and where code parts sit).
 - The work's files form one tree shaped as a web project: `package.json` and `src/` hold the
-  code parts, and `assets/` holds the assets. The record keeps the contents of text files as they
-  are and refers to other contents by a hash of the content. Contents never change; replacing
-  a file points it at new content.
+  code parts, `assets/` holds the assets, and `takes/` holds the takes: recordings of a
+  person playing the plugin screen (`src/work/takes.ts`), which the player plays. The record
+  keeps the contents of text files as they are and refers to other contents by a hash of the
+  content. Contents never change; replacing a file points it at new content.
 - `work` defines the versioned work file. It carries the record, the contents of its non-text
   files, and the playable build: the
   static files that play the work without the editor or a workspace. Those are `player`,
-  the compiled audio processor (JavaScript and WebAssembly), the plugin screen and
-  parameters (JSON), the built code parts and the assets. Serving a playable build needs a
+  the compiled audio processor (JavaScript and WebAssembly), the plugin screen, parameters
+  and takes (JSON), the built code parts and the assets. Serving a playable build needs a
   second origin for the code parts.
 - `player` never changes a work's record. Values moved while playing are the player's own
   state.

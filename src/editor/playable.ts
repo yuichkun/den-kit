@@ -1,5 +1,6 @@
 // The open work's playable build (src/work/playable.ts), made from one document of
-// it and what the editor has: that document without its text files (build.json),
+// it and what the editor has: that document without its text files except its takes
+// (build.json),
 // its compiled sound (nothing soloed), its assets, the player den-kit was built with
 // (player/ next to den-kit's page), and, when the work has code parts, their build
 // from the workspace (npm run build) while it holds that document's files. A part
@@ -17,6 +18,7 @@ import {
 import type { PlayableBuild } from '../work/work-file.ts';
 import { isContent, textFiles } from '../work/files.ts';
 import type { PatchDocument } from '../work/schema.ts';
+import { isTakePath } from '../work/takes.ts';
 import { assetsOf } from '../work/ui.ts';
 import { generate } from '../sound/codegen.ts';
 import type { KitSession } from './session.ts';
@@ -101,7 +103,9 @@ export async function buildPlayable(
     document: JSON.parse(
       serializeDocument({
         ...doc,
-        files: Object.fromEntries(Object.entries(doc.files).filter(([, file]) => isContent(file))),
+        files: Object.fromEntries(
+          Object.entries(doc.files).filter(([path, file]) => isContent(file) || isTakePath(path)),
+        ),
       }),
     ),
     processor: {

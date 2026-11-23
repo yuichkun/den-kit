@@ -5,7 +5,12 @@ import { applyIntents } from '../../../src/work/ops.ts';
 import { checkPath as checkProjectPath } from '../../../src/work/files.ts';
 import { parameters } from '../../../src/work/parameters.ts';
 import { starter } from '../../../src/work/starters.ts';
-import { controlsSource, starterPart, templateFiles } from '../../../src/workspace/template.ts';
+import {
+  controlsSource,
+  starterPart,
+  templateFiles,
+  withTemplate,
+} from '../../../src/workspace/template.ts';
 import { kitFiles } from '../../../src/screen/kit-files.ts';
 import { checkPath } from '../../../src/work/files.ts';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -17,6 +22,16 @@ const syntaxErrors = (text: string) =>
   }).diagnostics ?? [];
 
 describe('pod template', () => {
+  it("comes with a work's first source, also when the work has takes (they are not sources)", () => {
+    const takes = { 'takes/sweep.json': { text: '{}' } };
+    expect(withTemplate(takes, { 'src/parts/a.ts': 'a' })).toMatchObject({
+      'package.json': expect.any(String),
+      'src/parts/a.ts': 'a',
+    });
+    expect(
+      withTemplate({ ...takes, 'src/parts/a.ts': { text: 'a' } }, { 'src/parts/b.ts': 'b' }),
+    ).toEqual({ 'src/parts/b.ts': 'b' });
+  });
   it('is a whole web project, without the files den-kit makes, and every path may be kept', () => {
     const files = templateFiles();
     for (const path of [

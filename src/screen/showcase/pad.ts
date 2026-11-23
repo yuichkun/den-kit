@@ -5,6 +5,7 @@
 // far the LFO moves the filter, and how deep the chorus wobbles).
 import type { Catalog } from '../../work/catalog.ts';
 import { add, asset, control, el, r, wire, work } from './build.ts';
+import { padTake, takeFile } from './takes.ts';
 
 export function pad(catalog: Catalog) {
   const knob = {
@@ -268,6 +269,8 @@ export function pad(catalog: Catalog) {
           style: { radius: 6, opacity: 0.92 },
         },
       }),
+      // ---- how to play it, handed over with it ----
+      takeFile(padTake()),
     ],
   );
 }
