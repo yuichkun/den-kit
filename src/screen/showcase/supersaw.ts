@@ -50,9 +50,10 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // After the copies stop, the hall rings on as a field of dots, its height the
 // square root of Space (kspace), the way loudness is heard, with its own tab,
 // SPACE, on its top. The ruler on top is where Width (kwidth) puts each copy
-// from left to right. Each triangle of the time ruler is named. The band at the
-// bottom is the output's spectrum, smoothed, with a line at Cutoff and a dotted
-// one where Env opens it to with each note.
+// from left to right, numbered as its tab is. Each triangle of the time ruler is
+// named. The band at the bottom is the output's spectrum from low to high,
+// smoothed, with a line at Cutoff and a dotted one where Env opens it to with
+// each note, each named by its triangle.
 // Drag the lanes across for Detune; a tab up and down for Drift; a triangle on
 // the time ruler under the lanes, or its line through them, across for Attack
 // or Release (the upper row) or Filter decay (the lower row); the hall's dots
@@ -276,6 +277,11 @@ export default {
       ctx.beginPath(); ctx.moveTo(x, ry - r); ctx.lineTo(x + r, ry + 0.75); ctx.lineTo(x, ry + r + 1.5); ctx.lineTo(x - r, ry + 0.75); ctx.closePath();
       ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
     }
+    // Each copy's number over its diamond, as on its tab, while the diamonds are far enough apart to tell.
+    if ((width * rhalf * 2) / (N - 1) >= 11) {
+      ctx.font = '700 9px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = ink;
+      for (let k = 0; k < N; k++) ctx.fillText(String(k + 1), cx + placeOf(k) * width * rhalf, ry - 20);
+    }
     // The time ruler: the note's life, the key let go at KEY UP; Attack and Release on the upper row, Filter
     // decay on the lower one.
     ctx.fillStyle = ink;
@@ -322,6 +328,12 @@ export default {
     }
     tri(ctx, fa, SPEC.bot + 3, white, ink, is('kcut'));
     tri(ctx, fb, SPEC.bot + 3, white, ink, is('kenv'));
+    // Each cursor's name beside it, as on the time ruler (Cutoff's on its left where Env's is close, Env's on
+    // its left at the band's end).
+    ctx.font = '700 9px ' + FONT; ctx.textBaseline = 'middle'; ctx.fillStyle = ink;
+    const cutLeft = fb - fa < 64, envLeft = fb > w - 34;
+    ctx.textAlign = cutLeft ? 'right' : 'left'; ctx.fillText('CUTOFF', cutLeft ? fa - 10 : fa + 10, SPEC.bot + 9);
+    ctx.textAlign = envLeft ? 'right' : 'left'; ctx.fillText('ENV', envLeft ? fb - 10 : fb + 10, SPEC.bot + 9);
     // What the hand is on, by it.
     if (hot) {
       const id = hot.id, px = p && p.over ? p.x : 0, py = p && p.over ? p.y : 0;
