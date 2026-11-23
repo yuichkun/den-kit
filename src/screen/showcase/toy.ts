@@ -28,16 +28,15 @@ const SHADOW = { dy: 7, opacity: 0.3, color: 'rgba(44, 13, 49, 0.3)' };
 /** The plugin's size. */
 const W = 760,
   H = 580;
-/** The foam mat: three tiles by three, as tall as the plugin (running off its top, left and bottom), and a border strip this wide down its right side. */
+/** The foam mat: three tiles by three, as tall as the plugin (running off its top, left and bottom), its right edge cut straight. */
 export const MAT = {
   tile: H / 3,
-  border: 24,
   color: '#f7a6c6',
   groove: '#d77ba4',
   light: '#ffc8de',
 };
 /** The floor beside the mat: painted boards running up the screen, their joints a shade darker, the ends of their lengths on the lines of the mat's seams. */
-const FLOOR = { x: 3 * MAT.tile + MAT.border, color: '#c42f6c', joint: '#ad2860' };
+const FLOOR = { x: 3 * MAT.tile, color: '#c42f6c', joint: '#ad2860' };
 /** The middle of the middle tile, where the Beat sits. */
 const MID = { x: 1.5 * MAT.tile, y: 1.5 * MAT.tile };
 /** The Beat's four studs, on a ring this far from its middle. */
@@ -121,14 +120,15 @@ export const TOYS = `// Three toys on the floor beside the mat, one beside each 
 // hit has, drawn as the bubbles in a glass of soda. They are drawn like the
 // drums: flat, in the drums' colours, with the same hard shadow. Each has its
 // name under it, and the toy and its name are centred on the row as the drums
-// are on theirs; the toy under the hand lifts, and a row of five dots under its
-// name says how much.
+// are on theirs (the first row's in the room left under the work's name); the
+// toy under the hand lifts, and a row of five dots under its name says how much.
 const IDS = ['kbounce', 'kring', 'kfizz'];
 const NAMES = ['BOUNCE', 'RING', 'FIZZ'];
-const SHADE = '${SHADOW.color}', DROP = ${SHADOW.dy};
+const SHADE = '${SHADOW.color}', DROP = ${SHADOW.dy}, FLOOR = '${FLOOR.color}';
 const RED = '#ff4b2b', YELLOW = '#ffc531', TEAL = '#12a594', CREAM = '#fff3df';
-// How far each toy reaches above the floor it stands on (the ball at its highest hop, the top's knob, the straw), and how far below it its name sits.
-const TOP = [62, 62, 96], NAME = 28;
+// How far each toy reaches above the floor it stands on (the ball at its highest hop, the top's knob, the straw), and how far below it its name sits;
+// the bottom of the work's name over the first row.
+const TOP = [62, 62, 96], NAME = 28, TITLE = 40;
 // Fill the path just traced twice: its shadow (lift more when it is under the hand), then itself.
 function solid(ctx, trace, color, lift) {
   ctx.save(); ctx.translate(0, DROP + lift); trace(); ctx.fillStyle = SHADE; ctx.fill(); ctx.restore();
@@ -147,11 +147,14 @@ function dotted(ctx, pts, gap) {
     left -= len;
   }
 }
-// A toy's name, and under it (while the hand is on it) five dots, as many filled as there is of it.
+// A toy's name, and under it (while the hand is on it) five dots, as many filled as there is of it. The floor's
+// joints stop short of them, so they read clear of the lines.
 function name(ctx, i, x, y, n, shown) {
   ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const spaced = 'letterSpacing' in ctx;
   if (spaced) ctx.letterSpacing = '2px';
+  const m = ctx.measureText(NAMES[i]), tw = Math.max((m && m.width) || 0, NAMES[i].length * 10, shown ? 52 : 0);
+  ctx.fillStyle = FLOOR; ctx.fillRect(Math.round(x - tw / 2 - 6), Math.round(y - 9), Math.round(tw + 12), shown ? 35 : 18);
   ctx.fillStyle = CREAM; ctx.fillText(NAMES[i], x + (spaced ? 1 : 0), y);
   if (spaced) ctx.letterSpacing = '0px';
   if (!shown) return;
@@ -172,8 +175,10 @@ export default {
     ctx.clearRect(0, 0, w, f.h);
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (let i = 0; i < 3; i++) {
-      // Where the toy stands: the toy and its name (6 px either side of its middle) centred on the row, the shadow's drop counted in as for the drums.
-      const z = i * zh, n = f.norm(IDS[i]), lift = i === under ? 4 : 0, floor = z + zh / 2 - DROP / 2 + (TOP[i] - NAME - 6) / 2;
+      // Where the toy stands: the toy and its name (6 px either side of its middle) centred on the row (the first
+      // row under the work's name), the shadow's drop counted in as for the drums.
+      const z = i * zh, n = f.norm(IDS[i]), lift = i === under ? 4 : 0, mid = i ? z + zh / 2 : (TITLE + zh) / 2;
+      const floor = mid - DROP / 2 + (TOP[i] - NAME - 6) / 2;
       if (i === 0) {
         // Bounce: a ball bouncing along the floor, its first hop as high as Bounce, each next one lower.
         const H = 10 + n * (TOP[0] - 32), hops = [H, H * 0.45, H * 0.2], a = 16, b = w - 16, R = 11;
@@ -618,13 +623,12 @@ function matSvg(): string {
     if (k) out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
     out.push(`<path d="M${x} ${y} H${x1}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
   }
-  // The mat, its tiles running off the top, left and bottom, its border strip lying on the boards.
+  // The mat, its tiles running off the top, left and bottom, its straight right edge lying on the boards.
   out.push(`<rect x="0" y="0" width="${FLOOR.x}" height="${H}" fill="${MAT.color}"/>`);
-  // Its tiles and the strip meet in seams with teeth.
+  // Its tiles meet in seams with teeth.
   const seams = [
     ...[1, 2].map(i => seam(i * T, 0, i * T, H)),
     ...[1, 2].map(i => seam(0, i * T, X1, i * T)),
-    seam(X1, 0, X1, H),
   ];
   for (const d of seams)
     out.push(
@@ -837,7 +841,7 @@ export function toy(catalog: Catalog) {
       ...patchControl('kbounce', 'Bounce', 'pdepth1.b', [0, 24, 'linear', 'st'], 14),
       ...patchControl('kring', 'Ring', 'aenv1.decay', [0.05, 1.2, 'log', 's'], 0.3),
       ...patchControl('kfizz', 'Fizz', 'mix1.level2', [0, 2, 'linear', ''], 0.5),
-      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(FLOOR.x + 4, 0, 148, H) }),
+      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(FLOOR.x + 4, 0, W - FLOOR.x - 8, H) }),
     ],
   );
 }
