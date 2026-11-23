@@ -779,14 +779,17 @@ describe('each work does what its controls say', () => {
           f,
         );
     };
-    // Cutoff 4 kHz opened 6 octaves: the dot is held at the graph's right edge.
+    // Cutoff 4 kHz opened 5 or 6 octaves: either way the dot is held at the graph's right end.
+    Object.assign(values, { kcut: 4000, kres: 0.72, kenv: 5 });
+    const held = marks().ox;
     Object.assign(values, { kcut: 4000, kres: 0.72, kenv: 6 });
     let m = marks();
-    expect(m.ox).toBe(el.rect.w - 10);
+    expect(m.ox).toBe(held);
+    expect(m.ox).toBeGreaterThan(el.rect.w - 20);
     drag(m.ox, m.y, 0, 0);
     expect(values).toEqual({ kcut: 4000, kres: 0.72, kenv: 6 });
     drag(m.ox, m.y, -20, 0);
-    expect(values.kenv).toBeCloseTo(6 - (Math.log2(20000 / 30) * 20) / el.rect.w, 6);
+    expect(values.kenv).toBeCloseTo(6 - (Math.log2(hill.HI / hill.LO) * 20) / el.rect.w, 6);
     expect([values.kcut, values.kres]).toEqual([4000, 0.72]);
     // Resonance 0.98 peaks above the graph's top: pressing the summit keeps it.
     Object.assign(values, { kcut: 900, kres: 0.98, kenv: 2 });
@@ -798,7 +801,7 @@ describe('each work does what its controls say', () => {
     m = marks();
     expect(m.ox).toBe(m.px);
     drag(m.px + 3, m.y, 30, 0);
-    expect(values.kenv).toBeGreaterThan(0.4);
+    expect(values.kenv).toBeCloseTo((Math.log2(hill.HI / hill.LO) * 30) / el.rect.w, 6);
     expect(values.kcut).toBe(900);
     values.kenv = 0;
     drag(m.px - 3, m.y, 30, 0);
