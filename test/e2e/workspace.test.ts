@@ -302,7 +302,7 @@ describe('the start screen', () => {
     await page.keyboard.press('ArrowRight'); // the second work
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-    assert.equal(await kit(page, k => k.doc.value.name), 'Afterglow');
+    assert.equal(await kit(page, k => k.doc.value.name), 'Septet');
     await page.waitForFunction(() => (window as any).__kit.engineState.value === 'running', null, {
       timeout: 30000,
     });

@@ -231,14 +231,24 @@ export function tapeecho(catalog: Catalog) {
         name: 'Line panel',
         rect: r(line.x, line.y, line.w, line.h),
         locked: true,
-        style: { radius: 8, fill: [{ kind: 'color', color: '#f8f9f9' }], stroke: { color: '#d3d8dc', width: 1, style: 'solid' } },
+        style: {
+          radius: 8,
+          fill: [{ kind: 'color', color: '#f8f9f9' }],
+          stroke: { color: '#d3d8dc', width: 1, style: 'solid' },
+        },
       }),
       el({
         kind: 'canvas',
         name: 'The line',
         code: ECHO_LINE,
         rect: r(line.x, line.y, line.w, line.h),
-        props: { xin: centre(0), xrec: centre(1), x0: STEPS[2].x - line.x, x1: STEPS[3].x + STEPS[3].w - line.x, xout: centre(4) },
+        props: {
+          xin: centre(0),
+          xrec: centre(1),
+          x0: STEPS[2].x - line.x,
+          x1: STEPS[3].x + STEPS[3].w - line.x,
+          xout: centre(4),
+        },
       }),
       el({
         kind: 'text',
@@ -268,7 +278,14 @@ export function tapeecho(catalog: Catalog) {
           name: `${step.name} step`,
           text: `0${i + 1}  ${step.name}`,
           rect: r(step.x, 276, step.w, 16),
-          textStyle: { size: 11, weight: 700, color: 'fg', align: 'left', spacing: 0.12, case: 'upper' },
+          textStyle: {
+            size: 11,
+            weight: 700,
+            color: 'fg',
+            align: 'left',
+            spacing: 0.12,
+            case: 'upper',
+          },
         }),
       ]),
       ...control('kin', 'ui.knob', 'Drive', 'rec1.drive', r(24, 300, 96, 112), {
@@ -304,7 +321,10 @@ export function tapeecho(catalog: Catalog) {
       }),
       ...control('thiss', 'ui.toggle', 'Hiss', 'hisson1.b', r(448, 330, 40, 30), {
         value: true,
-        style: { skin: { name: 'button', params: { radius: 4 } }, textStyle: { size: 11, weight: 700 } },
+        style: {
+          skin: { name: 'button', params: { radius: 4 } },
+          textStyle: { size: 11, weight: 700 },
+        },
       }),
       ...control('kfb', 'ui.knob', 'Intensity', 'tape1.feedback', r(492, 300, 80, 112), {
         min: 0,
@@ -320,12 +340,19 @@ export function tapeecho(catalog: Catalog) {
         value: 2600,
         style: knob,
       }),
-      ...control('kecho', 'ui.knob', 'Echoes', ['mixl1.level2', 'mixr1.level2'], r(660, 300, 96, 112), {
-        min: 0,
-        max: 1.2,
-        value: 0.7,
-        style: knob,
-      }),
+      ...control(
+        'kecho',
+        'ui.knob',
+        'Echoes',
+        ['mixl1.level2', 'mixr1.level2'],
+        r(660, 300, 96, 112),
+        {
+          min: 0,
+          max: 1.2,
+          value: 0.7,
+          style: knob,
+        },
+      ),
     ],
   );
 }

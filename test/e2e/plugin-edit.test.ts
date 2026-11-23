@@ -552,11 +552,9 @@ describe('building the plugin screen by hand', () => {
       await page.locator('[data-widget=frate] dk-slider .value').innerText(),
       /^11\.0 kHz$/,
     );
-    await open('fuzz');
-    assert.equal(await page.locator('[data-widget=fs1] dk-toggle').getAttribute('value'), 'true');
-    await page.waitForSelector('[data-widget=fs1] dk-toggle .fs.on');
     await open('tapeecho');
-    await page.waitForSelector('[data-widget=thiss] dk-toggle .sw.on');
+    assert.equal(await page.locator('[data-widget=thiss] dk-toggle').getAttribute('value'), 'true');
+    await page.waitForSelector('[data-widget=thiss] dk-toggle .plain.on');
     assert.match(
       (await page.locator('[data-widget=ktime] dk-knob').getAttribute('value')) ?? '',
       /^0\.32$/,
@@ -603,14 +601,13 @@ describe('building the plugin screen by hand', () => {
     await page.waitForSelector('[data-testid=start-screen]');
     await page.keyboard.press('ArrowDown'); // to the works (the first is picked)
     await page.keyboard.press('Tab'); // to the looks
-    await page.keyboard.press('ArrowRight'); // Acid Line's look
-    await page.keyboard.press('ArrowRight'); // Afterglow's look (a sunset photo)
+    await page.keyboard.press('ArrowLeft'); // round to the last work's look: Exhale (a night sky photo)
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-    assert.equal(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)');
-    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ffb36b');
+    assert.equal(await kit(page, k => k.doc.value.name), 'Contour (Exhale look)');
+    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#f0d3a4');
     assert.ok(
-      await kit(page, k => !!k.doc.value.files['assets/den-kit/sunset-sky.jpg']),
+      await kit(page, k => !!k.doc.value.files['assets/den-kit/starfield.jpg']),
       'the look brings its picture',
     );
     assert.ok(
@@ -620,7 +617,7 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.press('Control+KeyZ');
     assert.notEqual(
       await kit(page, k => k.doc.value.name),
-      'Acid Line (Afterglow look)',
+      'Contour (Exhale look)',
       'starting is one undo step',
     );
     assert.deepEqual(errors, []);

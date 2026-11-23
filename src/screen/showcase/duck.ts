@@ -24,7 +24,11 @@ export function duck(catalog: Catalog) {
       name: `${name} sign`,
       rect: r(x, 84, 232, 336),
       locked: true,
-      style: { radius: 16, fill: [{ kind: 'color', color: '#ffffff' }], stroke: { color: '#111111', width: 3, style: 'solid' } },
+      style: {
+        radius: 16,
+        fill: [{ kind: 'color', color: '#ffffff' }],
+        stroke: { color: '#111111', width: 3, style: 'solid' },
+      },
     }),
     el({
       kind: 'shape',
@@ -54,7 +58,14 @@ export function duck(catalog: Catalog) {
       name: `${name} caption`,
       text: caption,
       rect: r(x + 18, 140, 196, 14),
-      textStyle: { size: 11, weight: 700, color: '#4d4d4d', align: 'left', spacing: 0.1, case: 'upper' },
+      textStyle: {
+        size: 11,
+        weight: 700,
+        color: '#4d4d4d',
+        align: 'left',
+        spacing: 0.1,
+        case: 'upper',
+      },
     }),
   ];
   const figure = (name: string, bind: string, x: number) =>
@@ -174,12 +185,19 @@ export function duck(catalog: Catalog) {
         value: 4000,
         style: slider('#111111'),
       }),
-      ...control('kmix', 'ui.slider', 'Echo level', ['mixl1.level2', 'mixr1.level2'], r(42, 370, 196, 36), {
-        min: 0,
-        max: 1.5,
-        value: 0.8,
-        style: slider('#111111'),
-      }),
+      ...control(
+        'kmix',
+        'ui.slider',
+        'Echo level',
+        ['mixl1.level2', 'mixr1.level2'],
+        r(42, 370, 196, 36),
+        {
+          min: 0,
+          max: 1.5,
+          value: 0.8,
+          style: slider('#111111'),
+        },
+      ),
       // Giving way: how far down, from how loud, how fast back.
       figure('Echo', 'ktime', 24),
       ...sign('Give way', 274, DUCK, '#111111', 'echoes drop by up to'),
@@ -190,13 +208,20 @@ export function duck(catalog: Catalog) {
         value: 24,
         style: slider(DUCK),
       }),
-      ...control('kthresh', 'ui.slider', 'When louder than', 'duck1.thresholdDb', r(292, 282, 196, 36), {
-        min: -60,
-        max: 0,
-        unit: 'dB',
-        value: -32,
-        style: slider(DUCK),
-      }),
+      ...control(
+        'kthresh',
+        'ui.slider',
+        'When louder than',
+        'duck1.thresholdDb',
+        r(292, 282, 196, 36),
+        {
+          min: -60,
+          max: 0,
+          unit: 'dB',
+          value: -32,
+          style: slider(DUCK),
+        },
+      ),
       ...control('krel', 'ui.slider', 'Back after', 'duck1.release', r(292, 326, 196, 36), {
         min: 0.05,
         max: 1.5,
@@ -219,14 +244,28 @@ export function duck(catalog: Catalog) {
         name: 'Down label',
         text: 'down',
         rect: r(560, 394, 72, 16),
-        textStyle: { size: 11, weight: 700, color: '#111111', align: 'center', case: 'upper', spacing: 0.1 },
+        textStyle: {
+          size: 11,
+          weight: 700,
+          color: '#111111',
+          align: 'center',
+          case: 'upper',
+          spacing: 0.1,
+        },
       }),
       el({
         kind: 'text',
         name: 'Out label',
         text: 'out',
         rect: r(660, 394, 68, 16),
-        textStyle: { size: 11, weight: 700, color: '#111111', align: 'center', case: 'upper', spacing: 0.1 },
+        textStyle: {
+          size: 11,
+          weight: 700,
+          color: '#111111',
+          align: 'center',
+          case: 'upper',
+          spacing: 0.1,
+        },
       }),
     ],
   );

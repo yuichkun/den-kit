@@ -334,7 +334,13 @@ export function tonic(catalog: Catalog) {
           name: 'Title',
           text: 'Tonic',
           rect: r(24, 18, 200, 30),
-          textStyle: { font: 'playfair-display', size: 28, weight: 700, color: 'fg', align: 'left' },
+          textStyle: {
+            font: 'playfair-display',
+            size: 28,
+            weight: 700,
+            color: 'fg',
+            align: 'left',
+          },
         }),
         el({
           kind: 'text',
@@ -343,7 +349,12 @@ export function tonic(catalog: Catalog) {
           rect: r(24, 52, 420, 16),
           textStyle: { size: 12, color: 'muted', align: 'left' },
         }),
-        el({ kind: 'canvas', name: 'The twelve notes', code: TONIC_CIRCLE, rect: r(circle.x, circle.y, circle.w, circle.h) }),
+        el({
+          kind: 'canvas',
+          name: 'The twelve notes',
+          code: TONIC_CIRCLE,
+          rect: r(circle.x, circle.y, circle.w, circle.h),
+        }),
         ...NAMES.map((name, pc) => {
           const a = (pc / 12) * Math.PI * 2 - Math.PI / 2;
           const x = circle.x + circle.w / 2 + Math.cos(a) * (R + 26),
@@ -375,9 +386,21 @@ export function tonic(catalog: Catalog) {
           name: 'Strings caption',
           text: 'Strings, in the order they are plucked',
           rect: r(476, 84, 260, 14),
-          textStyle: { size: 10, weight: 700, color: 'muted', align: 'left', spacing: 0.12, case: 'upper' },
+          textStyle: {
+            size: 10,
+            weight: 700,
+            color: 'muted',
+            align: 'left',
+            spacing: 0.12,
+            case: 'upper',
+          },
         }),
-        el({ kind: 'canvas', name: 'The four strings', code: STRING_ROWS, rect: r(476, 104, 260, 184) }),
+        el({
+          kind: 'canvas',
+          name: 'The four strings',
+          code: STRING_ROWS,
+          rect: r(476, 104, 260, 184),
+        }),
         ...STRINGS.flatMap(([name, what], i) => [
           el({
             kind: 'text',

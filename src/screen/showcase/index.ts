@@ -1,145 +1,122 @@
-// The showcase: the evaluation prompts built in den-kit itself, each a full
-// work (sound and plugin). The start screen offers them; a work's look can be
-// put on another (the Subway way: what to make × how it looks).
+// The showcase: works built in den-kit itself, each a full work (sound and
+// plugin): instruments, effects, and installations that play by themselves.
+// Each screen follows the thinking of an award-winning design (named in the
+// work's file, with what it took). The start screen offers them; a work's look
+// can be put on another (the Subway way: what to make × how it looks).
 import type { Catalog } from '../../work/catalog.ts';
 import type { Intent } from '../../work/ops.ts';
 import type { PatchDocument } from '../../work/schema.ts';
 import { assetUses, type WidgetStyle, assetsOf } from '../../work/ui.ts';
 import { acid } from './acid.ts';
+import { breath } from './breath.ts';
 import { duck } from './duck.ts';
-import { fuzz } from './fuzz.ts';
 import { lofi } from './lofi.ts';
-import { musicbox } from './musicbox.ts';
-import { neon } from './neon.ts';
-import { pad } from './pad.ts';
 import { rain } from './rain.ts';
-import { space } from './space.ts';
 import { supersaw } from './supersaw.ts';
 import { tapeecho } from './tapeecho.ts';
+import { tide } from './tide.ts';
 import { tonic } from './tonic.ts';
 import { toy } from './toy.ts';
 
 export interface Work {
   id: string;
   title: string;
-  kind: 'Instrument' | 'Effect';
-  /** The English description of the evaluation prompt. */
+  kind: 'Instrument' | 'Effect' | 'Installation';
+  /** What the work is, in a line (the start screen shows it). */
   prompt: string;
-  /** What reference comes with it. */
+  /** The award-winning design whose thinking the screen follows (the work's file says what it took). */
   reference: string;
   build(catalog: Catalog): PatchDocument;
 }
 
 export const WORKS: readonly Work[] = [
   {
+    id: 'acid',
+    title: 'Contour',
+    kind: 'Instrument',
+    prompt:
+      'An acid bass whose filter curve you pull by hand: drag the peak, the sweep and the decay',
+    reference: 'Red Dot: Best of the Best 2016, User Interface Design: Elektron Overbridge',
+    build: acid,
+  },
+  {
+    id: 'supersaw',
+    title: 'Septet',
+    kind: 'Instrument',
+    prompt: 'A supersaw: seven saws per note, each in its own lane, with detune and drift',
+    reference: 'Red Dot 2018, Product Design: Tektronix 5 Series MSO',
+    build: supersaw,
+  },
+  {
     id: 'tonic',
     title: 'Tonic',
     kind: 'Instrument',
-    prompt: 'A tanpura drone to sing over: four plucked strings on the tonic, the notes round a circle',
+    prompt:
+      'A tanpura drone to sing over: four plucked strings on the tonic, the notes round a circle',
     reference: 'Apple Design Awards 2021, Innovation winner: NaadSadhana',
     build: tonic,
   },
   {
-    id: 'acid',
-    title: 'Acid Line',
-    kind: 'Instrument',
-    prompt: 'Acid bass. Fluorescent green on black, with large cutoff and resonance controls',
-    reference: 'none (words only)',
-    build: acid,
-  },
-  {
-    id: 'pad',
-    title: 'Afterglow',
-    kind: 'Instrument',
-    prompt:
-      'A slowly moving, expansive pad. A sunset look, with brightness and movement on XY controls',
-    reference: 'sunset photo',
-    build: pad,
-  },
-  {
-    id: 'musicbox',
-    title: 'Lullaby Box',
-    kind: 'Instrument',
-    prompt: 'Metallic bells like a music box, with a wooden box and brass look',
-    reference: 'wood and brass textures',
-    build: musicbox,
-  },
-  {
     id: 'toy',
-    title: 'Bop Box',
+    title: 'Shape Drums',
     kind: 'Instrument',
-    prompt: 'A percussion instrument for children to play, with eight large, colorful pads',
-    reference: 'hand-drawn layout sketch',
+    prompt: 'Drums for children: eight big shapes to tap, and a beat to play along with',
+    reference: 'Apple Design Awards 2024, Interaction winner: Rytmos',
     build: toy,
   },
   {
     id: 'tapeecho',
-    title: 'Reel Echo',
+    title: 'Echo Line',
     kind: 'Effect',
-    prompt: 'A 1970s tape echo, with a needle VU meter and spinning reels',
-    reference: 'tape machine photo',
+    prompt:
+      'A tape echo laid out as one line, from the input to the tape and back, each echo shown as it returns',
+    reference: 'iF DESIGN AWARD 2022: SIG CRUISER',
     build: tapeecho,
   },
   {
-    id: 'fuzz',
-    title: 'Ember Fuzz',
-    kind: 'Effect',
-    prompt: 'A guitar fuzz pedal, with a footswitch and LED',
-    reference: 'hand-drawn layout sketch',
-    build: fuzz,
-  },
-  {
-    id: 'lofi',
-    title: 'Side B',
-    kind: 'Effect',
-    prompt:
-      'Cassette-style lo-fi. Reduce bit depth and add wow, flutter, and hiss, with a handwritten label',
-    reference: 'cassette photo',
-    build: lofi,
-  },
-  {
-    id: 'space',
-    title: 'Nebula',
-    kind: 'Effect',
-    prompt:
-      'A space-themed ambience effect, with a starfield look and particles that move with the sound',
-    reference: 'starfield photo',
-    build: space,
-  },
-  {
     id: 'duck',
-    title: 'Duck Delay',
+    title: 'Yield',
     kind: 'Effect',
     prompt:
-      'A delay that ducks while playing and blooms afterward, with an instrument-style display and a gain reduction meter',
-    reference: 'none (words only)',
+      'A delay whose echoes give way while you play, with figures and meters you can read from across the room',
+    reference: 'iF DESIGN AWARD 2025: ABB A400 All-in-One EV Charger',
     build: duck,
   },
   {
-    id: 'neon',
-    title: 'Neon Sweep',
+    id: 'lofi',
+    title: 'Low Res',
     kind: 'Effect',
-    prompt: 'An XY filter performance effect, with a neon look and a glowing finger trail',
-    reference: 'neon sign photo',
-    build: neon,
+    prompt:
+      'Lo-fi: fewer bits, a slower rate, a wobble and some hiss, with the sound shown on the grid it is snapped to',
+    reference: 'CEDEC AWARDS 2018, Visual Arts top prize: the NieR:Automata UI design team',
+    build: lofi,
   },
-  // Parts and ×N: one small thing made once and used many times, with its own face on the plugin.
+  {
+    id: 'tide',
+    title: 'Tide Bells',
+    kind: 'Installation',
+    prompt:
+      'Six bells on a shore, rung by the waves: the tide at the hour you set decides which ones',
+    reference: 'Apple Design Awards 2026, Visuals and Graphics winner: Tide Guide',
+    build: tide,
+  },
   {
     id: 'rain',
-    title: 'Rainfall',
-    kind: 'Instrument',
+    title: 'Rain Field',
+    kind: 'Installation',
     prompt:
-      'Rain hitting a window. Layer a single raindrop, with manual controls for intensity, drop pitch, splashes, and wind',
-    reference: 'none (words only)',
+      'Rain all around you: drops, wind, thunder and drips, each placed nearer or further, left or right',
+    reference: 'Apple Design Awards 2022, Innovation winner: Odio',
     build: rain,
   },
   {
-    id: 'supersaw',
-    title: 'Supersaw',
-    kind: 'Instrument',
-    prompt: 'A supersaw. Layer seven slightly offset sawtooth waves, with detune and width knobs',
-    reference: 'none (words only)',
-    build: supersaw,
+    id: 'breath',
+    title: 'Exhale',
+    kind: 'Installation',
+    prompt:
+      'A room that breathes: a soft chord and the sound of air swell in and out at the pace of slow breathing',
+    reference: 'Apple Design Awards 2021, Visuals and Graphics winner: Loóna',
+    build: breath,
   },
 ];
 

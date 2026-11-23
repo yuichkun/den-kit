@@ -225,7 +225,14 @@ export function acid(catalog: Catalog) {
       name: `${text} caption`,
       text,
       rect: r(x, y, w, 14),
-      textStyle: { size: 10, weight: 700, color: 'muted', align: 'left', spacing: 0.16, case: 'upper' },
+      textStyle: {
+        size: 10,
+        weight: 700,
+        color: 'muted',
+        align: 'left',
+        spacing: 0.16,
+        case: 'upper',
+      },
     });
   const readout = (label: string, bind: string, x: number) => [
     caption(label, x, 22, 92),
@@ -355,7 +362,12 @@ export function acid(catalog: Catalog) {
         style: { stroke: { color: '#ffffff14', width: 1, style: 'solid' } },
       }),
       caption('Filter', 24, 84 - 2, 120),
-      el({ kind: 'canvas', name: 'Filter response', code: FILTER_GRAPH, rect: r(graph.x, graph.y, graph.w, graph.h) }),
+      el({
+        kind: 'canvas',
+        name: 'Filter response',
+        code: FILTER_GRAPH,
+        rect: r(graph.x, graph.y, graph.w, graph.h),
+      }),
       ...AXIS.map(([hz, text]) =>
         el({
           kind: 'text',
@@ -366,7 +378,12 @@ export function acid(catalog: Catalog) {
         }),
       ),
       caption('Envelope', 524, 84 - 2, 120),
-      el({ kind: 'canvas', name: 'Filter envelope', code: ENVELOPE_GRAPH, rect: r(524, 92, 212, 120) }),
+      el({
+        kind: 'canvas',
+        name: 'Filter envelope',
+        code: ENVELOPE_GRAPH,
+        rect: r(524, 92, 212, 120),
+      }),
       ...control('kglide', 'ui.slider', 'Glide', 'glide1.seconds', r(524, 226, 212, 34), {
         min: 0,
         max: 0.3,

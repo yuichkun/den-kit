@@ -44,7 +44,8 @@ export default {
 const SHAPES: Array<(c: string) => string> = [
   c => `<circle cx="50" cy="50" r="42" fill="${c}"/>`,
   c => `<rect x="12" y="12" width="76" height="76" rx="12" fill="${c}"/>`,
-  c => `<path d="M50 8 L94 88 L6 88 Z" fill="${c}" stroke="${c}" stroke-width="6" stroke-linejoin="round"/>`,
+  c =>
+    `<path d="M50 8 L94 88 L6 88 Z" fill="${c}" stroke="${c}" stroke-width="6" stroke-linejoin="round"/>`,
   c => `<path d="M50 4 L96 50 L50 96 L4 50 Z" fill="${c}"/>`,
   c => `<path d="M50 6 L88 28 L88 72 L50 94 L12 72 L12 28 Z" fill="${c}"/>`,
   c =>
@@ -130,7 +131,10 @@ export function toy(catalog: Catalog) {
         values: { attack: 0.002, decay: 0.07, sustain: 0, release: 0.05 },
       }),
       add('bnoise1', 'den.seededNoise', { label: 'Beads', config: { seed: 3 } }),
-      add('bband1', 'den.stateVariableFilter', { label: 'Shaker', values: { cutoffHz: 6500, q: 1.4 } }),
+      add('bband1', 'den.stateVariableFilter', {
+        label: 'Shaker',
+        values: { cutoffHz: 6500, q: 1.4 },
+      }),
       add('bvca1', 'kit.mul', { label: 'Shaker VCA' }),
       add('bon1', 'kit.mul', { label: 'Beat on' }),
       add('blevel1', 'kit.gain', { label: 'Beat level', values: { gain: 0.5 } }),

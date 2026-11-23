@@ -59,17 +59,17 @@ export function control(
   return [add(id, type, node), ...list.map(t => wire(`${id}.${o.out ?? 'out'}`, t))];
 }
 
-/** A knob kept in the patch but off the plugin (a canvas moves it), wired to `node.port`. */
+/** A knob kept in the patch but off the plugin (a canvas moves it), wired to one or more `node.port` targets. */
 export function patchControl(
   id: string,
   label: string,
-  target: string,
+  targets: string | string[],
   [min, max, scale, unit]: [number, number, 'linear' | 'log', string],
   value: number,
 ): Intent[] {
   return [
     add(id, 'ui.knob', { label, config: { min, max, scale, unit }, values: { value } }),
-    wire(`${id}.out`, target),
+    ...(Array.isArray(targets) ? targets : [targets]).map(t => wire(`${id}.out`, t)),
   ];
 }
 

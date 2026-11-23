@@ -91,11 +91,29 @@ export const SAW_FACE: PartFace = {
   width: 208,
   height: 140,
   controls: [
-    { param: 'detune', type: 'ui.knob', rect: { x: 8, y: 26, w: 96, h: 108 }, label: 'Detune', style: KNOB },
-    { param: 'drift', type: 'ui.knob', rect: { x: 104, y: 26, w: 96, h: 108 }, label: 'Drift', style: KNOB },
+    {
+      param: 'detune',
+      type: 'ui.knob',
+      rect: { x: 8, y: 26, w: 96, h: 108 },
+      label: 'Detune',
+      style: KNOB,
+    },
+    {
+      param: 'drift',
+      type: 'ui.knob',
+      rect: { x: 104, y: 26, w: 96, h: 108 },
+      label: 'Drift',
+      style: KNOB,
+    },
   ],
   elements: [
-    { id: 'frame', kind: 'shape', shape: 'rect', rect: { x: 0, y: 0, w: 208, h: 140 }, style: CARD },
+    {
+      id: 'frame',
+      kind: 'shape',
+      shape: 'rect',
+      rect: { x: 0, y: 0, w: 208, h: 140 },
+      style: CARD,
+    },
     {
       id: 'title',
       kind: 'text',
@@ -286,7 +304,13 @@ export function supersaw(catalog: Catalog) {
             name: `Lane ${k + 1}`,
             text: String(k + 1),
             rect: r(32, Math.round(84 + (k + 0.5) * (220 / 7) - 8), 22, 16),
-            textStyle: { font: 'jetbrains-mono', size: 11, weight: 700, color: '#ffffff', align: 'center' },
+            textStyle: {
+              font: 'jetbrains-mono',
+              size: 11,
+              weight: 700,
+              color: '#ffffff',
+              align: 'center',
+            },
           }),
         ]),
         ...control('kwidth', 'ui.knob', 'Width', 'splay1.width', r(240, 350, 96, 108), {
@@ -335,7 +359,11 @@ export function supersaw(catalog: Catalog) {
           name: 'Seven saws',
           code: SAW_LANES,
           rect: r(28, 84, 704, 220),
-          props: { detune: faceKnob(doc, 'detune'), drift: faceKnob(doc, 'drift'), colors: LANES.join(',') },
+          props: {
+            detune: faceKnob(doc, 'detune'),
+            drift: faceKnob(doc, 'drift'),
+            colors: LANES.join(','),
+          },
         }),
       ],
     ],

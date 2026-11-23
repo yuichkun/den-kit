@@ -334,20 +334,34 @@ export function lofi(catalog: Catalog) {
         value: 0.0015,
         style: row,
       }),
-      ...control('fhiss', 'ui.slider', 'hiss', ['mixl1.level2', 'mixr1.level2'], r(480, 290, 216, 34), {
-        min: 0,
-        max: 0.06,
-        value: 0.012,
-        style: row,
-      }),
-      ...control('ftone', 'ui.slider', 'tone', ['tonel1.cutoff', 'toner1.cutoff'], r(480, 334, 216, 34), {
-        min: 900,
-        max: 14000,
-        scale: 'log',
-        unit: 'Hz',
-        value: 5200,
-        style: row,
-      }),
+      ...control(
+        'fhiss',
+        'ui.slider',
+        'hiss',
+        ['mixl1.level2', 'mixr1.level2'],
+        r(480, 290, 216, 34),
+        {
+          min: 0,
+          max: 0.06,
+          value: 0.012,
+          style: row,
+        },
+      ),
+      ...control(
+        'ftone',
+        'ui.slider',
+        'tone',
+        ['tonel1.cutoff', 'toner1.cutoff'],
+        r(480, 334, 216, 34),
+        {
+          min: 900,
+          max: 14000,
+          scale: 'log',
+          unit: 'Hz',
+          value: 5200,
+          style: row,
+        },
+      ),
     ],
   );
 }

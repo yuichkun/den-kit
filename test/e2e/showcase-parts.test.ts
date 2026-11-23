@@ -1,9 +1,9 @@
-// The showcase works with parts through the real UI: Rainfall, opened from the start screen,
-// rains by itself (one Drop part ×16, its face on the plugin); turning the
-// Drop's face knob plays all sixteen copies without recompiling, each still
-// moved by its own spread. Supersaw plays
-// a held note through seven saws per voice; its Detune knob is the Saw's face
-// and plays live too. Both pass the plugin check in the browser.
+// The showcase works with parts through the real UI: Rain Field, opened from the
+// start screen, rains by itself (one Drop part ×16, its face on the plugin);
+// turning the Drop's face knob plays all sixteen copies without recompiling,
+// each still moved by its own spread. Septet plays a held note through seven
+// saws per voice; its Detune knob is the Saw's face and plays live too. Both
+// pass the plugin check in the browser.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -47,7 +47,7 @@ async function turnUp(page: Page, id: string, by = 70) {
 }
 
 describe('the showcase works with parts', () => {
-  it('Rainfall rains by itself; the Drop face plays all sixteen copies live; the patch shows one Drop ×16', async () => {
+  it('Rain Field rains by itself; the Drop face plays all sixteen copies live; the patch shows one Drop ×16', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     assert.equal((await openWork(page, 'rain')).status, 'ok');
@@ -88,7 +88,7 @@ describe('the showcase works with parts', () => {
     await page.close();
   });
 
-  it("Supersaw: a held note through seven saws per voice; the Saw face's Detune plays live", async () => {
+  it("Septet: a held note through seven saws per voice; the Saw face's Detune plays live", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     assert.equal((await openWork(page, 'supersaw')).status, 'ok');

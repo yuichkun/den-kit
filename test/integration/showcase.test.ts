@@ -46,10 +46,8 @@ function notes(list: Array<[number, number, number]>): MidiEvent[] {
     },
   ]);
 }
-/** A phrase that suits the work: a bass line, a held chord, a tune high up, or hits on the pads. */
+/** A phrase that suits the work: a bass line, hits on the pads, or chord notes. */
 function phrase(id: string): MidiEvent[] {
-  if (id === 'pad') return notes([48, 55, 60, 64].map(n => [n, 0, 1.6]));
-  if (id === 'musicbox') return notes([72, 76, 79, 84, 79, 76].map((n, i) => [n, i * 0.25, 0.12]));
   const list =
     id === 'toy'
       ? [48, 50, 52, 55, 57, 60]
@@ -58,9 +56,8 @@ function phrase(id: string): MidiEvent[] {
         : [48, 55, 60, 64];
   return notes(list.map((n, i) => [n, i * 0.25, 0.18]));
 }
-/** What an effect is heard on: a guitar for the fuzz, drums for the echoes, chords otherwise. */
-const inputFor = (id: string) =>
-  id === 'fuzz' ? 'guitar' : id === 'tapeecho' || id === 'space' ? 'drums' : 'chords';
+/** What an effect is heard on: drums for the tape echo, chords otherwise. */
+const inputFor = (id: string) => (id === 'tapeecho' ? 'drums' : 'chords');
 
 async function render(
   doc: PatchDocument,
@@ -201,9 +198,9 @@ describe('showcase works', () => {
 
   it('a look that uses pictures brings them along', () => {
     const acid = WORKS.find(w => w.id === 'acid')!.build(catalog);
-    const pad = WORKS.find(w => w.id === 'pad')!.build(catalog);
-    const r = applyIntents(acid, lookIntents(acid, pad), catalog);
-    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/sunset-sky.jpg');
+    const breath = WORKS.find(w => w.id === 'breath')!.build(catalog);
+    const r = applyIntents(acid, lookIntents(acid, breath), catalog);
+    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/starfield.jpg');
   });
 });
 
@@ -307,63 +304,7 @@ describe('every work is a finished first version', () => {
 describe('each work does what its controls say', () => {
   const build = (id: string) => WORKS.find(w => w.id === id)!.build(catalog);
 
-  it('Afterglow: across the XY pad is brightness, up is sway', async () => {
-    const chord = notes([48, 55, 60, 64].map(n => [n, 0, 3.8]));
-    const centroid = async (x: number, y: number) =>
-      analyse(
-        await render(
-          turned(build('pad'), [
-            ['xy1', 'x', x],
-            ['xy1', 'y', y],
-          ]),
-          { seconds: 4, events: chord },
-        ),
-        SR,
-      ).centroidHz;
-    const dark = await centroid(0.15, 0),
-      bright = await centroid(0.9, 0);
-    note(`pad: centroid x0.15 ${dark.mean} Hz, x0.9 ${bright.mean} Hz`);
-    expect(bright.mean).toBeGreaterThan(dark.mean * 1.8);
-    const still = await centroid(0.5, 0),
-      swaying = await centroid(0.5, 1);
-    note(
-      `pad: centroid range y0 ${still.min}–${still.max} Hz, y1 ${swaying.min}–${swaying.max} Hz`,
-    );
-    expect(swaying.max / swaying.min).toBeGreaterThan(1.5 * (still.max / still.min));
-  }, 60000);
-
-  it('Lullaby Box: Ring lets a tapped note ring on; Shine brightens the strike', async () => {
-    const tap = notes([[76, 0, 0.08]]);
-    const tail = async (ring: number) => {
-      const out = await render(turned(build('musicbox'), [['kring', 'value', ring]]), {
-        seconds: 2,
-        events: tap,
-      });
-      return rms(out[0]!, 1.2, 1.8);
-    };
-    const short = await tail(0.3),
-      long = await tail(4);
-    note(`musicbox: tail rms ring0.3 ${short.toExponential(2)}, ring4 ${long.toExponential(2)}`);
-    expect(long).toBeGreaterThan(8 * short);
-    const strike = async (shine: number) =>
-      analyse(
-        slice(
-          await render(turned(build('musicbox'), [['kshine', 'value', shine]]), {
-            seconds: 0.5,
-            events: tap,
-          }),
-          0,
-          0.3,
-        ),
-        SR,
-      ).centroidHz.mean;
-    const plain = await strike(0),
-      shiny = await strike(10);
-    note(`musicbox: strike centroid shine0 ${plain} Hz, shine10 ${shiny} Hz`);
-    expect(shiny).toBeGreaterThan(2 * plain);
-  }, 60000);
-
-  it('Reel Echo: echoes come back at the repeat rate, the second head 1.5× later', async () => {
+  it('Echo Line: echoes come back at the repeat rate, the second head 1.5× later', async () => {
     const doc = turned(build('tapeecho'), [
       ['thiss', 'value', false],
       ['ktime', 'value', 0.25],
@@ -378,7 +319,7 @@ describe('each work does what its controls say', () => {
     expect(rms(r!, 0.415, 0.455)).toBeGreaterThan(5 * rms(r!, 0.29, 0.33)); // not at the left head's time
   }, 60000);
 
-  it('Side B: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
+  it('Low Res: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
     const box = {
       id: 'crush1',
       type: 'kit.codebox',
@@ -447,7 +388,12 @@ describe('each work does what its controls say', () => {
   const faceKnob = (doc: PatchDocument, use: string, param: string) =>
     Object.values(doc.edges).find(e => e.to.node === use && e.to.port === param)!.from.node;
 
-  it('Rainfall: one Drop part ×16 — Rain makes more drops, Pitch moves them, Width spreads them, Wind brings the far rain', async () => {
+  /** Rain Field with only the drops (and, where asked, the wind): thunder and drips quiet. */
+  const onlyDrops: Array<[string, string, number]> = [
+    ['kthunder', 'value', 0],
+    ['kdrips', 'value', 0],
+  ];
+  it('Rain Field: one Drop part ×16 — Rain makes more drops, Pitch moves them, Width spreads them, Wind brings the far rain', async () => {
     const doc = build('rain');
     expect(doc.nodes.drop1).toMatchObject({ type: 'kit.part', part: 'drop', count: 16 });
     expect(doc.parts.drop!.params.map(p => p.id)).toEqual(['rain', 'pitch', 'splash']);
@@ -456,6 +402,7 @@ describe('each work does what its controls say', () => {
       'not heavy',
     ).toEqual([]);
     const dry: Array<[string, string, number]> = [
+      ...onlyDrops,
       ['kwind', 'value', 0],
       ['kroom', 'value', 0],
     ];
@@ -478,10 +425,7 @@ describe('each work does what its controls say', () => {
     expect(narrow).toBeGreaterThan(0.98);
     expect(wide).toBeLessThan(0.8);
     const calm = await play(dry),
-      windy = await play([
-        ['kroom', 'value', 0],
-        ['kwind', 'value', 1],
-      ]);
+      windy = await play([...onlyDrops, ['kroom', 'value', 0], ['kwind', 'value', 1]]);
     note(
       `rain: wind0 ${both(calm).toFixed(4)} (centroid ${analyse(calm, SR).centroidHz.mean}), wind1 ${both(windy).toFixed(4)} (centroid ${analyse(windy, SR).centroidHz.mean})`,
     );
@@ -491,11 +435,8 @@ describe('each work does what its controls say', () => {
     ); // the far rain is low
   }, 120000);
 
-  it('Rainfall: every copy falls on its own (its own random numbers): sixteen copies are smoother than one, and their two sides differ', async () => {
-    const doc = turned(build('rain'), [
-      ['kwind', 'value', 0],
-      ['kroom', 'value', 0],
-    ]);
+  it('Rain Field: every copy falls on its own (its own random numbers): sixteen copies are smoother than one, and their two sides differ', async () => {
+    const doc = turned(build('rain'), [...onlyDrops, ['kwind', 'value', 0], ['kroom', 'value', 0]]);
     const crest = (out: Float32Array[]) => {
       let peak = 0;
       for (const s of out[0]!) peak = Math.max(peak, Math.abs(s));
@@ -513,7 +454,7 @@ describe('each work does what its controls say', () => {
     expect(correlation(many)).toBeLessThan(0.9);
   }, 120000);
 
-  it('Supersaw: one Saw part ×7 per voice — Detune makes the saws beat, Width spreads them, Cutoff darkens', async () => {
+  it('Septet: one Saw part ×7 per voice — Detune makes the saws beat, Width spreads them, Cutoff darkens', async () => {
     const doc = build('supersaw');
     expect(doc.nodes.saw1).toMatchObject({ type: 'kit.part', part: 'saw', count: 7 });
     expect(doc.parts.saw!.params.map(p => [p.id, p.range])).toEqual([
@@ -582,24 +523,118 @@ describe('each work does what its controls say', () => {
     expect(bright).toBeGreaterThan(3 * dark);
   }, 120000);
 
-  it('Nebula: the sky rings on long after the sound stops, and Sky and Echoes set how much', async () => {
-    const input = testSignal('drums', 4, SR).map(c => {
-      c.fill(0, SR);
-      return c;
-    }); // one second of drums, then silence
-    const tailOf = async (doc: PatchDocument) => {
-      const out = await render(doc, { seconds: 4, input });
-      return Math.max(rms(out[0]!, 2.5, 3.5), rms(out[1]!, 2.5, 3.5));
+  it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {
+    const doc = turned(build('rain'), [
+      ['kdrops', 'value', 0],
+      ...onlyDrops,
+      ['kroom', 'value', 0],
+      ['kwind', 'value', 1],
+    ]);
+    expect(
+      Object.values(doc.nodes).filter(n => n.type === 'kit.part' && n.part === 'place'),
+    ).toHaveLength(4);
+    const sides = async (pan: number) => {
+      const [l, r] = await render(turned(doc, [['kwindpan', 'value', pan]]), { seconds: 1.5 });
+      return rms(l!, 0.2, 1.5) / rms(r!, 0.2, 1.5);
     };
-    const full = await tailOf(build('space')),
-      dry = await tailOf(
-        turned(build('space'), [
-          ['ksky', 'value', 0],
-          ['kecho', 'value', 0],
-        ]),
-      );
-    note(`space: tail rms full ${full.toExponential(2)}, dry ${dry.toExponential(2)}`);
-    expect(20 * Math.log10(full)).toBeGreaterThan(-50);
-    expect(full).toBeGreaterThan(10 * dry);
+    const left = await sides(-0.8),
+      middle = await sides(0),
+      right = await sides(0.8);
+    note(
+      `rain: wind L/R pan-0.8 ${left.toFixed(2)}, pan0 ${middle.toFixed(2)}, pan0.8 ${right.toFixed(2)}`,
+    );
+    expect(left).toBeGreaterThan(3);
+    expect(middle).toBeCloseTo(1, 1);
+    expect(right).toBeLessThan(1 / 3);
+    const level = async (near: number) => {
+      const out = await render(turned(doc, [['kwind', 'value', near]]), { seconds: 1.5 });
+      return Math.hypot(rms(out[0]!, 0.2, 1.5), rms(out[1]!, 0.2, 1.5));
+    };
+    const far = await level(0.25),
+      close = await level(0.9);
+    note(`rain: wind level near0.25 ${far.toFixed(4)}, near0.9 ${close.toFixed(4)}`);
+    expect(close).toBeGreaterThan(3 * far);
+  }, 120000);
+
+  it('Tonic: plays by itself; Sa moves the whole drone, Jawari brightens the buzz', async () => {
+    const doc = build('tonic');
+    expect(doc.nodes.string1).toMatchObject({ type: 'kit.part', part: 'string', count: 4 });
+    const centroid = async (values: Array<[string, string, number]>) =>
+      analyse(await render(turned(doc, values), { seconds: 3 }), SR).centroidHz.mean;
+    const low = await centroid([
+        ['ksa', 'value', 48],
+        ['kjaw', 'value', 0],
+      ]),
+      high = await centroid([
+        ['ksa', 'value', 55],
+        ['kjaw', 'value', 0],
+      ]);
+    note(`tonic: centroid Sa48 ${low} Hz, Sa55 ${high} Hz`);
+    expect(high).toBeGreaterThan(1.25 * low);
+    const plain = await centroid([['kjaw', 'value', 0]]),
+      buzzing = await centroid([['kjaw', 'value', 6]]);
+    note(`tonic: centroid jawari0 ${plain} Hz, jawari6 ${buzzing} Hz`);
+    expect(buzzing).toBeGreaterThan(1.3 * plain);
+  }, 120000);
+
+  it('Shape Drums: the beat plays along only while it is on', async () => {
+    const level = async (on: boolean) => {
+      const out = await render(turned(build('toy'), [['tbeat', 'value', on]]), { seconds: 2 });
+      return Math.hypot(rms(out[0]!, 0, 2), rms(out[1]!, 0, 2));
+    };
+    const off = await level(false),
+      on = await level(true);
+    note(`toy: no keys, beat off ${off.toExponential(2)}, beat on ${on.toExponential(2)}`);
+    expect(on).toBeGreaterThan(1e-3);
+    expect(off).toBeLessThan(on / 100);
   }, 60000);
+
+  it('Tide Bells: plays by itself; low tide rings the low bells, high tide the high ones', async () => {
+    const doc = build('tide');
+    expect(doc.nodes.bell1).toMatchObject({ type: 'kit.part', part: 'bell', count: 6 });
+    // Only the bells, a wave every 5 s, after the sea has come in (8 s).
+    const bells = async (hour: number) =>
+      analyse(
+        slice(
+          await render(
+            turned(doc, [
+              ['khour', 'value', hour],
+              ['ksea', 'value', 0],
+              ['kbay', 'value', 0],
+              ['kwaves', 'value', 12],
+            ]),
+            { seconds: 14 },
+          ),
+          9,
+          14,
+        ),
+        SR,
+      ).centroidHz.mean;
+    const low = await bells(9.5),
+      high = await bells(15.5);
+    note(`tide: bells centroid low tide ${low} Hz, high tide ${high} Hz`);
+    expect(high).toBeGreaterThan(1.3 * low);
+  }, 120000);
+
+  it('Exhale: plays by itself and breathes: the level swells and settles with each breath, as deep as Depth says', async () => {
+    const swing = async (depth: number) => {
+      const out = await render(
+        turned(build('breath'), [
+          ['kbpm', 'value', 10],
+          ['kdepth', 'value', depth],
+          ['kspace', 'value', 0],
+        ]),
+        { seconds: 12 },
+      );
+      const levels: number[] = [];
+      for (let t = 2; t + 0.5 <= 12; t += 0.5) levels.push(rms(out[0]!, t, t + 0.5));
+      return Math.max(...levels) / Math.min(...levels);
+    };
+    const deep = await swing(1),
+      still = await swing(0);
+    note(`breath: level max/min depth1 ${deep.toFixed(2)}, depth0 ${still.toFixed(2)}`);
+    expect(deep).toBeGreaterThan(4);
+    // At Depth 0 only the slight beating of the detuned copies is left.
+    expect(still).toBeLessThan(2);
+  }, 120000);
 });

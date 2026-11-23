@@ -20,31 +20,31 @@ import { findWork } from '../../../src/screen/showcase/index.ts';
 
 describe('kit_get_plugin', () => {
   it('describes a work: size, look, everything back to front with exact fields, what each control drives', () => {
-    const doc = findWork('space')!.build(catalog);
+    const doc = findWork('breath')!.build(catalog);
     const text = describePlugin(doc, catalog);
-    expect(text).toContain('720×440 px');
-    expect(text).toMatch(/Look tokens: bg #05040d, fg #e9e6ff, accent #8f7bff/);
+    expect(text).toContain('760×500 px');
+    expect(text).toMatch(/Look tokens: bg #15132f, fg #f3eee6, accent #f0d3a4/);
     expect(text).toMatch(
-      /Look background \(bottom first\): picture assets\/den-kit\/starfield\.jpg cover \| radial/,
+      /Look background \(bottom first\): picture assets\/den-kit\/starfield\.jpg cover \| linear/,
     );
-    expect(text).toContain('knob ring (look: thickness 3, round true)');
-    // Back to front: the part (the sky) first, the knobs last.
-    const order = ['"id":"canvas1"', '"text":"NEBULA"', '"id":"ktime"', '"id":"ksky"'].map(s =>
+    expect(text).toContain('slider bar (look: radius 3, label "top")');
+    // Back to front: the scene (a canvas) first, the sliders last.
+    const order = ['"id":"canvas1"', '"text":"Exhale"', '"id":"kbpm"', '"id":"kspace"'].map(s =>
       text.indexOf(s),
     );
     expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
     expect(text).toMatch(
-      /"id":"ktime","control":"knob","label":"Time","panel":\{"x":78,"y":308,"w":96,"h":104\},"skin":"ring \(own: thickness 3, ticks 0, round true, value \\"inside\\"\)"/,
+      /"id":"kbpm","control":"slider","label":"Breaths a minute","panel":\{"x":48,"y":418,"w":150,"h":38\},"skin":"bar \(own: radius 3, label \\"top\\"\)"/,
     );
     expect(text).toMatch(
-      /"value":"420 ms","range":"80\.0 ms … 1\.40 s \(log\)","drives":\["→ echo1\.timeSeconds"\]/,
+      /"value":"520 Hz","range":"200 Hz … 1\.60 kHz \(log\)","drives":\["→ cut1\.hz"\]/,
     );
     expect(text).toContain('whole code: kit_get_plugin {\\"canvas\\":\\"canvas1\\"}');
     expect(text).toMatch(
       /Assets in this patch: assets\/den-kit\/starfield\.jpg \(picture 1600×1067: Night sky/,
     );
     // One part's whole code on request.
-    expect(describePlugin(doc, catalog, { canvas: 'canvas1' })).toContain('f.state.grains');
+    expect(describePlugin(doc, catalog, { canvas: 'canvas1' })).toContain('const HILLS');
     expect(() => describePlugin(doc, catalog, { canvas: 'nope' })).toThrow(/Canvases: canvas1/);
   });
 
@@ -222,7 +222,7 @@ describe('the design brief, hand edits, ready looks, pictures', () => {
   });
 
   it("hand edits: what the person changed on the screen since the patch was loaded (not the AI's, not before the load)", () => {
-    const doc0 = findWork('space')!.build(catalog);
+    const doc0 = findWork('breath')!.build(catalog);
     const tx = (
       author: Transaction['author'],
       intents: Intent[],
@@ -252,14 +252,14 @@ describe('the design brief, hand edits, ready looks, pictures', () => {
     const b = tx(
       { kind: 'human' },
       [
-        { op: 'setRect', id: 'ktime', rect: { x: 70, y: 300, w: 96, h: 104 } },
+        { op: 'setRect', id: 'kbpm', rect: { x: 40, y: 418, w: 150, h: 38 } },
         { op: 'setLook', look: { tokens: { fg: '#ffffff' } } },
       ],
       a.doc,
     );
     const c = tx(
       { kind: 'ai-llm', take: 't1' },
-      [{ op: 'updateElement', id: 'text1', set: { text: 'NEBULA II' } }],
+      [{ op: 'updateElement', id: 'text1', set: { text: 'Exhale II' } }],
       b.doc,
     );
     const d = tx(
@@ -267,32 +267,32 @@ describe('the design brief, hand edits, ready looks, pictures', () => {
       [
         {
           op: 'addElement',
-          element: { id: 'note1', kind: 'text', text: 'hi', rect: { x: 10, y: 10, w: 50, h: 20 } },
+          element: { id: 'memo1', kind: 'text', text: 'hi', rect: { x: 10, y: 10, w: 50, h: 20 } },
         },
         { op: 'setBrief', brief: 'Dark sky' },
       ],
       c.doc,
     );
     expect(handEdits([a.tx, b.tx, c.tx, d.tx], d.doc, catalog)).toEqual([
-      'ktime (place)',
+      'kbpm (place)',
       'the look (fg token)',
-      'note1 (added it)',
+      'memo1 (added it)',
       'the design brief (text)',
     ]);
-    expect(describePlugin(d.doc, catalog, { handEdits: ['ktime (place)'] })).toContain(
-      "Changed by the person's own hand (keep these unless the request is about them): ktime (place).",
+    expect(describePlugin(d.doc, catalog, { handEdits: ['kbpm (place)'] })).toContain(
+      "Changed by the person's own hand (keep these unless the request is about them): kbpm (place).",
     );
   });
 
   it("wearLook puts a showcase work's look on; the reference lists the looks", () => {
     const doc = starter('bass', catalog);
-    const { intents } = expandOps(doc, catalog, [{ op: 'wearLook', work: 'neon' }]);
+    const { intents } = expandOps(doc, catalog, [{ op: 'wearLook', work: 'lofi' }]);
     const after = applyIntents(doc, intents, catalog).doc;
-    expect(after.ui.look.tokens).toEqual(findWork('neon')!.build(catalog).ui.look.tokens);
+    expect(after.ui.look.tokens).toEqual(findWork('lofi')!.build(catalog).ui.look.tokens);
     expect(() => expandOps(doc, catalog, [{ op: 'wearLook', work: 'nope' }])).toThrow(
       /No look "nope"/,
     );
-    expect(uiReference('looks', undefined, catalog)).toMatch(/neon: Neon Sweep — .* Colours: bg #/);
+    expect(uiReference('looks', undefined, catalog)).toMatch(/lofi: Low Res — .* Colours: bg #/);
   });
 
   it('palette: the main colours of a picture, largest first', async () => {

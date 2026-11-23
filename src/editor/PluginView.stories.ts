@@ -23,7 +23,7 @@ const meta = {
 export default meta;
 type Story = StoryObj;
 
-/** Playing the Acid Line work: its plugin screen scaled to the view. */
+/** Playing the Contour work: its plugin screen scaled to the view. */
 export const Play: Story = {
   render: () =>
     mount(storySession(acid()), () =>
@@ -33,11 +33,11 @@ export const Play: Story = {
     ),
 };
 
-/** Editing it with the cutoff knob selected: its handles, and its settings in the inspector. */
+/** Editing it with the Drive slider selected: its handles, and its settings in the inspector. */
 export const Edit: Story = {
   render: () => {
     const session = storySession(acid());
-    session.select(['kcut']);
+    session.select(['kdrive']);
     return mount(session, () =>
       h('div', { class: 'main', style: 'height:100vh' }, [
         h('div', { class: 'sidebar' }, [h(PluginInspector)]),
