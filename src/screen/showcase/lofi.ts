@@ -10,11 +10,12 @@
 // its own pixel letters. The sound is a landscape of blocks built on the grid
 // the crusher holds and rounds to: fewer, wider columns at a lower Rate, fewer,
 // taller steps with fewer Bits; its front row is solid, so its steps read as
-// the wave, and a ruler on each edge marks the grid. In front, on the dotted
-// floor of the table, stand the towers for the wobble, the hiss and the tone,
-// each as tall as its value and its name painted on the floor before it, and
-// the OUT tower, whose face is the meter. Each setting is dragged where it
-// shows, with its value in the pixel letters by the hand.
+// the wave, and a ruler on each edge marks the grid, its value at its end. In
+// front, on the dotted grid of the table's floor, stand the towers for the
+// wobble, the hiss and the tone, each on a square of the grid, as tall as its
+// value, its name in front of it, and the OUT tower, whose face is the meter.
+// Each setting is dragged where it shows; under the hand, its name or ruler
+// reads its value in black on a white bar, as a chosen item does in a list.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
@@ -44,7 +45,7 @@ export default defineSubgraph((config: { sampleRate: number }) => {
 
 /** How the floor goes onto the screen (a step across, a step towards you), and the OUT tower, whose face is the meter. */
 const VIEW = { OX: 120, OY: 160, AX: 0.98, AY: 0.1, BX: -0.5, BY: 0.3 };
-const OUT = { i: 740, j: 520, s: 40, h: 92 };
+const OUT = { i: 760, j: 520, s: 40, h: 92 };
 const face = {
   x: VIEW.OX + OUT.i * VIEW.AX + (OUT.j + OUT.s) * VIEW.BX,
   y: VIEW.OY + OUT.i * VIEW.AY + (OUT.j + OUT.s) * VIEW.BY - OUT.h,
@@ -64,17 +65,19 @@ export const CRUSH_GRID = `// The sound as a landscape of blocks on a black tabl
 // zoomed to fit (its loudest point of about the last second reaches 90% of the
 // height). The front row is solid (white tops, dotted fronts), so its steps
 // read as the wave; the rows behind are black with white edges, the older the
-// sparser their edges. A ruler along the front has a tick at every column, the
-// rate at its end; one at the left has a tick at every level, the bits under
-// it. The rows sway with the wobble (fwob). In front, on a floor of dots, stand
-// three towers here and there, each as tall as its value, its name painted on
-// the floor before it: the wobble (it sways), the hiss (its faces fizz with
+// sparser their edges; a black side closes the landscape at its right end. A
+// ruler along the front has a tick at every column, the rate at its end; one at
+// the left has a tick at every level, the bits under it. The rows sway with the
+// wobble (fwob). In front, on a floor of dots every 40 px, stand three towers
+// here and there, each on a square of the dots, as tall as its value, its name
+// upright in front of it: the wobble (it sways), the hiss (its faces fizz with
 // white dots, the more the louder) and the tone; and the OUT tower, whose face
 // is the meter on the plugin. Every tower has a white top, a dotted front and a
 // black side. Drag the landscape across for Rate and up and down for Bits, or a
-// ruler along itself; pull a tower up and down. The value shows by the hand,
-// cut out of what is behind it. Words are in the screen's own pixel letters,
-// the name small in the corner.
+// ruler along itself; pull a tower up and down. Under the hand, the tower's name
+// reads its value, or the ruler's value at its end, black on a white bar. Words
+// are in the screen's own pixel letters, the work's name large on the floor at
+// the front left; no dot of the floor runs into a word.
 const SR = 48000, RMIN = 1500, RMAX = 48000, BMIN = 2, BMAX = 16;
 const WOB = [0, 0.005], HISS = [0, 0.06], TONE = [900, 14000];
 const ROWS = 12, LI = 560, LJ = 180, H = 120;
@@ -90,12 +93,12 @@ export const grid = (rate, bits) => ({
 });
 // From the floor's coordinates (i across, j front to back, in px) and a height, to the screen.
 const P = (i, j, y) => [OX + i * AX + j * BX, OY + i * AY + j * BY - y];
-// The towers in front, here and there on the floor: where each stands (i across, j front to back), what it sets.
+// The towers in front, here and there on the floor, each on a square of its dots: where each stands (i across, j front to back), what it sets.
 const TS = OUT.s, TH = 86;
 const TOWERS = [
-  { id: 'fwob', kind: 'wob', name: 'WOBBLE', i: 250, j: 470, range: WOB, log: false },
-  { id: 'fhiss', kind: 'hiss', name: 'HISS', i: 420, j: 556, range: HISS, log: false },
-  { id: 'ftone', kind: 'tone', name: 'TONE', i: 590, j: 482, range: TONE, log: true },
+  { id: 'fwob', kind: 'wob', name: 'WOBBLE', i: 240, j: 480, range: WOB, log: false },
+  { id: 'fhiss', kind: 'hiss', name: 'HISS', i: 400, j: 560, range: HISS, log: false },
+  { id: 'ftone', kind: 'tone', name: 'TONE', i: 600, j: 480, range: TONE, log: true },
 ];
 // The table's floor in front of the landscape, dotted every 40 px: its first and last i and j.
 const FLOOR = { i0: 160, i1: 840, j0: 400, j1: 640 };
@@ -172,22 +175,17 @@ function prism(ctx, i0, j0, di, dj, y, top, front, right, edge) {
   }
   return [a, b, c, d];
 }
-// The value by the hand: pixel letters cut out of what is behind them (a black margin round them).
-function readout(ctx, text, x, y, ink, paper) {
-  const wdt = String(text).length * 12 - 2, x0 = Math.round(clamp(x - wdt / 2, 10, 710 - wdt)), y0 = Math.round(y - 7);
-  ctx.fillStyle = paper; ctx.fillRect(x0 - 6, y0 - 5, wdt + 12, 24);
-  ctx.fillStyle = ink; px(ctx, text, x0, y0, 2, 'left');
+// Where a word in pixel letters goes, size 2, its top at y, centred on x (kept on the screen); with the margin a bar
+// under it takes.
+function box(text, x, y) {
+  const wdt = String(text).length * 12 - 2, x0 = Math.round(clamp(x - wdt / 2, 8, 712 - wdt));
+  return { x: x0, y: Math.round(y), w: wdt, x0: x0 - 6, y0: Math.round(y) - 5, x1: x0 + wdt + 6, y1: Math.round(y) + 19 };
 }
-// A name painted on the floor from the floor point (i, j): its letters step down along the floor's slope a whole
-// pixel at a time, so they stay crisp.
-function painted(ctx, text, i, j) {
-  const [x, y] = P(i, j, 0), t = String(text).toUpperCase(), k = AY / AX;
-  let x0 = Math.round(x);
-  for (const ch of t) {
-    const g = GLYPHS[ch];
-    if (g) g.split('|').forEach((row, r) => { for (let c = 0; c < 5; c++) if (row[c] === '#') { const cx = x0 + c * 2; ctx.fillRect(cx, Math.round(y + (cx - x) * k) + r * 2, 2, 2); } });
-    x0 += 12;
-  }
+// A word in pixel letters; under the hand, black on a white bar.
+function word(ctx, text, b, on, ink, paper) {
+  if (on) { ctx.fillStyle = ink; ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); }
+  ctx.fillStyle = on ? paper : ink;
+  px(ctx, text, b.x, b.y, 2, 'left');
 }
 export default {
   setup(ctx, f) {
@@ -226,31 +224,56 @@ export default {
     }
     ctx.fillStyle = paper;
     ctx.fillRect(0, 0, w, h);
+    const p = f.pointer, hot = s.drag ? s.drag : p && p.over ? zoneAt(p.x, p.y, f) : null;
+    const on = q => !!hot && hot.id === q.id && hot.kind === q.kind;
+    // The words: each tower's name in front of it (its value under the hand), OUT's, the rulers' values, the work's name.
+    const [r1x, r1y] = P(LI, LJ + 8, 0), [b0x, b0y] = P(-8, LJ, 0);
+    const words = TOWERS.map(q => {
+      const text = !on(q) ? q.name
+        : q.kind === 'wob' ? 'WOBBLE ' + (wob * 1000).toFixed(1) + ' MS'
+        : q.kind === 'hiss' ? 'HISS ' + Math.round(((hiss - HISS[0]) / (HISS[1] - HISS[0])) * 100) + '%'
+        : 'TONE ' + (tone / 1000).toFixed(1) + ' KHZ';
+      const [x, y] = P(q.i + TS / 2, q.j + TS, 0);
+      return { text, b: box(text, x, y + 14), on: on(q) };
+    });
+    const [ox, oy] = P(OUT.i + OUT.s / 2, OUT.j + OUT.s, 0);
+    words.push({ text: 'OUT', b: box('OUT', ox, oy + 14), on: false });
+    const rateText = (rate / 1000).toFixed(1) + ' KHZ', bitsText = Math.round(bits) + ' BIT';
+    const rateOn = !!hot && (hot.kind === 'rate' || hot.kind === 'land'), bitsOn = !!hot && (hot.kind === 'bits' || hot.kind === 'land');
+    const rb = box(rateText, 0, r1y - 2), bb = box(bitsText, 0, b0y + 14);
+    Object.assign(rb, { x: Math.round(r1x + 10), x0: Math.round(r1x + 4), x1: Math.round(r1x + 10) + rb.w + 6 });
+    Object.assign(bb, { x: 16, x0: 10, x1: 16 + bb.w + 6 });
+    words.push({ text: rateText, b: rb, on: rateOn }, { text: bitsText, b: bb, on: bitsOn });
+    const title = { x0: 10, y0: h - 44, x1: 16 + 7 * 18 + 3, y1: h - 10 };
+    // The table's floor in front: a dot every 40 px, none where a word is.
     ctx.fillStyle = ink;
-    px(ctx, 'LOW RES', 16, 16, 2, 'left');
-    // The table's floor in front: a dot every 40 px.
+    const clear = (x, y) => [...words.map(z => z.b), title].some(b => x > b.x0 - 3 && x < b.x1 + 3 && y > b.y0 - 3 && y < b.y1 + 3);
     for (let i = FLOOR.i0; i <= FLOOR.i1; i += 40)
       for (let j = FLOOR.j0; j <= FLOOR.j1; j += 40) {
         const [x, y] = P(i, j, 0);
-        if (x > 2 && x < w - 2 && y < h - 2) ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
+        if (x > 2 && x < w - 2 && y < h - 2 && !clear(x, y)) ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
       }
+    // The work's name, large, on the floor at the front left.
+    px(ctx, 'LOW RES', 16, h - 37, 3, 'left');
     // The rulers: along the front a tick at every column; at the left a tick at every level, the bits under it.
     const ui = LI / C, uj = LJ / ROWS;
     ctx.strokeStyle = ink; ctx.lineWidth = 1;
     ctx.beginPath();
-    const [r0x, r0y] = P(0, LJ + 8, 0), [r1x, r1y] = P(LI, LJ + 8, 0);
+    const [r0x, r0y] = P(0, LJ + 8, 0);
     ctx.moveTo(r0x, r0y); ctx.lineTo(r1x, r1y);
     for (let c = 0; c <= C; c++) { const [x0, y0] = P(c * ui, LJ + 8, 0), [x1, y1] = P(c * ui, LJ + 16, 0); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
-    const [b0x, b0y] = P(-8, LJ, 0);
     ctx.moveTo(b0x, b0y); ctx.lineTo(b0x, b0y - H);
     for (let k = 0; k <= 2 * L; k++) { const yk = (k / (2 * L)) * H, [x0, y0] = P(-8, LJ, yk), [x1, y1] = P(-15, LJ, yk); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
     ctx.stroke();
-    px(ctx, Math.round(bits) + ' BIT', 8, b0y + 14, 2, 'left');
-    px(ctx, (rate / 1000).toFixed(1) + ' KHZ', r1x + 10, r1y - 2, 2, 'left');
     // The landscape, back to front, a row at a time. The front row is solid; the rows behind are black,
-    // edged in white, their edges sparser the older they are.
+    // edged in white, their edges sparser the older they are. Nothing of it shows past its right end, even as the
+    // rows sway: it is cut at the black side that closes it.
     const R = s.rows.length, sway = ((wob - WOB[0]) / (WOB[1] - WOB[0])) * ui * 1.6;
-    const p = f.pointer, hot = s.drag ? s.drag : p && p.over ? zoneAt(p.x, p.y, f) : null;
+    const side = [P(LI, LJ, 0), P(LI, 0, 0), P(LI, 0, H), P(LI, LJ, H)];
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(side[2][0], 0);
+    for (const [x, y] of [side[2], side[1], side[0]]) ctx.lineTo(x, y);
+    ctx.lineTo(side[0][0], h); ctx.lineTo(0, h); ctx.closePath(); ctx.clip();
     for (let r = 0; r < R; r++) {
       const row = s.rows[r], j = ROWS - R + r, off = Math.sin(f.t * 0.62 * 2 * Math.PI - j * 0.55) * sway, now = j === ROWS - 1;
       const age = (ROWS - 1 - j) / (ROWS - 1);
@@ -274,16 +297,15 @@ export default {
       }
       ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke();
     }
-    // The towers, back to front: the wobble sways, the hiss fizzes; each its name on the floor before it.
-    // OUT's face is the meter.
+    ctx.restore();
+    // The landscape's right end: one black side, edged in white, over the ends of its rows.
+    ctx.beginPath(); side.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+    ctx.fillStyle = paper; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+    // The towers, back to front: the wobble sways, the hiss fizzes. OUT's face is the meter.
     for (const q of [...TOWERS].sort((a, b) => a.j - b.j)) {
-      const v = tnorm(f, q), hgt = tall(f, q), on = hot && hot.id === q.id && hot.kind === q.kind;
+      const v = tnorm(f, q), hgt = tall(f, q);
       const sw = q.kind === 'wob' ? Math.sin(f.t * 0.62 * 2 * Math.PI) * v * 6 : 0;
-      prism(ctx, q.i + sw, q.j, TS, TS, hgt, ink, d25, paper, on ? ink : null);
-      if (on) {
-        const [a, b] = [P(q.i + sw, q.j, hgt), P(q.i + sw + TS, q.j + TS, hgt)];
-        ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.strokeRect(Math.min(a[0], b[0]) - 34, a[1] - 6, Math.abs(b[0] - a[0]) + 68, 2);
-      }
+      prism(ctx, q.i + sw, q.j, TS, TS, hgt, ink, d25, paper, on(q) ? ink : null);
       ctx.strokeStyle = ink; ctx.lineWidth = 1;
       const [ex, ey] = P(q.i + sw + TS, q.j + TS, 0), [tx, ty] = P(q.i + sw + TS, q.j + TS, hgt);
       ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(tx, ty); ctx.stroke();
@@ -294,25 +316,9 @@ export default {
           ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
         }
       }
-      ctx.fillStyle = ink;
-      painted(ctx, q.name, q.i - 4, q.j + TS + 26);
     }
     prism(ctx, OUT.i, OUT.j, OUT.s, OUT.s, OUT.h, ink, d25, paper, ink);
-    ctx.fillStyle = ink;
-    painted(ctx, 'OUT', OUT.i + 6, OUT.j + OUT.s + 26);
-    // The value by the hand.
-    if (hot && p) {
-      const text = hot.kind === 'land' ? 'RATE ' + (rate / 1000).toFixed(1) + ' KHZ · ' + Math.round(bits) + ' BIT'
-        : hot.kind === 'rate' ? 'RATE ' + (rate / 1000).toFixed(1) + ' KHZ'
-        : hot.kind === 'bits' ? Math.round(bits) + ' BIT'
-        : hot.kind === 'wob' ? 'WOBBLE ' + (wob * 1000).toFixed(1) + ' MS'
-        : hot.kind === 'hiss' ? 'HISS ' + Math.round(((hiss - HISS[0]) / (HISS[1] - HISS[0])) * 100) + '%'
-        : 'TONE ' + (tone / 1000).toFixed(1) + ' KHZ';
-      // On a tower it rides above its top; elsewhere, above the hand.
-      const q = TOWERS.find(z => z.id === hot.id && z.kind === hot.kind);
-      const [qx, qy] = q ? P(q.i + TS / 2, q.j + TS / 2, tall(f, q)) : [p.x, p.y + 10];
-      readout(ctx, text, qx, Math.max(16, qy - 36), ink, paper);
-    }
+    for (const z of words) word(ctx, z.text, z.b, z.on, ink, paper);
   },
   pointer(e, f) {
     const s = f.state, zone = zoneAt(e.x, e.y, f), fine = e.shift ? 0.1 : 1;
