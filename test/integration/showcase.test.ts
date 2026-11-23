@@ -905,7 +905,7 @@ describe('each work does what its controls say', () => {
     expect([values.ktime, values.kthresh]).toEqual([was.ktime, was.kthresh]);
   });
 
-  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, Cutoff's cursor up and down", async () => {
+  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: their triangles on the time ruler, Cutoff's line up and down", async () => {
     const doc = build('supersaw');
     const wired = (id: string) =>
       Object.values(doc.edges)
@@ -951,13 +951,81 @@ describe('each work does what its controls say', () => {
         );
     };
     const was = { ...values };
-    drag(lanes.attX(was.katt!) - 4, 410, 30, 0); // the rise, across
+    drag(lanes.attX(was.katt!), lanes.TIME.y + 6, 30, 0); // Attack's triangle, across
     expect(values.katt!).toBeGreaterThan(was.katt!);
-    drag(lanes.decX(was.kdec!), lanes.fy(0.4), -30, 0); // the dashed knee, across
+    drag(lanes.decX(was.kdec!), lanes.TIME.y + 18, -30, 0); // Filter decay's, on the row under it
     expect(values.kdec!).toBeLessThan(was.kdec!);
-    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // Cutoff's cursor, up
+    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // Cutoff's line, up
     expect(values.kres!).toBeGreaterThan(was.kres!);
     expect([values.kcut, values.krel, values.kspace]).toEqual([was.kcut, was.krel, was.kspace]);
+  });
+
+  it('Septet: every setting keeps a place on the display to drag, even where two time lines meet', async () => {
+    const doc = build('supersaw');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const f = {
+      state: {} as Record<string, unknown>,
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      setNorm: () => {},
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    /** The settings the hand can take, at points 4 px apart over the whole display. */
+    const taken = () => {
+      const ids = new Set<string>();
+      for (let y = 0; y < el.rect.h; y += 4)
+        for (let x = 0; x < el.rect.w; x += 4) {
+          const t = lanes.where(x, y, f);
+          if (t) ids.add(t.id);
+        }
+      return [...ids].sort();
+    };
+    // Resonance is Cutoff's line dragged up and down.
+    const all = ['katt', 'kcut', 'kdec', 'kdetune', 'kdrift', 'kenv', 'krel', 'kspace', 'kwidth'];
+    expect(taken()).toEqual(all);
+    // Attack's line on Filter decay's, the longest Release: each is still there to take.
+    let lo = 0.001,
+      hi = 2;
+    for (let i = 0; i < 60; i++) {
+      const mid = Math.sqrt(lo * hi);
+      if (lanes.attX(mid) < lanes.decX(0.1)) lo = mid;
+      else hi = mid;
+    }
+    Object.assign(values, { katt: lo, kdec: 0.1, krel: 4 });
+    const x = lanes.attX(lo) as number;
+    expect(Math.abs(x - lanes.decX(0.1))).toBeLessThan(0.01);
+    expect(taken()).toEqual(all);
+    expect(lanes.where(x, 200, f).id).toBe('katt');
+    const at = (type: string, px: number, py: number) =>
+      lanes.default.pointer(
+        { type, x: px, y: py, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+        f,
+      );
+    const was = { ...values };
+    at('down', x, lanes.TIME.y + 18);
+    at('move', x - 20, lanes.TIME.y + 18);
+    at('up', x - 20, lanes.TIME.y + 18);
+    expect(values.kdec).toBeLessThan(was.kdec!);
+    expect(values.katt).toBe(was.katt);
+    // The hall's handle follows the hand: 20 px up raises it 20 px on its square-root scale.
+    const half = (lanes.L.lane * 7) / 2,
+      space = values.kspace!;
+    const hx = lanes.relX(values.krel) + 8,
+      hy = lanes.L.top + half - Math.sqrt(space) * half;
+    at('down', hx, hy);
+    at('move', hx, hy - 20);
+    at('up', hx, hy - 20);
+    expect(Math.sqrt(values.kspace!) * half).toBeCloseTo(Math.sqrt(space) * half + 20, 6);
   });
 
   it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {
