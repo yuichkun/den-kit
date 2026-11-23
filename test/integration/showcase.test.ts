@@ -18,7 +18,7 @@ import { flatten } from '../../src/work/parts.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
-import { FILTER_HILL } from '../../src/screen/showcase/acid.ts';
+import { FILTER_HILL, WAVE_GRAPH } from '../../src/screen/showcase/acid.ts';
 import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
@@ -812,6 +812,50 @@ describe('each work does what its controls say', () => {
     m = marks();
     expect(m.px).toBeCloseTo(200, 0);
     expect(m.y).toBeCloseTo(123, 0);
+  });
+
+  it('Contour: pressing the wave keeps Drive, a drag up raises it by as much as the hand moves, and the half the hand is in picks the wave', async () => {
+    const doc = build('acid');
+    const el = Object.values(doc.ui.elements).find(e => e.name === 'Wave')!;
+    const wave = await import(
+      `data:text/javascript;base64,${Buffer.from(WAVE_GRAPH).toString('base64')}`
+    );
+    const values: Record<string, number | boolean> = { kdrive: 2.2, tsq: false };
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => Number(values[id]),
+      on: (id: string) => values[id] === true,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    wave.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        wave.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // The saw's handle is in the left half; pressing it (and the square's, in the right half) keeps Drive.
+    drag(el.rect.w * 0.125, 60, 0, 0);
+    expect(values).toEqual({ kdrive: 2.2, tsq: false });
+    drag(el.rect.w * 0.625, 40, 0, 0);
+    expect(values).toEqual({ kdrive: 2.2, tsq: true });
+    // The graph from its top (30) to its foot (8 above the bottom) is all of Drive's travel, 1 to 8.
+    const travel = el.rect.h - 8 - 30;
+    drag(el.rect.w * 0.625, 60, 0, -20);
+    expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
+    drag(el.rect.w * 0.625, 60, -el.rect.w * 0.5, 0);
+    expect(values.tsq).toBe(false);
+    expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
   });
 
   it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, Cutoff's cursor up and down", async () => {

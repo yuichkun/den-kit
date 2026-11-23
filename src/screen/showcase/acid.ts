@@ -302,7 +302,8 @@ export const WAVE_GRAPH = `// The wave into the filter: two cycles of saw, or of
 // on, rounder the harder Drive (kdrive) pushes the filter, drawn in line from
 // the middle. Its handle rides the wave in the half for the wave (the left half
 // saw, the right half square), on the saw's slope, which Drive rounds up; press
-// and drag anywhere on it, across for the wave, up for Drive.
+// and drag anywhere on it, across for the wave (the half the hand is in), up for
+// Drive (by as much as the hand moves, so a press alone keeps it).
 const DMAX = 8;
 ${PARTS}
 function frame(f) {
@@ -336,14 +337,15 @@ export default {
     ring(ctx, mix ? w * 0.625 : w * 0.125, g.mid - round(mix ? 1 : 0.5) * g.amp, hot ? 9 : 7, paper, ink);
   },
   pointer(e, f) {
-    const g = frame(f);
-    if (e.type === 'down') f.state.drag = true;
-    if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
-    if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
+    const g = frame(f), s = f.state;
+    if (e.type === 'down') s.drag = { y: e.y, drive: f.value('kdrive') };
+    if (e.type === 'up' || e.type === 'leave') s.drag = false;
+    if (s.drag && (e.type === 'down' || e.type === 'move')) {
       if (e.x > f.w / 2 !== f.on('tsq')) f.set('tsq', e.x > f.w / 2);
-      f.set('kdrive', 1 + Math.max(0, Math.min(1, (g.base - e.y) / (g.base - g.top))) * (DMAX - 1));
+      const drive = s.drag.drive + ((s.drag.y - e.y) / (g.base - g.top)) * (DMAX - 1);
+      if (e.type === 'move') f.set('kdrive', Math.max(1, Math.min(DMAX, drive)));
     }
-    f.cursor(f.state.drag ? 'grabbing' : 'move');
+    f.cursor(s.drag ? 'grabbing' : 'move');
   },
 };
 `;
