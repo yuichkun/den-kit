@@ -1,6 +1,7 @@
 // The audio engine in a real browser: create → sound → rewire → keeps sounding →
 // failure keeps the previous sound; plus what goes wrong (runaway feedback, a
-// codebox that never finishes building or tries to reach out, a device at another rate).
+// codebox that never finishes building or tries to reach out, a device at another rate,
+// a device that closes).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -486,6 +487,25 @@ settle((0, eval)("import('/package.json?codebox-probe', { with: { type: 'json' }
       'the overlay explains it',
     );
     assert.equal(await kit(page, k => k.compileStatus.value), 'ok');
+    await page.close();
+  });
+
+  it('a closed audio device is named on the overlay, and a click there brings the sound back', async () => {
+    const { page, errors } = await ready();
+    // The device goes away under the engine: den-kit did not close it.
+    await kit(page, k => k.engine.ctx.close());
+    await page.waitForFunction(() => (window as unknown as K).__kit.engineState.value === 'error');
+    assert.equal(await page.textContent('[data-testid=start-error]'), 'Audio device closed.');
+    assert.match(
+      (await page.textContent('[data-testid=start-overlay]')) ?? '',
+      /Click anywhere to try again\./,
+    );
+    await startAudio(page);
+    await kit(page, k => k.engine.noteOn(48, 100));
+    let peak = 0;
+    for (let i = 0; i < 20 && peak <= 0.005; i++) peak = await outputPeak(page);
+    assert.ok(peak > 0.005, 'the patch sounds again');
+    assert.deepEqual(errors, []);
     await page.close();
   });
 

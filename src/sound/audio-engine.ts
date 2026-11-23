@@ -184,10 +184,7 @@ export class AudioEngine {
       else if (ctx.state === 'running' && this.state !== 'running')
         this.setState('running', 'Audio running.');
       else if (ctx.state === 'closed' && this.ctx === ctx)
-        this.setState(
-          'error',
-          'Audio device closed. Press "Retry audio" next to the keyboard to restart.',
-        );
+        this.setState('error', 'Audio device closed.');
     };
   }
 
