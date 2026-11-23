@@ -1,0 +1,77 @@
+{
+  "toy": {
+    "seconds": 7.4,
+    "source": null,
+    "notes": [
+      { "at": 0.3, "note": 48, "hold": 0.18, "velocity": 112 },
+      { "at": 0.55, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 0.8, "note": 52, "hold": 0.18, "velocity": 92 },
+      { "at": 1.05, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 1.3, "note": 60, "hold": 0.18, "velocity": 112 },
+      { "at": 1.55, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 1.8, "note": 52, "hold": 0.18, "velocity": 92 },
+      { "at": 2.05, "note": 57, "hold": 0.18, "velocity": 92 },
+      { "at": 2.3, "note": 48, "hold": 0.18, "velocity": 112 },
+      { "at": 2.55, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 2.8, "note": 52, "hold": 0.18, "velocity": 92 },
+      { "at": 3.05, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 3.3, "note": 62, "hold": 0.18, "velocity": 112 },
+      { "at": 3.55, "note": 60, "hold": 0.18, "velocity": 92 },
+      { "at": 3.8, "note": 57, "hold": 0.18, "velocity": 92 },
+      { "at": 4.05, "note": 64, "hold": 0.18, "velocity": 100 },
+      { "at": 4.3, "note": 48, "hold": 0.18, "velocity": 112 },
+      { "at": 4.55, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 4.8, "note": 52, "hold": 0.18, "velocity": 92 },
+      { "at": 5.05, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 5.3, "note": 60, "hold": 0.18, "velocity": 112 },
+      { "at": 5.55, "note": 55, "hold": 0.18, "velocity": 92 },
+      { "at": 5.8, "note": 52, "hold": 0.18, "velocity": 92 },
+      { "at": 6.05, "note": 57, "hold": 0.18, "velocity": 92 },
+      { "at": 6.3, "note": 48, "hold": 0.6, "velocity": 112 },
+      { "at": 6.3, "note": 64, "hold": 0.6, "velocity": 100 }
+    ],
+    "moves": [
+      { "widget": "kfizz", "port": "value", "from": 0.5, "to": 1.6, "at": 2.0, "takes": 1.6 },
+      { "widget": "kbounce", "port": "value", "from": 14, "to": 20, "at": 4.2, "takes": 1.3 }
+    ]
+  },
+  "pad": {
+    "seconds": 9,
+    "source": null,
+    "notes": [
+      { "at": 0.0, "note": 48, "hold": 3.9, "velocity": 96 },
+      { "at": 0.0, "note": 52, "hold": 3.9, "velocity": 90 },
+      { "at": 0.0, "note": 55, "hold": 3.9, "velocity": 90 },
+      { "at": 0.0, "note": 59, "hold": 3.9, "velocity": 90 },
+      { "at": 4.1, "note": 53, "hold": 3.6, "velocity": 96 },
+      { "at": 4.1, "note": 57, "hold": 3.6, "velocity": 90 },
+      { "at": 4.1, "note": 60, "hold": 3.6, "velocity": 90 },
+      { "at": 4.1, "note": 64, "hold": 3.6, "velocity": 90 }
+    ],
+    "moves": [
+      { "widget": "xy1", "port": "x", "from": 0.55, "to": 0.85, "at": 1.0, "takes": 4.0 },
+      { "widget": "xy1", "port": "y", "from": 0.35, "to": 0.75, "at": 1.0, "takes": 4.0 },
+      { "widget": "kspace", "port": "value", "from": 0.38, "to": 0.62, "at": 5.6, "takes": 1.6 }
+    ]
+  },
+  "lofi": {
+    "seconds": 8,
+    "source": "guitar",
+    "notes": [],
+    "moves": [
+      { "widget": "fwob", "port": "value", "from": 0.0015, "to": 0.0042, "at": 1.2, "takes": 1.8 },
+      { "widget": "ftone", "port": "value", "from": 5200, "to": 2600, "at": 3.6, "takes": 1.6 },
+      { "widget": "fbits", "port": "value", "from": 8, "to": 6, "at": 5.8, "takes": 1.2 }
+    ]
+  },
+  "tapeecho": {
+    "seconds": 8,
+    "source": "drums",
+    "notes": [],
+    "moves": [
+      { "widget": "kfb", "port": "value", "from": 0.55, "to": 0.78, "at": 1.2, "takes": 1.6 },
+      { "widget": "ktime", "port": "value", "from": 0.32, "to": 0.46, "at": 3.6, "takes": 1.8 },
+      { "widget": "kwow", "port": "value", "from": 0.0012, "to": 0.0024, "at": 5.9, "takes": 1.0 }
+    ]
+  }
+}

@@ -1,0 +1,149 @@
+<!doctype html>
+<!--
+  The places, side by side: where a person who does not know den-kit meets a work,
+  each place showing the work only the way it can. The frames of the places are
+  mock-ups; the works' pages, pictures and clips are real (serve.mjs serves them).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meeting a work outside den-kit</title>
+    <link rel="stylesheet" href="/field.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Meeting a work outside den-kit</h1>
+      <p class="lead">
+        Each place shows the same work the way that place can show it. Pick a work, then open the
+        link in each place as someone who has never heard of den-kit. The places are mock-ups; the
+        pages, pictures and clips behind the links are real.
+      </p>
+      <nav class="works" id="works" aria-label="Works"></nav>
+    </header>
+
+    <main class="layout">
+      <section class="places">
+        <article class="place" id="chat">
+          <h2>A chat that plays the clip</h2>
+          <p class="how">
+            Like iMessage and Discord: when the page names an mp4 clip (<code>og:video</code>), the
+            clip plays inside the conversation. The sound starts on the page the link opens.
+          </p>
+          <div class="mock chat">
+            <div class="bubble in">this is so fun, try it</div>
+            <a class="preview video" data-open="work">
+              <div class="clipbox">
+                <video id="clip" muted loop playsinline autoplay></video>
+                <button type="button" class="sound" id="clip-sound" aria-pressed="false">
+                  Sound off
+                </button>
+              </div>
+              <span class="title" data-tag="og:title"></span>
+              <span class="domain" data-domain></span>
+            </a>
+          </div>
+        </article>
+
+        <article class="place" id="timeline">
+          <h2>A timeline that shows the picture</h2>
+          <p class="how">
+            Like the X apps, Bluesky, Slack and Mastodon: the post shows the picture
+            (<code>og:image</code>) and the name. Nothing plays until the page opens.
+          </p>
+          <div class="mock timeline">
+            <div class="post">
+              <span class="avatar" aria-hidden="true"></span>
+              <div class="body">
+                <span class="who">a friend <span class="handle">@friend</span></span>
+                <p class="text" id="post-text"></p>
+                <a class="preview card" data-open="work">
+                  <img id="card" alt="" />
+                  <span class="title" data-tag="og:title"></span>
+                  <span class="domain" data-domain></span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="place" id="article">
+          <h2>An article with the work in it</h2>
+          <p class="how">
+            A blog post or a document that can embed a page: the work's picture and one button.
+            Pressing it plays the work right there, and the next touch is the reader's own.
+          </p>
+          <div class="mock article">
+            <p class="prose" id="prose-1"></p>
+            <div class="embed">
+              <iframe id="embed" title="The work" allow="autoplay; microphone; midi"></iframe>
+            </div>
+            <p class="prose">
+              Everything on this screen was put together in den-kit, and the page above is the real
+              thing, not a recording.
+            </p>
+          </div>
+        </article>
+
+        <article class="place" id="venue">
+          <h2>A card at a venue</h2>
+          <p class="how">
+            At a hands-on event or next to a speaker: a card with the work's picture and a code. A
+            phone camera opens the same page as the links.
+          </p>
+          <div class="mock venue">
+            <div class="venue-card">
+              <img id="venue-picture" alt="" />
+              <div class="venue-text">
+                <strong id="venue-name"></strong>
+                <span>Scan to play it on your phone. No app, no sign-up.</span>
+              </div>
+              <img id="qr" class="qr" alt="QR code that opens the work's page" />
+            </div>
+            <a class="plainlink" data-open="work">Open what the code opens</a>
+          </div>
+        </article>
+
+        <article class="place" id="today">
+          <h2>Today's link</h2>
+          <p class="how">
+            The page as den-kit exports it now: it is called "den-kit player" and has no picture, so
+            every work's link looks the same.
+          </p>
+          <div class="mock chat">
+            <div class="bubble in">this is so fun, try it</div>
+            <a class="preview bare" data-open="plain">
+              <span class="title" id="plain-title"></span>
+              <span class="domain" data-domain></span>
+            </a>
+          </div>
+        </article>
+
+        <details class="tags">
+          <summary>The tags a chat or timeline reads from the work's page</summary>
+          <pre id="tags"></pre>
+        </details>
+      </section>
+
+      <aside class="phone-side" aria-label="What opens">
+        <div class="phone-head">
+          <span>What opens on a phone</span>
+          <a id="phone-tab" target="_blank" rel="noopener">Open in a new tab</a>
+        </div>
+        <div class="phone">
+          <iframe
+            id="phone"
+            title="The page the link opens"
+            allow="autoplay; microphone; midi"
+          ></iframe>
+          <p class="phone-empty" id="phone-empty">Open a link in any place.</p>
+        </div>
+        <p class="phone-note">
+          Shown as a touch screen gets it. On a phone, open this page itself: the links then open as
+          they would from a chat.
+        </p>
+      </aside>
+    </main>
+    <script type="module" src="/field.js"></script>
+  </body>
+</html>

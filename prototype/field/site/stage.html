@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  The stage make-media.mjs records a work on: the work's page (the real player, at
+  /w/<id>/) above a band that names it. ?for=clip is the clip (1280×720), ?for=card
+  the picture a link preview shows (1200×630).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stage</title>
+    <style>
+      @font-face {
+        font-family: Lato;
+        font-weight: 400;
+        src: url(/font/400.woff2) format('woff2');
+      }
+      @font-face {
+        font-family: Lato;
+        font-weight: 700;
+        src: url(/font/700.woff2) format('woff2');
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0d0d0f;
+        color: #fff;
+        font-family: Lato, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      iframe {
+        flex: 1;
+        width: 100%;
+        border: 0;
+        display: block;
+      }
+      .band {
+        flex: none;
+        height: 15%;
+        display: flex;
+        align-items: center;
+        gap: 2.2vh;
+        padding: 0 4.4vh;
+      }
+      .name {
+        font-weight: 700;
+        font-size: 5.4vh;
+        letter-spacing: 0.01em;
+      }
+      .what {
+        font-size: 3.2vh;
+        opacity: 0.65;
+      }
+      .cta {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 1.6vh;
+        padding: 1.6vh 3vh 1.6vh 2.6vh;
+        border-radius: 999px;
+        background: #fff;
+        color: #0d0d0f;
+        font-weight: 700;
+        font-size: 3.2vh;
+      }
+      .cta::before {
+        content: '';
+        border-left: 2.4vh solid #0d0d0f;
+        border-top: 1.5vh solid transparent;
+        border-bottom: 1.5vh solid transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="work" title="The work" allow="autoplay"></iframe>
+    <div class="band">
+      <span class="name" id="name"></span>
+      <span class="what" id="what"></span>
+      <span class="cta" id="cta"></span>
+    </div>
+    <script type="module">
+      const query = new URLSearchParams(location.search);
+      const id = query.get('w');
+      const clip = query.get('for') !== 'card';
+      const works = await (await fetch('/works.json')).json();
+      const work = works.find(w => w.id === id);
+      document.getElementById('name').textContent = work.name;
+      document.getElementById('what').textContent = `${work.kind} · made with den-kit`;
+      document.getElementById('cta').textContent = clip
+        ? 'Tap to play it yourself'
+        : 'Play it in your browser';
+      const frame = document.getElementById('work');
+      frame.addEventListener('load', () => {
+        // The band names the work, so the page's own bar and buttons stay out of the picture.
+        const style = frame.contentDocument.createElement('style');
+        style.textContent = '.about, .dock, .keys-hint, .keys { display: none !important; }';
+        frame.contentDocument.head.append(style);
+        document.body.dataset.ready = 'yes';
+      });
+      frame.src = `/w/${id}/`;
+    </script>
+  </body>
+</html>
