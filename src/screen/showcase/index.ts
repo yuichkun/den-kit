@@ -67,7 +67,8 @@ export const WORKS: readonly Work[] = [
     id: 'tapeecho',
     title: 'Echo Line',
     kind: 'Effect',
-    prompt: 'A tape echo drawn as one line: in, onto the tape, and back as each echo returns',
+    prompt:
+      'A tape echo for a quick slap or long trails: each repeat comes back darker, with wow and hiss',
     reference: 'iF DESIGN AWARD 2022: SIG CRUISER',
     build: tapeecho,
   },
@@ -75,7 +76,8 @@ export const WORKS: readonly Work[] = [
     id: 'duck',
     title: 'Yield',
     kind: 'Effect',
-    prompt: 'A delay that gives way while you play, drawn as road signs you can read from afar',
+    prompt:
+      'A delay that gives way while you play: the echoes duck under your notes and swell in the gaps',
     reference: 'iF DESIGN AWARD 2025: ABB A400 All-in-One EV Charger',
     build: duck,
   },
@@ -83,8 +85,7 @@ export const WORKS: readonly Work[] = [
     id: 'lofi',
     title: 'Low Res',
     kind: 'Effect',
-    prompt:
-      'Lo-fi: fewer bits, a slower rate, wobble and hiss, the sound drawn on the grid it snaps to',
+    prompt: 'Lo-fi for sounds that feel old and worn: fewer bits, a slower rate, wobble and hiss',
     reference: 'CEDEC AWARDS 2018, Visual Arts top prize: the NieR:Automata UI design team',
     build: lofi,
   },
