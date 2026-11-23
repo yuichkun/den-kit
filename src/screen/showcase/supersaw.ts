@@ -52,8 +52,9 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // SPACE, on its top. The ruler on top is where Width (kwidth) puts each copy
 // from left to right, numbered as its tab is. Each triangle of the time ruler is
 // named. The band at the bottom is the output's spectrum from low to high,
-// smoothed, with a line at Cutoff and a dotted one where Env opens it to with
-// each note, each named by its triangle.
+// smoothed, over dotted lines at 100 Hz, 1 kHz and 10 kHz named above it, with
+// a line at Cutoff and a dotted one where Env opens it to with each note, each
+// named by its triangle.
 // Drag the lanes across for Detune; a tab up and down for Drift; a triangle on
 // the time ruler under the lanes, or its line through them, across for Attack
 // or Release (the upper row) or Filter decay (the lower row); the hall's dots
@@ -303,6 +304,14 @@ export default {
     // Cutoff, a dotted one where Env opens it to.
     const spec = f.spectrum || new Float32Array(64), sh = SPEC.bot - SPEC.top - 6;
     if (!s.spec) s.spec = new Float32Array(64);
+    // Its scale: a dotted line at each decade, as the graticule over the lanes is, named above the band.
+    ctx.font = '600 8px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (const [hz, name] of [[100, '100 Hz'], [1000, '1 kHz'], [10000, '10 kHz']]) {
+      const x = Math.round(fx(hz));
+      ctx.fillStyle = grid;
+      for (let y = SPEC.top; y < SPEC.bot; y += 4) ctx.fillRect(x, y, 1, 2);
+      ctx.fillStyle = ink; ctx.fillText(name, x + 3, SPEC.top - 6);
+    }
     const pts = [];
     for (let k = 0; k < 64; k++) {
       const a = spec[k] || 0, v = ((k ? spec[k - 1] || 0 : a) + 2 * a + (k < 63 ? spec[k + 1] || 0 : a)) / 4;
