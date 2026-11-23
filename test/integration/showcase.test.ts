@@ -17,6 +17,7 @@ import { validate } from '../../src/work/validate.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { CRUSHER } from '../../src/screen/showcase/lofi.ts';
+import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -555,6 +556,90 @@ describe('each work does what its controls say', () => {
     note(`rain: wind level near0.25 ${far.toFixed(4)}, near0.9 ${close.toFixed(4)}`);
     expect(close).toBeGreaterThan(3 * far);
   }, 120000);
+
+  it('Rain Field: a sound behind you is duller, most when straight behind, and the same at the sides', async () => {
+    const doc = turned(build('rain'), [
+      ['kdrops', 'value', 0.9],
+      ['kwind', 'value', 0],
+      ...onlyDrops,
+      ['kroom', 'value', 0],
+    ]);
+    expect(doc.parts.place!.params.map(p => p.id)).toEqual(['level', 'pan', 'behind']);
+    const centroid = async (pan: number, behind: boolean) =>
+      analyse(
+        await render(
+          turned(doc, [
+            ['kdropspan', 'value', pan],
+            ['kdropsback', 'value', behind],
+          ]),
+          { seconds: 2 },
+        ),
+        SR,
+      ).centroidHz.mean;
+    const ahead = await centroid(0, false),
+      behind = await centroid(0, true),
+      sideAhead = await centroid(1, false),
+      sideBehind = await centroid(1, true);
+    note(
+      `rain: drops centroid ahead ${ahead} Hz, behind ${behind} Hz; at the side ${sideAhead} / ${sideBehind} Hz`,
+    );
+    expect(behind).toBeLessThan(0.75 * ahead);
+    expect(sideBehind).toBeCloseTo(sideAhead, 0);
+  }, 120000);
+
+  it('Rain Field: where a dot sits is all in the work: dragged behind you its Behind switch turns on, and a field started over finds it there', async () => {
+    const doc = build('rain');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    const field = (
+      await import(`data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`)
+    ).default;
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    let cursor = '';
+    const start = () => {
+      const f = {
+        w: el.rect.w,
+        h: el.rect.h,
+        state: {},
+        value: (id: string) => values[id] as number,
+        on: (id: string) => values[id] === true,
+        set: (id: string, v: number | boolean) => {
+          values[id] = v;
+        },
+        cursor: (c: string) => {
+          cursor = c;
+        },
+      };
+      field.setup(fakeCanvas(), f);
+      return f;
+    };
+    const R = Math.min(el.rect.w, el.rect.h) / 2 - 22,
+      cx = el.rect.w / 2,
+      cy = el.rect.h / 2;
+    const at = (f: unknown, type: string, x: number, y: number) =>
+      field.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
+    // The drops start straight ahead (0.7 near); drag them to the same distance behind you.
+    expect(values.kdropsback).toBe(false);
+    const f = start();
+    at(f, 'down', cx, cy - 0.3 * R);
+    at(f, 'move', cx, cy + 0.5 * R);
+    at(f, 'up', cx, cy + 0.5 * R);
+    expect(values.kdropsback).toBe(true);
+    expect(values.kdrops).toBeCloseTo(0.5, 5);
+    expect(values.kdropspan).toBeCloseTo(0, 5);
+    // A field started over (the work opened again) knows only the work: the dot is behind you.
+    const again = start();
+    at(again, 'move', cx, cy + 0.5 * R);
+    expect(cursor).toBe('grab');
+    // Undoing the switch puts it in front again.
+    values.kdropsback = false;
+    at(again, 'move', cx, cy + 0.5 * R);
+    expect(cursor).toBe('default');
+    at(again, 'move', cx, cy - 0.5 * R);
+    expect(cursor).toBe('grab');
+  });
 
   it('Tonic: plays by itself; Sa moves the whole drone, Jawari brightens the buzz', async () => {
     const doc = build('tonic');

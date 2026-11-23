@@ -7,9 +7,10 @@
 // falls on its own (its own random numbers, and its own pace and pitch from
 // spreads), and Splay spreads the copies across the stereo field. The drips are
 // the same part used once more, slower and lower. Where a sound sits is another
-// part (Place): Level from how near it is, Pan from which side, used once for
-// each of the four sounds. A small room holds it all. The Drop's face is on the
-// plugin, so its knobs play every copy at once.
+// part (Place): Level from how near it is, Pan from which side, and Behind,
+// which dulls a sound behind the listener (most when straight behind); it is
+// used once for each of the four sounds. A small room holds it all. The Drop's
+// face is on the plugin, so its knobs play every copy at once.
 // The design follows the thinking of Odio (Apple Design Awards 2022,
 // Innovation), an app of sound worlds you mix by placing each sound in the space
 // around you: the mixer is that space, seen from above, with the listener in
@@ -19,63 +20,72 @@ import type { PartFace } from '../../work/schema.ts';
 import { faceIntents } from '../faces.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The four sounds: their controls (level and pan, kept in the patch), colour, icon and where they start. */
+/** The four sounds: their controls (level, pan and behind, kept in the patch), colour, icon and where they start. */
 const LAYERS = [
   {
     name: 'Drops',
     level: 'kdrops',
     pan: 'kdropspan',
+    back: 'kdropsback',
     color: '#8ec1d6',
     icon: 'drops',
     at: [0.7, 0],
+    behind: false,
   },
   {
     name: 'Wind and far rain',
     level: 'kwind',
     pan: 'kwindpan',
+    back: 'kwindback',
     color: '#b6c78f',
     icon: 'wind',
     at: [0.4, 0.6],
+    behind: false,
   },
   {
     name: 'Thunder',
     level: 'kthunder',
     pan: 'kthunderpan',
+    back: 'kthunderback',
     color: '#e2b274',
     icon: 'thunder',
     at: [0.35, -0.7],
+    behind: false,
   },
   {
     name: 'Drips',
     level: 'kdrips',
     pan: 'kdripspan',
+    back: 'kdripsback',
     color: '#cba3d8',
     icon: 'drips',
     at: [0.55, 0.4],
+    behind: true,
   },
 ] as const;
 
 /** The field around the listener, seen from above; it takes the mouse. */
 export const FIELD = `// The space around you, seen from above, you in the middle (front is up).
 // Each sound is a dot: how near it is sets its level (1 in the middle, 0 at the
-// edge), the side it is on sets its pan (-1 left, +1 right). Drag a dot to move
-// the sound; dots behind you stay behind. The dots move with what is heard:
+// edge), the side it is on sets its pan (-1 left, +1 right), and the half it is
+// in sets its Behind switch (heard duller behind you). Drag a dot to move the
+// sound. The dots move with what is heard:
 // drops land as small ripples by the Drops dot (sharp jumps high in the
 // spectrum), a drip makes one wider ripple (a jump around its note,
 // props.dripHz), the wind's arcs follow the low middle of the spectrum, and
 // thunder rolls out of its dot when the lowest bands rise.
 const TAU = Math.PI * 2;
 const LAYERS = [
-  { level: 'kdrops', pan: 'kdropspan', color: '#8ec1d6', icon: 'drops' },
-  { level: 'kwind', pan: 'kwindpan', color: '#b6c78f', icon: 'wind' },
-  { level: 'kthunder', pan: 'kthunderpan', color: '#e2b274', icon: 'thunder' },
-  { level: 'kdrips', pan: 'kdripspan', color: '#cba3d8', icon: 'drips' },
+  { level: 'kdrops', pan: 'kdropspan', back: 'kdropsback', color: '#8ec1d6', icon: 'drops' },
+  { level: 'kwind', pan: 'kwindpan', back: 'kwindback', color: '#b6c78f', icon: 'wind' },
+  { level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback', color: '#e2b274', icon: 'thunder' },
+  { level: 'kdrips', pan: 'kdripspan', back: 'kdripsback', color: '#cba3d8', icon: 'drips' },
 ];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-function spot(f, k, R, behind) {
+function spot(f, k, R) {
   const L = LAYERS[k];
   const r = (1 - clamp(f.value(L.level), 0, 1)) * R, a = Math.asin(clamp(f.value(L.pan), -1, 1));
-  return { x: r * Math.sin(a), y: (behind ? 1 : -1) * r * Math.cos(a) };
+  return { x: r * Math.sin(a), y: (f.on(L.back) ? 1 : -1) * r * Math.cos(a) };
 }
 function icon(ctx, kind, x, y, color) {
   ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -99,12 +109,12 @@ function icon(ctx, kind, x, y, color) {
 const band = hz => (64 * Math.log(hz / 96)) / Math.log(250);
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, { drag: -1, over: -1, behind: [false, false, false, true], prev: null, ripples: [], lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0 });
+    Object.assign(f.state, { drag: -1, over: -1, prev: null, ripples: [], lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0 });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 22;
     const fg = f.color('fg'), muted = f.color('muted'), track = f.color('track'), bg = f.color('bg');
-    const at = k => { const p = spot(f, k, R, s.behind[k]); return { x: cx + p.x, y: cy + p.y }; };
+    const at = k => { const p = spot(f, k, R); return { x: cx + p.x, y: cy + p.y }; };
     ctx.clearRect(0, 0, w, h);
     // The space: a disc, rings for how near, the left-right and front-back lines.
     ctx.fillStyle = f.color('knob');
@@ -193,7 +203,7 @@ export default {
     const s = f.state, cx = f.w / 2, cy = f.h / 2, R = Math.min(f.w, f.h) / 2 - 22;
     const near = () => {
       for (let k = 0; k < LAYERS.length; k++) {
-        const p = spot(f, k, R, s.behind[k]);
+        const p = spot(f, k, R);
         if (Math.hypot(e.x - cx - p.x, e.y - cy - p.y) < 24) return k;
       }
       return -1;
@@ -203,9 +213,9 @@ export default {
     if (e.type === 'up' || e.type === 'leave') s.drag = -1;
     if (s.drag >= 0 && (e.type === 'down' || e.type === 'move')) {
       const dx = e.x - cx, dy = e.y - cy, d = Math.hypot(dx, dy), L = LAYERS[s.drag];
-      s.behind[s.drag] = dy > 0;
       f.set(L.level, 1 - Math.min(R, d) / R);
       f.set(L.pan, d < 1 ? 0 : clamp(dx / d, -1, 1));
+      f.set(L.back, dy > 0);
     }
     f.cursor(s.drag >= 0 ? 'grabbing' : s.over >= 0 ? 'grab' : 'default');
   },
@@ -314,7 +324,24 @@ export function rain(catalog: Catalog) {
     'ring1',
     'vca1',
   ];
-  const place = ['pan1', 'balL1', 'balR1', 'clL1', 'clR1', 'lvl1', 'gL1', 'gR1', 'outL1', 'outR1'];
+  const place = [
+    'pan1',
+    'balL1',
+    'balR1',
+    'clL1',
+    'clR1',
+    'lvl1',
+    'gL1',
+    'gR1',
+    'outL1',
+    'outR1',
+    'back1',
+    'side1',
+    'dull1',
+    'tone1',
+    'lpL1',
+    'lpR1',
+  ];
   const field = { x: 24, y: 84, w: 404, h: 392 };
   const R = Math.min(field.w, field.h) / 2 - 22,
     cx = field.x + field.w / 2,
@@ -372,7 +399,8 @@ export function rain(catalog: Catalog) {
         wire('env1.level', 'vca1.b'),
         add('splay1', 'kit.splay', { label: 'Across', values: { width: 0.85 } }),
         wire('vca1.out', 'splay1.in'),
-        // ---- where a sound sits: Level from how near, Pan from which side (left and right kept in balance) ----
+        // ---- where a sound sits: Level from how near, Pan from which side (left and right kept in balance),
+        // Behind dulls it: straight behind, a lowpass at 4 kHz takes its highs; at the sides it stays as it is ----
         add('pan1', 'kit.add', { label: 'Pan', values: { a: 0, b: 0 } }),
         add('balL1', 'kit.scale', { label: 'Left side', values: { scale: -1, offset: 1 } }),
         add('balR1', 'kit.scale', { label: 'Right side', values: { scale: 1, offset: 1 } }),
@@ -395,11 +423,29 @@ export function rain(catalog: Catalog) {
         wire('splay1.right', 'outR1.a'),
         wire('gL1.out', 'outL1.b'),
         wire('gR1.out', 'outR1.b'),
+        add('back1', 'kit.mul', { label: 'Behind', values: { a: 0 } }),
+        add('side1', 'kit.mul', { label: 'Pan × pan' }),
+        add('dull1', 'kit.scale', {
+          label: 'Duller (Hz)',
+          values: { scale: 16000, offset: -16000 },
+        }),
+        add('tone1', 'kit.add', { label: 'Tone (Hz)', values: { b: 20000 } }),
+        add('lpL1', 'den.filter', { label: 'Left tone', values: { resonance: 0.707 } }),
+        add('lpR1', 'den.filter', { label: 'Right tone', values: { resonance: 0.707 } }),
+        wire('pan1.out', 'side1.a'),
+        wire('pan1.out', 'side1.b'),
+        wire('side1.out', 'dull1.in'),
+        wire('dull1.out', 'back1.b'),
+        wire('back1.out', 'tone1.a'),
+        wire('outL1.out', 'lpL1.input'),
+        wire('outR1.out', 'lpR1.input'),
+        wire('tone1.out', 'lpL1.cutoff'),
+        wire('tone1.out', 'lpR1.cutoff'),
         // ---- the field: four sounds into a small room ----
         add('mixl1', 'kit.mix', { label: 'Left', config: { channels: 4 } }),
         add('mixr1', 'kit.mix', { label: 'Right', config: { channels: 4 } }),
-        wire('outL1.out', 'mixl1.in1'),
-        wire('outR1.out', 'mixr1.in1'),
+        wire('lpL1.out', 'mixl1.in1'),
+        wire('lpR1.out', 'mixr1.in1'),
         // Wind and the rain further off: low noise, its tone swept by gusts.
         add('air1', 'den.seededNoise', { label: 'Air', config: { seed: 7 } }),
         add('gust1', 'den.lfo', { label: 'Gusts', values: { rate: 0.11 } }),
@@ -460,7 +506,7 @@ export function rain(catalog: Catalog) {
         { op: 'makePart', ids: drop, name: 'Drop', id: 'drop', node: 'drop1' },
         { op: 'makePart', ids: place, name: 'Place', id: 'place', node: 'place1' },
       ],
-      // Their knobs: how often a drop ticks, how high it rings, how long it splashes; how near a sound is, and which side.
+      // Their knobs: how often a drop ticks, how high it rings, how long it splashes; how near a sound is, which side, and whether behind.
       doc => [
         ...onlyParams(doc, 'drop', [
           {
@@ -488,6 +534,7 @@ export function rain(catalog: Catalog) {
         ...onlyParams(doc, 'place', [
           { node: 'lvl1', port: 'a', id: 'level', label: 'Level', range: { min: 0, max: 1 } },
           { node: 'pan1', port: 'a', id: 'pan', label: 'Pan', range: { min: -1, max: 1 } },
+          { node: 'back1', port: 'a', id: 'behind', label: 'Behind', range: { min: 0, max: 1 } },
         ]),
       ],
       doc => {
@@ -504,7 +551,7 @@ export function rain(catalog: Catalog) {
           {
             op: 'updatePart',
             part: 'place',
-            doc: 'Where a sound sits around the listener: Level from how near it is, Pan from which side (the far side fades out, the near side stays). Takes and gives left and right.',
+            doc: 'Where a sound sits around the listener: Level from how near it is, Pan from which side (the far side fades out, the near side stays), Behind (0 or 1) dulls it behind the listener, most when straight behind. Takes and gives left and right.',
             labels: { [inL!]: 'Left in', [inR!]: 'Right in', [outL!]: 'Left', [outR!]: 'Right' },
           },
           // ×16, each copy at its own pace and pitch.
@@ -558,6 +605,8 @@ export function rain(catalog: Catalog) {
               [-1, 1, 'linear', ''],
               l.at[1],
             ),
+            add(l.back, 'ui.toggle', { label: `${l.name}: behind`, values: { value: l.behind } }),
+            wire(`${l.back}.out`, `place${i + 1}.behind`),
           ]),
           // ---- the plugin: the space around you, the sounds in it, the Drop's face ----
           {
