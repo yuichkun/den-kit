@@ -14,6 +14,7 @@ import { applyIntents, type Intent } from '../../src/work/ops.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../src/work/persistence.ts';
 import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
 import { validate } from '../../src/work/validate.ts';
+import { flatten } from '../../src/work/parts.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
@@ -585,6 +586,21 @@ describe('each work does what its controls say', () => {
     note(`supersaw: centroid cutoff200 ${dark} Hz, cutoff6000 ${bright} Hz`);
     expect(bright).toBeGreaterThan(3 * dark);
   }, 120000);
+
+  it('Septet: each lane drifts by the number its copy plays with', () => {
+    const doc = build('supersaw');
+    const lanes = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const shown = String(lanes.props?.drift).split(' ').map(Number);
+    // What the sound uses: each copy's own Which saw number, through Drift way.
+    const flat = flatten(doc, catalog).doc;
+    const way = doc.nodes.driftdir1!.values as { scale: number; offset: number };
+    const played = Array.from(
+      { length: 7 },
+      (_, k) => Number(flat.nodes[`saw1_${k}_copy1`]!.config.random) * way.scale + way.offset,
+    );
+    expect(shown).toHaveLength(7);
+    shown.forEach((v, k) => expect(v, `copy ${k + 1}`).toBeCloseTo(played[k]!, 2));
+  });
 
   it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {
     const doc = turned(build('rain'), [

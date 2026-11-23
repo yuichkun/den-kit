@@ -19,13 +19,18 @@
 // (Detune); dragging their offsets up and down scatters them (Drift).
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
+import { random01 } from '../../work/stacks.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
+
+/** How far each of the seven copies drifts, −1…+1: the random number Which saw gives it, scaled as Drift way does. */
+const OWN = Array.from({ length: 7 }, (_, k) => 2 * random01(1, [k]) - 1);
 
 /** The display: the seven saws as lanes, the stereo ruler, the amp lane and the filter band; each setting is dragged where it shows. */
 export const SAW_LANES = `// The whole plugin is one display, read like a scope's: every copy of the Saw
 // on its own lane at once, cursors and handles on the traces themselves.
 // Lanes: copy k plays Detune × (its place from -1 to +1) semitones off the note
-// plus a small drift of its own (kdetune, kdrift), so each lane is drawn at its
+// plus Drift × its own number from -1 to +1 (kdetune, kdrift; the numbers in
+// props.drift, the ones the patch's Which saw gives each copy), so each lane is drawn at its
 // own pitch (the difference shown 8× larger) and slides against the middle lane
 // as fast as it beats, slowed down for the eye; a lower Cutoff (kcut, opened by
 // Env, kenv) rounds the teeth. Drag across the lanes: Detune. The offsets on the
@@ -36,7 +41,7 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // filter band is the output's spectrum with two cursors: a at Cutoff, b where
 // Env opens it to; drag either. A setting's name and value show on a plate by
 // it while the hand is on it. Wheel: finer steps; double click: first value.
-const DRIFT = [0.42, -0.77, 0.15, -0.31, 0.88, -0.56, 0.69];
+const list = v => String(v ?? '').split(/[ ,]+/).filter(Boolean).map(Number);
 const N = 7, ZOOM = 8, TEETH = 18;
 const L = { x0: 72, x1: 640, top: 64, lane: 44 };
 const RULER = { x0: 412, x1: 736, y: 40 };
@@ -101,7 +106,7 @@ export default {
   draw(ctx, f) {
     const w = f.w, h = f.h, s = f.state;
     const ink = f.color('fg'), white = f.color('accent'), grid = f.color('track');
-    const detune = f.value('kdetune'), drift = f.value('kdrift'), width = f.value('kwidth');
+    const detune = f.value('kdetune'), drift = f.value('kdrift'), width = f.value('kwidth'), own = list(f.props.drift);
     const cutHz = f.value('kcut'), env = f.value('kenv'), rel = f.value('krel'), space = f.value('kspace');
     const open = cutHz * Math.pow(2, env * 0.4);
     const round = clamp(Math.log2(5000 / open) / 5, 0, 0.85);
@@ -121,7 +126,7 @@ export default {
     const knot = TEETH / 2 + (TEETH / 2 - 2) * Math.sin(f.t * 0.45);
     for (let k = 0; k < N; k++) {
       const y0 = L.top + k * L.lane, mid = y0 + L.lane / 2;
-      const st = detune * placeOf(k) + drift * DRIFT[k];
+      const st = detune * placeOf(k) + drift * (own[k] || 0), cents = Math.round(st * 100);
       const ratio = 1 + ZOOM * (Math.pow(2, st / 12) - 1);
       const amp = L.lane * 0.3 * (0.5 + 0.5 * loud);
       ctx.fillStyle = ink;
@@ -147,7 +152,7 @@ export default {
       }
       ctx.stroke();
       ctx.restore();
-      label(ctx, (st >= 0 ? '+' : '−') + Math.abs(st).toFixed(2), 736, mid + 0.5, 'right', is('kdrift') ? white : ink, 700);
+      label(ctx, (cents > 0 ? '+' : cents < 0 ? '−' : '') + (Math.abs(cents) / 100).toFixed(2), 736, mid + 0.5, 'right', is('kdrift') ? white : ink, 700);
     }
     // Drift: the offsets are its handle.
     if (is('kdrift')) { ctx.fillStyle = white; ctx.fillRect(L.x1 + 30, L.top + 4, 1.5, lanesBottom() - L.top - 8); }
@@ -489,6 +494,8 @@ export function supersaw(catalog: Catalog) {
           name: 'Seven saws',
           code: SAW_LANES,
           rect: r(0, 0, 760, 520),
+          // Each copy's own number, −1…+1, as Which saw (seed 1) gives it to copy k of the seven.
+          props: { drift: OWN.map(v => v.toFixed(3)).join(' ') },
         }),
         el({
           kind: 'text',
