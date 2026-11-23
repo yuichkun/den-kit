@@ -1,5 +1,6 @@
 // Who changed what, and when. Every part of the work an operation touches has a
-// key ("node:osc1/value:freq", "element:title", "file:src/parts/reels.ts"), and
+// key ("node:osc1/value:freq", "element:title", "art:cover/title/rect",
+// "file:src/parts/reels.ts"), and
 // the log keeps the revision and the author of each key's last change. An AI's
 // operation on something a person changed after the AI read the work fails and
 // says what changed (docs/principles.md, principle 3); undoing an AI request
@@ -54,6 +55,17 @@ export function keysOf(op: ResolvedOp): ChangeKey[] {
       return [`part:${op.id}`];
     case 'setFile':
       return [`file:${op.path}`];
+    // The art: a surface ("art:cover") holds its elements ("art:cover/title") and its
+    // background and stacking order ("art:cover/@background"); ids never start with "@".
+    case 'setArtSurface':
+      return [`art:${op.on}`];
+    case 'addArtElement':
+    case 'removeArtElement':
+      return [`art:${op.on}/${op.element.id}`];
+    case 'setArtElement':
+      return [`art:${op.on}/${op.id}/${op.field}`];
+    case 'setArt':
+      return [`art:${op.on}/@${op.field}`];
   }
 }
 
@@ -65,6 +77,13 @@ export const overlaps = (a: ChangeKey, b: ChangeKey) =>
 export function describeKey(key: ChangeKey): string {
   const [head, ...rest] = key.split('/');
   const [kind, id] = head!.split(/:(.*)/s) as [string, string | undefined];
+  if (kind === 'art') {
+    const [thing, ...field] = rest;
+    if (!thing) return `the ${id}`;
+    if (thing.startsWith('@'))
+      return `the ${id}'s ${thing.slice(1) === 'order' ? 'stacking order' : thing.slice(1)}`;
+    return field.length ? `${thing} on the ${id} (${field.join('/')})` : `${thing} on the ${id}`;
+  }
   const what =
     kind === 'node'
       ? `module ${id}`

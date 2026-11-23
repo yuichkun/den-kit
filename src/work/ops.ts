@@ -13,6 +13,21 @@ import {
   type ConfigDef,
 } from './catalog.ts';
 import { createsCycle } from './scope.ts';
+import {
+  ART_FIELDS,
+  ART_LIMITS,
+  ART_SURFACES,
+  checkArtElement,
+  checkBackground,
+  emptySurface,
+  isSurfaceName,
+  nextArtId,
+  symbolModule,
+  type ArtElement,
+  type ArtKind,
+  type ArtSurface,
+  type ArtSurfaceName,
+} from './art.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox-template.ts';
 import { moveAssetReads } from './codebox-assets.ts';
@@ -94,10 +109,10 @@ import {
 
 /** A node to add. `inside` puts it in a part; a part (kit.part) names its definition in `part`. `iface` is worked out, never given. */
 export type NewNode = Partial<Omit<PatchNode, 'type'>> & { type: string };
-export type NewElement = Partial<Omit<UiElement, 'kind'>> & { kind: ElementKind } & Record<
-    string,
-    unknown
-  >;
+/** A decoration to add: on the plugin, or (with an intent's `on`) a symbol or other element of the art. */
+export type NewElement = Partial<Omit<UiElement, 'kind'>> & {
+  kind: ElementKind | 'symbol';
+} & Record<string, unknown>;
 /** setLook: tokens and skins merge key by key (null removes one); background and css replace (null removes). */
 export interface LookPatch {
   tokens?: Record<string, string | null>;
@@ -139,15 +154,19 @@ export type Intent =
   | { op: 'setPanel'; node: NodeId; panel: PanelRect | null }
   | { op: 'setName'; name: string }
   | { op: 'setTheme'; theme: ThemeId }
-  // ---- the plugin's screen ----
-  | { op: 'addElement'; element: NewElement }
-  | { op: 'removeElement'; id: string }
+  // ---- the plugin's screen; with `on`, the work's icon or cover (art.ts) ----
+  | { op: 'addElement'; element: NewElement; on?: ArtSurfaceName }
+  | { op: 'removeElement'; id: string; on?: ArtSurfaceName }
   /** Change fields of a decoration (null removes an optional field). */
-  | { op: 'updateElement'; id: string; set: Record<string, unknown> }
+  | { op: 'updateElement'; id: string; set: Record<string, unknown>; on?: ArtSurfaceName }
   /** Place or resize anything on the plugin: a decoration or a widget node. */
-  | { op: 'setRect'; id: string; rect: PanelRect }
+  | { op: 'setRect'; id: string; rect: PanelRect; on?: ArtSurfaceName }
   | { op: 'setStyle'; node: NodeId; style: WidgetStyle | null }
-  | { op: 'arrange'; ids: string[]; to: Arrange }
+  | { op: 'arrange'; ids: string[]; to: Arrange; on?: ArtSurfaceName }
+  /** The icon's or cover's background (null: the look's background colour). */
+  | { op: 'setArt'; on: ArtSurfaceName; set: { background?: unknown[] | null } }
+  /** Remove the icon or the cover: everything on it and its background. */
+  | { op: 'clearArt'; on: ArtSurfaceName }
   | { op: 'group'; ids: string[]; id?: string }
   | { op: 'ungroup'; id: string }
   | {
@@ -270,7 +289,25 @@ export type ResolvedOp =
   | { op: 'removePart'; part: PartDef }
   | { op: 'setPart'; id: string; from: PartDef; to: PartDef }
   /** A file of the work added (from undefined), replaced or removed (to undefined). */
-  | { op: 'setFile'; path: string; from: WorkFile | undefined; to: WorkFile | undefined };
+  | { op: 'setFile'; path: string; from: WorkFile | undefined; to: WorkFile | undefined }
+  /** The icon or cover made (from undefined), replaced whole or removed (to undefined). */
+  | {
+      op: 'setArtSurface';
+      on: ArtSurfaceName;
+      from: ArtSurface | undefined;
+      to: ArtSurface | undefined;
+    }
+  | { op: 'addArtElement'; on: ArtSurfaceName; element: ArtElement }
+  | { op: 'removeArtElement'; on: ArtSurfaceName; element: ArtElement }
+  | {
+      op: 'setArtElement';
+      on: ArtSurfaceName;
+      id: string;
+      field: string;
+      from: unknown;
+      to: unknown;
+    }
+  | { op: 'setArt'; on: ArtSurfaceName; field: 'background' | 'order'; from: unknown; to: unknown };
 
 export { OpError } from './op-error.ts';
 
@@ -464,7 +501,46 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
       doc.files = files;
       break;
     }
+    case 'setArtSurface': {
+      const art = { ...doc.art };
+      if (op.to === undefined) delete art[op.on];
+      else art[op.on] = clone(op.to);
+      if (Object.keys(art).length) doc.art = art;
+      else delete doc.art;
+      break;
+    }
+    case 'addArtElement':
+      writeSurface(doc, op.on).elements[op.element.id] = clone(op.element);
+      break;
+    case 'removeArtElement':
+      delete writeSurface(doc, op.on).elements[op.element.id];
+      break;
+    case 'setArtElement': {
+      const surface = writeSurface(doc, op.on);
+      const el = surface.elements[op.id];
+      if (!el) throw new Error(`missing element ${op.id} on the ${op.on}`);
+      const copy = { ...el } as Record<string, unknown>;
+      if (op.to === undefined || op.to === null) delete copy[op.field];
+      else copy[op.field] = clone(op.to);
+      surface.elements[op.id] = copy as unknown as ArtElement;
+      break;
+    }
+    case 'setArt': {
+      const surface = writeSurface(doc, op.on) as unknown as Record<string, unknown>;
+      if (op.to === undefined || op.to === null) delete surface[op.field];
+      else surface[op.field] = clone(op.to);
+      break;
+    }
   }
+}
+
+/** The icon or cover of a draft document, copied so it can be written. */
+function writeSurface(doc: PatchDocument, on: ArtSurfaceName): ArtSurface {
+  const surface = doc.art?.[on];
+  if (!surface) throw new Error(`missing ${on}`);
+  const copy = { ...surface, elements: { ...surface.elements } };
+  doc.art = { ...doc.art, [on]: copy };
+  return copy;
 }
 
 export function invert(op: ResolvedOp): ResolvedOp {
@@ -502,6 +578,16 @@ export function invert(op: ResolvedOp): ResolvedOp {
     case 'setPart':
       return { ...op, from: op.to, to: op.from };
     case 'setFile':
+      return { ...op, from: op.to, to: op.from };
+    case 'setArtSurface':
+      return { ...op, from: op.to, to: op.from };
+    case 'addArtElement':
+      return { op: 'removeArtElement', on: op.on, element: op.element };
+    case 'removeArtElement':
+      return { op: 'addArtElement', on: op.on, element: op.element };
+    case 'setArtElement':
+      return { ...op, from: op.to, to: op.from };
+    case 'setArt':
       return { ...op, from: op.to, to: op.from };
   }
 }
@@ -959,17 +1045,25 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     case 'addElement':
+      if (intent.on !== undefined)
+        return addArtElement(draft, surfaceName(intent.on), intent.element, created);
       return addElement(draft, intent.element, created);
     case 'removeElement': {
+      if (intent.on !== undefined)
+        return removeArtElement(draft, surfaceName(intent.on), intent.id);
       const el = requireElement(draft, intent.id);
       leaveStack(draft, [el.id]);
       draft.apply({ op: 'removeElement', element: draft.doc.ui.elements[el.id]! });
       return;
     }
     case 'updateElement':
+      if (intent.on !== undefined)
+        return updateArtElement(draft, surfaceName(intent.on), intent.id, intent.set);
       return updateElement(draft, intent.id, intent.set);
     case 'setRect': {
       const rect = checkRect(intent.rect);
+      if (intent.on !== undefined)
+        return updateArtElement(draft, surfaceName(intent.on), intent.id, { rect });
       if (draft.doc.ui.elements[intent.id]) return updateElement(draft, intent.id, { rect });
       const node = draft.doc.nodes[intent.id];
       if (!node) fail('unknown-id', `Nothing called "${intent.id}" on the plugin.`);
@@ -994,7 +1088,32 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       return;
     }
     case 'arrange':
+      if (intent.on !== undefined)
+        return arrangeArt(draft, surfaceName(intent.on), intent.ids, intent.to);
       return arrange(draft, intent.ids, intent.to);
+    case 'setArt': {
+      const on = surfaceName(intent.on);
+      if (!intent.set || typeof intent.set !== 'object')
+        fail('bad-intent', 'setArt needs set {background}.');
+      for (const key of Object.keys(intent.set))
+        if (key !== 'background')
+          fail('bad-intent', `setArt has no "${key}" to set.`, 'It sets background.');
+      if (intent.set.background === undefined) return;
+      const to =
+        intent.set.background === null
+          ? undefined
+          : checkBackground(intent.set.background, checkContext(draft));
+      const surface = ensureSurface(draft, on);
+      if (JSON.stringify(surface.background) === JSON.stringify(to)) return;
+      draft.apply({ op: 'setArt', on, field: 'background', from: surface.background, to });
+      return;
+    }
+    case 'clearArt': {
+      const on = surfaceName(intent.on);
+      const surface = draft.doc.art?.[on];
+      if (surface) draft.apply({ op: 'setArtSurface', on, from: surface, to: undefined });
+      return;
+    }
     case 'group': {
       const ids = [...new Set(intent.ids ?? [])];
       const stack = new Set(stackIds(draft));
@@ -1296,7 +1415,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       fail(
         'bad-intent',
         `Unknown op "${(intent as { op?: unknown }).op}".`,
-        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, replaceAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
+        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, setArt, clearArt, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, replaceAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
       );
   }
 }
@@ -1468,12 +1587,16 @@ function updateElement(draft: Draft, id: string, set: Record<string, unknown>) {
   }
 }
 function arrange(draft: Draft, ids: readonly string[], to: Arrange) {
+  const order = reorder(stackIds(draft), ids, to, 'the plugin');
+  if (JSON.stringify(order) === JSON.stringify(draft.doc.ui.order)) return;
+  draft.apply({ op: 'setUi', field: 'order', from: draft.doc.ui.order, to: order });
+}
+/** The stack (back to front) with `ids` moved to the front or back, or one step. */
+function reorder(stack: readonly string[], ids: readonly string[], to: Arrange, where: string) {
   if (!Array.isArray(ids) || !ids.length) fail('bad-intent', 'arrange needs the ids to move.');
   if (!['front', 'back', 'forward', 'backward'].includes(to))
     fail('bad-intent', 'arrange to: front, back, forward or backward.');
-  const stack = stackIds(draft);
-  for (const id of ids)
-    if (!stack.includes(id)) fail('unknown-id', `"${id}" is not on the plugin.`);
+  for (const id of ids) if (!stack.includes(id)) fail('unknown-id', `"${id}" is not on ${where}.`);
   const moving = new Set(ids);
   let order: string[];
   if (to === 'front')
@@ -1492,8 +1615,141 @@ function arrange(draft: Draft, ids: readonly string[], to: Arrange) {
         [order[i], order[j]] = [order[j]!, order[i]!];
     }
   }
-  if (JSON.stringify(order) === JSON.stringify(draft.doc.ui.order)) return;
-  draft.apply({ op: 'setUi', field: 'order', from: draft.doc.ui.order, to: order });
+  return order;
+}
+
+// ---- the work's art (icon and cover) ------------------------------------------------------
+function surfaceName(on: unknown): ArtSurfaceName {
+  if (!isSurfaceName(on))
+    fail(
+      'bad-intent',
+      `on is "icon" or "cover" (the work's art), not ${JSON.stringify(on)}.`,
+      'Leave it out to change the plugin.',
+    );
+  return on as ArtSurfaceName;
+}
+/** The surface, made (empty) when the work does not have it yet. */
+function ensureSurface(draft: Draft, on: ArtSurfaceName): ArtSurface {
+  const surface = draft.doc.art?.[on];
+  if (surface) return surface;
+  draft.apply({ op: 'setArtSurface', on, from: undefined, to: emptySurface() });
+  return draft.doc.art![on]!;
+}
+function requireArtElement(draft: Draft, on: ArtSurfaceName, id: unknown): ArtElement {
+  const surface = draft.doc.art?.[on];
+  if (typeof id !== 'string' || !surface?.elements[id]) {
+    const known = Object.keys(surface?.elements ?? {}).sort();
+    fail(
+      'unknown-element',
+      `No element "${String(id)}" on the ${on}.`,
+      known.length ? `Elements on the ${on}: ${known.join(', ')}` : `The ${on} is empty.`,
+    );
+  }
+  return surface!.elements[id as string]!;
+}
+function artContext(draft: Draft): CheckContext {
+  return { assets: assetsOf(draft.doc.files), nodes: {} };
+}
+/** A symbol draws the module `node` names as it is now. */
+function withModule(draft: Draft, spec: Record<string, unknown>): Record<string, unknown> {
+  if (spec.kind !== 'symbol' || typeof spec.node !== 'string') return spec;
+  const node = draft.doc.nodes[spec.node];
+  if (!node)
+    fail(
+      'unknown-node',
+      `No module "${spec.node}" to draw.`,
+      'A symbol draws one of the patch’s modules: kit_get_art lists those it can draw.',
+    );
+  return { ...spec, module: symbolModule(node!) };
+}
+function addArtElement(draft: Draft, on: ArtSurfaceName, spec: NewElement, created: string[]) {
+  if (!spec || typeof spec !== 'object')
+    fail('bad-intent', 'addElement needs element {kind, rect, ...}.');
+  const before = draft.doc.art?.[on];
+  if (Object.keys(before?.elements ?? {}).length >= ART_LIMITS.elements)
+    fail('too-large', `The ${on} holds at most ${ART_LIMITS.elements} elements.`);
+  const stem =
+    spec.kind === 'image' ? 'picture' : typeof spec.kind === 'string' ? spec.kind : 'element';
+  const id = typeof spec.id === 'string' && spec.id ? spec.id : nextArtId(before, stem);
+  if (!NODE_ID_PATTERN.test(id))
+    fail(
+      'bad-id',
+      `Element id "${id}" must match ${NODE_ID_PATTERN} (letters/digits, starting lowercase).`,
+    );
+  if (before?.elements[id]) fail('duplicate-id', `Id "${id}" is already taken on the ${on}.`);
+  const element = checkArtElement(
+    withModule(draft, { ...spec, id, ...(spec.kind === 'symbol' ? { module: undefined } : {}) }),
+    artContext(draft),
+  );
+  const surface = ensureSurface(draft, on);
+  draft.apply({ op: 'addArtElement', on, element });
+  draft.apply({
+    op: 'setArt',
+    on,
+    field: 'order',
+    from: surface.order,
+    to: [...surface.order.filter(x => draft.doc.art![on]!.elements[x]), id],
+  });
+  created.push(id);
+}
+function removeArtElement(draft: Draft, on: ArtSurfaceName, id: string) {
+  const el = requireArtElement(draft, on, id);
+  const surface = draft.doc.art![on]!;
+  if (surface.order.includes(el.id))
+    draft.apply({
+      op: 'setArt',
+      on,
+      field: 'order',
+      from: surface.order,
+      to: surface.order.filter(x => x !== el.id),
+    });
+  draft.apply({ op: 'removeArtElement', on, element: el });
+}
+function updateArtElement(
+  draft: Draft,
+  on: ArtSurfaceName,
+  id: string,
+  set: Record<string, unknown>,
+) {
+  const old = requireArtElement(draft, on, id);
+  if (!set || typeof set !== 'object')
+    fail('bad-intent', 'updateElement needs set {field: value}.');
+  const allowed = ART_FIELDS(old.kind as ArtKind).filter(f => f !== 'module');
+  for (const key of Object.keys(set))
+    if (!allowed.includes(key))
+      fail(
+        'bad-element',
+        `A ${old.kind} on the ${on} has no "${key}" to change.`,
+        `Fields: ${allowed.join(', ')}.`,
+      );
+  let candidate: Record<string, unknown> = { ...old };
+  for (const [key, value] of Object.entries(set)) {
+    if (value === null) delete candidate[key];
+    else candidate[key] = value;
+  }
+  // Naming the module again draws it as it is now.
+  if (set.node !== undefined) candidate = withModule(draft, candidate);
+  const next = checkArtElement(candidate, artContext(draft)) as unknown as Record<string, unknown>;
+  const fields = set.node !== undefined ? [...Object.keys(set), 'module'] : Object.keys(set);
+  for (const key of fields) {
+    const from = (old as unknown as Record<string, unknown>)[key],
+      to = next[key];
+    if (JSON.stringify(from) !== JSON.stringify(to))
+      draft.apply({ op: 'setArtElement', on, id, field: key, from, to });
+  }
+}
+function arrangeArt(draft: Draft, on: ArtSurfaceName, ids: readonly string[], to: Arrange) {
+  const surface = draft.doc.art?.[on];
+  const stack = surface ? artIds(surface) : [];
+  const order = reorder(stack, ids, to, `the ${on}`);
+  if (JSON.stringify(order) === JSON.stringify(surface!.order)) return;
+  draft.apply({ op: 'setArt', on, field: 'order', from: surface!.order, to: order });
+}
+/** The ids on a surface, back to front. */
+function artIds(surface: ArtSurface): string[] {
+  const ids = surface.order.filter(id => surface.elements[id]);
+  for (const id of Object.keys(surface.elements)) if (!ids.includes(id)) ids.push(id);
+  return ids;
 }
 
 /** Ops that turn `prev` into `next` wholesale (loading a patch as one undoable step). */
@@ -1530,6 +1786,9 @@ export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp
   for (const field of ['look', 'order', 'groups', 'underlay', 'brief', 'network'] as const)
     if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field]))
       ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
+  for (const on of ART_SURFACES)
+    if (JSON.stringify(prev.art?.[on]) !== JSON.stringify(next.art?.[on]))
+      ops.push({ op: 'setArtSurface', on, from: prev.art?.[on], to: next.art?.[on] });
   return ops;
 }
 
@@ -1638,5 +1897,24 @@ function moveAssetRefs(draft: Draft, from: string, to: string) {
   for (const part of Object.values(draft.doc.parts)) {
     const after = move(part) as PartDef;
     if (after !== part) draft.apply({ op: 'setPart', id: part.id, from: part, to: after });
+  }
+  for (const on of ART_SURFACES) {
+    const surface = draft.doc.art?.[on];
+    if (!surface) continue;
+    const background = move(surface.background);
+    if (background !== surface.background)
+      draft.apply({
+        op: 'setArt',
+        on,
+        field: 'background',
+        from: surface.background,
+        to: background,
+      });
+    for (const el of Object.values(surface.elements))
+      for (const [field, before] of Object.entries(el)) {
+        const after = move(before);
+        if (after !== before)
+          draft.apply({ op: 'setArtElement', on, id: el.id, field, from: before, to: after });
+      }
   }
 }

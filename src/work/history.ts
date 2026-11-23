@@ -249,7 +249,11 @@ function mergeValueOps(
               ? `u:${op.field}`
               : op.op === 'setSize'
                 ? 's'
-                : null;
+                : op.op === 'setArtElement'
+                  ? `ae:${op.on}:${op.id}:${op.field}`
+                  : op.op === 'setArt'
+                    ? `a:${op.on}:${op.field}`
+                    : null;
     if (key && index.has(key)) {
       const at = index.get(key)!;
       out[at] = { ...(out[at] as typeof op), to: (op as { to: unknown }).to } as ResolvedOp;

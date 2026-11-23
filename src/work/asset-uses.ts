@@ -1,6 +1,7 @@
 // Where a work uses an asset: its look, the screen's elements and the controls' styles, nodes'
-// settings, what codeboxes read, and the faces of the parts in use. What is inside a part nothing
+// settings, what codeboxes read, the faces of the parts in use, and the art (icon and cover). What is inside a part nothing
 // uses any more (there until its transaction ends) does not count.
+import { artAssetUses } from './art.ts';
 import { assetReads } from './codebox-assets.ts';
 import { faceAssetUses } from './face.ts';
 import { usedParts } from './parts.ts';
@@ -25,5 +26,6 @@ export function usesOfAsset(doc: PatchDocument, path: string, skip?: string): st
       if (value === path) uses.push(`${node.id}'s ${key}`);
     if (node.code && assetReads(node.code).has(path)) uses.push(`${node.id}'s code`);
   }
+  uses.push(...(artAssetUses(doc.art).get(path) ?? []));
   return [...new Set(uses)];
 }

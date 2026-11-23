@@ -152,6 +152,40 @@ const CASES: Record<Intent['op'], Case> = {
     ok: () => [{ op: 'arrange', ids: ['knob1'], to: 'front' }],
     bad: () => [{ op: 'arrange', ids: ['nope'], to: 'front' }],
   },
+  setArt: {
+    ok: () => [
+      {
+        op: 'setArt',
+        on: 'cover',
+        set: {
+          background: [
+            {
+              kind: 'linear',
+              angle: 90,
+              stops: [
+                { color: 'bg', at: 0 },
+                { color: 'accent', at: 1 },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    bad: () => [
+      {
+        op: 'setArt',
+        on: 'cover',
+        set: { background: [{ kind: 'image', asset: 'assets/none.png', fit: 'cover' }] },
+      },
+    ],
+  },
+  clearArt: {
+    ok: () => [
+      { op: 'setArt', on: 'icon', set: { background: [{ kind: 'color', color: 'bg' }] } },
+      { op: 'clearArt', on: 'icon' },
+    ],
+    bad: () => [{ op: 'clearArt', on: 'poster' as 'icon' }],
+  },
   group: {
     ok: () => [{ op: 'group', ids: ['knob1', 'title1'] }],
     bad: () => [{ op: 'group', ids: ['knob1'] }],

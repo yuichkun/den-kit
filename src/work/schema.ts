@@ -1,7 +1,8 @@
 // The work's document: its name, the patch, the parameters it exposes, the
-// plugin screen and the work's files. Every change goes through typed,
+// plugin screen, the work's art (icon and cover) and the work's files. Every change goes through typed,
 // author-attributed ops (ops.ts) so people and the AI edit the same way. Pure
 // data: no DOM, no Vue, no unworklet.
+import type { WorkArt } from './art.ts';
 import type { PortDef } from './catalog.ts';
 import type { WorkFile } from './files.ts';
 import { emptyUi, type PluginUi, type UiElement, type WidgetStyle } from './ui.ts';
@@ -175,6 +176,8 @@ export interface PatchDocument {
   parts: Record<string, PartDef>;
   /** The work's files, by path: a web project (package.json, src/) and the assets (assets/). */
   files: Record<string, WorkFile>;
+  /** The work's icon and cover (art.ts); absent: none made yet. */
+  art?: WorkArt;
 }
 
 export const NODE_ID_PATTERN = /^[a-z][a-zA-Z0-9]{0,31}$/;

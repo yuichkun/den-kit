@@ -30,6 +30,14 @@ import { checkFace } from './face.ts';
 import { partInterface, readParamRange } from './parts.ts';
 import { readFiles } from './files.ts';
 import {
+  ART_SURFACES,
+  checkArtElement,
+  checkBackground,
+  symbolModule,
+  type ArtSurface,
+  type WorkArt,
+} from './art.ts';
+import {
   LIMITS,
   networkOrigin,
   assetsOf,
@@ -437,6 +445,10 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
       doc.panel.height = Math.min(4000, data.panel.height);
   }
   if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
+  if (isObject(data.art)) {
+    const art = readArt(data.art, doc, report, rename);
+    if (art) doc.art = art;
+  }
   if (!Object.keys(doc.parts).length) return { ok: true, doc, report };
   // Parts: inputs, outputs and parameters follow what is inside; parts nothing uses are dropped (as after any edit).
   try {
@@ -690,6 +702,60 @@ function readUi(
   }
 }
 
+/** The icon and the cover: everything that can be read is kept, the rest reported. */
+function readArt(
+  raw: Record<string, unknown>,
+  doc: PatchDocument,
+  report: Issue[],
+  rename: Map<string, string>,
+): WorkArt | undefined {
+  const art: WorkArt = {};
+  for (const on of ART_SURFACES) {
+    const r = raw[on];
+    if (!isObject(r)) continue;
+    const surface: ArtSurface = { elements: {}, order: [] };
+    if (r.background !== undefined) {
+      try {
+        surface.background = checkBackground(r.background, lenient(doc, report));
+      } catch (error) {
+        report.push({
+          severity: 'warning',
+          code: 'dropped-art',
+          message: `Dropped the ${on}'s background: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+    if (isObject(r.elements))
+      for (const [key, value] of Object.entries(r.elements)) {
+        try {
+          if (!NODE_ID_PATTERN.test(key)) throw new Error('its id is invalid');
+          const v: Record<string, unknown> = { ...(isObject(value) ? value : {}), id: key };
+          if (v.kind === 'symbol' && typeof v.node === 'string') {
+            v.node = rename.get(v.node) ?? v.node;
+            // A symbol saved without what it drew draws its module as it is now.
+            const node = doc.nodes[v.node as string];
+            if (v.module === undefined && node) v.module = symbolModule(node);
+          }
+          surface.elements[key] = checkArtElement(v, lenient(doc, report, key));
+        } catch (error) {
+          report.push({
+            severity: 'warning',
+            code: 'dropped-art',
+            message: `Dropped "${key}" from the ${on}: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+    if (Array.isArray(r.order))
+      surface.order = [
+        ...new Set(
+          r.order.filter((id): id is string => typeof id === 'string' && !!surface.elements[id]),
+        ),
+      ];
+    art[on] = surface;
+  }
+  return Object.keys(art).length ? art : undefined;
+}
+
 /** Autosave record with a checksum, so a torn or corrupted write is detected on load. */
 export interface SaveRecord {
   savedAt: number;
@@ -721,6 +787,7 @@ export function documentHash(doc: PatchDocument): string {
       ui: doc.ui,
       parts: doc.parts,
       files: doc.files,
+      ...(doc.art ? { art: doc.art } : {}),
     }),
   );
 }
