@@ -406,8 +406,8 @@ const KEYS = (() => {
   const key = (across(C(2)) - across(C(1))) / 7;
   return { x: across(C(1)) - key / 2, w: key * 22, octaves: 3, start: 24 };
 })();
-/** The small graphs under the hill, right of the figures: each note, glide, wave. */
-const GRAPHS = { y: 376, h: 116 };
+/** The small graphs under the hill, right of the figures: each note, glide, wave, the last ending on the right margin as the keys start on the left one. */
+const GRAPHS = { x: [328, 472, 616] as const, w: 128, y: 376, h: 116 };
 
 export function acid(catalog: Catalog) {
   /** One of the hill's settings in figures under the keys: its name, then its value (text bound to it). */
@@ -518,8 +518,8 @@ export function acid(catalog: Catalog) {
             valueFont: 'system',
           },
           background: [{ kind: 'color', color: '#1e32d6' }],
-          // The keys in the hill's colours: white keys ruled in the paper's blue, navy sharps; a played key swaps (white to navy, navy to white).
-          css: '[data-widget=keys1] { --dk-key-white: #f4f1e6; --dk-key-black: #10186b; --dk-key-line: #1e32d6; --dk-key-label: #10186b; --dk-key-down: #10186b; --dk-key-down-black: #f4f1e6; --dk-key-down-label: #f4f1e6; }',
+          // The keys in the hill's colours: white keys ruled in the paper's blue, the sharps the paper's blue; a played key turns navy.
+          css: '[data-widget=keys1] { --dk-key-white: #f4f1e6; --dk-key-black: #1e32d6; --dk-key-line: #1e32d6; --dk-key-label: #10186b; --dk-key-down: #10186b; --dk-key-down-black: #10186b; --dk-key-down-label: #f4f1e6; }',
         },
       },
       el({
@@ -549,19 +549,19 @@ export function acid(catalog: Catalog) {
         kind: 'canvas',
         name: 'Each note',
         code: ENVELOPE_GRAPH,
-        rect: r(328, GRAPHS.y, 132, GRAPHS.h),
+        rect: r(GRAPHS.x[0], GRAPHS.y, GRAPHS.w, GRAPHS.h),
       }),
       el({
         kind: 'canvas',
         name: 'Glide',
         code: GLIDE_GRAPH,
-        rect: r(476, GRAPHS.y, 132, GRAPHS.h),
+        rect: r(GRAPHS.x[1], GRAPHS.y, GRAPHS.w, GRAPHS.h),
       }),
       el({
         kind: 'canvas',
         name: 'Wave',
         code: WAVE_GRAPH,
-        rect: r(624, GRAPHS.y, 128, GRAPHS.h),
+        rect: r(GRAPHS.x[2], GRAPHS.y, GRAPHS.w, GRAPHS.h),
       }),
     ],
   );
