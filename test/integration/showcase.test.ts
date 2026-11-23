@@ -1538,7 +1538,7 @@ describe('each work does what its controls say', () => {
     drag(L.PX(2), L.TOP(2) + 20, 0, -40);
     expect(values.kbells).toBeCloseTo(0.75, 2);
     // The left headland, up: Bay rises (the bay closes in).
-    drag(40, 205, 0, -32);
+    drag(40, L.YH - 17, 0, -32);
     expect(values.kbay).toBeCloseTo(0.55, 2);
     // The open water between the board and the first post: up for Sea, across for Waves.
     drag(244, 500, 0, -32);

@@ -14,8 +14,10 @@
 // numbers so plainly that anyone reads them, animation that belongs to the
 // water, large plain figures for now, and a palette that follows the colour of
 // the sky through the day. The screen is one canvas edge to edge: the shore at
-// the hour seen from the quay, the six bronze bells hung on posts standing in
-// the water, the sun or the moon crossing the sky with the hour, and on the quay
+// the hour seen from the quay, its sky and sea in flat bands of the hour's
+// colours, the six bronze bells hung on posts standing in the water (polished
+// while the waves reach them), the sun or the moon crossing the sky with the
+// hour, and on the quay
 // the harbour's tide board, with the hour in large plain figures, the height of
 // the water and the day's tide in the colours of each hour's sky. Each setting
 // is dragged where it acts (the hour by the sun or along the board's tide, Bells
@@ -51,20 +53,21 @@ const BELLS = [
 const REACH = 0.45;
 
 /** Where the horizon lies on the canvas (its y in canvas pixels). */
-const HORIZON = { y: 222 };
+const HORIZON = { y: 168 };
 
 /** The shore at the hour, seen from the quay: the water on the posts, the six bells, the sky, the tide board; it takes the mouse. */
 export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky and the sea of the hour,
-// and six bronze bells hung on posts standing in the water. The hour is khour
-// (0 to 24); the tide comes from the same table as the codebox's, so where the
-// water stands on the posts is what the sound plays. The waves wash props.reach
-// metres above and below the tide: the posts are dark where they wash, and a
-// bell rings while they reach its lip, rings spreading on the water round its
-// post. The bells (props.heights in metres and props.notes, low to high, as
-// lists) hang at their heights; they stand along the shore in no order of
-// height, on posts that stay above the highest water. What is under the water is seen
-// through it, and a bell the waves reach swings when its note jumps in the
-// spectrum (a strike is heard). The water on the posts bobs with the waves, read
+// each in flat bands, and six bronze bells hung on posts standing in the water.
+// The hour is khour (0 to 24); the tide comes from the same table as the
+// codebox's, so where the water stands on the posts is what the sound plays. The
+// waves wash props.reach metres above and below the tide: the posts are dark
+// where they wash, and a bell rings while they reach its lip, rings spreading on
+// the water round its post. The bells (props.heights in metres and props.notes,
+// low to high, as lists) hang at their heights; they stand along the shore in no
+// order of height, on posts that stay above the highest water. A bell in the
+// waves' reach is polished bronze, one out of it dull; what is under the water is
+// seen through it, a bell under the waves for good as a dark shape. A bell the
+// waves reach swings when its note jumps in the spectrum (a strike is heard). The water on the posts bobs with the waves, read
 // from how loud the sea is (the low end of the spectrum, below the bells). The
 // sun or the moon crosses the sky with the hour; headlands close the bay in as
 // Bay (kbay) rises; crests on the sea grow with Sea (ksea) and drift at the pace
@@ -121,6 +124,11 @@ function colours(table, h) {
 }
 // How much daylight there is (0 night, 1 day).
 const daylight = h => clamp(Math.min((h - 5.2) / 2.2, (20 - h) / 2.2), 0, 1);
+// Flat bands down from y0 to y1: their shares of the height, each coloured at its middle (at(0 to 1)).
+function bandsOf(shares, y0, y1, at) {
+  let acc = 0;
+  return shares.map(p => { const b = { y0: y0 + acc * (y1 - y0), y1: y0 + (acc + p) * (y1 - y0), c: at(acc + p / 2) }; acc += p; return b; });
+}
 const two = n => String(n).padStart(2, '0');
 const clock = h => { const m = Math.round((((h % 24) + 24) % 24) * 60) % 1440; return two(Math.floor(m / 60)) + ':' + two(m % 60); };
 const pct = v => Math.round(v * 100) + '%';
@@ -147,7 +155,7 @@ const SPOTS = [0.28, 0.05, 0.62, 0.4, 0.95, 0.78];
 // the sun or the moon at SX(hour) across the sky; bell k's post at PX(k), its top
 // at TOP(k), above the highest water, the posts' tops uneven.
 export function layout(f) {
-  const w = f.w, h = f.h, YH = list(f.props.horizon)[0] || 222, QY = h - 20, E = 3.5, K = (QY - 16 - YH) / (E + 0.15);
+  const w = f.w, h = f.h, YH = list(f.props.horizon)[0] || 168, QY = h - 20, E = 3.5, K = (QY - 16 - YH) / (E + 0.15);
   const B = { x0: 18, x1: 222, y0: QY - 206, y1: QY - 34 };
   const C = { x0: B.x0 + 14, x1: B.x1 - 14, y0: B.y0 + 110, y1: B.y0 + 136 };
   const Y = m => YH + (E - m) * K;
@@ -165,7 +173,7 @@ export function layout(f) {
 export function skyBody(hour, L) {
   const sun = daylight(hour) > 0.5;
   const el = sun ? Math.sin(Math.PI * clamp((hour - 5.8) / 13.8, 0, 1)) : Math.sin(Math.PI * clamp((((hour - 19.6) % 24) + 24) % 24 / 10.2, 0, 1));
-  return { x: L.SX(hour), y: L.YH - 6 - el * 150, sun };
+  return { x: L.SX(hour), y: L.YH - 6 - el * (L.YH - 40), sun };
 }
 // The headlands: how high and how far in they reach at Bay b.
 const capes = b => ({ hl: 8 + b * 56, wl: 70 + b * 150, hr: 5 + b * 44, wr: 60 + b * 160 });
@@ -219,25 +227,35 @@ export default {
     const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55), drowned = mix(wood, near, 0.74);
     const iron = mix([24, 26, 32], [52, 50, 54], day);
     const bronze = mix([84, 66, 60], [190, 132, 58], day), shade = mix(bronze, [40, 24, 10], 0.42), shine = mix(bronze, [255, 236, 190], 0.5);
+    const dull = mix(bronze, mix([60, 62, 64], [112, 106, 96], day), 0.62), dullShade = mix(dull, [24, 22, 20], 0.38);
     const zone = s.drag || s.over;
     const active = id => zone === id || (zone === 'water' && (id === 'ksea' || id === 'kwaves'));
-    // The sky of this hour.
-    const g = ctx.createLinearGradient(0, 0, 0, L.YH);
-    g.addColorStop(0, css(top)); g.addColorStop(0.55, css(mid)); g.addColorStop(1, css(low));
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, L.YH);
+    // The sky of this hour, in flat bands that thin towards the horizon.
+    const skyBands = bandsOf([0.3, 0.22, 0.17, 0.13, 0.1, 0.08], 0, L.YH, t => (t < 0.55 ? mix(top, mid, t / 0.55) : mix(mid, low, (t - 0.55) / 0.45)));
+    for (const b of skyBands) { ctx.fillStyle = css(b.c); ctx.fillRect(0, Math.floor(b.y0), w, Math.ceil(b.y1 - b.y0) + 1); }
     // The sun or the moon at the hour, set behind the horizon when it is low.
     const body = skyBody(hour, L), hotHour = active('hour');
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, L.YH); ctx.clip();
     if (body.sun) {
       ctx.fillStyle = '#fff3d6'; ctx.beginPath(); ctx.arc(body.x, body.y, 14, 0, TAU); ctx.fill();
     } else {
-      ctx.fillStyle = '#e9edf5'; ctx.beginPath(); ctx.arc(body.x, body.y, 12, 0, TAU); ctx.fill();
-      ctx.fillStyle = css(mix(top, mid, clamp(body.y / L.YH, 0, 1))); ctx.beginPath(); ctx.arc(body.x + 5.5, body.y - 3, 10.5, 0, TAU); ctx.fill();
+      // A crescent: the moon's disc less a disc a little up and to the right.
+      ctx.save(); ctx.beginPath(); ctx.arc(body.x, body.y, 12, 0, TAU); ctx.clip();
+      ctx.beginPath(); ctx.arc(body.x, body.y, 12, 0, TAU); ctx.moveTo(body.x + 16, body.y - 3); ctx.arc(body.x + 5.5, body.y - 3, 10.5, 0, TAU);
+      ctx.fillStyle = '#e9edf5'; ctx.fill('evenodd'); ctx.restore();
     }
     if (hotHour) { ctx.strokeStyle = css(ink); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(body.x, body.y, 20, 0, TAU); ctx.stroke(); }
     ctx.restore();
     // The headlands at both ends of the bay, closing in as it echoes more.
     const c = capes(bay), land = mix(mix(low, far, 0.5), ink[0] > 100 ? [8, 12, 24] : [30, 40, 56], 0.45);
+    // Behind each headland, a farther ridge of the same coast in a paler tone.
+    ctx.fillStyle = css(mix(land, low, 0.45));
+    ctx.beginPath(); ctx.moveTo(0, L.YH); ctx.lineTo(0, L.YH - c.hl * 0.55 - 10);
+    ctx.bezierCurveTo(c.wl * 0.5, L.YH - c.hl * 0.6 - 12, c.wl * 0.95, L.YH - c.hl * 0.3 - 4, c.wl * 1.45, L.YH);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(w, L.YH); ctx.lineTo(w, L.YH - c.hr * 0.6 - 9);
+    ctx.bezierCurveTo(w - c.wr * 0.45, L.YH - c.hr * 0.7 - 10, w - c.wr * 0.9, L.YH - c.hr * 0.25 - 3, w - c.wr * 1.4, L.YH);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = css(land); ctx.strokeStyle = css(ink); ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, L.YH); ctx.lineTo(0, L.YH - c.hl);
     ctx.bezierCurveTo(c.wl * 0.35, L.YH - c.hl, c.wl * 0.52, L.YH - c.hl * 0.6, c.wl * 0.68, L.YH - c.hl * 0.32);
@@ -247,10 +265,10 @@ export default {
     ctx.bezierCurveTo(w - c.wr * 0.25, L.YH - c.hr, w - c.wr * 0.45, L.YH - c.hr * 0.8, w - c.wr * 0.62, L.YH - c.hr * 0.42);
     ctx.bezierCurveTo(w - c.wr * 0.78, L.YH - c.hr * 0.12, w - c.wr * 0.9, L.YH, w - c.wr, L.YH);
     ctx.closePath(); ctx.fill(); if (active('kbay')) ctx.stroke();
-    // The sea of this hour, paler towards the horizon.
-    const g2 = ctx.createLinearGradient(0, L.YH, 0, L.QY);
-    g2.addColorStop(0, css(far)); g2.addColorStop(0.3, css(mix(far, near, 0.62))); g2.addColorStop(1, css(near));
-    ctx.fillStyle = g2; ctx.fillRect(0, L.YH, w, L.QY - L.YH);
+    // The sea of this hour, in flat bands that widen towards the quay, paler towards the horizon.
+    const seaBands = bandsOf([0.06, 0.09, 0.13, 0.18, 0.24, 0.3], L.YH, L.QY, t => mix(far, near, t < 0.3 ? (t / 0.3) * 0.62 : 0.62 + ((t - 0.3) / 0.7) * 0.38));
+    for (const b of seaBands) { ctx.fillStyle = css(b.c); ctx.fillRect(0, Math.floor(b.y0), w, Math.ceil(b.y1 - b.y0) + 1); }
+    const seaAt = y => (seaBands.find(b => y < b.y1) || seaBands[seaBands.length - 1]).c;
     // The sun or the moon on the water: a scatter of glints under it, wider towards the quay.
     if (body.y < L.YH - 4) {
       const gl = body.sun ? [255, 243, 214] : [226, 232, 244], power = (body.sun ? 0.75 : 0.45) * (1 - (body.y - 60) / (L.YH * 1.6));
@@ -300,6 +318,8 @@ export default {
       const j = jumps[k];
       if (j > 0.09 && j >= (jumps[k - 1] ?? 0) && j >= (jumps[k + 1] ?? 0) && f.t - s.last[k] > 0.5) s.last[k] = f.t;
       const px = Math.round(L.PX(k)), bx = px + 24, lip = Y(b.height), arm = lip - HANG, inReach = Math.abs(b.height - now) <= reach;
+      // In the waves' reach a bell is polished bronze; out of it, above or under the water, it is dull.
+      const metal = inReach ? bronze : dull, dark = inReach ? shade : dullShade;
       if (inReach) reached++;
       const age = f.t - s.last[k], ring = inReach && age < 1.6 ? 1 - age / 1.6 : 0;
       if (ring > 0) rings.push([px, ring]);
@@ -310,21 +330,23 @@ export default {
       ctx.beginPath(); ctx.moveTo(px + 4.5, arm + 9); ctx.lineTo(px + 13, arm + 1); ctx.stroke();
       ctx.save();
       ctx.translate(bx, arm); ctx.rotate(a);
-      ctx.strokeStyle = css(shade); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 4.2, 3.6, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = css(dark); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 4.2, 3.6, 0, TAU); ctx.stroke();
       ctx.translate(0, HANG);
-      bellPath(ctx, BELL); ctx.fillStyle = css(bronze); ctx.fill();
-      ctx.save(); ctx.clip(); ctx.fillStyle = css(shade); ctx.fillRect(BELL * 0.12, -BELL - 2, BELL, BELL + 4); ctx.restore();
-      ctx.strokeStyle = css(shine); ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(-BELL * 0.18, -BELL * 0.8); ctx.quadraticCurveTo(-BELL * 0.26, -BELL * 0.46, -BELL * 0.36, -BELL * 0.16); ctx.stroke();
-      ctx.lineCap = 'butt';
-      ctx.fillStyle = css(shade); ctx.fillRect(-BELL / 2, -2, BELL, 2);
+      bellPath(ctx, BELL); ctx.fillStyle = css(metal); ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = css(dark); ctx.fillRect(BELL * 0.12, -BELL - 2, BELL, BELL + 4); ctx.restore();
+      if (inReach) {
+        ctx.strokeStyle = css(shine); ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-BELL * 0.18, -BELL * 0.8); ctx.quadraticCurveTo(-BELL * 0.26, -BELL * 0.46, -BELL * 0.36, -BELL * 0.16); ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+      ctx.fillStyle = css(dark); ctx.fillRect(-BELL / 2, -2, BELL, 2);
       ctx.beginPath(); ctx.arc(0, 3.5, 3.2, 0, TAU); ctx.fill();
       if (active('kbells')) { bellPath(ctx, BELL); ctx.strokeStyle = css(foam); ctx.lineWidth = 1.5; ctx.stroke(); }
       ctx.restore();
-      // What is under the water is seen through it.
+      // What is under the water is seen through it: a bell the waves still reach faintly, one under them for good as a dark shape.
       if (lip > wl) {
         ctx.save(); ctx.beginPath(); ctx.rect(0, wl, w, h); ctx.clip();
-        hangAt(ctx, bx, arm, a); bellPath(ctx, BELL); ctx.fillStyle = css(near, 0.72); ctx.fill();
+        hangAt(ctx, bx, arm, a); bellPath(ctx, BELL); ctx.fillStyle = css(mix(seaAt(lip), [0, 0, 0], inReach ? 0 : 0.25), inReach ? 0.26 : 0.86); ctx.fill();
         ctx.restore();
       }
     });
@@ -348,11 +370,15 @@ export default {
     ctx.fillStyle = css(stone); ctx.fillRect(0, L.QY, w, h - L.QY);
     ctx.fillStyle = css(mix(stone, [0, 0, 0], 0.3)); ctx.fillRect(0, L.QY, w, 2);
     ctx.fillStyle = css(mix(stone, [255, 255, 255], 0.25)); ctx.fillRect(0, L.QY + 2, w, 1);
+    ctx.fillStyle = css(mix(stone, [0, 0, 0], 0.16));
+    for (let x = 34; x < w; x += 68) ctx.fillRect(x, L.QY + 5, 1, h - L.QY - 5);
     // The harbour's tide board on the quay: its legs, its enamel face.
     const B = L.B, C = L.C;
     ctx.fillStyle = css(iron); ctx.fillRect(B.x0 + 26, B.y1, 6, L.QY - B.y1 + 2); ctx.fillRect(B.x1 - 32, B.y1, 6, L.QY - B.y1 + 2);
     ctx.fillStyle = css(mix(board, [0, 0, 0], 0.35)); ctx.fillRect(B.x0 - 1, B.y0 - 1, B.x1 - B.x0 + 2, B.y1 - B.y0 + 2);
     ctx.fillStyle = css(board); ctx.fillRect(B.x0, B.y0, B.x1 - B.x0, B.y1 - B.y0);
+    ctx.fillStyle = css(mix(board, [0, 0, 0], 0.3));
+    for (const [sx, sy] of [[B.x0 + 6, B.y0 + 6], [B.x1 - 6, B.y0 + 6], [B.x0 + 6, B.y1 - 6], [B.x1 - 6, B.y1 - 6]]) { ctx.beginPath(); ctx.arc(sx, sy, 1.8, 0, TAU); ctx.fill(); }
     ctx.fillStyle = css(letter); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.font = '800 11px ' + FONT; ctx.letterSpacing = '2px'; ctx.fillText('TIDE BELLS', B.x0 + 14, B.y0 + 21);
     ctx.letterSpacing = '0px';
@@ -374,7 +400,7 @@ export default {
     ctx.beginPath(); ctx.moveTo(mx - 5, C.y0 - 9); ctx.lineTo(mx + 5, C.y0 - 9); ctx.lineTo(mx, C.y0 - 3); ctx.closePath(); ctx.fill();
     // Its last line: the setting under the hand, or at rest the bells the waves reach.
     const line = zone === 'hour' ? 'THE HOUR ' + clock(hour) + '  ↔'
-      : zone === 'kbells' ? 'BELLS ' + pct(loud) + '  ↕'
+      : zone === 'kbells' ? 'BELL VOLUME ' + pct(loud) + '  ↕'
       : zone === 'kbay' ? 'ECHO OFF THE BAY ' + pct(bay) + '  ↕'
       : zone === 'water' ? 'SEA ' + pct(sea) + ' ↕   WAVES ' + waves.toFixed(1) + ' ↔'
       : reached + ' OF ' + n + ' BELLS IN REACH';
