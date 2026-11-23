@@ -387,10 +387,12 @@ export default {
     const rising = tide(hour + 0.02) > now;
     ctx.font = '600 44px ' + FONT; ctx.fillText(clock(hour), B.x0 + 12, B.y0 + 74);
     ctx.font = '600 12px ' + FONT; ctx.fillText((rising ? '↑ coming in' : '↓ going out') + '   ' + now.toFixed(2) + ' m', B.x0 + 14, B.y0 + 94);
-    // The day's tide in the colours of each hour's sky, thicker at high tide, marked at the hour.
+    // The day's tide in the colours of each hour's sky, thicker at high tide, marked at the hour; its top a smooth line.
+    const crest = x => C.y1 - 2 - clamp((tide(L.CH(x)) - 0.3) / 1.8, 0, 1) * (C.y1 - C.y0 - 2);
     for (let x = C.x0; x < C.x1; x += 2) {
-      const hr = L.CH(x + 1), th = 2 + clamp((tide(hr) - 0.3) / 1.8, 0, 1) * (C.y1 - C.y0 - 2), [t0, m0] = colours(SKY, hr);
-      ctx.fillStyle = css(mix(t0, m0, 0.35)); ctx.fillRect(x, C.y1 - th, 2.4, th);
+      const x1 = Math.min(C.x1, x + 2.4), [t0, m0] = colours(SKY, L.CH(x + 1));
+      ctx.fillStyle = css(mix(t0, m0, 0.35));
+      ctx.beginPath(); ctx.moveTo(x, C.y1); ctx.lineTo(x, crest(x)); ctx.lineTo(x1, crest(x1)); ctx.lineTo(x1, C.y1); ctx.closePath(); ctx.fill();
     }
     ctx.fillStyle = css(letter); ctx.fillRect(C.x0, C.y1, C.x1 - C.x0, 1);
     ctx.font = '600 9px ' + FONT; ctx.textAlign = 'center';
