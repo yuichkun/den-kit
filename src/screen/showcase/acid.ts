@@ -2,20 +2,45 @@
 // A mono saw/square bass through a driven ladder filter, with a snappy filter
 // envelope and glide. The design follows the thinking of Elektron Overbridge's
 // interface (Red Dot: Best of the Best 2016, User Interface Design): no copy of
-// a hardware panel; frequencies are graphs edited where they are drawn, and
-// nothing hides in menus. The filter's response is the screen: drag its peak
-// (across: Cutoff, up: Resonance), scroll for how far each note opens it; the
-// envelope is a second graph dragged the same way. The sound's own spectrum
-// runs under the curve, so what the curve does is seen in what plays.
+// a hardware panel, free of rotary wheels and sliders; every setting is a graph
+// edited where it is drawn, and nothing hides in menus. The filter's response is
+// the screen: drag its peak (across: Cutoff, up: Resonance), and drag the mark on
+// the dashed curve (or scroll) for how far each note opens it. The sound's last
+// moments of spectrum run under the curve as stacked lines, so what the curve
+// does is seen in what plays. Beside it, three small graphs carry the rest: each
+// note's filter envelope (two marks), the glide between notes (the pitch's
+// slope), and the wave from saw to square, rounded by Drive. Pads in one row play
+// an octave of bass notes.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
-/** The ladder's response from Cutoff and Resonance, over the output's spectrum; it takes the mouse. */
+/** A diamond mark, the handle shape every Contour graph uses (canvas code, shared by the graphs below). */
+const MARK = `function mark(ctx, x, y, r, fill, line) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.stroke();
+}
+/** A small label beside a mark, on the background colour so lines under it do not cross it;
+ * kept inside the canvas (it flips to the left near the right edge). */
+function tag(ctx, text, x, y, w, color, back) {
+  ctx.font = '11px ui-monospace, monospace';
+  const tw = ctx.measureText(text).width, lx = x + 12 + tw > w ? x - 12 - tw : x + 12, ly = Math.max(11, y);
+  ctx.fillStyle = back;
+  ctx.fillRect(lx - 3, ly - 11, tw + 6, 15);
+  ctx.fillStyle = color;
+  ctx.fillText(text, lx, ly);
+}
+`;
+
+/** The ladder's response from Cutoff and Resonance, over the output's recent spectrum; it takes the mouse. */
 export const FILTER_GRAPH = `// The ladder's response, drawn from Cutoff (kcut) and Resonance (kres), over the
-// sound's own spectrum. Press or drag: across is the cutoff, up is the resonance
-// (the peak follows the hand). Scroll: Sweep (kenv), how far each note opens it,
-// drawn as the dashed curve and the span along the floor.
-const LO = 30, HI = 12000, TOP = 30, BOTTOM = -36;
+// sound's last moments of spectrum: a new line every 60 ms, older lines drift up
+// and fade. Drag the peak (or press anywhere): across is the cutoff, up is the
+// resonance (the peak follows the hand). Drag the hollow mark on the dashed
+// curve across, or scroll: Sweep (kenv), how far each note opens the filter.
+const LO = 30, HI = 12000, TOP = 30, BOTTOM = -36, ROWS = 14;
 const xOf = (hz, w) => (Math.log(hz / LO) / Math.log(HI / LO)) * w;
 const hzOf = (x, w) => LO * Math.pow(HI / LO, Math.min(1, Math.max(0, x / w)));
 const yOf = (db, h) => ((TOP - db) / (TOP - BOTTOM)) * h;
@@ -52,14 +77,21 @@ function curve(ctx, w, h, fc, k) {
     else ctx.moveTo(x, y);
   }
 }
+/** Where the two marks sit: the peak of the response, and the peak of the dashed curve. */
+function marks(f) {
+  const fc = f.value('kcut'), k = f.value('kres'), pk = peakOf(k);
+  const open = Math.min(HI, fc * Math.pow(2, f.value('kenv')));
+  const y = yOf(Math.min(TOP, pk.db), f.h);
+  return { fc, k, pk, open, px: xOf(fc * pk.at, f.w), ox: Math.min(f.w - 8, xOf(open * pk.at, f.w)), y };
+}
+${MARK}
 export default {
   setup(ctx, f) {
-    f.state.drag = false;
+    Object.assign(f.state, { drag: '', hist: [], last: 0 });
   },
   draw(ctx, f) {
-    const w = f.w, h = f.h;
-    const fg = f.color('fg'), accent = f.color('accent'), muted = f.color('muted'), track = f.color('track');
-    const fc = f.value('kcut'), k = f.value('kres'), sweep = f.value('kenv');
+    const w = f.w, h = f.h, s = f.state, m = marks(f);
+    const fg = f.color('fg'), accent = f.color('accent'), muted = f.color('muted'), track = f.color('track'), bg = f.color('bg');
     ctx.clearRect(0, 0, w, h);
     ctx.lineWidth = 1;
     ctx.strokeStyle = track;
@@ -72,111 +104,112 @@ export default {
       ctx.globalAlpha = db === 0 ? 1 : 0.55;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
-    // The sound's own spectrum: 64 bands from 96 Hz up, 0..1 is -100..-20 dB.
-    ctx.beginPath();
-    ctx.moveTo(xOf(96, w), h);
-    for (let i = 0; i < f.spectrum.length; i++) {
-      const x = xOf(96 * Math.pow(250, (i + 0.5) / 64), w);
-      ctx.lineTo(x, h - f.spectrum[i] * h * 0.85);
-      if (x > w) break;
+    // The sound's own spectrum (64 bands from 96 Hz up, 0..1 is -100..-20 dB), its last moments stacked.
+    if (f.t - s.last > 0.06) {
+      s.last = f.t;
+      s.hist.unshift(Array.from(f.spectrum));
+      if (s.hist.length > ROWS) s.hist.pop();
     }
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fillStyle = muted;
-    ctx.globalAlpha = 0.2;
-    ctx.fill();
+    ctx.strokeStyle = fg;
+    for (let row = s.hist.length - 1; row >= 0; row--) {
+      const sp = s.hist[row];
+      ctx.globalAlpha = 0.36 * (1 - row / ROWS);
+      // Each line runs from the first band that sounds to the last, so silence adds no flat lines.
+      let i0 = sp.findIndex(v => v >= 0.05), i1 = sp.length - 1;
+      while (i1 > i0 && sp[i1] < 0.05) i1--;
+      if (i0 < 0) continue;
+      ctx.beginPath();
+      for (let i = Math.max(0, i0 - 1); i <= Math.min(sp.length - 1, i1 + 1); i++) {
+        const x = xOf(96 * Math.pow(250, (i + 0.5) / 64), w);
+        const y = h - 2 - sp[i] * h * 0.6 - row * 6;
+        if (i > Math.max(0, i0 - 1)) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+        if (x > w) break;
+      }
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
-    // Where each note opens it: the curve at the top of the sweep, and the span along the floor.
-    const open = Math.min(HI, fc * Math.pow(2, sweep));
-    const xa = xOf(fc, w), xb = xOf(open, w);
+    // Where each note opens it: the dashed curve, and its mark.
     ctx.setLineDash([3, 4]);
     ctx.strokeStyle = fg;
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.6;
     ctx.lineWidth = 1.25;
-    curve(ctx, w, h, open, k);
+    curve(ctx, w, h, m.open, m.k);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.22;
-    ctx.fillRect(xa, h - 5, Math.max(0, xb - xa), 5);
     ctx.globalAlpha = 1;
-    ctx.fillRect(xb - 1, h - 12, 2, 12);
-    // The response, filled below its line.
-    curve(ctx, w, h, fc, k);
-    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-    ctx.globalAlpha = 0.12;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    curve(ctx, w, h, fc, k);
+    mark(ctx, m.ox, m.y, s.drag === 'open' ? 8 : 6, bg, fg);
+    tag(ctx, 'sweep', m.ox, m.y - 12, w, muted, bg);
+    // The response.
+    curve(ctx, w, h, m.fc, m.k);
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2.5;
     ctx.stroke();
-    // The handle on the peak.
-    const pk = peakOf(k);
-    const px = xOf(fc * pk.at, w), py = yOf(Math.min(TOP, pk.db), h);
     const p = f.pointer;
-    const hot = f.state.drag || (p && p.over && Math.hypot(p.x - px, p.y - py) < 24);
-    ctx.beginPath();
-    ctx.arc(px, py, hot ? 10 : 8, 0, Math.PI * 2);
-    ctx.fillStyle = f.color('bg');
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(px, py, 3, 0, Math.PI * 2);
-    ctx.fillStyle = accent;
-    ctx.fill();
+    const hot = s.drag === 'peak' || (p && p.over && Math.hypot(p.x - m.px, p.y - m.y) < 24);
+    mark(ctx, m.px, m.y, hot ? 11 : 9, accent, bg);
+    tag(ctx, 'cutoff · res', m.px, m.y - 14, w, fg, bg);
   },
   pointer(e, f) {
-    if (e.type === 'down') f.state.drag = true;
-    if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
+    const s = f.state, m = marks(f);
+    const dOpen = Math.hypot(e.x - m.ox, e.y - m.y), nearOpen = dOpen < 16 && dOpen < Math.hypot(e.x - m.px, e.y - m.y);
+    if (e.type === 'down') s.drag = nearOpen ? 'open' : 'peak';
+    if (e.type === 'up' || e.type === 'leave') s.drag = '';
     if (e.type === 'wheel') f.set('kenv', Math.max(0, Math.min(6, f.value('kenv') - e.dy / 200)));
-    else if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
+    else if (s.drag === 'open' && (e.type === 'down' || e.type === 'move'))
+      f.set('kenv', Math.max(0, Math.min(6, Math.log2(hzOf(e.x, f.w) / m.pk.at / m.fc))));
+    else if (s.drag === 'peak' && (e.type === 'down' || e.type === 'move')) {
       const k = resonanceAt(dbOf(e.y, f.h));
       f.set('kres', k);
       f.set('kcut', Math.max(40, Math.min(4000, hzOf(e.x, f.w) / peakOf(k).at)));
     }
-    f.cursor(f.state.drag ? 'grabbing' : 'grab');
+    f.cursor(s.drag === 'peak' ? 'grabbing' : s.drag === 'open' || nearOpen ? 'ew-resize' : 'grab');
   },
 };
 `;
 
-/** The filter envelope as a shape: Sweep is its height, Decay its length; it takes the mouse. */
-export const ENVELOPE_GRAPH = `// The filter envelope: how far each note opens the filter (Sweep, kenv, up)
-// and how fast it closes again (Decay, kdec, across). Press or drag to set both.
+/** Each note's filter envelope: Sweep is its height, Decay its length; it takes the mouse. */
+export const ENVELOPE_GRAPH = `// Each note's filter envelope: how far it opens the filter (Sweep, kenv: drag the
+// top mark up or down) and how fast it closes again (Decay, kdec: drag the end
+// mark across). Time runs on a square-root scale, so short decays get room.
 // A dot runs down the slope each time a note starts (seen in the output level).
-const TMAX = 1.4, OMAX = 6, PAD = 10;
+const TMAX = 1.2, OMAX = 6, LEFT = 10, RIGHT = 14;
+${MARK}
+function frame(f) {
+  const base = f.h - 16, top = 34;
+  return {
+    base, top,
+    xT: t => LEFT + Math.sqrt(Math.max(0, t) / TMAX) * (f.w - LEFT - RIGHT),
+    yO: o => base - (o / OMAX) * (base - top),
+  };
+}
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, { drag: false, prev: 0, start: -10 });
+    Object.assign(f.state, { drag: '', prev: 0, start: -10 });
   },
   draw(ctx, f) {
-    const w = f.w, h = f.h, s = f.state;
-    const accent = f.color('accent'), track = f.color('track'), fg = f.color('fg');
+    const w = f.w, h = f.h, s = f.state, g = frame(f);
+    const accent = f.color('accent'), track = f.color('track'), fg = f.color('fg'), muted = f.color('muted'), bg = f.color('bg');
     const decay = f.value('kdec'), sweep = f.value('kenv');
-    const base = h - PAD, top = PAD + 6;
-    const xT = t => (t / TMAX) * w;
-    const yO = o => base - (o / OMAX) * (base - top);
     ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = muted;
+    ctx.fillText('each note', 0, 11);
     ctx.strokeStyle = track;
     ctx.lineWidth = 1;
-    for (let t = 0.25; t < TMAX; t += 0.25) {
-      const x = Math.round(xT(t)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(x, top - 6); ctx.lineTo(x, base); ctx.stroke();
+    for (const t of [0.05, 0.1, 0.2, 0.4, 0.8]) {
+      const x = Math.round(g.xT(t)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, g.top - 6); ctx.lineTo(x, g.base); ctx.stroke();
     }
-    for (const o of [0, 2, 4, 6]) {
-      const y = Math.round(yO(o)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-    const peak = yO(sweep), end = xT(decay);
+    ctx.beginPath(); ctx.moveTo(0, g.base + 0.5); ctx.lineTo(w, g.base + 0.5); ctx.stroke();
+    const peak = g.yO(sweep), x0 = g.xT(0), end = g.xT(decay);
+    const at = u => peak + (g.base - peak) * (1 - (1 - u) * (1 - u));
     ctx.beginPath();
-    ctx.moveTo(0, base); ctx.lineTo(2, peak); ctx.lineTo(end, base); ctx.closePath();
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.16;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, base); ctx.lineTo(2, peak); ctx.lineTo(end, base); ctx.lineTo(w, base);
+    ctx.moveTo(0, g.base);
+    ctx.lineTo(x0, g.base);
+    ctx.lineTo(x0, peak);
+    for (let i = 1; i <= 40; i++) ctx.lineTo(g.xT((decay * i) / 40), at(i / 40));
+    ctx.lineTo(w, g.base);
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2.5;
     ctx.lineJoin = 'round';
@@ -186,21 +219,135 @@ export default {
     s.prev = f.level;
     const age = f.t - s.start;
     if (age >= 0 && age < decay) {
-      const x = 2 + (end - 2) * (age / decay), y = peak + (base - peak) * (age / decay);
-      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fillStyle = fg; ctx.fill();
+      ctx.beginPath();
+      ctx.arc(g.xT(age), at(age / decay), 4, 0, Math.PI * 2);
+      ctx.fillStyle = fg;
+      ctx.fill();
     }
-    ctx.beginPath(); ctx.arc(end, base, 5, 0, Math.PI * 2);
-    ctx.fillStyle = f.color('bg'); ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+    mark(ctx, x0, peak, s.drag === 'sweep' ? 8 : 6, accent, bg);
+    tag(ctx, 'sweep', x0, peak - 6, w, fg, bg);
+    mark(ctx, end, g.base, s.drag === 'decay' ? 8 : 6, accent, bg);
+    tag(ctx, 'decay ' + decay.toFixed(2) + ' s', end, h - 1, w, fg, bg);
+  },
+  pointer(e, f) {
+    const s = f.state, g = frame(f);
+    const x0 = g.xT(0), peak = g.yO(f.value('kenv')), end = g.xT(f.value('kdec'));
+    const toSweep = Math.hypot(e.x - x0, e.y - peak) < Math.hypot(e.x - end, e.y - g.base);
+    if (e.type === 'down') s.drag = toSweep ? 'sweep' : 'decay';
+    if (e.type === 'up' || e.type === 'leave') s.drag = '';
+    if (s.drag === 'sweep' && (e.type === 'down' || e.type === 'move'))
+      f.set('kenv', Math.max(0, Math.min(OMAX, ((g.base - e.y) / (g.base - g.top)) * OMAX)));
+    if (s.drag === 'decay' && (e.type === 'down' || e.type === 'move')) {
+      const u = Math.max(0, Math.min(1, (e.x - LEFT) / (f.w - LEFT - RIGHT)));
+      f.set('kdec', Math.max(0.03, Math.min(1.2, u * u * TMAX)));
+    }
+    f.cursor((s.drag || (toSweep ? 'sweep' : 'decay')) === 'sweep' ? 'ns-resize' : 'ew-resize');
+  },
+};
+`;
+
+/** Glide as the pitch's slope from one note to the next; it takes the mouse. */
+export const GLIDE_GRAPH = `// Glide (kglide): how long a note slides to the next. The line is the pitch: a
+// low note, then the slide up to the next one. Drag the mark at the top of the
+// slide across: the longer the slope, the slower the slide.
+const GMAX = 0.3, X0 = 56, RIGHT = 56;
+${MARK}
+export default {
+  setup(ctx, f) {
+    f.state.drag = false;
+  },
+  draw(ctx, f) {
+    const w = f.w, h = f.h, s = f.state;
+    const accent = f.color('accent'), track = f.color('track'), fg = f.color('fg'), muted = f.color('muted'), bg = f.color('bg');
+    const glide = f.value('kglide'), span = w - X0 - RIGHT, lo = h - 8, hi = 26;
+    const x1 = X0 + (glide / GMAX) * span;
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = muted;
+    ctx.fillText('glide', 0, 11);
+    ctx.strokeStyle = track;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(X0 + 0.5, hi - 8); ctx.lineTo(X0 + 0.5, lo + 4);
+    ctx.moveTo(X0 + span + 0.5, hi - 8); ctx.lineTo(X0 + span + 0.5, lo + 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, lo);
+    ctx.lineTo(X0, lo);
+    ctx.lineTo(Math.max(X0 + 1, x1), hi);
+    ctx.lineTo(w, hi);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    mark(ctx, x1, hi, s.drag ? 8 : 6, accent, bg);
+    tag(ctx, Math.round(glide * 1000) + ' ms', x1, hi + 18, w, fg, bg);
   },
   pointer(e, f) {
     if (e.type === 'down') f.state.drag = true;
     if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
-    if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
-      const base = f.h - PAD, top = PAD + 6;
-      f.set('kdec', Math.max(0.03, Math.min(1.2, (e.x / f.w) * TMAX)));
-      f.set('kenv', Math.max(0, Math.min(OMAX, ((base - e.y) / (base - top)) * OMAX)));
+    if (f.state.drag && (e.type === 'down' || e.type === 'move'))
+      f.set('kglide', Math.max(0, Math.min(GMAX, ((e.x - X0) / (f.w - X0 - RIGHT)) * GMAX)));
+    f.cursor('ew-resize');
+  },
+};
+`;
+
+/** The oscillator's wave from saw to square, rounded by Drive; it takes the mouse. */
+export const WAVE_GRAPH = `// The wave into the filter: Saw to square (kwave) across, Drive (kdrive) up.
+// Two cycles of the wave between saw and square, drawn rounder the harder Drive
+// pushes the filter. Drag the mark: across for the wave, up for Drive.
+const DMAX = 8, PAD = 8;
+${MARK}
+function frame(f) {
+  const top = 22, base = f.h - 16;
+  return { top, base, mid: (top + base) / 2, amp: (base - top) / 2 - 2 };
+}
+export default {
+  setup(ctx, f) {
+    f.state.drag = false;
+  },
+  draw(ctx, f) {
+    const w = f.w, h = f.h, s = f.state, g = frame(f);
+    const accent = f.color('accent'), track = f.color('track'), fg = f.color('fg'), muted = f.color('muted'), bg = f.color('bg');
+    const mix = f.value('kwave'), drive = f.value('kdrive');
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = muted;
+    ctx.fillText('wave', 0, 11);
+    ctx.fillText('saw', 0, h - 1);
+    ctx.textAlign = 'right';
+    ctx.fillText('square', w, h - 1);
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = track;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, Math.round(g.mid) + 0.5); ctx.lineTo(w, Math.round(g.mid) + 0.5); ctx.stroke();
+    const round = v => Math.tanh(v * drive * 0.5) / Math.tanh(drive * 0.5);
+    ctx.beginPath();
+    for (let x = 0; x <= w; x++) {
+      const ph = ((x / w) * 2) % 1;
+      const v = (1 - mix) * (1 - 2 * ph) + mix * (ph < 0.5 ? 1 : -1);
+      const y = g.mid - round(v) * g.amp;
+      if (x) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
     }
-    f.cursor(f.state.drag ? 'grabbing' : 'crosshair');
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    const hx = PAD + mix * (w - 2 * PAD), hy = g.base - ((drive - 1) / (DMAX - 1)) * (g.base - g.top);
+    mark(ctx, hx, hy, s.drag ? 8 : 6, fg, bg);
+    tag(ctx, 'drive ' + drive.toFixed(1), hx, hy - 8, w, fg, bg);
+  },
+  pointer(e, f) {
+    const g = frame(f);
+    if (e.type === 'down') f.state.drag = true;
+    if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
+    if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
+      f.set('kwave', Math.max(0, Math.min(1, (e.x - PAD) / (f.w - 2 * PAD))));
+      f.set('kdrive', 1 + Math.max(0, Math.min(1, (g.base - e.y) / (g.base - g.top))) * (DMAX - 1));
+    }
+    f.cursor(f.state.drag ? 'grabbing' : 'move');
   },
 };
 `;
@@ -214,38 +361,29 @@ const AXIS = [
   [1000, '1k'],
   [2000, '2k'],
   [5000, '5k'],
+  [10000, '10k'],
 ] as const;
 
 export function acid(catalog: Catalog) {
-  const graph = { x: 24, y: 92, w: 480, h: 236 };
+  const graph = { x: 24, y: 76, w: 480, h: 296 };
   const xOf = (hz: number) => graph.x + (Math.log(hz / 30) / Math.log(12000 / 30)) * graph.w;
-  const caption = (text: string, x: number, y: number, w: number) =>
+  const readout = (label: string, bind: string, x: number) => [
     el({
       kind: 'text',
-      name: `${text} caption`,
-      text,
-      rect: r(x, y, w, 14),
-      textStyle: {
-        size: 10,
-        weight: 700,
-        color: 'muted',
-        align: 'left',
-        spacing: 0.16,
-        case: 'upper',
-      },
-    });
-  const readout = (label: string, bind: string, x: number) => [
-    caption(label, x, 22, 92),
+      name: `${label} label`,
+      text: label,
+      rect: r(x, 20, 90, 16),
+      textStyle: { size: 11, color: 'muted', align: 'left' },
+    }),
     el({
       kind: 'text',
       name: `${label} value`,
       text: '{value}',
       bind,
-      rect: r(x, 38, 90, 22),
+      rect: r(x, 36, 90, 22),
       textStyle: { font: 'jetbrains-mono', size: 16, color: 'fg', align: 'left' },
     }),
   ];
-  const row = { skin: { name: 'bar', params: { radius: 2, label: 'top' } } };
   return work(
     'acid',
     'Contour',
@@ -300,11 +438,14 @@ export function acid(catalog: Catalog) {
       wire('mix1.out', 'sat1.in'),
       wire('sat1.out', 'gain1.in'),
       wire('gain1.out', 'out1.left'),
-      // The filter's controls live in the patch, off the plugin: the graphs move them.
+      // Every setting lives in the patch, off the plugin: the graphs move them.
       ...patchControl('kcut', 'Cutoff', 'cut1.hz', [40, 4000, 'log', 'Hz'], 340),
       ...patchControl('kres', 'Resonance', 'ladder1.resonance', [0, 0.95, 'linear', ''], 0.72),
       ...patchControl('kenv', 'Sweep', 'envamt1.b', [0, 6, 'linear', 'oct'], 3.4),
       ...patchControl('kdec', 'Decay', 'fenv1.decay', [0.03, 1.2, 'log', 's'], 0.2),
+      ...patchControl('kglide', 'Glide', 'glide1.seconds', [0, 0.3, 'linear', 's'], 0.06),
+      ...patchControl('kdrive', 'Drive', 'ladder1.drive', [1, 8, 'linear', ''], 2.2),
+      ...patchControl('kwave', 'Saw to square', 'wave1.mix', [0, 1, 'linear', ''], 0),
       // ---- the plugin: the graphs are the controls ----
       {
         op: 'setLook',
@@ -323,45 +464,18 @@ export function acid(catalog: Catalog) {
             valueFont: 'jetbrains-mono',
           },
           background: [{ kind: 'color', color: '#121417' }],
-          skins: {
-            slider: { name: 'bar', params: { radius: 2, label: 'top' } },
-            keyboard: { name: 'piano', params: { octaves: 3, start: 36, lit: '#ff7d45' } },
-          },
-          css: [
-            'dk-slider { position: relative; }',
-            'dk-slider::part(label) { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--dk-muted); }',
-            'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 12px; color: var(--dk-fg); }',
-            'dk-slider::part(track) { max-height: 6px; margin-top: 6px; }',
-            '[data-widget=keys1] { --dk-key-white: #1f2328; --dk-key-black: #0c0e10; --dk-key-line: #2e3339; --dk-key-label: #8d959d; --dk-key-down-label: #121417; }',
-          ].join('\n'),
         },
       },
       el({
         kind: 'text',
         name: 'Title',
         text: 'Contour',
-        rect: r(24, 18, 200, 30),
-        textStyle: { size: 24, weight: 700, color: 'fg', align: 'left' },
+        rect: r(24, 14, 260, 44),
+        textStyle: { font: 'jetbrains-mono', size: 30, weight: 700, color: 'fg', align: 'left' },
       }),
-      el({
-        kind: 'text',
-        name: 'Subtitle',
-        text: 'Acid bass. Drag the peak; scroll for how far each note opens it.',
-        rect: r(24, 50, 420, 16),
-        textStyle: { size: 12, color: 'muted', align: 'left' },
-      }),
-      ...readout('Cutoff', 'kcut', 466),
-      ...readout('Resonance', 'kres', 556),
-      ...readout('Sweep', 'kenv', 646),
-      el({
-        kind: 'shape',
-        shape: 'line',
-        name: 'Rule',
-        rect: r(24, 76, 712, 1),
-        locked: true,
-        style: { stroke: { color: '#ffffff14', width: 1, style: 'solid' } },
-      }),
-      caption('Filter', 24, 84 - 2, 120),
+      ...readout('cutoff', 'kcut', 466),
+      ...readout('resonance', 'kres', 556),
+      ...readout('sweep', 'kenv', 646),
       el({
         kind: 'canvas',
         name: 'Filter response',
@@ -377,33 +491,31 @@ export function acid(catalog: Catalog) {
           textStyle: { font: 'jetbrains-mono', size: 10, color: 'muted', align: 'center' },
         }),
       ),
-      caption('Envelope', 524, 84 - 2, 120),
       el({
         kind: 'canvas',
-        name: 'Filter envelope',
+        name: 'Each note',
         code: ENVELOPE_GRAPH,
-        rect: r(524, 92, 212, 120),
+        rect: r(524, 76, 212, 140),
       }),
-      ...control('kglide', 'ui.slider', 'Glide', 'glide1.seconds', r(524, 226, 212, 34), {
-        min: 0,
-        max: 0.3,
-        unit: 's',
-        value: 0.06,
-        style: row,
+      el({ kind: 'canvas', name: 'Glide', code: GLIDE_GRAPH, rect: r(524, 228, 212, 56) }),
+      el({ kind: 'canvas', name: 'Wave', code: WAVE_GRAPH, rect: r(524, 296, 212, 76) }),
+      ...control('keys1', 'ui.keyboard', 'Keys', null, r(24, 410, 712, 66), {
+        style: {
+          skin: {
+            name: 'pads',
+            params: {
+              count: 13,
+              columns: 13,
+              start: 36,
+              scale: 'chromatic',
+              colors: 'outline',
+              press: 'sink',
+              radius: 6,
+              gap: 6,
+            },
+          },
+        },
       }),
-      ...control('kdrive', 'ui.slider', 'Drive', 'ladder1.drive', r(524, 266, 212, 34), {
-        min: 1,
-        max: 8,
-        value: 2.2,
-        style: row,
-      }),
-      ...control('kwave', 'ui.slider', 'Saw to square', 'wave1.mix', r(524, 306, 212, 34), {
-        min: 0,
-        max: 1,
-        value: 0,
-        style: row,
-      }),
-      ...control('keys1', 'ui.keyboard', 'Keys', null, r(24, 368, 712, 108)),
     ],
   );
 }

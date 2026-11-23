@@ -33,11 +33,11 @@ export const Play: Story = {
     ),
 };
 
-/** Editing it with the Drive slider selected: its handles, and its settings in the inspector. */
+/** Editing it with the pads selected: their handles, and their settings in the inspector. */
 export const Edit: Story = {
   render: () => {
     const session = storySession(acid());
-    session.select(['kdrive']);
+    session.select(['keys1']);
     return mount(session, () =>
       h('div', { class: 'main', style: 'height:100vh' }, [
         h('div', { class: 'sidebar' }, [h(PluginInspector)]),
