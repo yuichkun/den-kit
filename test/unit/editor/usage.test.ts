@@ -138,6 +138,27 @@ describe('what a session counts', () => {
     expect(analytics.events).toHaveLength(6);
   });
 
+  it("counts the person's undo and redo, also of the AI's changes, as their own changes", () => {
+    const k = session();
+    k.restore('bass');
+    const analytics = recorder();
+    const usage = new Usage(analytics, null);
+    usage.allow(true);
+    const stop = countUsage(k, usage);
+    expect(k.undo()).toBeNull(); // nothing to undo
+    k.commit([{ op: 'setName', name: 'By the AI' }], { author: { kind: 'ai-llm', take: 'rq1' } });
+    expect(analytics.events).toEqual(['app_used']);
+    expect(k.undo()).not.toBeNull();
+    expect(analytics.events).toEqual(['app_used', 'work_edited']);
+    vi.setSystemTime(new Date('2026-12-02T10:00:00Z'));
+    expect(k.redo()).not.toBeNull();
+    expect(analytics.events).toEqual(['app_used', 'work_edited', 'work_edited']);
+    stop();
+    vi.setSystemTime(new Date('2026-12-03T10:00:00Z'));
+    expect(k.undo()).not.toBeNull();
+    expect(analytics.events).toHaveLength(3);
+  });
+
   it('counts each request the AI takes, not one it could not take', () => {
     const k = session();
     k.restore('bass');

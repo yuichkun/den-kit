@@ -71,9 +71,10 @@ export class Usage {
 }
 
 /**
- * Count what happens in the session: the person's own changes to the work (not the AI's), code
- * parts added to the plugin (by anyone), requests the AI took, and the first sound each day, which
- * is checked on the output every `everyMs` while audio runs. Returns a function that stops counting.
+ * Count what happens in the session: the person's own changes to the work (not the AI's), with
+ * undo and redo, which only the person does, code parts added to the plugin (by anyone), requests
+ * the AI took, and the first sound each day, which is checked on the output every `everyMs` while
+ * audio runs. Returns a function that stops counting.
  */
 export function countUsage(session: KitSession, usage: Usage, everyMs = 250): () => void {
   const stops: Array<() => unknown> = [
@@ -82,6 +83,7 @@ export function countUsage(session: KitSession, usage: Usage, everyMs = 250): ()
       for (const op of tx.ops)
         if (op.op === 'addElement' && op.element.kind === 'code') usage.count('code_part_added');
     }),
+    session.onHistory(() => usage.count('work_edited')),
   ];
   if (session.requests) stops.push(session.requests.onRun(() => usage.count('ai_requested')));
   let samples = new Float32Array(0);

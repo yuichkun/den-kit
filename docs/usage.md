@@ -37,14 +37,14 @@ nothing.
 **Usage data** is these events. Each carries only its own random ID, a random ID for this
 install, den-kit's version, the OS, the CPU type and the time.
 
-| Event             | When                                                                                                                          |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `app_used`        | The first time each day (UTC) that den-kit is used: when it opens, or, if it stays open, at the first click or key that day   |
-| `sound_played`    | The first time each day (UTC) that sound comes out                                                                            |
-| `work_edited`     | The first time each day (UTC) that you change a work yourself, which includes moving a control; the AI's changes do not count |
-| `ai_requested`    | Each time the AI takes a request                                                                                              |
-| `code_part_added` | Each time a code part is added to a work's plugin screen                                                                      |
-| `work_exported`   | Each time you export a work                                                                                                   |
+| Event             | When                                                                                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app_used`        | The first time each day (UTC) that den-kit is used: when it opens, or, if it stays open, at the first click or key that day                  |
+| `sound_played`    | The first time each day (UTC) that sound comes out                                                                                           |
+| `work_edited`     | The first time each day (UTC) that you change a work yourself, which includes moving a control, undo and redo; the AI's changes do not count |
+| `ai_requested`    | Each time the AI takes a request                                                                                                             |
+| `code_part_added` | Each time a code part is added to a work's plugin screen                                                                                     |
+| `work_exported`   | Each time you export a work                                                                                                                  |
 
 Usage data never includes your works, code, sounds, images, AI conversations, the names or
 places of files, or sign-in details. Events that could not be sent wait in the app's data
