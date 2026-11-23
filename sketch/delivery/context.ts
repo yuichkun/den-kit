@@ -26,12 +26,15 @@ export interface DeliveryContext {
 
 export const DELIVERY: InjectionKey<DeliveryContext> = Symbol('delivery');
 
-/** One step of a setting, as the kept list and the compare list play it. */
+/** A sound that plays notes (steps); without notes it sounds on its own (rain). */
+export const playsNotes = (spec: DeliverySpec) => spec.notes.length > 0;
+
+/** One step of a setting (or its length of sound), as the kept list and the compare list play it. */
 export function stepJob(spec: DeliverySpec, build: Build, setting: Setting): RenderJob {
   return {
     build,
     setting,
-    steps: [{ at: 0, note: spec.notes[0]!, velocity: 96, hold: 0.2 }],
+    steps: playsNotes(spec) ? [{ at: 0, note: spec.notes[0]!, velocity: 96, hold: 0.2 }] : [],
     seconds: spec.length,
     preroll: 2,
   };
@@ -56,9 +59,9 @@ export function fileJob(
   return {
     build,
     setting: v.setting,
-    steps: [
-      { at: 0, note: spec.notes[index % spec.notes.length]!, velocity: v.velocity, hold: 0.2 },
-    ],
+    steps: playsNotes(spec)
+      ? [{ at: 0, note: spec.notes[index % spec.notes.length]!, velocity: v.velocity, hold: 0.2 }]
+      : [],
     seconds: spec.length,
     preroll: v.preroll,
   };

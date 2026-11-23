@@ -8,7 +8,7 @@ import { pluginSpec } from '../../src/screen/build.ts';
 import { computerKeys } from '../../src/screen/computer-keys.ts';
 import { catalog } from '../../src/sound/blocks/index.ts';
 import type { PatchDocument } from '../../src/work/schema.ts';
-import { DELIVERY } from './context.ts';
+import { DELIVERY, playsNotes } from './context.ts';
 import { authorSetting, withSetting, type Setting } from './sound.ts';
 
 const ctx = inject(DELIVERY)!;
@@ -16,7 +16,9 @@ const build = ctx.active;
 const setting = ref<Setting>({});
 const doc = shallowRef<PatchDocument | null>(null);
 const held = ref<number[]>([]);
-const started = ref(ctx.live.running);
+const notes = playsNotes(ctx.spec);
+// A sound that plays on its own is quiet until it is started on this tab.
+const started = ref(ctx.live.running && notes);
 const starting = ref(false);
 let made = 0;
 
@@ -77,6 +79,7 @@ const keys = computerKeys({
 onBeforeUnmount(() => {
   keys.stop();
   ctx.live.stop();
+  if (!notes) ctx.live.quiet();
 });
 </script>
 
@@ -92,21 +95,21 @@ onBeforeUnmount(() => {
         @change="change"
         @note="note"
       />
+    </div>
+    <div class="bar">
       <button
         v-if="!started"
         type="button"
-        class="start primary"
+        class="primary"
         data-testid="screen-start"
         :disabled="starting"
         @click="start"
       >
         {{ starting ? 'Starting…' : 'Click to play' }}
       </button>
-    </div>
-    <div class="bar">
       <p>
-        The work as the author made it: every control, over its whole range. Play the pads, or the
-        keys A to K.
+        The work as the author made it: every control, over its whole range.
+        {{ notes ? 'Play the pads, or the keys A to K.' : 'It sounds on its own once started.' }}
       </p>
       <button v-if="!ctx.readonly" type="button" @click="reset">
         Back to the author's setting
@@ -142,12 +145,6 @@ onBeforeUnmount(() => {
 .window {
   position: absolute;
   inset: 0;
-}
-.start {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
 }
 .bar {
   display: flex;

@@ -6,6 +6,8 @@
 import { AudioEngine } from '../../src/sound/audio-engine.ts';
 import { paramsFor, renderSteps, type Build, type Setting, type Step } from './sound.ts';
 
+const VOLUME = 0.5;
+
 /** The live sound of one build at a time, following a setting. */
 export class LiveSound {
   readonly engine = new AudioEngine();
@@ -16,9 +18,10 @@ export class LiveSound {
     return this.engine.state === 'running' && !!this.build;
   }
 
-  /** Start (from a click) and load the build with a setting. */
+  /** Start (from a click) and load the build with a setting; it is heard again if it was quiet. */
   async start(build: Build, setting: Setting): Promise<boolean> {
     if (!(await this.engine.start())) return false;
+    this.engine.setVolume(VOLUME);
     if (this.build === build) {
       this.set(build, setting);
       return true;
@@ -63,6 +66,11 @@ export class LiveSound {
 
   stop() {
     this.engine.allNotesOff();
+  }
+
+  /** Silence a sound that plays on its own (it keeps running, unheard, until started again). */
+  quiet() {
+    this.engine.setVolume(0);
   }
 
   dispose() {

@@ -94,19 +94,23 @@ function build(version: string): Promise<Build> {
 
 const active = computed(() => builds[state.version] ?? null);
 
-/** The sheet a fresh recipient starts with: a few surfaces, walking and running, four files each. */
+/**
+ * The sheet a fresh recipient starts with: the first three places under the first two
+ * conditions, four files each (two for a sound without notes: its files are longer).
+ */
 function freshSheet(s: DeliverySpec): Sheet {
   const cells: Sheet['cells'] = {};
+  const count = s.notes.length ? 4 : 2;
   for (const point of s.points.slice(0, 3))
     for (const option of s.condition.options.slice(0, 2)) {
       const row = `point:${point.name}`;
       cells[`${row}|${option.name}`] = {
-        count: 4,
-        seeds: [0, 1, 2, 3].map(i => seedOf(`${row}|${option.name}|${i}`)),
-        locked: [false, false, false, false],
+        count,
+        seeds: Array.from({ length: count }, (_, i) => seedOf(`${row}|${option.name}|${i}`)),
+        locked: Array.from({ length: count }, () => false),
       };
     }
-  return { rows: [], cells, naming: s.naming, channels: 1 };
+  return { rows: [], cells, naming: s.naming, channels: s.channels };
 }
 
 const readonly = computed(() => !!reply.value);

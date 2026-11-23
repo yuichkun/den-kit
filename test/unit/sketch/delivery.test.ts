@@ -51,6 +51,18 @@ describe('the author side of a delivery', () => {
     ]);
     expect(footsteps.condition.options.map(o => o.name)).toEqual(['walk', 'run', 'sneak']);
   });
+  it('reads a delivery of a sound that plays on its own (no notes)', () => {
+    const rain = readSpec(
+      JSON.parse(
+        readFileSync(
+          new URL('../../../public/delivery/rain/delivery.json', import.meta.url),
+          'utf8',
+        ),
+      ),
+    ) as DeliverySpec;
+    expect(rain.notes).toEqual([]);
+    expect(rain.points.map(p => p.name)).toContain('Storm');
+  });
   it('refuses a delivery without points or with a delivered version it does not list', () => {
     expect(readSpec({ ...footsteps, points: [] })).toHaveProperty('error');
     expect(readSpec({ ...footsteps, delivered: 'v9' })).toHaveProperty('error');

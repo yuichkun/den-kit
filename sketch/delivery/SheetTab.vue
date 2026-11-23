@@ -8,7 +8,7 @@
 import { computed, inject, ref } from 'vue';
 import { writeZip, type ZipEntry } from '../../src/work/zip.ts';
 import { play, render, stopPlaying } from './audio.ts';
-import { DELIVERY, fileJob } from './context.ts';
+import { DELIVERY, fileJob, playsNotes } from './context.ts';
 import { MAX_COUNT, type Cell, type Row } from './record.ts';
 import { fileName, seedOf, slug, type Condition } from './spec.ts';
 import { download, samplesOf, wav } from './wav.ts';
@@ -99,13 +99,18 @@ const repeated = computed(() => {
   return files.value.filter(f => (seen.has(f.name) ? true : (seen.add(f.name), false))).length;
 });
 
-/** The cell's files in turn at the gait's pace, eight steps, never the same file twice in a row. */
+const notes = playsNotes(spec);
+/**
+ * The cell's files in turn: steps walk eight times at the gait's pace, never the same
+ * file twice in a row; a sound without notes plays each file once, end to end.
+ */
 async function walk(row: Row, o: Condition) {
   const c = cell(row, o);
   if (!c.count) return;
   const buffers = await Promise.all(
     Array.from({ length: c.count }, (_, i) => render(job(row, o, i))),
   );
+  if (!notes) return play(buffers, spec.length);
   void play(
     Array.from({ length: 8 }, (_, step) => buffers[step % buffers.length]!),
     o.every,
@@ -191,6 +196,9 @@ function removeRow(row: Row) {
           data-testid="sheet-naming"
         />
       </label>
+      <span v-if="files.length" class="format as-written" data-testid="sheet-first-name">
+        {{ files[0]!.name }}
+      </span>
       <label>
         <span>Channels</span>
         <select v-model.number="sheet.channels" :disabled="ctx.readonly">
@@ -266,7 +274,7 @@ function removeRow(row: Row) {
               </button>
               <template v-if="cell(row, o).count">
                 <button type="button" class="small" data-testid="cell-walk" @click="walk(row, o)">
-                  Walk
+                  {{ notes ? 'Walk' : 'In turn' }}
                 </button>
                 <button
                   v-if="!ctx.readonly"

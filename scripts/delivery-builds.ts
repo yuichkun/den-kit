@@ -1,8 +1,9 @@
 // Makes the playable builds that the delivery sketch (delivery.html) hands over:
-// Footsteps (sketch/delivery/footsteps.ts) in both versions, compiled by den-kit itself
-// on a running dev server, written to public/delivery/footsteps/v1 and v2 as the
-// sound part of a playable build (src/work/playable.ts: build.json, processor.js,
-// processor.wasm). The player's own files are left out: the sketch is the page.
+// Footsteps (sketch/delivery/footsteps.ts) in both versions and the showcase's
+// Rainfall, compiled by den-kit itself on a running dev server, written to
+// public/delivery/<work>/<version> as the sound part of a playable build
+// (src/work/playable.ts: build.json, processor.js, processor.wasm). The player's own
+// files are left out: the sketch is the page.
 // Run `vp run dev`, then: node scripts/delivery-builds.ts [address of den-kit]
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -38,6 +39,7 @@ try {
     const { isContent } = await load('/src/work/files.ts');
     const playable = await load('/src/work/playable.ts');
     const { footsteps } = await load('/sketch/delivery/footsteps.ts');
+    const { rain } = await load('/src/screen/showcase/rain.ts');
     const base64 = (bytes: ArrayBuffer) => {
       let text = '';
       const view = new Uint8Array(bytes);
@@ -46,11 +48,15 @@ try {
       return btoa(text);
     };
     const out: Made[] = [];
-    for (const version of [1, 2]) {
-      const doc = footsteps(catalog, version);
+    const works = [
+      { folder: 'footsteps/v1', doc: footsteps(catalog, 1) },
+      { folder: 'footsteps/v2', doc: footsteps(catalog, 2) },
+      { folder: 'rain/v1', doc: rain(catalog) },
+    ];
+    for (const { folder, doc } of works) {
       const generated = generate(doc, catalog);
       const issues = generated.issues.map((i: { message: string }) => i.message);
-      if (!generated.source) throw new Error(`Footsteps v${version}: ${issues.join('; ')}`);
+      if (!generated.source) throw new Error(`${folder}: ${issues.join('; ')}`);
       const artifact = await session.compileApart(doc, generated);
       const manifest = {
         format: playable.PLAYABLE_FORMAT,
@@ -72,7 +78,7 @@ try {
         parts: false,
       };
       out.push({
-        folder: `footsteps/v${version}`,
+        folder,
         files: {
           [playable.PLAYABLE_MANIFEST]: JSON.stringify(manifest),
           [playable.PROCESSOR_MODULE]: artifact.moduleSource,

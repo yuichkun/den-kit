@@ -4,7 +4,7 @@
 // leaves the range the author named; the bars show where each control is inside it.
 // A gait moves the controls the way the author said, for listening and walking.
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
-import { DELIVERY } from './context.ts';
+import { DELIVERY, playsNotes } from './context.ts';
 import { applyCondition, nearest, pointRange, settingAt, toUnit } from './spec.ts';
 import type { Control } from './sound.ts';
 
@@ -62,7 +62,17 @@ async function ensure() {
   if (!started.value) started.value = await ctx.live.start(build.value, setting.value);
   return started.value;
 }
+const notes = playsNotes(ctx.spec);
+const listening = ref(false);
+/** A sound that plays on its own: heard or quiet. */
+async function listen() {
+  if (listening.value) {
+    ctx.live.quiet();
+    listening.value = false;
+  } else if (build.value) listening.value = await ctx.live.start(build.value, setting.value);
+}
 async function step() {
+  if (!notes) return listen();
   if (!(await ensure())) return;
   const note = ctx.spec.notes[turn++ % ctx.spec.notes.length]!;
   const velocity = options[gait.value]?.velocity ?? 96;
@@ -100,6 +110,7 @@ const show = (c: Control, v: number) =>
 onBeforeUnmount(() => {
   stopWalking();
   ctx.live.stop();
+  if (!notes) ctx.live.quiet();
 });
 </script>
 
@@ -192,9 +203,20 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="play">
-        <button type="button" data-testid="map-step" @click="step">Step</button>
-        <button type="button" :class="{ on: walking }" data-testid="map-walk" @click="walk">
-          {{ walking ? 'Stop' : 'Walk' }}
+        <template v-if="notes">
+          <button type="button" data-testid="map-step" @click="step">Step</button>
+          <button type="button" :class="{ on: walking }" data-testid="map-walk" @click="walk">
+            {{ walking ? 'Stop' : 'Walk' }}
+          </button>
+        </template>
+        <button
+          v-else
+          type="button"
+          :class="{ on: listening }"
+          data-testid="map-listen"
+          @click="listen"
+        >
+          {{ listening ? 'Stop' : 'Listen' }}
         </button>
       </div>
       <ul class="bars">

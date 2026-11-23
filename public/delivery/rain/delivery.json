@@ -1,0 +1,111 @@
+{
+  "title": "Rainfall",
+  "message": "Rain from a drizzle to a storm, and far off. Pick where it falls; the order sheet makes the files your scenes need.",
+  "versions": [{ "id": "v1", "folder": "v1", "notes": "The showcase's Rainfall, as delivered." }],
+  "delivered": "v1",
+  "notes": [],
+  "length": 5,
+  "axes": { "x": ["light", "heavy"], "y": ["close", "far"] },
+  "points": [
+    {
+      "name": "Drizzle",
+      "x": 0.12,
+      "y": 0.3,
+      "values": {
+        "knob1": 1.2,
+        "knob2": 3200,
+        "knob3": 0.02,
+        "kwind": 0.1,
+        "kwidth": 0.7,
+        "kroom": 0.15
+      }
+    },
+    {
+      "name": "Shower",
+      "x": 0.45,
+      "y": 0.22,
+      "values": {
+        "knob1": 5,
+        "knob2": 2600,
+        "knob3": 0.035,
+        "kwind": 0.3,
+        "kwidth": 0.85,
+        "kroom": 0.2
+      }
+    },
+    {
+      "name": "Downpour",
+      "x": 0.8,
+      "y": 0.3,
+      "values": {
+        "knob1": 12,
+        "knob2": 2000,
+        "knob3": 0.06,
+        "kwind": 0.6,
+        "kwidth": 0.95,
+        "kroom": 0.25
+      }
+    },
+    {
+      "name": "Storm",
+      "x": 0.9,
+      "y": 0.72,
+      "values": {
+        "knob1": 16,
+        "knob2": 1500,
+        "knob3": 0.09,
+        "kwind": 0.95,
+        "kwidth": 1,
+        "kroom": 0.35
+      }
+    },
+    {
+      "name": "Far off",
+      "x": 0.35,
+      "y": 0.85,
+      "values": {
+        "knob1": 4,
+        "knob2": 900,
+        "knob3": 0.05,
+        "kwind": 0.7,
+        "kwidth": 0.5,
+        "kroom": 0.5
+      }
+    }
+  ],
+  "spread": {
+    "knob1": 0.04,
+    "knob2": 0.04,
+    "knob3": 0.04,
+    "kwind": 0.05
+  },
+  "condition": {
+    "name": "place",
+    "options": [
+      { "name": "outside", "every": 1, "velocity": 100, "change": {} },
+      {
+        "name": "under a roof",
+        "every": 1,
+        "velocity": 100,
+        "change": {
+          "kroom": { "set": 0.45 },
+          "knob2": { "mul": 0.8 },
+          "kwidth": { "mul": 0.8 }
+        }
+      },
+      {
+        "name": "indoors",
+        "every": 1,
+        "velocity": 100,
+        "change": {
+          "kroom": { "set": 0.6 },
+          "knob2": { "mul": 0.55 },
+          "kwind": { "mul": 0.4 },
+          "kwidth": { "mul": 0.5 }
+        }
+      }
+    ]
+  },
+  "naming": "amb_rain_{point}_{condition}_{nn}",
+  "channels": 2
+}

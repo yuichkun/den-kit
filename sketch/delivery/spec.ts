@@ -37,7 +37,7 @@ export interface DeliverySpec {
   versions: VersionInfo[];
   /** The version the recipient was given first. */
   delivered: string;
-  /** The notes a step plays, in turn (left and right foot). */
+  /** The notes a step plays, in turn (left and right foot); none for a sound that plays on its own. */
   notes: number[];
   /** Seconds of sound in one file. */
   length: number;
@@ -48,6 +48,8 @@ export interface DeliverySpec {
   condition: { name: string; options: Condition[] };
   /** File names: {point}, {condition}, {nn} and {version} are filled in. */
   naming: string;
+  /** The files' channels unless the recipient picks others (1: mono, as game steps usually are). */
+  channels: 1 | 2;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -84,8 +86,9 @@ export function readSpec(value: unknown): DeliverySpec | { error: string } {
   const delivered = text(value.delivered, 20);
   if (!delivered || !versions.some(v => v.id === delivered))
     return fail('the delivered version is not listed.');
-  const notes = Array.isArray(value.notes) ? value.notes.filter(isNumber) : [];
-  if (!notes.length) return fail('no notes.');
+  // No notes: the sound plays on its own (rain), and a file is its length of sound.
+  if (!Array.isArray(value.notes)) return fail('notes is not a list.');
+  const notes = value.notes.filter(isNumber).map(n => Math.min(127, Math.max(0, Math.round(n))));
   if (!isNumber(value.length) || value.length <= 0 || value.length > 30)
     return fail('length is not 0..30 seconds.');
   if (!Array.isArray(value.points) || !value.points.length) return fail('no points.');
@@ -148,6 +151,7 @@ export function readSpec(value: unknown): DeliverySpec | { error: string } {
     ),
     condition: { name: text(condition.name, 30)!, options },
     naming,
+    channels: value.channels === 2 ? 2 : 1,
   };
 }
 
