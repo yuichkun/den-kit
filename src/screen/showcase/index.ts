@@ -34,8 +34,7 @@ export const WORKS: readonly Work[] = [
     id: 'acid',
     title: 'Contour',
     kind: 'Instrument',
-    prompt:
-      'An acid bass whose filter curve you pull by hand: drag the peak, the sweep and the decay',
+    prompt: 'An acid bass whose filter is a hill: drag its summit, the sweep and the decay',
     reference: 'Red Dot: Best of the Best 2016, User Interface Design: Elektron Overbridge',
     build: acid,
   },
