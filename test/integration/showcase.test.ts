@@ -461,7 +461,7 @@ describe('each work does what its controls say', () => {
     expect(scene.grid(11025, 2).levels).toBe(2);
     expect(scene.grid(11025, 4).levels).toBe(8);
     expect(scene.grid(11025, 8).levels).toBe(16);
-    /** The shapes filled in the first frame: the first row of blocks (three faces each) and the three pillars. */
+    /** The shapes filled in the first frame: the first row of blocks and the four towers in front, three faces each. */
     const fills = (rate: number) => {
       let n = 0;
       const ctx = new Proxy(
@@ -494,8 +494,8 @@ describe('each work does what its controls say', () => {
       scene.default.draw(ctx, f);
       return n;
     };
-    expect(fills(1500)).toBe(3 * 6 + 3 * 3);
-    expect(fills(48000)).toBe(3 * 40 + 3 * 3);
+    expect(fills(1500)).toBe(3 * 6 + 4 * 3);
+    expect(fills(48000)).toBe(3 * 40 + 4 * 3);
   });
 
   /** Correlation of the two sides (1: the same on both). */
