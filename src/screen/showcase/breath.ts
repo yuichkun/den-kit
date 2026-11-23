@@ -50,7 +50,8 @@ const COOL = [[52, 42, 104], [124, 112, 182], [180, 170, 228], [234, 230, 251]];
 const WARM = [[88, 44, 82], [176, 110, 146], [226, 166, 180], [252, 230, 224]];
 // The back wall, top and foot; its foot as the room is at its lightest.
 const WALL = [27, 21, 52], WALL_LO = [39, 31, 75], WALL_LIT = [62, 51, 112];
-const FLOOR = '#221a45', FLOOR_LO = '#372b69', INK = '#0f0a21', LETTER = '#ddd5f3';
+// The floor, a plum apart from the wall's violet: at its far end, and toward you.
+const FLOOR = '#1c1230', FLOOR_LO = '#33224b', INK = '#0f0a21', LETTER = '#ddd5f3';
 // Where the form's panels are sewn together, left to right (the outer two run off its sides).
 const SEAMS = [-1.7, -0.84, -0.56, -0.28, 0, 0.28, 0.56, 0.84, 1.7];
 // The light comes from the upper left, in front.
@@ -141,11 +142,13 @@ export default {
     let g = ctx.createLinearGradient(0, 0, 0, FL);
     g.addColorStop(0, rgb(WALL)); g.addColorStop(1, rgb(lerp(WALL_LO, WALL_LIT, 0.75 * clamp(0.5 + k / 2, 0, 1))));
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, FL);
-    // The floor.
+    // The floor, shaded where it meets the wall (no line between them).
     g = ctx.createLinearGradient(0, FL, 0, h);
     g.addColorStop(0, FLOOR); g.addColorStop(1, FLOOR_LO);
     ctx.fillStyle = g; ctx.fillRect(0, FL, w, h - FL);
-    ctx.fillStyle = INK; ctx.fillRect(0, FL - 1, w, 2);
+    g = ctx.createLinearGradient(0, FL, 0, FL + 14);
+    g.addColorStop(0, 'rgba(15, 10, 33, 0.6)'); g.addColorStop(1, 'rgba(15, 10, 33, 0)');
+    ctx.fillStyle = g; ctx.fillRect(0, FL, w, 14);
     if (zone === 'room') { ctx.fillStyle = LETTER; ctx.globalAlpha = 0.4; ctx.fillRect(0, FL - 1, w, 1.5); ctx.globalAlpha = 1; }
     // The form's shadow, falling to the right away from the light.
     ctx.fillStyle = INK; ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.ellipse(cx + W * 0.1, BY + 9, W * 0.58, 16, 0, 0, TAU); ctx.fill();
