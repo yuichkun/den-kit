@@ -1310,9 +1310,9 @@ describe('each work does what its controls say', () => {
         );
     };
     const was = { ...values };
-    // Its cloud covers 20 px each side of the spot: 25 px out on either side is the puddle.
-    drag(p.x + 25, p.y, 0, -40);
-    drag(p.x - 25, p.y, 40, 0);
+    // Its cloud covers 25 px each side of the spot: 32 px out on either side is the puddle.
+    drag(p.x + 32, p.y, 0, -40);
+    drag(p.x - 32, p.y, 40, 0);
     expect([values.knob1! > was.knob1!, values.kwidth! > 0]).toEqual([true, true]);
     expect([values.kdrops, values.kdropspan]).toEqual([was.kdrops, was.kdropspan]);
     // The cloud itself still moves the sound.
