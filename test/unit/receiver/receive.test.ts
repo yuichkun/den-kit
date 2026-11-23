@@ -196,6 +196,53 @@ describe('the usage receiver', () => {
     expect((await receive(post(body), { DB: db }, tomorrow)).status).toBe(204);
   });
 
+  it('refuses a whole batch that does not fit in what is left of the day', async () => {
+    const db = testD1();
+    db.exec(
+      `INSERT INTO intake (day, records, skipped) VALUES ('2026-12-10', ${DAILY_RECORDS - 2}, 0)`,
+    );
+    const three = JSON.stringify({ records: [record(), record(), record()] });
+    expect((await receive(post(three), { DB: db }, NOW)).status).toBe(429);
+    expect(db.rows('SELECT count(*) AS events FROM events')).toEqual([{ events: 0 }]);
+    expect(db.rows('SELECT count(*) AS installs FROM installs')).toEqual([{ installs: 0 }]);
+    const two = JSON.stringify({ records: [record(), record()] });
+    expect((await receive(post(two), { DB: db }, NOW)).status).toBe(204);
+    expect(db.rows('SELECT records, skipped FROM intake')).toEqual([
+      { records: DAILY_RECORDS, skipped: 0 },
+    ]);
+  });
+
+  it('counts the records it skips in the day’s limit', async () => {
+    const db = testD1();
+    db.exec(
+      `INSERT INTO intake (day, records, skipped) VALUES ('2026-12-10', 0, ${DAILY_RECORDS - 1})`,
+    );
+    const skipped = JSON.stringify({ records: [{}] });
+    expect((await receive(post(skipped), { DB: db }, NOW)).status).toBe(204);
+    expect((await receive(post(skipped), { DB: db }, NOW)).status).toBe(429);
+    const body = JSON.stringify({ records: [record()] });
+    expect((await receive(post(body), { DB: db }, NOW)).status).toBe(429);
+    expect(db.rows('SELECT records, skipped FROM intake')).toEqual([
+      { records: 0, skipped: DAILY_RECORDS },
+    ]);
+  });
+
+  it('takes no more than the day’s limit from requests that arrive together', async () => {
+    const db = testD1();
+    db.exec(
+      `INSERT INTO intake (day, records, skipped) VALUES ('2026-12-10', ${DAILY_RECORDS - 1}, 0)`,
+    );
+    const answers = await Promise.all(
+      Array.from({ length: 10 }, async () => {
+        const body = JSON.stringify({ records: [record()] });
+        return (await receive(post(body), { DB: db }, NOW)).status;
+      }),
+    );
+    expect(answers.toSorted()).toEqual([204, ...Array<number>(9).fill(429)]);
+    expect(db.rows('SELECT count(*) AS events FROM events')).toEqual([{ events: 1 }]);
+    expect(db.rows('SELECT records FROM intake')).toEqual([{ records: DAILY_RECORDS }]);
+  });
+
   it('answers 503 when the database fails, and keeps none of the batch', async () => {
     const db = testD1();
     db.fail = /INSERT INTO installs/;

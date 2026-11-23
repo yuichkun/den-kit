@@ -1,6 +1,6 @@
 // A stand-in for Cloudflare D1 (receiver/store.ts, D1Database) over node:sqlite, for the usage
 // receiver's tests: the SQLite engine D1 runs on, with the receiver's tables
-// (receiver/migrations/). A batch runs in one transaction, as in D1.
+// (receiver/migrations/). A batch runs in one transaction, alone, as in D1.
 import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +18,7 @@ export interface TestD1 extends D1Database {
 }
 
 interface Statement extends D1PreparedStatement {
-  run(): void;
+  run(): Record<string, unknown>[];
 }
 
 export function testD1(): TestD1 {
@@ -30,16 +30,16 @@ export function testD1(): TestD1 {
     rows: (query, ...values) => sqlite.prepare(query).all(...values) as Record<string, unknown>[],
     exec: sql => sqlite.exec(sql),
     prepare: query => statement(query, []),
-    async batch(statements) {
+    async batch<T>(statements: D1PreparedStatement[]) {
       sqlite.exec('BEGIN');
       try {
-        for (const s of statements) (s as Statement).run();
+        const results = statements.map(s => ({ results: (s as Statement).run() as T[] }));
         sqlite.exec('COMMIT');
+        return results;
       } catch (error) {
         sqlite.exec('ROLLBACK');
         throw error;
       }
-      return statements.map(() => ({ success: true }));
     },
   };
   function statement(query: string, values: SQLInputValue[]): Statement {
@@ -48,13 +48,9 @@ export function testD1(): TestD1 {
     };
     return {
       bind: (...next) => statement(query, next as SQLInputValue[]),
-      async first<T>() {
-        check();
-        return (sqlite.prepare(query).get(...values) as T | undefined) ?? null;
-      },
       run() {
         check();
-        sqlite.prepare(query).run(...values);
+        return sqlite.prepare(query).all(...values) as Record<string, unknown>[];
       },
     };
   }

@@ -41,8 +41,9 @@ vp exec wrangler d1 execute den-kit-usage --remote --command "SELECT * FROM coho
 
 - It answers only `POST /events` with the app's body: at most 100 records in 64 KiB. Any other
   body is refused, and the app drops it.
-- It takes at most `DAILY_RECORDS` (`store.ts`) records a day, which limits what a day of it
-  costs. Past that it answers 429, and the apps keep up to 1,000 events each and send them later
+- It takes at most `DAILY_RECORDS` (`store.ts`) records a day, counting those it skips, which
+  limits what a day of it costs. It answers 429 to a batch that does not fit in what is left of
+  the day, and the apps keep up to 1,000 events each and send them later
   (`desktop/analytics.ts`). Before real use comes near it, raise it; `intake` holds each day's
   records. Deployed with `DAILY_RECORDS` at 0, it takes nothing until it is raised again.
 

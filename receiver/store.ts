@@ -10,67 +10,66 @@ import { UUID, type Batch } from './records.ts';
 /** The parts of D1's Worker API the receiver uses. */
 export interface D1Database {
   prepare(query: string): D1PreparedStatement;
-  /** Runs the statements in one transaction. */
-  batch(statements: D1PreparedStatement[]): Promise<unknown[]>;
+  /** Runs the statements in one transaction, alone, and returns the rows each statement returns. */
+  batch<T = Record<string, unknown>>(
+    statements: D1PreparedStatement[],
+  ): Promise<Array<{ results: T[] }>>;
 }
 export interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
-  first<T = Record<string, unknown>>(): Promise<T | null>;
 }
 
 /**
- * The most records the receiver takes in a day: a limit on what a day of it can cost, also when
- * someone sends it records that are not den-kit's (docs/principles.md, Assume the worst intent).
+ * The most records the receiver takes in a day, counting those it skips: a limit on what a day of
+ * it can cost, also when someone sends it records that are not den-kit's (docs/principles.md,
+ * Assume the worst intent).
  */
 export const DAILY_RECORDS = 100_000;
 
-/** Records taken on `day` so far. */
-export async function taken(db: D1Database, day: string): Promise<number> {
-  const row = await db
-    .prepare('SELECT records FROM intake WHERE day = ?1')
-    .bind(day)
-    .first<{ records: number }>();
-  return row?.records ?? 0;
-}
-
-/** Keeps a batch received at `now`, in one transaction. An event already kept (by its id) stays as it was. */
-export async function keep(db: D1Database, batch: Batch, now: Date) {
+/**
+ * Keeps a batch received at `now`, in one transaction, and returns true; or, when its records, kept
+ * and skipped, do not fit in what is left of the day's DAILY_RECORDS, keeps nothing and returns
+ * false. An event already kept (by its id) stays as it was.
+ */
+export async function keep(db: D1Database, batch: Batch, now: Date): Promise<boolean> {
+  const day = dayOf(now);
+  const size = batch.records.length + batch.skipped;
   const records = JSON.stringify(batch.records);
   const receivedAt = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const intake = db
-    .prepare(
-      `INSERT INTO intake (day, records, skipped) VALUES (?1, ?2, ?3)
-       ON CONFLICT (day) DO UPDATE SET records = records + excluded.records, skipped = skipped + excluded.skipped`,
-    )
-    .bind(dayOf(now), batch.records.length, batch.skipped);
-  if (!batch.records.length) {
-    await db.batch([intake]);
-    return;
-  }
-  await db.batch([
+  // Each statement checks the room with ?1 (the day) and ?2 (the batch's size) against intake as it
+  // was before the batch, since intake changes last, so all of them write or none does.
+  const room = `coalesce((SELECT records + skipped FROM intake WHERE day = ?1), 0) + ?2 <= ${DAILY_RECORDS}`;
+  const [, , intake] = await db.batch([
     db
       .prepare(
         `INSERT OR IGNORE INTO events (id, install_id, event, version, os, arch, at, day, received_at)
          SELECT json_extract(value, '$.id'), json_extract(value, '$.install_id'),
            json_extract(value, '$.event'), json_extract(value, '$.version'),
            json_extract(value, '$.os'), json_extract(value, '$.arch'), json_extract(value, '$.at'),
-           substr(json_extract(value, '$.at'), 1, 10), ?2
-         FROM json_each(?1)`,
+           substr(json_extract(value, '$.at'), 1, 10), ?4
+         FROM json_each(?3) WHERE ${room}`,
       )
-      .bind(records, receivedAt),
-    // WHERE true: SQLite would read ON CONFLICT as part of the SELECT otherwise.
+      .bind(day, size, records, receivedAt),
     db
       .prepare(
         `INSERT INTO installs (install_id, first_day, last_day)
          SELECT json_extract(value, '$.install_id'), min(substr(json_extract(value, '$.at'), 1, 10)),
            max(substr(json_extract(value, '$.at'), 1, 10))
-         FROM json_each(?1) WHERE true GROUP BY 1
+         FROM json_each(?3) WHERE ${room} GROUP BY 1
          ON CONFLICT (install_id) DO UPDATE SET first_day = min(first_day, excluded.first_day),
            last_day = max(last_day, excluded.last_day)`,
       )
-      .bind(records),
-    intake,
+      .bind(day, size, records),
+    db
+      .prepare(
+        `INSERT INTO intake (day, records, skipped) SELECT ?1, ?3, ?4 WHERE ${room}
+         ON CONFLICT (day) DO UPDATE SET records = records + excluded.records,
+           skipped = skipped + excluded.skipped
+         RETURNING day`,
+      )
+      .bind(day, size, batch.records.length, batch.skipped),
   ]);
+  return intake.results.length > 0;
 }
 
 /**

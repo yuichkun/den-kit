@@ -4,7 +4,7 @@
 // only the records: never the address the request came from.
 import { dayOf } from './days.ts';
 import { parse } from './records.ts';
-import { DAILY_RECORDS, keep, taken, type D1Database } from './store.ts';
+import { keep, type D1Database } from './store.ts';
 
 export interface Env {
   DB: D1Database;
@@ -23,12 +23,10 @@ export async function receive(request: Request, env: Env, now: Date): Promise<Re
     return reply(415);
   const body = await read(request, MAX_BODY);
   if (body === null) return reply(413);
-  const today = dayOf(now);
-  const batch = parse(body, today);
+  const batch = parse(body, dayOf(now));
   if (!batch) return reply(400);
   try {
-    if ((await taken(env.DB, today)) >= DAILY_RECORDS) return reply(429);
-    await keep(env.DB, batch, now);
+    if (!(await keep(env.DB, batch, now))) return reply(429);
   } catch {
     return reply(503);
   }
