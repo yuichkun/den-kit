@@ -3,7 +3,7 @@
 The usage receiver takes the [usage data](usage.md#help-improve-den-kit) that den-kit's macOS
 app sends, keeps it in a Cloudflare D1 database, and counts it each day. It runs on Cloudflare
 Workers, apart from den-kit, from `receiver/`: `receive.ts` answers the app, `store.ts` keeps
-and counts, and `migrations/` makes the tables.
+and counts, `dashboard.ts` shows the counts, and `migrations/` makes the tables.
 
 ## What it keeps
 
@@ -31,7 +31,20 @@ Days are the computer's own UTC days. An event more than 44 days old, or dated m
 ahead, is skipped, and so is a record of another shape than the app's. An install that sends
 nothing for 45 days counts as new when it comes back.
 
-Read the counts with SQL, in `receiver/`:
+## Read the counts
+
+`https://stats.den-kit.com` shows the counts to the people that the Cloudflare Access
+application in front of it lets in (Set up and deploy): installs active each day and each week,
+by version and OS; how many new installs sent an event on day 1, 7 and 30; how many did each of
+opening den-kit, playing a sound, changing a work, asking the AI and exporting a work in their
+first 7 days; AI requests, code parts added and exports each day; and the records received each
+day against the limit. Each chart has a table of its values. A week's share for day 1, 7 or 30
+shows once every install new that week has reached that day.
+
+The Worker checks the token that Access adds to each request (`access.ts`), so the page stays
+closed also without Access in front of it, and there is no page while `TEAM_DOMAIN` or
+`POLICY_AUD` in `wrangler.jsonc` is empty. For anything the page does not show, use SQL, in
+`receiver/`:
 
 ```sh
 vp exec wrangler d1 execute den-kit-usage --remote --command "SELECT * FROM cohorts ORDER BY day DESC LIMIT 20"
@@ -62,9 +75,20 @@ In `receiver/`, with a Cloudflare account that has den-kit.com:
    Put the ID it prints in `wrangler.jsonc` as `database_id`.
 
 3. `vp run migrate` makes the tables, and `vp run deploy` deploys the Worker at
-   `usage.den-kit.com`.
+   `usage.den-kit.com` and `stats.den-kit.com`.
 4. Set the release variable `DEN_KIT_USAGE_URL` to `https://usage.den-kit.com/events`
    ([RELEASE.md](../RELEASE.md)).
+5. Put an Access application in front of the page only, not in front of the whole Worker: the
+   app sends to `usage.den-kit.com` without signing in. In the Cloudflare dashboard, go to
+   **Zero Trust** > **Access controls** > **Applications** > **Create new application** >
+   **Self-hosted and private**, add the public hostname `stats.den-kit.com`, and allow the people
+   who may read the counts
+   ([Publish a self-hosted application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)).
+   Put the team domain, `https://<team-name>.cloudflareaccess.com`, and the application's
+   **Application Audience (AUD) Tag**, in its **Additional settings**, in `wrangler.jsonc` as
+   `TEAM_DOMAIN` and `POLICY_AUD`
+   ([Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)),
+   then `vp run deploy` again.
 
 Deploy a receiver that knows a new event before releasing a den-kit that sends it: until then, the
 receiver skips it. A change to the tables is a new file in `migrations/`
