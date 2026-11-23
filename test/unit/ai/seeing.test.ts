@@ -58,6 +58,13 @@ describe('what the person is looking at, in one line', () => {
         shared: false,
       }),
     ).toMatch(/the screen project \(files and terminal\)/);
+    expect(
+      seeingText({ view: 'shared', edit: false, full: false }, doc, catalog, {
+        selection: [],
+        held: [],
+        shared: false,
+      }),
+    ).toMatch(/the Shared view, a prototype .* on made-up numbers and messages/);
   });
   it('names notes the usual way', () => {
     expect([60, 61, 69, 21, 127].map(noteName)).toEqual(['C4', 'C♯4', 'A4', 'A0', 'G9']);

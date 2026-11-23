@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // den-kit's shell: the toolbar, the Patch, Plugin, Code and Project views, the
-// inspector, the AI panel, the keyboard bar, the dialogs and the app's shortcuts.
+// Shared view (a prototype on made-up data), the inspector, the AI panel, the
+// keyboard bar, the dialogs and the app's shortcuts.
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
 import { POD } from '../screen/code-frames.ts';
@@ -12,6 +13,7 @@ import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
 import ProjectView from './ProjectView.vue';
+import SharedView from './shared/SharedView.vue';
 import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
@@ -30,7 +32,9 @@ const session = props.session;
 provide(SESSION, session);
 // Code parts on any plugin drawn in the editor come from the work's pod (through the host's sandbox when it has one).
 provide(POD, session.codeParts?.source ?? session.pod);
-const view = ref<'patch' | 'plugin' | 'code' | 'project'>('patch');
+const view = ref<'patch' | 'plugin' | 'code' | 'project' | 'shared'>('patch');
+/** The views that take the whole width (no inspector beside them). */
+const wide = computed(() => view.value === 'project' || view.value === 'shared');
 /** A file of the screen project to open in the Project view. */
 const projectFile = ref<string | null>(null);
 function openProject(path?: string) {
@@ -430,6 +434,14 @@ async function importPatch(e: Event) {
         >
           Project <i class="pod-dot" :class="session.pod.state.value" />
         </button>
+        <button
+          :class="{ active: view === 'shared' }"
+          data-testid="view-shared"
+          title="Prototype: what you could learn after sharing this work, on made-up data"
+          @click="view = 'shared'"
+        >
+          Shared
+        </button>
       </div>
       <span class="spacer" />
       <slot name="toolbar" />
@@ -472,8 +484,8 @@ async function importPatch(e: Event) {
     </div>
     <div class="body">
       <div class="left">
-        <div class="main" :class="{ wide: view === 'project' }">
-          <div v-show="!focusMode && view !== 'project'" class="sidebar">
+        <div class="main" :class="{ wide }">
+          <div v-show="!focusMode && !wide" class="sidebar">
             <PluginInspector
               v-if="view === 'plugin' && pluginEdit"
               @edit-canvas="id => (editingCanvas = id)"
@@ -493,6 +505,7 @@ async function importPatch(e: Event) {
               @edit-canvas="id => (editingCanvas = id)"
             />
             <ProjectView v-else-if="view === 'project'" :open="projectFile" />
+            <SharedView v-else-if="view === 'shared'" />
             <CodeView v-else />
             <div
               v-if="banner.length"

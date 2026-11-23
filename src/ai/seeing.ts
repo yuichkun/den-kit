@@ -6,7 +6,7 @@
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument } from '../work/schema.ts';
 
-export type SeenView = 'patch' | 'plugin' | 'code' | 'project';
+export type SeenView = 'patch' | 'plugin' | 'code' | 'project' | 'shared';
 export interface Seeing {
   view: SeenView;
   /** The plugin is being edited (not played). */
@@ -60,6 +60,10 @@ export function seeingText(
       : '';
     parts.push(`the patch${where}${s.zoom ? ` (zoom ${Math.round(s.zoom * 100)}%${sight})` : ''}`);
   } else if (s.view === 'code') parts.push('the generated code');
+  else if (s.view === 'shared')
+    parts.push(
+      'the Shared view, a prototype of what they could learn after sharing this work, on made-up numbers and messages',
+    );
   else parts.push('the screen project (files and terminal)');
   if (extra.selection.length)
     parts.push(
