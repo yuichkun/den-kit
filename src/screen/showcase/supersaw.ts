@@ -14,11 +14,12 @@
 // so the amp's and the filter's settings shape the teeth of every channel and
 // Detune shows as teeth that fall out of step from one channel to the next.
 // Every setting is a cursor or a handle on what it changes: the channels'
-// tabs (Drift), the stereo ruler over them (Width), the time ruler under them
-// (Attack, Filter decay and Release), the hall's dots after the note (Space),
-// and the output's spectrum at the bottom, with a line at Cutoff that also
-// takes Resonance and one where Env opens it to. Dragging across the channels
-// spreads them (Detune).
+// tabs (Drift), the stereo ruler over them (Width), the named triangles of the
+// time ruler under them (Attack, Filter decay and Release), the hall's dots
+// after the note with their own SPACE tab, and the output's spectrum at the
+// bottom, with a line at Cutoff that also takes Resonance and one where Env
+// opens it to. Dragging across the channels spreads them (Detune). The name
+// stands at the display's top right, like an instrument's model on its bezel.
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
 import { random01 } from '../../work/stacks.ts';
@@ -45,23 +46,24 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // key goes down, the lanes part from there, a thin line joins each tooth to the
 // same tooth in the next lane, and the lines fan out as far as the copies are
 // detuned and zigzag as far as they drift. Each tab stands as high by its lane's
-// zero mark as its copy plays sharp. After the copies stop, the hall rings on
-// as a field of dots, its height the square root of Space (kspace), the way
-// loudness is heard, with a handle on its top. The ruler on top is where Width
-// (kwidth) puts each copy from left to right. The band at the bottom is the
-// output's spectrum, with a line at Cutoff and a dotted one where Env opens it
-// to with each note.
+// middle as its copy plays sharp, a thin line leading from it to that middle.
+// After the copies stop, the hall rings on as a field of dots, its height the
+// square root of Space (kspace), the way loudness is heard, with its own tab,
+// SPACE, on its top. The ruler on top is where Width (kwidth) puts each copy
+// from left to right. Each triangle of the time ruler is named. The band at the
+// bottom is the output's spectrum, smoothed, with a line at Cutoff and a dotted
+// one where Env opens it to with each note.
 // Drag the lanes across for Detune; a tab up and down for Drift; a triangle on
 // the time ruler under the lanes, or its line through them, across for Attack
 // or Release (the upper row) or Filter decay (the lower row); the hall's dots
 // up and down for Space; the bracket on the top ruler for Width; in the band,
 // Cutoff's line across, or up and down for Resonance, and Env's across. The
-// name and value of what the hand is on show by it.
+// name and value of what the hand is on show by it, on a white card.
 // Wheel: finer steps; double click: first value.
 const list = v => String(v ?? '').split(/[ ,]+/).filter(Boolean).map(Number);
 const N = 7, ZOOM = 8, TEETH = 16;
 export const L = { x0: 56, x1: 736, top: 60, lane: 48 };
-const RULER = { x0: 412, x1: 736, y: 30 };
+const RULER = { x0: 70, x1: 394, y: 30 };
 export const TIME = { y: 404 };
 export const SPEC = { x0: 56, x1: 736, top: 446, bot: 500 };
 const KEYUP = L.x0 + 320;
@@ -108,9 +110,9 @@ const signed = v => (Math.round(v * 100) > 0 ? '+' : Math.round(v * 100) < 0 ? '
 // the line is Env's). Lines that meet in the lanes are each still taken on their own row of the time ruler.
 export function where(x, y, f) {
   const lb = lanesBottom();
-  if (y < L.top - 8) return x > RULER.x0 - 24 ? { id: 'kwidth', kind: 'width' } : null;
+  if (y < L.top - 8) return x > RULER.x0 - 24 && x < RULER.x1 + 24 ? { id: 'kwidth', kind: 'width' } : null;
   if (y < lb) {
-    if (x < L.x0 - 4) return x >= 14 ? { id: 'kdrift', kind: 'drift' } : null;
+    if (x < L.x0 - 4) return x >= 6 ? { id: 'kdrift', kind: 'drift' } : null;
     if (x > L.x1 + 6) return null;
     const xa = attX(f.value('katt')), xd = decX(f.value('kdec')), xr = relX(f.value('krel'));
     let best = null, bd = 6;
@@ -132,18 +134,18 @@ function tri(ctx, x, y, fill, ink, big) {
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + r, y + r * 1.5); ctx.lineTo(x - r, y + r * 1.5); ctx.closePath();
   ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.strokeStyle = ink; ctx.stroke();
 }
-// What the hand is on, by it: the setting's name in capitals and its value, cut out of what is behind.
-function readout(ctx, lines, x, y, align, ink, paper, w) {
-  ctx.font = '700 12px ' + FONT; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+// What the hand is on, by it: the setting's name in capitals and its value on a card, ruled round in ink, so it
+// reads over the teeth as well as the ground.
+function readout(ctx, lines, x, y, align, ink, card, w) {
+  ctx.font = '700 12px ' + FONT; ctx.textBaseline = 'middle';
   let tw = 0;
   for (const l of lines) { const m = ctx.measureText(l); tw = Math.max(tw, (m && m.width) || l.length * 7); }
-  const x0 = clamp(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, 6, w - tw - 6);
-  ctx.textAlign = 'left';
-  lines.forEach((l, i) => {
-    const ly = Math.round(y + (i - (lines.length - 1) / 2) * 15) + 0.5;
-    ctx.strokeStyle = paper; ctx.lineWidth = 5; ctx.strokeText(l, Math.round(x0), ly);
-    ctx.fillStyle = ink; ctx.fillText(l, Math.round(x0), ly);
-  });
+  const x0 = Math.round(clamp(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, 14, w - tw - 14));
+  const ch = lines.length * 15 + 7, y0 = Math.round(y - ch / 2);
+  ctx.fillStyle = card; ctx.fillRect(x0 - 8, y0, tw + 16, ch);
+  ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.strokeRect(x0 - 7.25, y0 + 0.75, tw + 14.5, ch - 1.5);
+  ctx.fillStyle = ink; ctx.textAlign = 'left';
+  lines.forEach((l, i) => ctx.fillText(l, x0, Math.round(y + (i - (lines.length - 1) / 2) * 15) + 0.5));
 }
 export default {
   setup(ctx, f) {
@@ -236,19 +238,25 @@ export default {
       if (is(id)) ctx.fillRect(Math.round(x) - 1, L.top, 2, TIME.y - L.top);
       else for (let y = L.top; y < TIME.y; y += 6) ctx.fillRect(Math.round(x), y, 1, 3);
     }
-    // The hall's handle, on its dots.
-    ctx.beginPath(); ctx.arc(hx, hy, is('kspace') ? 6 : 5, 0, Math.PI * 2);
-    ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
-    // The tabs: copy k's number, as high by its lane's zero mark as it plays sharp.
+    // The hall's tab on the top of its dots, named: a tab like the copies', pointing back at the note.
+    {
+      ctx.font = '700 9px ' + FONT; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const m = ctx.measureText('SPACE'), tw = ((m && m.width) || 30) + 12, x0 = Math.min(hx, w - tw - 14), on = is('kspace');
+      ctx.beginPath();
+      ctx.moveTo(x0, hy); ctx.lineTo(x0 + 6, hy - 7); ctx.lineTo(x0 + 6 + tw, hy - 7); ctx.lineTo(x0 + 6 + tw, hy + 7); ctx.lineTo(x0 + 6, hy + 7);
+      ctx.closePath(); ctx.fillStyle = on ? white : ink; ctx.fill();
+      ctx.fillStyle = on ? ink : bg; ctx.fillText('SPACE', x0 + 12, hy + 0.5);
+    }
+    // The tabs: copy k's number, as high by its lane's middle as it plays sharp, and a thin line from its point to
+    // that middle (level while the copy plays in tune).
     ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     lanes.forEach((ln, k) => {
-      ctx.fillStyle = ink;
-      ctx.fillRect(L.x0 - 9, Math.round(ln.mid) - 0.75, 6, 1.5);
       const ty = ln.mid - clamp(ln.st * 20, -L.lane / 2 + 8, L.lane / 2 - 8);
+      ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(34, ty); ctx.lineTo(L.x0 - 1, ln.mid); ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(22, ty - 7); ctx.lineTo(40, ty - 7); ctx.lineTo(46, ty); ctx.lineTo(40, ty + 7); ctx.lineTo(22, ty + 7); ctx.closePath();
+      ctx.moveTo(10, ty - 7); ctx.lineTo(28, ty - 7); ctx.lineTo(34, ty); ctx.lineTo(28, ty + 7); ctx.lineTo(10, ty + 7); ctx.closePath();
       ctx.fillStyle = is('kdrift') ? white : ink; ctx.fill();
-      ctx.fillStyle = is('kdrift') ? ink : bg; ctx.fillText(String(k + 1), 31, ty + 0.5);
+      ctx.fillStyle = is('kdrift') ? ink : bg; ctx.fillText(String(k + 1), 19, ty + 0.5);
     });
     // Width: the ruler from left to right, a diamond for each copy, the bracket around them.
     const cx = (RULER.x0 + RULER.x1) / 2, rhalf = (RULER.x1 - RULER.x0) / 2, ry = RULER.y;
@@ -279,15 +287,27 @@ export default {
     tri(ctx, xr, TIME.y + 2, white, ink, is('krel'));
     ctx.fillStyle = ink; ctx.fillRect(Math.round(xd), TIME.y + 2, 1, 13);
     tri(ctx, xd, TIME.y + 15, white, ink, is('kdec'));
-    // The band: the output's spectrum, filled; a line at Cutoff, a dotted one where Env opens it to.
+    // Each triangle's name beside it (Attack's on its left where Filter decay's line would cross it).
+    ctx.fillStyle = ink; ctx.textAlign = 'left';
+    const attLeft = xd > xa && xd < xa + 52;
+    ctx.textAlign = attLeft ? 'right' : 'left'; ctx.fillText('ATTACK', attLeft ? xa - 10 : xa + 10, TIME.y + 9);
+    ctx.textAlign = 'left'; ctx.fillText('RELEASE', xr + 10, TIME.y + 9);
+    ctx.fillText('FILTER DECAY', xd + 10, TIME.y + 22);
+    // The band: the output's spectrum, filled, its outline smoothed across the bands and over time; a line at
+    // Cutoff, a dotted one where Env opens it to.
     const spec = f.spectrum || new Float32Array(64), sh = SPEC.bot - SPEC.top - 6;
-    ctx.fillStyle = ink;
-    ctx.beginPath(); ctx.moveTo(fx(96 * Math.SQRT1_2), SPEC.bot);
+    if (!s.spec) s.spec = new Float32Array(64);
+    const pts = [];
     for (let k = 0; k < 64; k++) {
+      const a = spec[k] || 0, v = ((k ? spec[k - 1] || 0 : a) + 2 * a + (k < 63 ? spec[k + 1] || 0 : a)) / 4;
+      s.spec[k] += (v - s.spec[k]) * 0.35;
       const hz = 96 * Math.pow(250, (k + 0.5) / 64);
-      if (hz > FMAX) break;
-      ctx.lineTo(fx(hz), SPEC.bot - clamp((spec[k] || 0) * 1.4, 0, 1) * sh);
+      if (hz <= FMAX) pts.push([fx(hz), SPEC.bot - clamp(s.spec[k] * 1.4, 0, 1) * sh]);
     }
+    ctx.fillStyle = ink;
+    ctx.beginPath(); ctx.moveTo(fx(96 * Math.SQRT1_2), SPEC.bot); ctx.lineTo(pts[0][0], pts[0][1]);
+    for (let k = 1; k < pts.length; k++) ctx.quadraticCurveTo(pts[k - 1][0], pts[k - 1][1], (pts[k - 1][0] + pts[k][0]) / 2, (pts[k - 1][1] + pts[k][1]) / 2);
+    ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
     ctx.lineTo(SPEC.x1, SPEC.bot); ctx.closePath(); ctx.fill();
     ctx.fillRect(SPEC.x0, SPEC.bot, SPEC.x1 - SPEC.x0, 1.5);
     const fa = fx(cutHz), fb = fx(cutHz * Math.pow(2, env));
@@ -317,7 +337,7 @@ export default {
         kcut: [['CUTOFF ' + show(cutHz, 'Hz'), 'RESONANCE ' + res.toFixed(2)], fa - 10, SPEC.top + 18, 'right'],
         kenv: [['ENV +' + show(env, 'oct')], fb + 10, SPEC.top + 18, 'left'],
       }[id];
-      if (say) readout(ctx, say[0], say[1], say[2], say[3], ink, bg, w);
+      if (say) readout(ctx, say[0], say[1], say[2], say[3], ink, white, w);
     }
   },
   pointer(e, f) {
@@ -582,13 +602,13 @@ export function supersaw(catalog: Catalog) {
           kind: 'text',
           name: 'Title',
           text: 'SEPTET',
-          rect: r(24, 20, 200, 20),
+          rect: r(536, 20, 200, 20),
           textStyle: {
             font: 'michroma',
             size: 13,
             weight: 400,
             color: 'fg',
-            align: 'left',
+            align: 'right',
             spacing: 0.2,
           },
         }),
