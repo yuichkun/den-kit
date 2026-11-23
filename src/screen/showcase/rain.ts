@@ -489,8 +489,8 @@ export default {
     const v = id => SET[id].show(f.value(id));
     let lines, ax = p.x, above = p.y - 40, below = p.y + 30, side = { x0: p.x - 14, x1: p.x + 14, y: p.y }, skip = -1, own = null;
     if (hot.kind === 'source') {
-      const k = hot.k, b = boxOf(L, f, k), near = Math.round(clamp(f.value(LAYERS[k].level), 0, 1) * 100);
-      lines = [LAYERS[k].name, near + '% near, ' + (f.on(LAYERS[k].back) ? 'behind you' : 'in front')];
+      const k = hot.k, b = boxOf(L, f, k), level = Math.round(clamp(f.value(LAYERS[k].level), 0, 1) * 100);
+      lines = [LAYERS[k].name, 'level ' + level + '%, ' + (f.on(LAYERS[k].back) ? 'behind you' : 'in front of you')];
       const y0 = k === 0 ? Math.min(b.y0, at[0].y - PY * 1.1) : b.y0, y1 = k === 0 ? Math.max(b.y1, at[0].y + PY * 1.1) : b.y1;
       const x0 = k === 0 ? Math.min(b.x0, at[0].x - PX * 1.1) : b.x0, x1 = k === 0 ? Math.max(b.x1, at[0].x + PX * 1.1) : b.x1;
       ax = (b.x0 + b.x1) / 2; above = y0 - 26; below = y1 + 18; side = { x0, x1, y: (y0 + y1) / 2 }; skip = k;
