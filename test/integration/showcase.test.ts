@@ -858,6 +858,53 @@ describe('each work does what its controls say', () => {
     expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
   });
 
+  it('Yield: every setting keeps a part of the road to drag, even with the first echo close to you', async () => {
+    const doc = build('duck');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const road = await import(
+      `data:text/javascript;base64,${Buffer.from(el.code).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {} as Record<string, unknown>,
+      value: (id: string) => values[id]!,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    road.default.setup(fakeCanvas(), f);
+    const at = (type: string, x: number, y: number) =>
+      road.default.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
+    /** Which shape takes the hand at each point 4 px apart, and the first point for each. */
+    const zones = () => {
+      const first: Record<string, [number, number]> = {};
+      for (let y = 0; y < el.rect.h; y += 4)
+        for (let x = 0; x < el.rect.w; x += 4) {
+          at('move', x, y);
+          const z = f.state.over as string;
+          if (z && !first[z]) first[z] = [x, y];
+        }
+      return first;
+    };
+    expect(Object.keys(zones()).sort()).toEqual(['first', 'later', 'rule', 'you']);
+    // Repeat 50 ms and Echo level 50%: the first echo stands close to you and keeps the half nearer to it.
+    Object.assign(values, { ktime: 0.05, kmix: 0.5 });
+    const close = zones();
+    expect(Object.keys(close).sort()).toEqual(['first', 'later', 'rule', 'you']);
+    const [x, y] = close.first!,
+      was = { ...values };
+    at('down', x, y);
+    at('move', x, y - 20);
+    at('up', x, y - 20);
+    expect(values.kmix).toBeGreaterThan(was.kmix!);
+    expect([values.ktime, values.kthresh]).toEqual([was.ktime, was.kthresh]);
+  });
+
   it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, Cutoff's cursor up and down", async () => {
     const doc = build('supersaw');
     const wired = (id: string) =>
