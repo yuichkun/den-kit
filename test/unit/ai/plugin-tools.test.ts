@@ -24,14 +24,14 @@ describe('kit_get_plugin', () => {
     const doc = findWork('breath')!.build(catalog);
     const text = describePlugin(doc, catalog);
     expect(text).toContain('760×500 px');
-    expect(text).toMatch(/Look tokens: bg #1c0e38, fg #efe8ff, accent #d9ccff/);
-    expect(text).toMatch(/Look background \(bottom first\): colour #1c0e38 \| linear 180°/);
+    expect(text).toMatch(/Look tokens: bg #e9e3f7, fg #231a4f, accent #231a4f/);
+    expect(text).toMatch(/Look background \(bottom first\): colour #e9e3f7 \| linear 180°/);
     expect(text).toContain('Look skins: meter bar (look).');
     // Back to front: the level meter, the field (a canvas), the title.
     const order = ['"id":"mlevel"', '"id":"canvas1"', '"text":"exhale"'].map(s => text.indexOf(s));
     expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
     expect(text).toMatch(
-      /"id":"mlevel","control":"meter","label":"Level","panel":\{"x":355,"y":236,"w":50,"h":2\},"skin":"bar \(look\)"/,
+      /"id":"mlevel","control":"meter","label":"Level","panel":\{"x":346,"y":232,"w":68,"h":2\},"skin":"bar \(look\)"/,
     );
     expect(text).toMatch(
       /"id":"kwarm","control":"knob","label":"Warmth",.*?"value":"520 Hz","range":"200 Hz … 1\.60 kHz \(log\)","drives":\["→ cut1\.hz"\]/,

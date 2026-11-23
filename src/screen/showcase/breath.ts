@@ -10,58 +10,54 @@
 // a long hall holds everything.
 // The design follows the thinking of Loóna (Apple Design Awards 2021, Visuals
 // and Graphics), calm sessions in which type, colour, motion and 3D are made
-// together for one soothing scene: here the whole plugin is one picture at
-// night, a field of points running to the horizon and flowing slowly toward
-// you, with a soft swell in the middle that rises as the breath comes in and
-// settles as it goes out, in step with what is heard. Deep violet and pale
-// lilac, a quiet title, nothing else that asks for attention. The settings are
-// on the picture: the field for Depth and Breaths a minute, the sky above it
-// for Hall and Warmth. Key is kept in the patch.
+// together for one soothing scene: here the whole plugin is one picture, a
+// misty lavender room of dark points running to the horizon and flowing slowly
+// toward you, with a soft swell in the middle that rises as the breath comes in
+// and settles as it goes out, in step with what is heard. The title sits on the
+// horizon, underlined by how loud the room is; nothing else asks for attention.
+// The settings are on the picture: the floor for Depth and Breaths a minute,
+// the ceiling for Hall and Warmth, each value on a plate by the hand while it is
+// there. Key is kept in the patch.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
 /** The field: points running to the horizon, a swell that rises with the breath; it takes the mouse. */
-export const SCENE = `// A room of points at night: a floor and a ceiling running to the horizon,
+export const SCENE = `// A misty room of points: a floor and a ceiling running to the horizon,
 // both flowing slowly toward you. How full the breath is comes from the output
 // level, eased and placed between the quietest and loudest of the last few
 // breaths, so the room moves with what is heard: as the breath comes in, the
 // floor swells up in the middle and the ceiling lifts into a vault above it, as
-// far as Depth (kdepth) lets them, and both settle as it goes out; a slow ripple runs out
+// far as Depth (kdepth) lets them, the points growing as they rise, and both
+// settle as it goes out; a slow ripple runs out
 // across the floor once a breath (Breaths a minute, kbpm). The ceiling is the
 // hall: the more Hall (kspace), the higher it is. Warmth (kwarm) turns the
-// points from cool to warm lilac. The title sits where the room meets the horizon.
-// Drag the floor up and down for Depth, left and right for Breaths a minute;
-// drag the ceiling up and down for Hall, left and right for Warmth. A drag
-// keeps to the direction it starts in; scrolling moves the up-and-down setting.
+// points from cool indigo to warm plum; the further a point, the more it fades
+// into the mist. The title sits where the room meets the horizon. Drag the
+// floor up and down for Depth, left and right for Breaths a minute; drag the
+// ceiling up and down for Hall, left and right for Warmth. A drag keeps to the
+// direction it starts in; scrolling moves the up-and-down setting. The two
+// settings of the part under the hand show on a plate by it.
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const TAU = Math.PI * 2;
 // Columns across, rows from near (ZN) to far (ZF), the eye CAM above the floor, the swell's middle at ZC.
-const COLS = 96, ROWS = 30, ZN = 1.2, ZF = 10, CAM = 1, XW = 10, ZC = 2.8, COOL = [186, 198, 255], WARM = [252, 196, 232];
+const COLS = 96, ROWS = 30, ZN = 1.2, ZF = 10, CAM = 1, XW = 10, ZC = 2.8, COOL = [38, 30, 104], WARM = [112, 28, 84];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const SET = { kdepth: { lo: 0, hi: 1 }, kbpm: { lo: 3, hi: 10 }, kspace: { lo: 0, hi: 1 }, kwarm: { lo: 200, hi: 1600 } };
 const AXES = { floor: { x: 'kbpm', y: 'kdepth' }, ceiling: { x: 'kwarm', y: 'kspace' } };
-// The horizon, the middle across, and the lens: the nearest floor row lands near the bottom edge.
+// The horizon, the middle across, and the lens: the nearest floor row leaves past the bottom edge.
 function layout(w, h) {
   const HOR = Math.round(h * 0.45);
-  return { HOR, cx: w / 2, F: ((h - 14 - HOR) * ZN) / CAM };
+  return { HOR, cx: w / 2, F: ((h + 16 - HOR) * ZN) / CAM };
 }
 // How far the ceiling is above the eye.
 const above = hall => 0.55 + 1.5 * hall;
-// A label edged in the night's colour; underlined when its part of the room is under the hand.
-function say(ctx, text, x, y, align, ink, edge, hot) {
-  ctx.font = '600 13px ' + FONT;
-  ctx.textAlign = align;
-  ctx.textBaseline = 'alphabetic';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = edge;
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = ink;
-  ctx.fillText(text, x, y);
-  if (hot) {
-    const tw = ctx.measureText(text).width;
-    ctx.fillRect(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, y + 4, tw, 1.5);
-  }
+// The plate by the hand: the settings of the part of the room under it.
+function plate(ctx, text, x, y, ink, paper, w) {
+  ctx.font = '700 13px ' + FONT; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const m = ctx.measureText(text), tw = ((m && m.width) || text.length * 7.5) + 18;
+  const x0 = clamp(x - tw / 2, 6, w - tw - 6);
+  ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(Math.round(x0), Math.round(y - 12), Math.round(tw), 24, 12); ctx.fill();
+  ctx.fillStyle = paper; ctx.fillText(text, Math.round(x0 + 9), Math.round(y) + 0.5);
 }
 function move(id, v0, dx, dy, L) {
   const d = SET[id];
@@ -104,8 +100,8 @@ export default {
     // One plane: the floor (dir 1, at the eye's height below) or the ceiling (dir -1, at top above).
     const plane = (dir, height, bend) => {
       for (const { z, u } of rows) {
-        const near = ZN / z, size = 0.7 + 3.4 * near;
-        const fog = Math.exp(-(z - ZN) * 0.3) * Math.min(1, (1 - u) / 0.1) * Math.min(1, u / 0.04);
+        const near = ZN / z, size = 0.8 + 4.4 * near;
+        const fog = Math.exp(-(z - ZN) * 0.3) * Math.min(1, (1 - u) / 0.1);
         for (let i = 0; i < COLS; i++) {
           const x = (i / (COLS - 1) - 0.5) * 2 * XW;
           const sx = cx + (x / z) * F;
@@ -116,19 +112,21 @@ export default {
           if (a < 0.02) continue;
           ctx.fillStyle = 'rgba(' + ink + ',' + clamp(a, 0, 1) + ')';
           ctx.beginPath();
-          ctx.arc(sx, sy, size / 2, 0, TAU);
+          ctx.arc(sx, sy, (size / 2) * (1 + Math.abs(lift) * 1.8), 0, TAU);
           ctx.fill();
         }
       }
     };
     plane(-1, top, (x, z) => -0.7 * swell(x, z));
     plane(1, CAM, (x, z) => 1.05 * swell(x, z) + ripple(x, z));
-    // The labels, on what they set: the floor's below the horizon, the ceiling's above.
-    const fy = HOR + (CAM / ZC) * F + 22, cy = HOR - (top / ZC) * F - 12;
-    say(ctx, 'depth ' + Math.round(depth * 100) + '% ↕', cx - 200, fy, 'center', fg, bg, active('floor'));
-    say(ctx, bpm.toFixed(1) + ' breaths a minute ↔', cx + 200, fy, 'center', fg, bg, active('floor'));
-    say(ctx, 'hall ' + Math.round(hall * 100) + '% ↕', cx - 200, Math.max(20, cy), 'center', fg, bg, active('ceiling'));
-    say(ctx, 'warmth ' + Math.round(warm) + ' Hz ↔', cx + 200, Math.max(20, cy), 'center', fg, bg, active('ceiling'));
+    // The plate by the hand, while it is on the room.
+    const p = f.pointer, zone = s.drag || s.over;
+    if (zone && p && (p.over || s.drag)) {
+      const text = zone === 'floor'
+        ? 'depth ' + Math.round(depth * 100) + '% ↕ · ' + bpm.toFixed(1) + ' breaths a minute ↔'
+        : 'hall ' + Math.round(hall * 100) + '% ↕ · warmth ' + Math.round(warm) + ' Hz ↔';
+      plate(ctx, text, p.x, clamp(p.y - 30, 16, h - 16), fg, bg, w);
+    }
   },
   pointer(e, f) {
     const s = f.state, L = layout(f.w, f.h), zone = e.y < L.HOR ? 'ceiling' : 'floor';
@@ -246,7 +244,7 @@ export function breath(catalog: Catalog) {
         ...patchControl('kdepth', 'Depth', ['deep1.b', 'bamt1.b'], [0, 1, 'linear', ''], 0.8),
         ...patchControl('kwarm', 'Warmth', 'cut1.hz', [200, 1600, 'log', 'Hz'], 520),
         ...patchControl('kspace', 'Hall', 'hall1.mix', [0, 1, 'linear', ''], 0.45),
-        ...control('mlevel', 'ui.meter', 'Level', null, r(355, 236, 50, 2)),
+        ...control('mlevel', 'ui.meter', 'Level', null, r(346, 232, 68, 2)),
         wire('gl1.out', 'mlevel.in'),
         { op: 'makePart', ids: inside, name: 'Tone', id: 'tone', node: 'tone1' },
       ],
@@ -279,27 +277,27 @@ export function breath(catalog: Catalog) {
           op: 'setLook',
           look: {
             tokens: {
-              bg: '#1c0e38',
-              fg: '#efe8ff',
-              accent: '#d9ccff',
-              track: '#3a2763',
-              knob: '#2a1650',
-              pointer: '#efe8ff',
-              muted: '#a596d4',
-              glow: '#d9ccff',
+              bg: '#e9e3f7',
+              fg: '#231a4f',
+              accent: '#231a4f',
+              track: '#cbbfe9',
+              knob: '#d9d0f2',
+              pointer: '#231a4f',
+              muted: '#5a4f86',
+              glow: '#231a4f',
               font: 'lato',
               labelFont: 'lato',
               valueFont: 'lato',
             },
             background: [
-              { kind: 'color', color: '#1c0e38' },
+              { kind: 'color', color: '#e9e3f7' },
               {
                 kind: 'linear',
                 angle: 180,
                 stops: [
-                  { color: '#2c1755', at: 0 },
-                  { color: '#1c0e3800', at: 0.36 },
-                  { color: '#0e0620', at: 1 },
+                  { color: '#d6caef', at: 0 },
+                  { color: '#f1ecfb', at: 0.45 },
+                  { color: '#d2c5ee', at: 1 },
                 ],
               },
             ],
@@ -311,8 +309,8 @@ export function breath(catalog: Catalog) {
           kind: 'text',
           name: 'Title',
           text: 'exhale',
-          rect: r(280, 210, 200, 24),
-          textStyle: { font: 'lato', size: 16, color: 'fg', align: 'center', spacing: 0.6 },
+          rect: r(280, 202, 200, 28),
+          textStyle: { font: 'lato', size: 22, weight: 700, color: 'fg', align: 'center' },
         }),
       ],
     ],
