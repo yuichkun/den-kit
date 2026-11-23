@@ -65,3 +65,6 @@ const session = await startEditor(host, {
 });
 // Tests drive the same session.
 (window as unknown as { __kit: typeof session }).__kit = session;
+// The passing-on prototype (prototype/remix): a passed-on work opened from the address to change its inside.
+if (query.has('remix'))
+  void import('../prototype/remix/editor-hook.ts').then(m => m.mountRemix(session));
