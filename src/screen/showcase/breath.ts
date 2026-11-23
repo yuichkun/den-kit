@@ -13,31 +13,28 @@
 // together for one soothing scene: here the whole plugin is one picture, a
 // gallery at night where a great soft form of air sits on the polished floor
 // and rises, rounds and goes taut as the breath comes in, then settles and
-// creases as it goes out, in step with what is heard. A card on the wall names
-// the work and shows the settings under the hand, and a slit of light in the
-// wall is the meter. The settings are on the picture: the form for Depth and
-// Breaths a minute, the room for Hall and Warmth. Key is kept in the patch.
+// creases as it goes out, in step with what is heard, while the room grows
+// lighter and darker with it. Lettering on the wall names the work and shows the
+// settings under the hand. The settings are on the picture: the form for Depth
+// and Breaths a minute, the room for Hall and Warmth. Key is kept in the patch.
 import type { Catalog } from '../../work/catalog.ts';
-import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
-
-/** The slit of light in the gallery's back wall: its left, top, width and height (its light is the meter). */
-const SLIT = { x: 92, y: 24, w: 6, h: 214 };
+import { add, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
 /** The gallery: a great soft form of air that breathes; it takes the mouse. */
 export const SCENE = `// A gallery at night seen from the front: a great soft form of air sits on
 // the polished floor and breathes. How full the breath is comes from the output
 // level, eased and placed between the quietest and loudest of the last few
 // breaths, so the form moves with what is heard: as the breath comes in it
-// rises, rounds and goes taut, as far as Depth (kdepth) lets it; as it goes
-// out it settles, spreads and creases; the blower that fills it turns faster
-// as it fills. The room is the hall: the more Hall (kspace), the further off
-// its back wall. Warmth (kwarm) turns the light on the form from cool lilac to
-// warm rose. The card on the wall names the work and says what the hand is on.
+// rises, rounds and goes taut, as far as Depth (kdepth) lets it, and the room
+// grows lighter; as it goes out it settles, spreads and creases; the blower that
+// fills it turns faster as it fills. The form is sewn from long panels, each
+// rounded by the air in it and lit from the upper left. The room is the hall: the
+// more Hall (kspace), the further off its back wall. Warmth (kwarm) turns the
+// light on the form from cool lilac to warm rose. Lettering on the wall names the
+// work and says what the hand is on.
 // Drag the form up and down for Depth, left and right for Breaths a minute
 // (kbpm); drag the room up and down for Hall, left and right for Warmth. A drag
 // keeps to the direction it starts in; scrolling moves the up-and-down setting.
-// The slit of light in the wall (props.slit: its left, top, width and height)
-// holds the plugin's meter.
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -46,7 +43,11 @@ const AXES = { form: { x: 'kbpm', y: 'kdepth' }, room: { x: 'kwarm', y: 'kspace'
 // The light on the form, shadow to highlight: cool, and warm.
 const COOL = [[70, 60, 126], [124, 112, 182], [180, 170, 228], [234, 230, 251]];
 const WARM = [[116, 64, 104], [176, 110, 146], [226, 166, 180], [252, 230, 224]];
-const WALL = '#1b1534', WALL_LO = '#271f4b', FLOOR = '#221a45', FLOOR_LO = '#372b69', INK = '#0f0a21', CARD = '#ece6f8', TEXT = '#1f1842';
+// The back wall, top and foot; its foot as the room is at its lightest.
+const WALL = [27, 21, 52], WALL_LO = [39, 31, 75], WALL_LIT = [62, 51, 112];
+const FLOOR = '#221a45', FLOOR_LO = '#372b69', INK = '#0f0a21', LETTER = '#ddd5f3';
+// Where the form's panels are sewn together, left to right (the outer two run off its sides).
+const SEAMS = [-1.7, -0.84, -0.56, -0.28, 0, 0.28, 0.56, 0.84, 1.7];
 /** The floor line (further up the bigger the hall), where the form stands, and the eye. */
 function layout(w, h, hall) { const FL = Math.round(h * 0.58 - 36 * hall); return { cx: w / 2, FL, BY: FL + 104, EYE: Math.round(h * 0.3) }; }
 /** How wide and tall the form is, for how full the breath is (b) and how deep (d). */
@@ -69,7 +70,14 @@ function onForm(x, y, cx, by, W, H) {
   const c = Math.pow(Math.abs(u), 1 / 0.75), top = by - H * Math.pow(Math.sqrt(Math.max(0, 1 - c * c)), 0.8);
   return y >= top && y <= by + 24 * (1 - u * u) * 0.5;
 }
-const mix = (a, b, t) => 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',') + ')';
+/** A point on a seam: u across the form (−1 its left side, 1 its right), t from its top (0) to the floor (1). */
+function seamAt(cx, by, W, H, u, t) {
+  const a = 1 - t, x0 = cx + u * W * 0.1, y0 = by - H * 0.99, x1 = cx + u * W * 0.48, y1 = by - H * 0.78;
+  const x2 = cx + u * W * 0.5, y2 = by + 22 * (1 - Math.min(1, u * u));
+  return [a * a * x0 + 2 * a * t * x1 + t * t * x2, a * a * y0 + 2 * a * t * y1 + t * t * y2];
+}
+const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const rgb = c => 'rgb(' + c.map(Math.round).join(',') + ')';
 /** A visitor in a long coat, seen from behind as they look at the form: feet at (x, y), this tall. */
 function visitor(ctx, x, y, tall, coat) {
   const T = tall, r = T * 0.062, top = y - T;
@@ -112,66 +120,74 @@ export default {
     s.b += (clamp(full, 0, 1) - s.b) * Math.min(1, dt * 2);
     const depth = f.value('kdepth'), bpm = f.value('kbpm'), hall = clamp(f.value('kspace'), 0, 1), warm = f.value('kwarm');
     const L = layout(w, h, hall), { cx, FL, BY, EYE } = L, { k, W, H } = sizeOf(s.b, depth);
-    const t = clamp(Math.log(warm / 200) / Math.log(8), 0, 1), band = i => mix(COOL[i], WARM[i], t);
+    const t = clamp(Math.log(warm / 200) / Math.log(8), 0, 1), band = i => lerp(COOL[i], WARM[i], t);
+    const tone = v => { const x = clamp(v, 0, 1) * 3, i = Math.min(2, Math.floor(x)); return lerp(band(i), band(i + 1), x - i); };
     const zone = s.drag || s.over;
     ctx.clearRect(0, 0, w, h);
-    // The back wall, its concrete panels smaller the further off it is.
+    // The back wall, lighter at its foot as the breath comes in; its concrete panels smaller the further off it is.
     let g = ctx.createLinearGradient(0, 0, 0, FL);
-    g.addColorStop(0, WALL); g.addColorStop(1, WALL_LO);
+    g.addColorStop(0, rgb(WALL)); g.addColorStop(1, rgb(lerp(WALL_LO, WALL_LIT, 0.75 * clamp(0.5 + k / 2, 0, 1))));
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, FL);
     const P = 104 - 34 * hall;
     ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = zone === 'room' ? 0.09 : 0.04; ctx.lineWidth = 1; ctx.beginPath();
     for (let x = cx % P; x < w; x += P) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, FL); }
     for (let y = FL - P * 0.9; y > 0; y -= P * 0.9) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
     ctx.stroke(); ctx.globalAlpha = 1;
-    // The floor, polished, its joints running toward the eye.
+    // The floor, polished.
     g = ctx.createLinearGradient(0, FL, 0, h);
     g.addColorStop(0, FLOOR); g.addColorStop(1, FLOOR_LO);
     ctx.fillStyle = g; ctx.fillRect(0, FL, w, h - FL);
-    ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = zone === 'room' ? 0.1 : 0.05; ctx.beginPath();
-    for (let i = -8; i <= 8; i++) { const xb = cx + i * 120, a = (FL - EYE) / (h - EYE); ctx.moveTo(cx + (xb - cx) * a, FL); ctx.lineTo(xb, h); }
-    ctx.stroke(); ctx.globalAlpha = 1;
     ctx.fillStyle = INK; ctx.fillRect(0, FL - 1, w, 2);
-    // The slit of light in the wall (the meter is its light), and the line it throws on the floor.
-    const slit = String((f.props || {}).slit || '').split(' ').map(Number), SX = slit[0] || 92, ST = slit[1] || 24, SW = slit[2] || 6, SH = slit[3] || 228;
-    ctx.fillStyle = INK; ctx.beginPath(); ctx.roundRect(SX - 2, ST - 2, SW + 4, SH + 4, 5); ctx.fill();
-    ctx.fillStyle = '#efe6ff'; ctx.globalAlpha = 0.08 + 0.22 * clamp((f.level || 0) * 4, 0, 1);
-    ctx.beginPath(); ctx.moveTo(SX, FL); ctx.lineTo(SX + SW, FL); ctx.lineTo(SX + SW - 30, h); ctx.lineTo(SX - 46, h); ctx.closePath(); ctx.fill();
-    ctx.globalAlpha = 1;
     // The form's shadow, and its reflection in the floor.
     ctx.fillStyle = INK; ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.ellipse(cx, BY + 8, W * 0.53, 15, 0, 0, TAU); ctx.fill();
     ctx.save(); ctx.beginPath(); ctx.rect(0, BY + 10, w, h); ctx.clip();
     ctx.translate(0, 1.55 * (BY + 10)); ctx.scale(1, -0.55);
-    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = band(1); ctx.globalAlpha = 0.07; ctx.fill();
+    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = rgb(band(1)); ctx.globalAlpha = 0.07; ctx.fill();
     ctx.restore(); ctx.globalAlpha = 1;
-    // The blower on the floor that fills it, its fan turning, and its duct running into the form.
+    // The blower on the floor that fills it: a box seen from the front and above, its fan turning, its duct running into the form.
     s.fan = (s.fan || 0) + dt * (3 + 12 * s.b);
-    const bx = cx - W * 0.5 - 50, byy = BY + 26, ex = cx - W * 0.36, ey = BY + 4;
-    ctx.strokeStyle = INK; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(bx + 14, byy - 6); ctx.bezierCurveTo(bx + 40, byy + 26, ex - 40, ey + 30, ex, ey); ctx.stroke();
-    ctx.strokeStyle = band(1); ctx.lineWidth = 9; ctx.stroke();
-    ctx.strokeStyle = band(0); ctx.lineWidth = 1; ctx.beginPath();
+    const bx = cx - W * 0.5 - 50, fy = BY + 30, x0 = bx - 17, x1 = bx + 17, y0 = fy - 24;
+    const back = (x, y) => [x + (cx - x) * 0.07, y + (EYE - y) * 0.07];
+    const [tx0, ty0] = back(x0, y0), [tx1, ty1] = back(x1, y0), [sx1, sy1] = back(x1, fy);
+    const ex = cx - W * 0.36, ey = BY + 4;
+    ctx.strokeStyle = INK; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x1 + 6, fy - 10); ctx.bezierCurveTo(x1 + 30, fy + 18, ex - 40, ey + 30, ex, ey); ctx.stroke();
+    ctx.strokeStyle = rgb(band(1)); ctx.lineWidth = 9; ctx.stroke();
+    ctx.strokeStyle = rgb(band(0)); ctx.lineWidth = 1; ctx.beginPath();
     for (let i = 1; i < 12; i++) {
-      const u = i / 12, a = 1 - u, x = a * a * a * (bx + 14) + 3 * a * a * u * (bx + 40) + 3 * a * u * u * (ex - 40) + u * u * u * ex;
-      const y = a * a * a * (byy - 6) + 3 * a * a * u * (byy + 26) + 3 * a * u * u * (ey + 30) + u * u * u * ey;
+      const u = i / 12, a = 1 - u, x = a * a * a * (x1 + 6) + 3 * a * a * u * (x1 + 30) + 3 * a * u * u * (ex - 40) + u * u * u * ex;
+      const y = a * a * a * (fy - 10) + 3 * a * a * u * (fy + 18) + 3 * a * u * u * (ey + 30) + u * u * u * ey;
       ctx.moveTo(x - 3, y - 3.5); ctx.lineTo(x + 3, y + 3.5);
     }
     ctx.stroke(); ctx.lineCap = 'butt';
-    ctx.fillStyle = INK; ctx.beginPath(); ctx.roundRect(bx - 16, byy - 22, 32, 26, 4); ctx.fill();
-    ctx.strokeStyle = band(1); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(bx, byy - 9, 9, 0, TAU); ctx.stroke();
+    ctx.fillStyle = rgb(lerp([15, 10, 33], band(0), 0.55)); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); ctx.lineTo(tx1, ty1); ctx.lineTo(tx0, ty0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = rgb(lerp([15, 10, 33], band(0), 0.3)); ctx.beginPath(); ctx.moveTo(x1, y0); ctx.lineTo(tx1, ty1); ctx.lineTo(sx1, sy1); ctx.lineTo(x1, fy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = INK; ctx.fillRect(x0, y0, x1 - x0, fy - y0);
+    ctx.strokeStyle = rgb(band(1)); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(bx, fy - 12, 9, 0, TAU); ctx.stroke();
     ctx.beginPath();
-    for (let i = 0; i < 4; i++) { const a = s.fan + (i * TAU) / 4; ctx.moveTo(bx, byy - 9); ctx.lineTo(bx + Math.cos(a) * 7.5, byy - 9 + Math.sin(a) * 7.5); }
+    for (let i = 0; i < 4; i++) { const a = s.fan + (i * TAU) / 4; ctx.moveTo(bx, fy - 12); ctx.lineTo(bx + Math.cos(a) * 7.5, fy - 12 + Math.sin(a) * 7.5); }
     ctx.stroke();
-    // The form: light in steps from its shadow to its top, its seams, creases as it empties, a shine as it fills.
+    // The form, sewn from long panels: each panel rounded by the air in it, lighter on its side toward the light (upper left).
     ctx.save();
-    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = band(0); ctx.fill(); ctx.clip();
-    for (let i = 1; i <= 3; i++) {
-      ctx.beginPath(); ctx.ellipse(cx - W * 0.05 * i, BY - H * (0.42 + 0.09 * i), W * (0.56 - 0.12 * i), H * (0.7 - 0.15 * i), 0, 0, TAU);
-      ctx.fillStyle = band(i); ctx.fill();
+    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = rgb(tone(0.5)); ctx.fill(); ctx.clip();
+    for (let j = 0; j < SEAMS.length - 1; j++) {
+      const ua = SEAMS[j], ub = SEAMS[j + 1], lit = 0.6 - 0.36 * (clamp(ua, -1.1, 1.1) + clamp(ub, -1.1, 1.1)) / 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 16; i++) { const p = seamAt(cx, BY, W, H, ua, i / 16); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+      for (let i = 16; i >= 0; i--) { const p = seamAt(cx, BY, W, H, ub, i / 16); ctx.lineTo(p[0], p[1]); }
+      ctx.closePath();
+      const pa = seamAt(cx, BY, W, H, ua, 0.55), pb = seamAt(cx, BY, W, H, ub, 0.55);
+      g = ctx.createLinearGradient(pa[0], 0, pb[0], 0);
+      g.addColorStop(0, rgb(tone(lit + 0.04))); g.addColorStop(0.35, rgb(tone(lit + 0.12))); g.addColorStop(1, rgb(tone(lit - 0.16)));
+      ctx.fillStyle = g; ctx.fill();
     }
-    ctx.strokeStyle = band(0); ctx.globalAlpha = 0.45; ctx.lineWidth = 1.2; ctx.beginPath();
-    for (const u of [-0.62, -0.3, 0, 0.3, 0.62]) {
-      ctx.moveTo(cx + u * W * 0.1, BY - H * 0.99);
-      ctx.quadraticCurveTo(cx + u * W * 0.48, BY - H * 0.78, cx + u * W * 0.5, BY + 22 * (1 - u * u));
+    // Light from above, and the floor's shade at its foot.
+    g = ctx.createLinearGradient(0, BY - H, 0, BY + 24);
+    g.addColorStop(0, 'rgba(255,255,255,0.12)'); g.addColorStop(0.45, 'rgba(255,255,255,0)'); g.addColorStop(0.8, 'rgba(15,10,33,0.08)'); g.addColorStop(1, 'rgba(15,10,33,0.45)');
+    ctx.fillStyle = g; ctx.fillRect(cx - W, BY - H - 4, W * 2, H + 40);
+    // The seams; creases as it empties; a shine down one panel as it fills.
+    ctx.strokeStyle = rgb(band(0)); ctx.globalAlpha = 0.5; ctx.lineWidth = 1.2; ctx.beginPath();
+    for (const u of SEAMS.slice(1, -1)) {
+      for (let i = 0; i <= 16; i++) { const p = seamAt(cx, BY, W, H, u, i / 16); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
     }
     ctx.stroke();
     const crease = clamp(-k, 0, 1);
@@ -183,8 +199,10 @@ export default {
       }
       ctx.stroke();
     }
-    ctx.globalAlpha = 0.35 + 0.35 * clamp(k, 0, 1); ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.ellipse(cx - W * 0.17, BY - H * 0.76, W * 0.075, H * 0.06, -0.25, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 0.14 + 0.3 * clamp(k, 0, 1); ctx.fillStyle = '#ffffff'; ctx.beginPath();
+    for (let i = 0; i <= 12; i++) { const p = seamAt(cx, BY, W, H, -0.47, 0.1 + (0.36 * i) / 12); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+    for (let i = 12; i >= 0; i--) { const p = seamAt(cx, BY, W, H, -0.47 + 0.1 * Math.sin((Math.PI * i) / 12), 0.1 + (0.36 * i) / 12); ctx.lineTo(p[0], p[1]); }
+    ctx.closePath(); ctx.fill();
     ctx.restore(); ctx.globalAlpha = 1;
     if (zone === 'form') { outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.strokeStyle = '#efe9fb'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); }
     // Visitors, for scale.
@@ -192,16 +210,16 @@ export default {
     visitor(ctx, 38, BY + 52, 74, 1.1);
     visitor(ctx, 642, BY + 30, 60, 1);
     visitor(ctx, 676, BY + 36, 64, 1.2);
-    // The card on the wall: the work's name, and what the hand is on.
-    const cw = 208, chh = 68, cxl = w - cw - 26, cy = FL - 156;
-    ctx.fillStyle = CARD; ctx.fillRect(cxl, cy, cw, chh);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = TEXT;
-    ctx.font = '700 14px ' + FONT; ctx.fillText('Exhale', cxl + 12, cy + 22);
+    // Lettering on the wall at eye height: the work's name, and what the hand is on.
+    const lx = 30, ly = EYE - 8;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = LETTER;
+    ctx.globalAlpha = 0.92; ctx.font = '600 13px ' + FONT; ctx.fillText('Exhale', lx, ly);
     const lines = zone === 'form' ? ['depth ' + Math.round(depth * 100) + '%  ↕', bpm.toFixed(1) + ' breaths a minute  ↔']
       : zone === 'room' ? ['hall ' + Math.round(hall * 100) + '%  ↕', 'warmth ' + Math.round(warm) + ' Hz  ↔']
-      : ['air and sound, a breath every ' + Math.round(60 / Math.max(1, bpm)) + ' s', 'drag the form, or the room'];
-    ctx.font = '500 11px ' + FONT; ctx.fillText(lines[0], cxl + 12, cy + 40);
-    ctx.globalAlpha = zone ? 1 : 0.62; ctx.fillText(lines[1], cxl + 12, cy + 55); ctx.globalAlpha = 1;
+      : ['a breath every ' + Math.round(60 / Math.max(1, bpm)) + ' s'];
+    ctx.font = '400 11px ' + FONT; ctx.globalAlpha = zone ? 0.92 : 0.6;
+    lines.forEach((line, i) => ctx.fillText(line, lx, ly + 18 + 14 * i));
+    ctx.globalAlpha = 1;
   },
   pointer(e, f) {
     const s = f.state, b = s.b === undefined ? 0.5 : s.b, L = layout(f.w, f.h, clamp(f.value('kspace'), 0, 1)), { W, H } = sizeOf(b, f.value('kdepth'));
@@ -364,30 +382,9 @@ export function breath(catalog: Catalog) {
               valueFont: 'system',
             },
             background: [{ kind: 'color', color: '#1b1534' }],
-            skins: { meter: { name: 'bar', params: {} } },
           },
         },
-        el({
-          kind: 'canvas',
-          name: 'The gallery',
-          code: SCENE,
-          rect: r(0, 0, 760, 500),
-          props: { slit: `${SLIT.x} ${SLIT.y} ${SLIT.w} ${SLIT.h}` },
-        }),
-        // The slit of light in the wall is how loud the room is.
-        ...control(
-          'mlevel',
-          'ui.meter',
-          'Light through the slit',
-          null,
-          r(SLIT.x, SLIT.y, SLIT.w, SLIT.h),
-          {
-            style: {
-              skin: { name: 'bar', params: { fill: '#fbf8ff', surface: '#c7bbef', scale: false } },
-            },
-          },
-        ),
-        wire('gl1.out', 'mlevel.in'),
+        el({ kind: 'canvas', name: 'The gallery', code: SCENE, rect: r(0, 0, 760, 500) }),
       ],
     ],
   );

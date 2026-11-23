@@ -321,7 +321,19 @@ describe('every work is a finished first version', () => {
     it(`${w.id}: every control on the screen reaches the sound, and the look is its own`, () => {
       const doc = w.build(catalog);
       const placed = Object.values(doc.nodes).filter(n => n.panel && n.type.startsWith('ui.'));
-      expect(placed.length).toBeGreaterThan(0);
+      // A control kept in the patch is on the screen too when a canvas names it (f.value, f.set): it must reach the sound as well.
+      const codes = Object.values(doc.ui.elements).flatMap(e =>
+        e.kind === 'canvas' ? [e.code] : [],
+      );
+      const drawn = Object.values(doc.nodes).filter(
+        n => !n.panel && n.type.startsWith('ui.') && codes.some(c => c.includes(`'${n.id}'`)),
+      );
+      expect(placed.length + drawn.length, 'something on the screen to play').toBeGreaterThan(0);
+      for (const n of drawn)
+        expect(
+          Object.values(doc.edges).some(e => e.from.node === n.id),
+          `${n.id} (${n.label}), on a canvas, is wired to something`,
+        ).toBe(true);
       for (const n of placed) {
         if (n.type === 'ui.keyboard') {
           expect(

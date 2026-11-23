@@ -26,12 +26,9 @@ describe('kit_get_plugin', () => {
     expect(text).toContain('760×500 px');
     expect(text).toMatch(/Look tokens: bg #1b1534, fg #ece6f8, accent #b7a6ee/);
     expect(text).toContain('Look background (bottom first): colour #1b1534.');
-    expect(text).toContain('Look skins: meter bar (look).');
-    // Back to front: the gallery (a canvas), then the level meter, the slit of light in its wall.
-    const order = ['"id":"canvas1"', '"id":"mlevel"'].map(s => text.indexOf(s));
-    expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
+    expect(text).toContain('Look skins: none (built-in defaults).');
     expect(text).toMatch(
-      /"id":"mlevel","control":"meter","label":"Light through the slit","panel":\{"x":92,"y":24,"w":6,"h":214\},"skin":"bar \(own: fill \\"#fbf8ff\\", surface \\"#c7bbef\\", scale false\)"/,
+      /"id":"canvas1","rect":\{"x":0,"y":0,"w":760,"h":500\},"name":"The gallery","kind":"canvas"/,
     );
     expect(text).toMatch(
       /"id":"kwarm","control":"knob","label":"Warmth",.*?"value":"520 Hz","range":"200 Hz … 1\.60 kHz \(log\)","drives":\["→ cut1\.hz"\]/,
@@ -61,10 +58,30 @@ describe('kit_get_plugin', () => {
             skins: { slider: { name: 'bar', params: { radius: 3, label: 'top' } } },
           },
         },
+        // A meter in front of the gallery, with its own skin.
+        {
+          op: 'addNode',
+          node: {
+            id: 'mlevel',
+            type: 'ui.meter',
+            label: 'Level',
+            pos: { x: 0, y: 0 },
+            panel: { x: 92, y: 24, w: 6, h: 214 },
+            style: {
+              skin: { name: 'bar', params: { fill: '#fbf8ff', surface: '#c7bbef', scale: false } },
+            },
+          },
+        },
       ],
       catalog,
     ).doc;
     const withPicture = describePlugin(pictured, catalog);
+    // Back to front: the gallery (a canvas), then the meter.
+    const order = ['"id":"canvas1"', '"id":"mlevel"'].map(s => withPicture.indexOf(s));
+    expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
+    expect(withPicture).toMatch(
+      /"id":"mlevel","control":"meter","label":"Level","panel":\{"x":92,"y":24,"w":6,"h":214\},"skin":"bar \(own: fill \\"#fbf8ff\\", surface \\"#c7bbef\\", scale false\)"/,
+    );
     expect(withPicture).toMatch(
       /Look background \(bottom first\): colour #101020 \| linear 180° .* \| picture assets\/den-kit\/starfield\.jpg cover/,
     );
