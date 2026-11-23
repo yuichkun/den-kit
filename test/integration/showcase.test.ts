@@ -386,50 +386,53 @@ describe('each work does what its controls say', () => {
     expect(changes).toBeLessThanOrEqual(Math.ceil(l!.length / 8) + 1); // 6000 Hz: a new sample every 8
   }, 60000);
 
-  it("Low Res: the display's columns are the samples Rate keeps, at the time scale of f.wave (every 8th sample)", async () => {
-    const grid = (
-      await import(`data:text/javascript;base64,${Buffer.from(CRUSH_GRID).toString('base64')}`)
-    ).default;
-    const [w, h] = [432, 300];
-    /** The x of every line drawn from the top to the bottom (a column). */
-    const columns = (rate: number) => {
-      const xs: number[] = [];
-      let from: [number, number] | null = null;
+  it('Low Res: the landscape has more columns the higher Rate is and more levels the more Bits, a block for each', async () => {
+    const scene = await import(
+      `data:text/javascript;base64,${Buffer.from(CRUSH_GRID).toString('base64')}`
+    );
+    expect(scene.grid(1500, 8).columns).toBe(6);
+    expect(scene.grid(11025, 8).columns).toBeGreaterThan(6);
+    expect(scene.grid(11025, 8).columns).toBeLessThan(40);
+    expect(scene.grid(48000, 8).columns).toBe(40);
+    // Levels a side: 2^(bits-1), at most 16 drawn.
+    expect(scene.grid(11025, 2).levels).toBe(2);
+    expect(scene.grid(11025, 4).levels).toBe(8);
+    expect(scene.grid(11025, 8).levels).toBe(16);
+    /** The shapes filled in the first frame: the first row of blocks (three faces each) and the three pillars. */
+    const fills = (rate: number) => {
+      let n = 0;
       const ctx = new Proxy(
         {},
         {
           get: (_t, k) =>
-            k === 'moveTo'
-              ? (x: number, y: number) => {
-                  from = [x, y];
-                }
-              : k === 'lineTo'
-                ? (x: number, y: number) => {
-                    if (from && from[0] === x && from[1] === 0 && y === h) xs.push(x);
-                    from = null;
-                  }
-                : () => {},
+            k === 'fill' ? () => n++ : k === 'measureText' ? () => ({ width: 40 }) : () => {},
           set: () => true,
         },
       );
-      grid.draw(ctx, {
+      const values: Record<string, number> = {
+        frate: rate,
+        fbits: 8,
+        fwob: 0.0015,
+        fhiss: 0.012,
+        ftone: 5200,
+      };
+      const f = {
         t: 0,
         dt: 1 / 60,
-        w,
-        h,
+        w: 720,
+        h: 452,
         wave: new Float32Array(256).map((_, i) => 0.5 * Math.sin(i / 10)),
         state: {},
-        color: () => '#000',
-        value: (id: string) => (id === 'fbits' ? 8 : rate),
-      });
-      return xs;
+        pointer: { x: 0, y: 0, over: false },
+        color: () => '#808080',
+        value: (id: string) => values[id],
+      };
+      scene.default.setup(ctx, f);
+      scene.default.draw(ctx, f);
+      return n;
     };
-    // 1500 Hz keeps one sample in 32: 4 points of f.wave apart.
-    const slow = columns(1500);
-    expect(slow.length).toBeGreaterThan(30);
-    expect((slow.at(-1)! - slow[0]!) / (slow.length - 1)).toBeCloseTo((4 * w) / 255, 1);
-    // 11 025 Hz keeps one in about 4.4: closer than two points, so no columns.
-    expect(columns(11025)).toEqual([]);
+    expect(fills(1500)).toBe(3 * 6 + 3 * 3);
+    expect(fills(48000)).toBe(3 * 40 + 3 * 3);
   });
 
   /** Correlation of the two sides (1: the same on both). */
