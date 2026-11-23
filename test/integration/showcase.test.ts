@@ -1408,6 +1408,41 @@ describe('each work does what its controls say', () => {
     expect(values.ksa).toBe(45);
   });
 
+  it('Tonic: the hall is written on the bare ground just outside the room, off the neck, the staff and the tonic, wherever the hand is on the room', async () => {
+    const doc = build('tonic');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const { w, h } = el.rect;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(TONIC_CIRCLE).toString('base64')}`
+    );
+    const { STAFF, TONIC } = mod;
+    let seen = 0;
+    for (const hall of [0, 0.3, 1])
+      for (const tw of [52, 76]) {
+        // The room's tint: its rings reach 184 px from the gourd's middle, 42 px more at a full hall, and 8 px past.
+        const edge = 184 + hall * 42 + 8;
+        for (let x = 0; x < w; x += 8)
+          for (let y = 0; y < h; y += 8) {
+            if (mod.zone(x, y, 1.5) !== 'hall') continue;
+            seen++;
+            const at = mod.hallAt(edge, tw, w, h, { x, y }) as { x: number; y: number };
+            const b = { x0: at.x - tw / 2, x1: at.x + tw / 2, y0: at.y - 9, y1: at.y + 9 };
+            // Outside the tint and by it: the box's nearest point to the gourd's middle.
+            const nx = Math.max(b.x0, Math.min(b.x1, 262)),
+              ny = Math.max(b.y0, Math.min(b.y1, 260));
+            const d = Math.hypot(nx - 262, ny - 260);
+            expect(d).toBeGreaterThanOrEqual(edge);
+            expect(d).toBeLessThan(edge + 30);
+            // On the canvas, off the neck and its pegs, the staff and the tonic.
+            expect(b.x0 >= 8 && b.x1 <= w - 8 && b.y0 >= 8 && b.y1 <= h - 8).toBe(true);
+            expect(b.x1 > 380 && b.y1 > 212 && b.y0 < 308).toBe(false);
+            expect(b.x1 > STAFF.x0 - 12 && b.y0 < STAFF.bot + 8).toBe(false);
+            expect(b.x1 > TONIC.left - 8 && b.y1 > TONIC.top - 8).toBe(false);
+          }
+      }
+    expect(seen).toBeGreaterThan(1000);
+  });
+
   it('Shape Drums: the beat plays along only while it is on', async () => {
     const level = async (on: boolean) => {
       const out = await render(turned(build('toy'), [['tbeat', 'value', on]]), { seconds: 2 });

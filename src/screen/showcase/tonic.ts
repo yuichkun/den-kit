@@ -47,7 +47,8 @@ export const TONIC_CIRCLE = `// The tanpura, lying on its side. The gourd, on th
 // staff across for the pace (the plucks waiting spread out or close up with the
 // hand), the room in or out for the hall, and the tonic up or down a semitone at
 // a time (it reaches the ends of its range, which the ring does not). The
-// setting under the hand is written by it.
+// setting under the hand is written by it (the hall on the bare ground just
+// outside the room, out from its middle through the hand).
 const CX = 262, CY = 260, DISC = 148, R = 130, SW = R - 26;
 const BX = CX - 72, NUT = 628, END = 720; // the bridge, the nut, the end of the neck
 const YS = [-15, -5, 5, 15], YN = [-8, -2.7, 2.7, 8]; // the strings at the bridge and at the nut, in the order they are plucked
@@ -63,7 +64,7 @@ export const STAFF = { x0: 480, x1: 736, lines: 516, now: 660, top: 36, bot: 180
 const LINE_OF = [STAFF.sa + 5 * 8, STAFF.sa, STAFF.sa, STAFF.sa + 12 * 8]; // each string's line, in the order they are plucked
 // The room round the gourd: its first ring, and how far its rings reach out at a full hall.
 const ROOM = DISC + 36, REACH = 42;
-const EDGE_AT = (150 / 360) * TAU; // where the hall's value is written, by the room's outermost ring, while the hand is off the canvas
+const EDGE_AT = (150 / 360) * TAU; // the way out from the room's middle along which the hall is written while the hand is off the canvas
 /** A point on the room's outermost ring (lower left), for a hall: the room is dragged in or out anywhere on it. */
 export const roomEdge = space => {
   const r = ROOM + Math.max(0, Math.min(1, space)) * REACH;
@@ -100,18 +101,35 @@ export function zone(x, y, jaw) {
 const CURSOR = { pace: 'ew-resize', hall: 'move', ring: 'pointer', jaw: 'ew-resize', tonic: 'ns-resize' };
 // How dark the room is tinted under the hand.
 const TINT = 0.14;
-// The setting under the hand, written by it in one colour, cut out of what is behind it (the other; tinted as the
-// room is inside a tinted room of that radius).
-function say(ctx, text, x, y, w, ink, behind, room) {
+// The setting under the hand, written by it in one colour, cut out of what is behind it (the other).
+function say(ctx, text, x, y, w, ink, behind) {
   ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   const m = ctx.measureText(text), tw = typeof m.width === 'number' ? m.width : text.length * 7.8;
   const x0 = Math.round(Math.max(8, Math.min(w - tw - 8, x - tw / 2))), y0 = Math.round(y) + 0.5;
   ctx.strokeStyle = behind; ctx.lineWidth = 5; ctx.strokeText(text, x0, y0);
-  if (room) {
-    ctx.save(); ctx.beginPath(); ctx.arc(CX, CY, room, 0, TAU); ctx.clip();
-    ctx.globalAlpha = TINT; ctx.strokeStyle = ink; ctx.strokeText(text, x0, y0); ctx.restore();
-  }
   ctx.fillStyle = ink; ctx.fillText(text, x0, y0);
+}
+// Where the hall is written: on the bare ground just outside the room's tint (edge, its radius), out from the
+// room's middle through the hand (through the lower left while the hand is off the canvas); turned round the room
+// a step at a time where that is on the neck, the staff, the tonic or past the canvas's edge.
+export function hallAt(edge, tw, w, h, hand) {
+  const a0 = hand ? Math.atan2(hand.y - CY, hand.x - CX) : EDGE_AT;
+  const spot = a => {
+    const c = Math.cos(a), sn = Math.sin(a), d = edge + 8 + (Math.abs(c) * tw) / 2 + Math.abs(sn) * 9;
+    return { x: CX + c * d, y: CY + sn * d };
+  };
+  const clear = ({ x, y }) => {
+    const x0 = x - tw / 2, x1 = x + tw / 2, y0 = y - 9, y1 = y + 9;
+    return x0 >= 8 && x1 <= w - 8 && y0 >= 8 && y1 <= h - 8 &&
+      !(x1 > CX + DISC - 30 && y1 > CY - 48 && y0 < CY + 48) &&
+      !(x1 > STAFF.x0 - 12 && y0 < STAFF.bot + 8) &&
+      !(x1 > TONIC.left - 8 && y1 > TONIC.top - 8);
+  };
+  for (let k = 0; k <= 36; k++) {
+    const at = spot(a0 + Math.ceil(k / 2) * (k % 2 ? 1 : -1) * (TAU / 72));
+    if (clear(at)) return at;
+  }
+  return spot(a0);
 }
 export default {
   setup(ctx, f) {
@@ -159,7 +177,6 @@ export default {
       ctx.beginPath(); ctx.arc(CX, CY, ROOM + age * REACH * hall, 0, TAU); ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    const { x: hx, y: hy } = roomEdge(hall);
     // The practice staff: a line for each note the strings play, the plucks written on them as they are heard,
     // drifting left as they ring; the next ones waiting right of the now line.
     ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -309,12 +326,10 @@ export default {
     if (under === 'jaw') say(ctx, 'Jawari ' + jaw.toFixed(1), tx, CY - 48, w, field, wine);
     else if (under === 'pace') say(ctx, Math.round(bpm) + ' plucks a minute', (STAFF.lines + STAFF.x1) / 2, STAFF.top - 12, w, wine, field);
     else if (under === 'hall') {
-      // Over the hand (under it at the top, or where over it would be on the neck), or by the room's outermost
-      // ring while the hand is off the canvas.
-      const over = p && p.over, ax = over ? p.x : hx - 34;
-      let ay = over ? p.y - 28 : hy + 22;
-      if (over && (ay < 16 || (ax > CX + DISC - 40 && Math.abs(ay - CY) < 44))) ay = p.y + 30;
-      say(ctx, 'Hall ' + Math.round(hall * 100) + '%', ax, ay, w, wine, field, reach + 8);
+      const text = 'Hall ' + Math.round(hall * 100) + '%';
+      ctx.font = '700 14px system-ui, sans-serif';
+      const m = ctx.measureText(text), at = hallAt(reach + 8, typeof m.width === 'number' ? m.width : text.length * 7.8, w, h, p && p.over ? p : null);
+      say(ctx, text, at.x, at.y, w, wine, field);
     }
   },
   pointer(e, f) {
