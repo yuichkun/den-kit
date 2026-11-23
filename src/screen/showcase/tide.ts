@@ -61,7 +61,8 @@ export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky
 // The hour is khour (0 to 24); the tide comes from the same table as the
 // codebox's, so where the water stands on the posts is what the sound plays. The
 // waves wash props.reach metres above and below the tide: the posts are dark
-// where they wash, and a bell rings while they reach its lip, rings spreading on
+// where they wash above the water and paler under it as far down as the waves
+// stir it, and a bell rings while they reach its lip, rings spreading on
 // the water round its post. The bells (props.heights in metres and props.notes,
 // low to high, as lists) hang at their heights; they stand along the shore in no
 // order of height, on posts that stay above the highest water. A bell in the
@@ -149,8 +150,9 @@ const SET = {
 };
 // A bell's size, and how far its lip hangs below the arm that holds it.
 const BELL = 34, HANG = BELL + 8;
-// Where each bell's post stands across the water (0 to 1), the bells taken low to high: in no order of height.
-const SPOTS = [0.28, 0.05, 0.62, 0.4, 0.95, 0.78];
+// Where each bell's post stands across the water (0 to 1), the bells taken low to high: evenly apart, in no order
+// of height.
+const SPOTS = [0.23, 0.05, 0.59, 0.41, 0.95, 0.77];
 // Where things are: the horizon at YH, the quay's edge from QY down; a height in
 // metres is at Y(m) on the posts; the tide board B with its chart of the day C;
 // the sun or the moon at SX(hour) across the sky; bell k's post at PX(k), its top
@@ -225,7 +227,7 @@ export default {
     const foam = mix([150, 170, 190], [240, 246, 246], day);
     const stone = mix([43, 47, 59], [190, 184, 170], day);
     const board = mix([52, 57, 70], [238, 233, 220], day), letter = light(board) > 0.5 ? [22, 34, 52] : [232, 228, 218];
-    const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55), drowned = mix(wood, near, 0.74);
+    const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55), drowned = mix(wood, near, 0.74), stirred = mix(drowned, foam, 0.32);
     const iron = mix([24, 26, 32], [52, 50, 54], day);
     const bronze = mix([84, 66, 60], [190, 132, 58], day), shade = mix(bronze, [40, 24, 10], 0.42), shine = mix(bronze, [255, 236, 190], 0.5);
     const dull = mix(bronze, mix([60, 62, 64], [112, 106, 96], day), 0.62), dullShade = mix(dull, [24, 22, 20], 0.38);
@@ -300,16 +302,19 @@ export default {
     s.lo = v < s.lo ? v : s.lo + (v - s.lo) * f.dt * 0.08;
     const sw = s.hi - s.lo > 0.03 ? ((v - s.lo) / (s.hi - s.lo)) * 2 - 1 : 0;
     s.sw += (sw - s.sw) * Math.min(1, f.dt * 4);
-    const now = tide(hour), live = now + reach * s.sw, wl = Y(live), wash = Y(now + reach);
-    // The posts: dry above the waves, dark where they wash, and seen through the water below it, down past the arm
-    // of a bell hung under it, then fading out.
+    const now = tide(hour), live = now + reach * s.sw, wl = Y(live), wash = Y(now + reach), stir = Y(now - reach);
+    // The posts: dry above the waves, dark where they wash; under the water paler as far down as the waves stir it
+    // (a bell whose lip hangs between the two is in their reach), then seen through it, down past the arm of a bell
+    // hung under it, then fading out.
     for (let k = 0; k < n; k++) {
       const px = Math.round(L.PX(k)), pt = L.TOP(k), held = clamp(Y(bells[k].height) - HANG + 12, wl, L.QY);
       const end = Math.min(L.QY, Math.max(wl + 120, held + 60)), deep = ctx.createLinearGradient(0, wl, 0, end);
       deep.addColorStop(0, css(drowned)); deep.addColorStop(clamp((held - wl) / Math.max(1, end - wl), 0, 1), css(drowned)); deep.addColorStop(1, css(drowned, 0));
       ctx.fillStyle = css(wood); ctx.fillRect(px - 4.5, pt, 9, Math.max(0, wash - pt));
       ctx.fillStyle = css(wet); ctx.fillRect(px - 4.5, Math.max(pt, wash), 9, Math.max(0, wl - Math.max(pt, wash)));
-      ctx.fillStyle = deep; ctx.fillRect(px - 4.5, wl, 9, Math.max(0, end - wl));
+      const st = clamp(stir, wl, end);
+      ctx.fillStyle = css(stirred); ctx.fillRect(px - 4.5, wl, 9, st - wl);
+      ctx.fillStyle = deep; ctx.fillRect(px - 4.5, st, 9, Math.max(0, end - st));
       ctx.fillStyle = css(mix(wood, [0, 0, 0], 0.3)); ctx.fillRect(px - 5.5, pt - 3, 11, 3);
     }
     // The bells, each on an arm off its post.
