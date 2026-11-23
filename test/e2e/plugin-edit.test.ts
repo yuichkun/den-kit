@@ -601,15 +601,11 @@ describe('building the plugin screen by hand', () => {
     await page.waitForSelector('[data-testid=start-screen]');
     await page.keyboard.press('ArrowDown'); // to the works (the first is picked)
     await page.keyboard.press('Tab'); // to the looks
-    await page.keyboard.press('ArrowLeft'); // round to the last work's look: Exhale (a night sky photo)
+    await page.keyboard.press('ArrowLeft'); // round to the last work's look: Exhale
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
     assert.equal(await kit(page, k => k.doc.value.name), 'Contour (Exhale look)');
-    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#f0d3a4');
-    assert.ok(
-      await kit(page, k => !!k.doc.value.files['assets/den-kit/starfield.jpg']),
-      'the look brings its picture',
-    );
+    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ff9f6b');
     assert.ok(
       await kit(page, k => Object.keys(k.doc.value.ui.elements).includes('text1')),
       'the layout stays',

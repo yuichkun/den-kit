@@ -9,92 +9,116 @@
 // copy its interval above the key (a wide, open chord); Splay spreads them and
 // a long hall holds everything.
 // The design follows the thinking of Loóna (Apple Design Awards 2021, Visuals
-// and Graphics), an app of calm evening scenes made to wind down to: one quiet
-// scene with soft, low colours and slow motion, little text, and nothing that
-// asks for attention. Here the scene breathes with the sound: the moon grows
-// and the hills rise a little as the breath comes in, and settle as it goes out.
+// and Graphics), calm sessions in which type, colour, motion and 3D are made
+// together for one soothing scene: here the whole plugin is one picture, a
+// slowly turning form of points that swells as the breath comes in and settles
+// as it goes out, in step with what is heard, with a small title and nothing
+// else that asks for attention. The settings are on the picture: drag it up
+// and down for Depth, left and right for Breaths a minute; Warmth and Hall are
+// figures you drag.
 import type { Catalog } from '../../work/catalog.ts';
-import {
-  add,
-  asset,
-  control,
-  el,
-  onlyParams,
-  patchControl,
-  r,
-  wire,
-  workInSteps,
-} from './build.ts';
+import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The scene: hills, a moon behind them, dust; it breathes with the sound. */
-export const SCENE = `// A night scene that breathes with the sound: three hills, a moon rising
-// behind them, dust drifting up. How full the breath is comes from the output
-// level, eased and placed between the quietest and loudest of the last few
-// breaths, so the picture moves with what is heard: on the way in the moon
-// grows and the hills rise a little; on the way out they settle.
-const TAU = Math.PI * 2;
-const HILLS = [
-  { color: '#3a3470', base: 0.6, amp: 26, f: 0.006, p: 0.4, lift: 5 },
-  { color: '#2a2659', base: 0.67, amp: 20, f: 0.009, p: 2.1, lift: 9 },
-  { color: '#1b1a40', base: 0.74, amp: 16, f: 0.013, p: 4.2, lift: 14 },
+/** The form: points on a turning sphere that swell with the breath; it takes the mouse. */
+export const SCENE = `// A form of points on a slowly turning sphere. How full the breath is comes
+// from the output level, eased and placed between the quietest and loudest of
+// the last few breaths, so the form moves with what is heard: it swells on the
+// way in and settles on the way out, a slow wave running over it as deep as
+// Depth. Drag on it: up and down is Depth (kdepth), left and right Breaths a
+// minute (kbpm). Drag the figures at the bottom right up or down: Warmth
+// (kwarm) and Hall (kspace).
+const TAU = Math.PI * 2, N = 720, GOLD = Math.PI * (3 - Math.sqrt(5));
+const FIGURES = [
+  { id: 'kwarm', label: 'warmth', x: 600, text: v => Math.round(v) + ' Hz', per: v => v * 0.006 },
+  { id: 'kspace', label: 'hall', x: 712, text: v => v.toFixed(2), per: () => 0.005 },
 ];
-const rgb = c => { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-const mix = (a, b, t) => 'rgb(' + rgb(a).map((v, i) => Math.round(v + (rgb(b)[i] - v) * t)).join(',') + ')';
+function figureAt(x, y, w, h) {
+  if (y < h - 76) return null;
+  for (const g of FIGURES) if (Math.abs(x - g.x) < 52) return g;
+  return null;
+}
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, {
-      lvl: 0, lo: 1, hi: 0, b: 0,
-      dust: Array.from({ length: 46 }, (_, i) => ({ x: (i * 97.3) % 1, y: (i * 61.7) % 1, s: 0.4 + ((i * 13) % 7) / 7, v: 0.004 + ((i * 7) % 5) / 900 })),
-    });
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const y = 1 - ((i + 0.5) / N) * 2, r = Math.sqrt(1 - y * y), a = i * GOLD;
+      pts.push([Math.cos(a) * r, y, Math.sin(a) * r]);
+    }
+    Object.assign(f.state, { pts, lvl: 0, lo: 1, hi: 0, b: 0.5, spin: 0, drag: null });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h;
+    const fg = f.color('fg'), accent = f.color('accent'), muted = f.color('muted');
     // How full the breath is.
     s.lvl += (f.level - s.lvl) * Math.min(1, f.dt * 3);
     s.hi = s.lvl > s.hi ? s.lvl : s.hi - (s.hi - s.lvl) * f.dt * 0.05;
     s.lo = s.lvl < s.lo ? s.lvl : s.lo + (s.lvl - s.lo) * f.dt * 0.05;
-    const full = s.hi - s.lo > 1e-4 ? (s.lvl - s.lo) / (s.hi - s.lo) : 0;
+    const full = s.hi - s.lo > s.hi * 0.15 ? (s.lvl - s.lo) / (s.hi - s.lo) : 0.5;
     s.b += (Math.max(0, Math.min(1, full)) - s.b) * Math.min(1, f.dt * 2);
-    const b = s.b;
+    const b = s.b, depth = f.value('kdepth'), bpm = f.value('kbpm');
+    s.spin += f.dt * (0.05 + bpm * 0.012);
     ctx.clearRect(0, 0, w, h);
-    // The moon, behind the hills, growing with the breath; still rings round it.
-    const mx = w * 0.66, my = h * 0.48, mr = 44 + 28 * b;
-    ctx.strokeStyle = '#f3dcb6';
-    ctx.lineWidth = 1;
-    for (let i = 1; i <= 3; i++) {
-      ctx.globalAlpha = (0.05 + 0.1 * b) * (1 - i / 4);
-      ctx.beginPath(); ctx.arc(mx, my, mr + i * 18 * (0.6 + b), 0, TAU); ctx.stroke();
+    // The form: swelling with the breath, a wave over it as deep as Depth.
+    const cx = w / 2, cy = h / 2 - 10, base = Math.min(w, h) * 0.3;
+    const rad = base * (0.78 + 0.3 * b * (0.4 + 0.6 * depth));
+    const ca = Math.cos(s.spin), sa = Math.sin(s.spin), tilt = 0.42, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const out = [];
+    for (const [x0, y0, z0] of s.pts) {
+      const wave = 1 + 0.07 * depth * Math.sin(y0 * 5 - f.t * 0.9) * (0.4 + b);
+      const x1 = x0 * ca + z0 * sa, z1 = -x0 * sa + z0 * ca;
+      const y2 = y0 * ct - z1 * st, z2 = y0 * st + z1 * ct;
+      out.push([cx + x1 * rad * wave, cy + y2 * rad * wave, z2]);
     }
-    ctx.globalAlpha = 0.92;
-    ctx.fillStyle = mix('#e9cfa6', '#f6e3c3', b);
-    ctx.beginPath(); ctx.arc(mx, my, mr, 0, TAU); ctx.fill();
+    out.sort((p, q) => p[2] - q[2]);
+    ctx.fillStyle = accent;
+    for (const [x, y, z] of out) {
+      const near = (z + 1) / 2;
+      ctx.globalAlpha = 0.18 + 0.82 * near;
+      const d = 0.8 + 2.2 * near;
+      ctx.fillRect(x - d / 2, y - d / 2, d, d);
+    }
     ctx.globalAlpha = 1;
-    // Dust drifting up, a little faster on the way in.
-    ctx.fillStyle = '#f3eee6';
-    for (const d of s.dust) {
-      d.y -= d.v * f.dt * (0.6 + b) * 6;
-      if (d.y < -0.02) d.y = 1.02;
-      ctx.globalAlpha = 0.18 + 0.25 * Math.abs(Math.sin(f.t * 0.7 + d.x * 9));
-      ctx.beginPath(); ctx.arc(d.x * w, d.y * h, d.s, 0, TAU); ctx.fill();
+    // Marks on the picture: what dragging it does.
+    const p = f.pointer, on = s.drag === 'form' || (p && p.over && !s.drag && !figureAt(p.x, p.y, w, h));
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = on ? fg : muted;
+    ctx.textAlign = 'center';
+    ctx.fillText('depth ' + depth.toFixed(2) + '  ↕', cx, cy - base * 1.16 - 14);
+    ctx.textAlign = 'left';
+    ctx.fillText('↔  ' + bpm.toFixed(1) + ' breaths a minute', cx + base * 1.16 + 10, cy);
+    // The figures you drag.
+    for (const g of FIGURES) {
+      const hot = s.drag === g || (p && p.over && !s.drag && figureAt(p.x, p.y, w, h) === g);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = hot ? accent : fg;
+      ctx.font = '600 18px system-ui, sans-serif';
+      ctx.fillText(g.text(f.value(g.id)), g.x, h - 46);
+      ctx.fillStyle = muted;
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.fillText(g.label + '  ↕', g.x, h - 24);
     }
-    ctx.globalAlpha = 1;
-    // The hills, nearer ones rising more.
-    for (const q of HILLS) {
-      const base = h * q.base - q.lift * b;
-      ctx.fillStyle = q.color;
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      for (let x = 0; x <= w; x += 8) ctx.lineTo(x, base + Math.sin(x * q.f + q.p) * q.amp + Math.sin(x * q.f * 2.3 + q.p * 1.7) * q.amp * 0.4);
-      ctx.lineTo(w, h);
-      ctx.closePath();
-      ctx.fill();
+  },
+  pointer(e, f) {
+    const s = f.state, g = figureAt(e.x, e.y, f.w, f.h);
+    if (e.type === 'down') {
+      s.drag = g || 'form';
+      Object.assign(s, { x0: e.x, y0: e.y, d0: f.value('kdepth'), b0: f.value('kbpm'), v0: g ? f.value(g.id) : 0 });
     }
+    if (e.type === 'up' || e.type === 'leave') s.drag = null;
+    if (e.type === 'move' && s.drag === 'form') {
+      f.set('kdepth', Math.max(0, Math.min(1, s.d0 + (s.y0 - e.y) / 260)));
+      f.set('kbpm', Math.max(3, Math.min(10, s.b0 + (e.x - s.x0) / 70)));
+    } else if (e.type === 'move' && s.drag) {
+      const r = f.range(s.drag.id);
+      f.set(s.drag.id, Math.max(r.min, Math.min(r.max, s.v0 + (s.y0 - e.y) * s.drag.per(s.v0))));
+    }
+    f.cursor(s.drag ? (s.drag === 'form' ? 'move' : 'ns-resize') : g ? 'ns-resize' : 'move');
   },
 };
 `;
 
 export function breath(catalog: Catalog) {
-  const row = { skin: { name: 'bar', params: { radius: 3, label: 'top' } } };
   const inside = ['idx1', 'wob1', 'note1', 'note2', 'mtof1', 'osc1', 'lp1'];
   return workInSteps(
     'breath',
@@ -183,6 +207,12 @@ export function breath(catalog: Catalog) {
         wire('gl1.out', 'out1.left'),
         wire('gr1.out', 'out1.right'),
         ...patchControl('kkey', 'Key', 'note1.a', [45, 57, 'linear', 'note'], 50),
+        ...patchControl('kbpm', 'Breaths a minute', 'rate1.a', [3, 10, 'linear', ''], 6),
+        ...patchControl('kdepth', 'Depth', ['deep1.b', 'bamt1.b'], [0, 1, 'linear', ''], 0.8),
+        ...patchControl('kwarm', 'Warmth', 'cut1.hz', [200, 1600, 'log', 'Hz'], 520),
+        ...patchControl('kspace', 'Hall', 'hall1.mix', [0, 1, 'linear', ''], 0.45),
+        ...control('mlevel', 'ui.meter', 'Level', null, r(36, 470, 64, 4)),
+        wire('gl1.out', 'mlevel.in'),
         { op: 'makePart', ids: inside, name: 'Tone', id: 'tone', node: 'tone1' },
       ],
       // Its one knob: which tone of the chord this copy is, above the key.
@@ -209,97 +239,44 @@ export function breath(catalog: Catalog) {
           port: 'interval',
           spread: { kind: 'each', values: [-12, 0, 7, 14, 19] },
         },
-        // ---- the plugin: a quiet night that breathes ----
-        asset('assets/den-kit/starfield.jpg'),
+        // ---- the plugin: one picture that breathes ----
         {
           op: 'setLook',
           look: {
             tokens: {
-              bg: '#15132f',
-              fg: '#f3eee6',
-              accent: '#f0d3a4',
-              track: '#ffffff26',
-              knob: '#1f1c44',
-              pointer: '#f3eee6',
-              muted: '#bdb6d8',
-              glow: '#f0d3a4',
-              font: 'lato',
-              labelFont: 'lato',
-              valueFont: 'lato',
+              bg: '#2b1236',
+              fg: '#ffe6d2',
+              accent: '#ff9f6b',
+              track: '#4a2257',
+              knob: '#3a1747',
+              pointer: '#ffe6d2',
+              muted: '#d9a08a',
+              glow: '#ff9f6b',
+              font: 'michroma',
+              labelFont: 'michroma',
+              valueFont: 'michroma',
             },
             background: [
-              { kind: 'image', asset: 'assets/den-kit/starfield.jpg', fit: 'cover' },
+              { kind: 'color', color: '#2b1236' },
               {
                 kind: 'linear',
                 angle: 180,
                 stops: [
-                  { color: '#100e28cc', at: 0 },
-                  { color: '#2a2358b3', at: 0.55 },
-                  { color: '#4a3a6ecc', at: 1 },
+                  { color: '#2b123600', at: 0.4 },
+                  { color: '#1e0b27', at: 1 },
                 ],
               },
             ],
-            skins: { slider: { name: 'bar', params: { radius: 3, label: 'top' } } },
-            css: [
-              'dk-slider { position: relative; }',
-              'dk-slider::part(label) { text-align: left; font-size: 11px; color: var(--dk-muted); }',
-              'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 11px; color: var(--dk-fg); }',
-              'dk-slider::part(track) { max-height: 3px; margin-top: 9px; }',
-            ].join('\n'),
+            skins: { meter: { name: 'bar', params: {} } },
           },
         },
-        el({ kind: 'canvas', name: 'The night', code: SCENE, rect: r(0, 0, 760, 500) }),
+        el({ kind: 'canvas', name: 'The breathing form', code: SCENE, rect: r(0, 0, 760, 500) }),
         el({
           kind: 'text',
           name: 'Title',
           text: 'Exhale',
-          rect: r(48, 40, 300, 46),
-          textStyle: { font: 'playfair-display', size: 40, color: 'fg', align: 'left' },
-        }),
-        el({
-          kind: 'text',
-          name: 'Subtitle',
-          text: 'A room that breathes slowly. Breathe in as the moon grows, out as it settles.',
-          rect: r(48, 92, 420, 34),
-          textStyle: { size: 13, color: 'muted', align: 'left', lineHeight: 1.4 },
-        }),
-        el({
-          kind: 'shape',
-          shape: 'rect',
-          name: 'Settings',
-          rect: r(24, 396, 712, 80),
-          locked: true,
-          style: {
-            radius: 20,
-            fill: [{ kind: 'color', color: '#12102ad9' }],
-            stroke: { color: '#ffffff1f', width: 1, style: 'solid' },
-          },
-        }),
-        ...control('kbpm', 'ui.slider', 'Breaths a minute', 'rate1.a', r(48, 418, 150, 38), {
-          min: 3,
-          max: 10,
-          value: 6,
-          style: row,
-        }),
-        ...control('kdepth', 'ui.slider', 'Depth', ['deep1.b', 'bamt1.b'], r(222, 418, 150, 38), {
-          min: 0,
-          max: 1,
-          value: 0.8,
-          style: row,
-        }),
-        ...control('kwarm', 'ui.slider', 'Warmth', 'cut1.hz', r(396, 418, 150, 38), {
-          min: 200,
-          max: 1600,
-          scale: 'log',
-          unit: 'Hz',
-          value: 520,
-          style: row,
-        }),
-        ...control('kspace', 'ui.slider', 'Hall', 'hall1.mix', r(570, 418, 150, 38), {
-          min: 0,
-          max: 1,
-          value: 0.45,
-          style: row,
+          rect: r(32, 438, 200, 24),
+          textStyle: { font: 'michroma', size: 15, color: 'fg', align: 'left' },
         }),
       ],
     ],

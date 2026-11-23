@@ -16,6 +16,7 @@ import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
 import { validate } from '../../src/work/validate.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
+import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
 import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { loadRegistry } from '../helpers/registry.ts';
@@ -199,9 +200,21 @@ describe('showcase works', () => {
 
   it('a look that uses pictures brings them along', () => {
     const acid = WORKS.find(w => w.id === 'acid')!.build(catalog);
-    const breath = WORKS.find(w => w.id === 'breath')!.build(catalog);
-    const r = applyIntents(acid, lookIntents(acid, breath), catalog);
-    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/starfield.jpg');
+    const pictured = applyIntents(
+      WORKS.find(w => w.id === 'breath')!.build(catalog),
+      [
+        { op: 'addAsset', asset: SHOWCASE_ASSETS['assets/den-kit/paper.jpg']! },
+        {
+          op: 'setLook',
+          look: {
+            background: [{ kind: 'image', asset: 'assets/den-kit/paper.jpg', fit: 'cover' }],
+          },
+        },
+      ],
+      catalog,
+    ).doc;
+    const r = applyIntents(acid, lookIntents(acid, pictured), catalog);
+    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/paper.jpg');
   });
 });
 
