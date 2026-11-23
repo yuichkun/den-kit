@@ -4,11 +4,11 @@
 // interface (Red Dot: Best of the Best 2016, User Interface Design): no copy of
 // a hardware panel, free of rotary wheels and sliders; every setting is a graph
 // edited where it is drawn, and nothing hides in menus. The filter's response is
-// the screen, a solid ultramarine hill on white paper across its whole width:
-// drag its summit (across: Cutoff, up: Resonance), and drag the dot on the
-// dashed outline (or scroll) for how far each note opens it. White contour lines
-// inside the hill are the sound's last moments of spectrum, so what the hill lets
-// through is seen in what plays. Three octaves of bass keys lie along the hill's
+// the screen, a solid warm-white hill on ultramarine paper across its whole
+// width: drag its summit (across: Cutoff, up: Resonance), and drag the dot on
+// the dashed outline (or scroll) for how far each note opens it. Contour lines in
+// the paper's blue inside the hill are the sound's last moments of spectrum, so
+// what the hill lets through is seen in what plays. Three octaves of bass keys lie along the hill's
 // foot, each under its own pitch on the hill's frequency axis, so a played key is
 // where its note's first ridge rises and the summit shows which notes it passes;
 // every C has a tick on the ground, and right of the keys the octaves are named
@@ -59,17 +59,18 @@ function name(ctx, text, color, y) {
 /** The filter as a hill: the ladder's response from Cutoff and Resonance, the recent spectrum inside it; it takes the mouse. */
 export const FILTER_HILL = `// The filter as a hill: the ladder's response, drawn from Cutoff (kcut) and
 // Resonance (kres), filled from the ground; its summit is the resonance peak.
-// Inside it run white contour lines, the sound's last moments of spectrum: a new
-// line every 60 ms, older lines higher and fainter (flat while nothing plays).
+// Inside it run contour lines in the paper's colour, the sound's last moments of
+// spectrum: a new line every 60 ms, older lines higher and fainter (flat while
+// nothing plays).
 // The dashed outline is where each note opens the filter to (Sweep, kenv), with
 // a dot on its summit; it comes down to the ground like the hill. Drag the
 // summit: across is the cutoff, up the resonance; press anywhere else and the
 // summit comes to the hand. Drag the dot across, or scroll: Sweep. A handle
 // moves as far as the hand does, so pressing one changes nothing, even where it
 // is held at the edge of the graph; where the dot meets the summit, the right
-// of it is the dot's. The dot is named "sweep" beside it. While the hand is on
-// a handle, small arrows by it show the ways it moves; the values are the
-// figures under the hill. Across, the graph runs from A0 to 12 kHz (LO, HI);
+// of it is the dot's. Each handle is named above it as its figure under the hill
+// is ("cutoff", "sweep"). While the hand is on a handle, small arrows by it show
+// the ways it moves (in place of its name); the values are the figures. Across, the graph runs from A0 to 12 kHz (LO, HI);
 // the keys under it are laid on that axis, and every C stands on the ground
 // as a short tick.
 export const LO = ${AXIS.lo}, HI = ${AXIS.hi};
@@ -211,10 +212,17 @@ export default {
     ring(ctx, m.ox, m.y, hot === 'open' ? 11 : 8, paper, ink);
     if (hot === 'peak') arrows(ctx, m.px, m.y, 21, true, ink, paper);
     if (hot === 'open') arrows(ctx, m.ox, m.y, 16, false, ink, paper);
-    // The dot's name above it (kept inside the graph), unless the summit's arrows are there.
+    // Each handle's name above it (kept inside the graph; side by side, away from each other, where the two are close),
+    // unless the summit's arrows are there.
+    ctx.font = '700 11px ' + FONT; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = ink;
+    const apart = m.ox - m.px > 56;
+    if (hot !== 'peak') {
+      ctx.textAlign = apart ? 'center' : 'right';
+      ctx.fillText('cutoff', apart ? clamp(m.px, 22, w - 22) : Math.max(38, m.px - 4), m.y - 16);
+    }
     if (hot !== 'peak' || m.ox - m.px > 40) {
-      ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = ink; ctx.fillText('sweep', clamp(m.ox, 22, w - 22), m.y - 16);
+      ctx.textAlign = apart ? 'center' : 'left';
+      ctx.fillText('sweep', apart ? clamp(m.ox, 22, w - 22) : Math.min(m.ox + 4, w - 36), m.y - 16);
     }
   },
   pointer(e, f) {
@@ -492,26 +500,26 @@ export function acid(catalog: Catalog) {
       ...patchControl('kdrive', 'Drive', 'ladder1.drive', [1, 8, 'linear', 'gain'], 2.2),
       add('tsq', 'ui.toggle', { label: 'Wave', values: { value: false } }),
       wire('tsq.out', 'wave1.mix'),
-      // ---- the plugin: a hill on white paper; the graphs are the controls ----
+      // ---- the plugin: a hill on ultramarine paper; the graphs are the controls ----
       {
         op: 'setLook',
         look: {
           tokens: {
-            bg: '#f2f3f8',
-            fg: '#0f1240',
-            accent: '#1e32d6',
-            track: '#d5d9ee',
-            knob: '#e4e7f4',
-            pointer: '#1e32d6',
-            muted: '#4f5784',
-            glow: '#1e32d6',
-            font: 'lato',
-            labelFont: 'lato',
-            valueFont: 'lato',
+            bg: '#1e32d6',
+            fg: '#f4f1e6',
+            accent: '#f4f1e6',
+            track: '#4757df',
+            knob: '#4757df',
+            pointer: '#f4f1e6',
+            muted: '#b4baf0',
+            glow: '#f4f1e6',
+            font: 'system',
+            labelFont: 'system',
+            valueFont: 'system',
           },
-          background: [{ kind: 'color', color: '#f2f3f8' }],
-          // The keys in the hill's colours: paper keys with blue rules and navy sharps; a played key turns the hill's ultramarine.
-          css: '[data-widget=keys1] { --dk-key-white: #fbfbfe; --dk-key-black: #0f1240; --dk-key-line: #b9c0e4; --dk-key-label: #4f5784; --dk-key-down: #1e32d6; --dk-key-down-black: #1e32d6; --dk-key-down-label: #f2f3f8; }',
+          background: [{ kind: 'color', color: '#1e32d6' }],
+          // The keys in the hill's colours: white keys ruled in the paper's blue, navy sharps; a played key swaps (white to navy, navy to white).
+          css: '[data-widget=keys1] { --dk-key-white: #f4f1e6; --dk-key-black: #10186b; --dk-key-line: #1e32d6; --dk-key-label: #10186b; --dk-key-down: #10186b; --dk-key-down-black: #f4f1e6; --dk-key-down-label: #f4f1e6; }',
         },
       },
       el({
