@@ -84,9 +84,9 @@ In `receiver/`, with a Cloudflare account that has den-kit.com:
    **Self-hosted and private**, add the public hostname `stats.den-kit.com`, and allow the people
    who may read the counts
    ([Publish a self-hosted application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)).
-   Put the team domain, `https://<team-name>.cloudflareaccess.com`, and the application's
-   **Application Audience (AUD) Tag**, in its **Additional settings**, in `wrangler.jsonc` as
-   `TEAM_DOMAIN` and `POLICY_AUD`
+   Put the team domain, `https://<team-name>.cloudflareaccess.com` (**Zero Trust** >
+   **Settings** shows it), and the application's **Application Audience (AUD) Tag**, in its
+   **Additional settings**, in `wrangler.jsonc` as `TEAM_DOMAIN` and `POLICY_AUD`
    ([Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)),
    then `vp run deploy` again.
 
