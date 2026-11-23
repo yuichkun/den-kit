@@ -73,13 +73,14 @@ export const CRUSH_GRID = `// The sound as a landscape of blocks on a black tabl
 // towers, evenly apart and staggered front to back, each on a square of the
 // floor, as tall as its value, its name upright in front of it: the wobble (it
 // sways), the hiss (its faces fizz with white dots, the more the louder) and the
-// tone; and the OUT tower, whose face is the meter on the plugin. Every tower has
-// a white top, a dotted front and a black side. Drag the landscape across for
-// Rate and up and down for Bits, or a ruler along itself; pull a tower up and
-// down. Under the hand, the tower's name reads its value, or the ruler's value
-// at its end, black on a white bar. Words are in the screen's own pixel letters,
-// the work's name large on the floor at the front left; no line of the floor
-// runs into a word.
+// tone; and the OUT tower, whose face is the meter on the plugin. A tower you
+// pull has a white top, a dotted front and a black side; OUT, which is only read,
+// is a case open at the top, ruled in white round the meter. Drag the landscape
+// across for Rate and up and down for Bits, or a ruler along itself; pull a tower
+// up and down. Under the hand, the tower's name reads its value, or the ruler's
+// value at its end, black on a white bar. Words are in the screen's own pixel
+// letters, the work's name large on the floor at the front left; no line of the
+// floor runs into a word.
 const SR = 48000, RMIN = 1500, RMAX = 48000, BMIN = 2, BMAX = 16;
 const WOB = [0, 0.005], HISS = [0, 0.06], TONE = [900, 14000];
 const ROWS = 8, LI = 560, LJ = 180, H = 120;
@@ -331,7 +332,9 @@ export default {
         }
       }
     }
-    prism(ctx, OUT.i, OUT.j, OUT.s, OUT.s, OUT.h, ink, d25, paper, ink);
+    // OUT, only read: a case open at the top (black, ruled in white) round the meter, where a tower you pull has a
+    // white top.
+    prism(ctx, OUT.i, OUT.j, OUT.s, OUT.s, OUT.h, paper, d25, paper, ink);
     for (const z of words) word(ctx, z.text, z.b, z.on, ink, paper);
   },
   pointer(e, f) {
