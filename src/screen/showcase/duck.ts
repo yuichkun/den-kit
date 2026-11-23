@@ -31,12 +31,12 @@ export const ROAD = `// The road, seen from beside and above it as it goes away 
 // diamond on your post as big as what you play now, over a thin diamond
 // outline: When louder than (kthresh). The echoes stand after you along the
 // road's far side as give-way signs, one every Repeat (ktime), smaller the
-// further down the road they are; each whole sign, post and face, is as big as
-// the echo is loud against you (Echo level kmix for the first, each next one
-// Feedback kfb of the last; never up into the overhead sign), its corners a
-// little rounder each time round the loop's lowpass (Tone ktone). While you
-// play louder than the threshold the echoes give way: the white of each sign
-// shrinks with what it gives way and its red edge grows.
+// further down the road they are, as the road narrows; each whole sign, post and
+// face, fades into the ground the quieter its echo is against you (Echo level
+// kmix for the first, each next one Feedback kfb of the last; gone 40 dB down),
+// its corners a little rounder each time round the loop's lowpass (Tone ktone).
+// While you play louder than the threshold the echoes give way: the white of
+// each sign shrinks with what it gives way and its red edge grows.
 // What you play runs away down the middle of the road from where you stand, as
 // wide as it was loud, and each echo jumps as a note reaches it.
 // What you play is worked out from the output level (a canvas hears only the
@@ -63,12 +63,12 @@ const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const RED = '${GIVE}', WHITE = '#ffffff', ROADC = '#505456', LINE = '#e4e3dd', METAL = '#6b6e6f', SKY = '#e4e2dc';
 const FLOOR = -60, MAXK = 12, RULE = 1.5, ROOT3 = Math.sqrt(3);
 const SIGN = ${JSON.stringify(SIGN)}, NOW = ${JSON.stringify(NOW)};
-const A = { l: 288, r: 590, top: 76, bot: 112 }; // the rule's drawing on the overhead sign
+const A = { l: 288, r: 590, top: 74, bot: 120 }; // the rule's drawing on the overhead sign
 // The road: it goes away towards VP (off to the right); P0 is its far edge where you stand,
 // ACROSS its width there. Down the road t seconds, a thing looks 1 / (1 + K t) as big.
 const VP = { x: 900, y: 176 }, P0 = { x: 168, y: 412 }, ACROSS = { x: 270, y: 106 }, K = 0.75;
 const SIDE = -0.035; // the posts stand just beyond the far edge
-const POST = 100, H1 = 110, DH = 62; // at your place: a post's height to its sign, an echo as loud as you, half your diamond at 0 dB
+const POST = 100, H1 = 84, DH = 62; // at your place: a post's height to its sign, a give-way sign, half your diamond at 0 dB
 const RIM = 0.72; // a give-way sign's white against its red edge, when it gives nothing
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const at = (hist, t) => {
@@ -80,6 +80,15 @@ const hz = v => (v < 1000 ? Math.round(v) + ' Hz' : (v / 1000).toFixed(1) + ' kH
 const pct = v => Math.round(v * 100) + '%';
 const dB = v => (Math.round(v) < 0 ? '−' : '') + Math.abs(Math.round(v)) + ' dB';
 const near = t => 1 / (1 + K * t);
+// How strong an echo's sign stands, 0 to 1, for its level against you: full at 0 dB and over, gone 40 dB down.
+const strength = a => clamp(1 + (20 * Math.log10(Math.max(a, 1e-6))) / 40, 0, 1);
+// A colour part of the way u into another (both #rrggbb; else left as it is): a sign faded into the ground.
+function into(a, b, u) {
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (!hex.test(a) || !hex.test(b)) return a;
+  const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)), x = rgb(a), y = rgb(b);
+  return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * u)).join(',') + ')';
+}
 // A point on the ground t seconds down the road, u across it (0 its far edge, 1 its near edge).
 function ground(t, u) {
   const s = near(t);
@@ -155,8 +164,7 @@ function zoneAt(e, f) {
   if (e.y < SIGN.y + SIGN.h + 6) return '';
   const you = ground(0, SIDE), T = Math.max(0.01, f.value('ktime')), first = ground(T, SIDE);
   if (e.x < Math.min(you.x + DH + 8, (you.x + first.x) / 2)) return 'you';
-  const hw = Math.max(14, H1 * f.value('kmix') * first.s) / ROOT3;
-  return e.x <= first.x + Math.max(hw, 28) ? 'first' : 'later';
+  return e.x <= first.x + Math.max((H1 * first.s) / ROOT3, 28) ? 'first' : 'later';
 }
 // How a drag moves a setting: the shapes follow the hand where they can.
 function move(id, v0, dx, dy, s) {
@@ -232,21 +240,19 @@ export default {
     const q = (Math.log(12000 / tone) / Math.log(15)) * 0.48;
     const signs = [];
     for (let k = 1; k <= MAXK; k++) {
-      // The whole sign, post and face, as big as the echo is loud against you, as high as the overhead sign lets it.
-      const p = ground(k * T, SIDE), big = Math.min(mix * Math.pow(fb, k - 1), (p.y - SIGN.y - SIGN.h - 8) / ((POST + H1) * p.s));
-      const H = H1 * p.s * big;
-      if (k > 1 && (p.x - H / ROOT3 > w || H < 2)) break;
-      signs.push({ k, x: p.x, foot: p.y, s: p.s, big, tip: p.y - POST * p.s * (H < 2 ? 1 : big), H, r: 0.25 * (1 - Math.exp(-k * q)) });
+      // The whole sign, post and face, as big as its place down the road makes it; as strong as its echo is loud.
+      const p = ground(k * T, SIDE), strong = strength(mix * Math.pow(fb, k - 1)), H = H1 * p.s;
+      if (k > 1 && (p.x - H / ROOT3 > w || strong <= 0)) break;
+      signs.push({ k, x: p.x, foot: p.y, s: p.s, strong, tip: p.y - POST * p.s, H, r: 0.25 * (1 - Math.exp(-k * q)) });
     }
     const give = clamp(s.r / 40, 0, 1);
     for (let i = signs.length - 1; i >= 0; i--) {
-      const { k, x, foot, s: sc, big, tip, H, r } = signs[i];
+      const { k, x, foot, s: sc, strong, tip, H, r } = signs[i];
       ctx.fillStyle = METAL;
-      if (H < 2) {
-        // No echo: where the first would stand, to drag it back up.
-        const y = tip - (2 * 16 * sc) / 3;
-        ctx.fillRect(x - 2.5 * sc, y, 5 * sc, foot - y);
-        tri(ctx, x, y, 16 * sc, 0);
+      if (strong <= 0) {
+        // No echo: an outline where the first would stand, to drag it back up.
+        const y = tip - (2 * H) / 3;
+        tri(ctx, x, y, H, 0);
         ctx.setLineDash([3, 3]);
         ctx.strokeStyle = ink;
         ctx.lineWidth = 1.5;
@@ -260,15 +266,16 @@ export default {
         const age = f.t - n - k * T;
         if (age >= 0 && age < 0.45) ping = Math.max(ping, 1 - age / 0.45);
       }
-      const face = H * (1 + 0.14 * ping), y = tip - (2 * face) / 3, pw = Math.max(1.5, 5 * sc * Math.min(1, big));
+      const face = H * (1 + 0.14 * ping), y = tip - (2 * face) / 3, pw = Math.max(1.5, 5 * sc), fade = 1 - strong;
+      ctx.fillStyle = into(METAL, field, fade);
       ctx.fillRect(x - pw / 2, y, pw, foot - y);
       tri(ctx, x, y, face, r * face);
-      ctx.fillStyle = RED;
+      ctx.fillStyle = into(RED, field, fade);
       ctx.fill();
       const inner = face * RIM * (1 - give);
       if (inner > 1) {
         tri(ctx, x, y, inner, r * inner);
-        ctx.fillStyle = WHITE;
+        ctx.fillStyle = into(WHITE, field, fade);
         ctx.fill();
       }
       if (active(i === 0 ? 'first' : 'later')) {
