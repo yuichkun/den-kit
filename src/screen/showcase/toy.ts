@@ -14,10 +14,10 @@
 // hard shadow. A tapped drum lights in its own shape (the pad is clipped to it),
 // four studs round the Beat count its steps while it plays, and each hit sends
 // a pop of bits out from the middle. How the drums sound is three toys on the
-// floor beside the mat, under the name of the work: a ball that bounces higher
-// (Bounce), a top that spins longer (Ring) and a glass of soda that fizzes more
-// (Fizz); the one under the hand lifts, and its name gets a row of dots for how
-// much.
+// floor beside the mat, under the name of the work, each centred beside a row
+// of the mat: a ball that bounces higher (Bounce), a top that spins longer
+// (Ring) and a glass of soda that fizzes more (Fizz); the one under the hand
+// lifts, and its name gets a row of dots for how much.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
@@ -33,10 +33,10 @@ export const MAT = {
   tile: H / 3,
   border: 24,
   color: '#f7a6c6',
-  groove: '#e591b6',
+  groove: '#d77ba4',
   light: '#ffc8de',
 };
-/** The floor beside the mat: painted boards running up the screen, their joints a shade darker. */
+/** The floor beside the mat: painted boards running up the screen, their joints a shade darker, the ends of their lengths on the lines of the mat's seams. */
 const FLOOR = { x: 3 * MAT.tile + MAT.border, color: '#c42f6c', joint: '#ad2860' };
 /** The middle of the middle tile, where the Beat sits. */
 const MID = { x: 1.5 * MAT.tile, y: 1.5 * MAT.tile };
@@ -113,19 +113,22 @@ export default {
 `;
 
 /** How the drums sound: three toys on the floor beside the mat, pulled up and down (Bounce, Ring, Fizz). */
-export const TOYS = `// Three toys on the floor beside the mat, one above the other, that change how
-// the drums sound. Drag one up for more of it, down for less, or turn the wheel
+export const TOYS = `// Three toys on the floor beside the mat, one beside each row of it, that change
+// how the drums sound. Drag one up for more of it, down for less, or turn the wheel
 // over it: Bounce (kbounce) is how far each hit's pitch drops, drawn as how high
 // a ball bounces; Ring (kring) is how long a hit rings, drawn as how long a top
 // spins (the trail it leaves on the floor); Fizz (kfizz) is how much rattle each
 // hit has, drawn as the bubbles in a glass of soda. They are drawn like the
 // drums: flat, in the drums' colours, with the same hard shadow. Each has its
-// name under it; the toy under the hand lifts, and a row of five dots under its
+// name under it, and the toy and its name are centred on the row as the drums
+// are on theirs; the toy under the hand lifts, and a row of five dots under its
 // name says how much.
 const IDS = ['kbounce', 'kring', 'kfizz'];
 const NAMES = ['BOUNCE', 'RING', 'FIZZ'];
 const SHADE = '${SHADOW.color}', DROP = ${SHADOW.dy};
 const RED = '#ff4b2b', YELLOW = '#ffc531', TEAL = '#12a594', CREAM = '#fff3df';
+// How far each toy reaches above the floor it stands on (the ball at its highest hop, the top's knob, the straw), and how far below it its name sits.
+const TOP = [62, 62, 96], NAME = 28;
 // Fill the path just traced twice: its shadow (lift more when it is under the hand), then itself.
 function solid(ctx, trace, color, lift) {
   ctx.save(); ctx.translate(0, DROP + lift); trace(); ctx.fillStyle = SHADE; ctx.fill(); ctx.restore();
@@ -169,10 +172,11 @@ export default {
     ctx.clearRect(0, 0, w, f.h);
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (let i = 0; i < 3; i++) {
-      const z = i * zh, n = f.norm(IDS[i]), lift = i === under ? 4 : 0, floor = z + zh - 60;
+      // Where the toy stands: the toy and its name (6 px either side of its middle) centred on the row, the shadow's drop counted in as for the drums.
+      const z = i * zh, n = f.norm(IDS[i]), lift = i === under ? 4 : 0, floor = z + zh / 2 - DROP / 2 + (TOP[i] - NAME - 6) / 2;
       if (i === 0) {
         // Bounce: a ball bouncing along the floor, its first hop as high as Bounce, each next one lower.
-        const H = 12 + n * (zh - 112), hops = [H, H * 0.45, H * 0.2], a = 16, b = w - 16, R = 11;
+        const H = 10 + n * (TOP[0] - 32), hops = [H, H * 0.45, H * 0.2], a = 16, b = w - 16, R = 11;
         const widths = hops.map(v => Math.sqrt(v + 4)), sum = widths.reduce((q, v) => q + v, 0);
         const path = [], at = [];
         let x0 = a;
@@ -269,7 +273,7 @@ export default {
         }
         ctx.globalAlpha = 1;
       }
-      name(ctx, i, cx, z + zh - 32, n, i === under);
+      name(ctx, i, cx, floor + NAME, n, i === under);
     }
   },
   pointer(e, f) {
@@ -606,13 +610,13 @@ function matSvg(): string {
     X1 = 3 * T,
     board = (W - FLOOR.x) / 3;
   const out: string[] = [];
-  // The floor: three boards running up beside the mat, the ends of their lengths staggered.
+  // The floor: three boards running up beside the mat, the ends of their lengths staggered on the lines of the mat's seams.
   for (let k = 0; k < 3; k++) {
     const x = (FLOOR.x + k * board).toFixed(1),
-      x1 = (FLOOR.x + (k + 1) * board).toFixed(1);
+      x1 = (FLOOR.x + (k + 1) * board).toFixed(1),
+      y = ((k % 2 ? 1 : 2) * T).toFixed(1);
     if (k) out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
-    for (let y = 120 + k * 140; y < H; y += 420)
-      out.push(`<path d="M${x} ${y} H${x1}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
+    out.push(`<path d="M${x} ${y} H${x1}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
   }
   // The mat, its tiles running off the top, left and bottom, its border strip lying on the boards.
   out.push(`<rect x="0" y="0" width="${FLOOR.x}" height="${H}" fill="${MAT.color}"/>`);
@@ -625,7 +629,7 @@ function matSvg(): string {
   for (const d of seams)
     out.push(
       `<path d="${d}" fill="none" stroke="${MAT.light}" stroke-width="1.2" stroke-linejoin="round" transform="translate(0.9 0.9)"/>`,
-      `<path d="${d}" fill="none" stroke="${MAT.groove}" stroke-width="1.6" stroke-linejoin="round"/>`,
+      `<path d="${d}" fill="none" stroke="${MAT.groove}" stroke-width="2" stroke-linejoin="round"/>`,
     );
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${out.join('')}</svg>`;
 }
@@ -826,14 +830,14 @@ export function toy(catalog: Catalog) {
         kind: 'text',
         name: 'Title',
         text: 'Shape Drums',
-        rect: r(FLOOR.x, 18, W - FLOOR.x, 30),
+        rect: r(FLOOR.x, 10, W - FLOOR.x, 30),
         textStyle: { font: 'fredoka', size: 22, weight: 600, color: '#fff3df', align: 'center' },
       }),
       // How the drums sound: three toys on the floor beside the mat, pulled up and down.
       ...patchControl('kbounce', 'Bounce', 'pdepth1.b', [0, 24, 'linear', 'st'], 14),
       ...patchControl('kring', 'Ring', 'aenv1.decay', [0.05, 1.2, 'log', 's'], 0.3),
       ...patchControl('kfizz', 'Fizz', 'mix1.level2', [0, 2, 'linear', ''], 0.5),
-      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(FLOOR.x + 4, 60, 148, 504) }),
+      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(FLOOR.x + 4, 0, 148, H) }),
     ],
   );
 }
