@@ -45,16 +45,16 @@ export const FILTER_HILL = `// The filter as a hill: the ladder's response, draw
 // Inside it run white contour lines, the sound's last moments of spectrum: a new
 // line every 60 ms, older lines higher and fainter (flat while nothing plays).
 // The dashed outline is where each note opens the filter to (Sweep, kenv), with
-// a dot on its summit. Drag the summit (or press anywhere): across is the
-// cutoff, up the resonance, and the summit follows the hand. Drag the dot
-// across, or scroll: Sweep. A part's settings show on a plate by it while the
-// hand is on it.
-const LO = 30, HI = 12000, TOP = 30, BOTTOM = -40, PAD = 28, ROWS = 18, GAP = 12;
+// a dot on its summit; it comes down to the ground like the hill. Drag the
+// summit (or press anywhere): across is the cutoff, up the resonance, and the
+// summit follows the hand. Drag the dot across, or scroll: Sweep. While the
+// hand is on a handle, small arrows by it show the ways it moves; the values
+// are the figures under the hill.
+const LO = 30, HI = 20000, TOP = 30, BOTTOM = -40, PAD = 28, ROWS = 18, GAP = 12;
 const xOf = (hz, w) => (Math.log(hz / LO) / Math.log(HI / LO)) * w;
 const hzOf = (x, w) => LO * Math.pow(HI / LO, Math.min(1, Math.max(0, x / w)));
 const yOf = (db, h) => PAD + ((TOP - db) / (TOP - BOTTOM)) * (h - PAD);
 const dbOf = (y, h) => TOP - ((y - PAD) / (h - PAD)) * (TOP - BOTTOM);
-const hzText = hz => (hz < 1000 ? Math.round(hz) + ' Hz' : (hz / 1000).toFixed(2) + ' kHz');
 function gain(hz, fc, k) {
   const x = hz / fc, x2 = x * x;
   const re = 1 - 6 * x2 + x2 * x2 + 4 * k, im = 4 * x - 4 * x * x2;
@@ -107,6 +107,18 @@ function zone(x, y, m) {
   if (dOpen < 16 && dOpen < dPeak) return 'open';
   return dPeak < 44 ? 'peak' : '';
 }
+/** Small arrowheads round a handle, r from its middle: left and right, and up and down too; rimmed in paper, so they show on the hill. */
+function arrows(ctx, x, y, r, both, ink, paper) {
+  ctx.fillStyle = ink; ctx.strokeStyle = paper; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  for (const [dx, dy] of both ? [[1, 0], [-1, 0], [0, 1], [0, -1]] : [[1, 0], [-1, 0]]) {
+    const tx = x + dx * r, ty = y + dy * r;
+    ctx.beginPath();
+    ctx.moveTo(tx + dx * 5, ty + dy * 5);
+    ctx.lineTo(tx - dy * 5, ty + dx * 5);
+    ctx.lineTo(tx + dy * 5, ty - dx * 5);
+    ctx.closePath(); ctx.stroke(); ctx.fill();
+  }
+}
 ${PARTS}
 export default {
   setup(ctx, f) {
@@ -142,26 +154,23 @@ export default {
     ctx.globalAlpha = 1;
     // The hill's edge, drawn over the ends of the lines so the slope stays clean.
     ctx.beginPath(); hill(ctx, w, h, m.fc, m.k); ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
-    // Where each note opens it: dashed where it stands above the hill, fading out towards the right edge.
+    // Where each note opens it: dashed where it stands above the hill, down to the ground.
     ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = ink;
-    let last = null, run = 0;
+    let on = false;
+    ctx.beginPath();
     for (let x = 0; x <= w + 1; x += 2) {
       const hz = hzOf(x, w), a = dbAt(hz, m.open, m.k), y = Math.min(h, yOf(Math.min(TOP + 6, a), h));
       const shown = a - dbAt(hz, m.fc, m.k) > 1 && y < h - 1;
-      if (shown && last) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, (w - 8 - x) / 110));
-        ctx.lineDashOffset = -run;
-        ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(x, y); ctx.stroke();
-        run += Math.hypot(x - last.x, y - last.y);
-      }
-      last = shown ? { x, y } : null;
+      if (shown && on) ctx.lineTo(x, y);
+      else if (shown) ctx.moveTo(x, y);
+      on = shown;
     }
-    ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    ctx.stroke(); ctx.setLineDash([]);
     const p = f.pointer, hot = s.drag || (p && p.over ? zone(p.x, p.y, m) : '');
     ring(ctx, m.ox, m.y, hot === 'open' ? 8 : 6, ink, paper, 2.5);
     ring(ctx, m.px, m.y, hot === 'peak' ? 12 : 9, paper, ink, 3);
-    if (hot === 'peak') plate(ctx, 'cutoff ' + hzText(m.fc) + ' ↔ · resonance ' + m.k.toFixed(2) + ' ↕', m.px, m.y - 32, w, ink, paper, 12);
-    if (hot === 'open') plate(ctx, 'sweep ' + f.value('kenv').toFixed(2) + ' oct ↔', m.ox, m.y - 28, w, ink, paper, 12);
+    if (hot === 'peak') arrows(ctx, m.px, m.y, 21, true, ink, paper);
+    if (hot === 'open') arrows(ctx, m.ox, m.y, 16, false, ink, paper);
   },
   pointer(e, f) {
     const s = f.state, m = marks(f), at = zone(e.x, e.y, m);
@@ -296,8 +305,8 @@ export default {
     const round = v => Math.tanh(v * drive * 0.5) / Math.tanh(drive * 0.5);
     ctx.beginPath();
     ctx.moveTo(0, g.mid);
-    for (let x = 0; x < w; x++) {
-      const ph = ((x / w) * 2) % 1;
+    for (let x = 0; x <= w; x++) {
+      const ph = x === w ? 1 : ((x / w) * 2) % 1;
       const v = (1 - mix) * (1 - 2 * ph) + mix * (ph < 0.5 ? 1 : -1);
       ctx.lineTo(x, g.mid - round(v) * g.amp);
     }
@@ -419,8 +428,8 @@ export function acid(catalog: Catalog) {
             valueFont: 'lato',
           },
           background: [{ kind: 'color', color: '#f2f3f8' }],
-          // The keys in the hill's two colours: paper keys with blue rules, ultramarine sharps.
-          css: '[data-widget=keys1] { --dk-key-white: #fbfbfe; --dk-key-black: #1e32d6; --dk-key-line: #b9c0e4; --dk-key-label: #4f5784; --dk-key-down: #1e32d6; --dk-key-down-black: #0f1240; --dk-key-down-label: #f2f3f8; }',
+          // The keys in the hill's two colours: paper keys with blue rules, ultramarine sharps; a played key turns the figures' navy.
+          css: '[data-widget=keys1] { --dk-key-white: #fbfbfe; --dk-key-black: #1e32d6; --dk-key-line: #b9c0e4; --dk-key-label: #4f5784; --dk-key-down: #0f1240; --dk-key-down-black: #0f1240; --dk-key-down-label: #f2f3f8; }',
         },
       },
       el({

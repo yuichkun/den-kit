@@ -664,7 +664,7 @@ describe('each work does what its controls say', () => {
     shown.forEach((v, k) => expect(v, `copy ${k + 1}`).toBeCloseTo(played[k]!, 2));
   });
 
-  it("Septet: with Env at 0 its cursor b still takes a drag, from the right of Cutoff's line", async () => {
+  it("Septet: with Env at 0 its cursor still takes a drag, from the right of Cutoff's line", async () => {
     const lanes = await import(
       `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
     );
@@ -699,7 +699,7 @@ describe('each work does what its controls say', () => {
     expect(values.kcut).toBeGreaterThan(900);
   });
 
-  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, cursor a's up and down", async () => {
+  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, Cutoff's cursor up and down", async () => {
     const doc = build('supersaw');
     const wired = (id: string) =>
       Object.values(doc.edges)
@@ -749,7 +749,7 @@ describe('each work does what its controls say', () => {
     expect(values.katt!).toBeGreaterThan(was.katt!);
     drag(lanes.decX(was.kdec!), lanes.fy(0.4), -30, 0); // the dashed knee, across
     expect(values.kdec!).toBeLessThan(was.kdec!);
-    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // cursor a, up
+    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // Cutoff's cursor, up
     expect(values.kres!).toBeGreaterThan(was.kres!);
     expect([values.kcut, values.krel, values.kspace]).toEqual([was.kcut, was.krel, was.kspace]);
   });
