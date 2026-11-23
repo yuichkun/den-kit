@@ -13,10 +13,12 @@
 // seven copies run as seven stacked lanes, each at its own pitch, so Detune
 // shows as lanes that drift against each other, and every other setting is a
 // cursor or a handle on a trace of its own: the stereo ruler over the lanes
-// (Width), the amp lane under them (Release, and the hall's tail for Space) and
-// the filter band at the bottom (the output's spectrum, with a cursor at Cutoff
-// and one where Env opens it to). Dragging across the lanes spreads them
-// (Detune); dragging their offsets up and down scatters them (Drift).
+// (Width), the amp lane under them (Attack, Release and the hall's tail for
+// Space, with the filter's opening closing over Filter decay) and the filter
+// band at the bottom (the output's spectrum under the filter's response, with a
+// cursor at Cutoff that also takes Resonance, and one where Env opens it to).
+// Dragging across the lanes spreads them (Detune); dragging their offsets up
+// and down scatters them (Drift).
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
 import { random01 } from '../../work/stacks.ts';
@@ -36,11 +38,15 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // Env, kenv) rounds the teeth. Drag across the lanes: Detune. The offsets on the
 // right, drag them up and down: Drift. The ruler on top is where Width (kwidth)
 // puts each copy from left to right: drag its bracket. The amp lane is a note's
-// life: up, held, let go over Release (krel), with the hall's tail (kspace)
-// dotted under it; drag the release mark across, the tail up and down. The
-// filter band is the output's spectrum with two cursors: a at Cutoff, b where
-// Env opens it to; drag either. A setting's name and value show on a plate by
-// it while the hand is on it. Wheel: finer steps; double click: first value.
+// life: up over Attack (katt), held, let go over Release (krel), with the
+// hall's tail (kspace) dotted under it and, dashed, the filter's opening (to b)
+// closing over Filter decay (kdec) to where it holds; drag the rise, the dashed
+// knee or the release mark across, the tail up and down. The filter band is
+// the output's spectrum under the filter's response (a 12 dB/oct lowpass) with
+// two cursors: a at Cutoff, dragged across, or up and down for Resonance
+// (kres, the response's peak); b where Env opens it to, dragged across. A
+// setting's name and value show on a plate by it while the hand is on it.
+// Wheel: finer steps; double click: first value.
 const list = v => String(v ?? '').split(/[ ,]+/).filter(Boolean).map(Number);
 const N = 7, ZOOM = 8, TEETH = 18;
 const L = { x0: 72, x1: 640, top: 64, lane: 44 };
@@ -48,7 +54,7 @@ const RULER = { x0: 412, x1: 736, y: 40 };
 const AMP = { top: 384, h: 56, off: 150, rel: 250 };
 const SPEC = { x0: 72, x1: 540, top: 452, bot: 508 };
 const FMIN = 60, FMAX = 20000;
-const FIRST = { kdetune: 0.35, kdrift: 0.08, kwidth: 0.8, kcut: 900, kenv: 2.5, krel: 0.5, kspace: 0.22 };
+const FIRST = { kdetune: 0.35, kdrift: 0.08, kwidth: 0.8, kcut: 900, kenv: 2.5, kres: 0.9, katt: 0.01, kdec: 0.6, krel: 0.5, kspace: 0.22 };
 const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lanesBottom = () => L.top + N * L.lane;
@@ -57,6 +63,18 @@ export const fx = hz => SPEC.x0 + (Math.log(clamp(hz, FMIN, FMAX) / FMIN) / Math
 const xf = x => FMIN * Math.pow(FMAX / FMIN, clamp((x - SPEC.x0) / (SPEC.x1 - SPEC.x0), 0, 1));
 // Where Release lets go of the note, and where the sound has gone (log time: 20 ms to 4 s).
 const relX = rel => L.x0 + AMP.off + 10 + (Math.log(rel / 0.02) / Math.log(200)) * AMP.rel;
+// Where the note is up after Attack (1 ms to 2 s), and where the filter's opening has closed to its
+// hold after Filter decay (20 ms to 3 s), both before the note is let go (log time).
+export const attX = att => L.x0 + 4 + (Math.log(clamp(att, 0.001, 2) / 0.001) / Math.log(2000)) * 64;
+export const decX = dec => L.x0 + 8 + (Math.log(clamp(dec, 0.02, 3) / 0.02) / Math.log(150)) * 120;
+// The filter's opening in the amp lane: full at the top, holding at 0.4 of it (its Sustain).
+const FTOP = AMP.top + 4;
+export const fy = v => AMP.top + AMP.h - 6 - (AMP.top + AMP.h - 6 - FTOP) * v;
+// The lowpass's response at hz, in dB (12 dB/oct, Q from Resonance).
+function responseDb(hz, cut, q) {
+  const r = hz / cut, a = 1 - r * r, b = r / Math.max(0.5, q);
+  return -10 * Math.log10(a * a + b * b);
+}
 function show(v, unit) {
   if (unit === 'Hz') return v >= 1000 ? (v / 1000).toFixed(1) + ' kHz' : Math.round(v) + ' Hz';
   if (unit === 's') return v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s';
@@ -70,15 +88,22 @@ function where(x, y) {
     if (x >= L.x0 - 12 && x < L.x1 + 8) return { id: 'kdetune', kind: 'lanes' };
     if (x >= L.x1 + 8) return { id: 'kdrift', kind: 'drift' };
   }
-  if (y >= AMP.top - 6 && y < AMP.top + AMP.h + 4 && x >= L.x0 - 12 && x < L.x1 + 8) return { id: 'krel', kind: 'amp' };
+  if (y >= AMP.top - 6 && y < AMP.top + AMP.h + 4 && x >= L.x0 - 12 && x < L.x1 + 8) return { id: 'krel', kind: 'amp', y };
   if (y >= SPEC.top - 6 && x >= SPEC.x0 - 12 && x < SPEC.x1 + 12) return { id: 'kcut', kind: 'filter' };
   return null;
 }
-// In the amp lane, the release mark (across) or the hall's tail (up and down); in the filter band, the nearer
-// cursor (b is never left of a, so where they meet, the right of the line is b's).
+// In the amp lane, the filter's knee (near it), the rise (Attack), the release mark, or right of it the hall's
+// tail; across sets the time, up and down the tail. In the filter band, the nearer cursor (b is never left of a,
+// so where they meet, the right of the line is b's).
 function pick(t, x, f) {
   if (!t) return null;
-  if (t.kind === 'amp') return x < relX(f.value('krel')) + 24 ? { ...t, id: 'krel' } : { ...t, id: 'kspace' };
+  if (t.kind === 'amp') {
+    const y = t.y ?? 0, ab = AMP.top + AMP.h - 6, tail = ab - (AMP.h - 14) * 0.9 * f.value('kspace');
+    if (Math.hypot(x - (L.x0 + AMP.off - 14), y - tail) < 10) return { ...t, id: 'kspace' };
+    if (Math.hypot(x - decX(f.value('kdec')), y - fy(0.4)) < 12) return { ...t, id: 'kdec' };
+    if (x < attX(f.value('katt')) + 12) return { ...t, id: 'katt' };
+    return x < relX(f.value('krel')) + 24 ? { ...t, id: 'krel' } : { ...t, id: 'kspace' };
+  }
   if (t.kind === 'filter') {
     const a = fx(f.value('kcut')), b = fx(f.value('kcut') * Math.pow(2, f.value('kenv')));
     return x > (a + b) / 2 ? { ...t, id: 'kenv' } : { ...t, id: 'kcut' };
@@ -109,6 +134,7 @@ export default {
     const ink = f.color('fg'), white = f.color('accent'), grid = f.color('track');
     const detune = f.value('kdetune'), drift = f.value('kdrift'), width = f.value('kwidth'), own = list(f.props.drift);
     const cutHz = f.value('kcut'), env = f.value('kenv'), rel = f.value('krel'), space = f.value('kspace');
+    const res = f.value('kres'), att = f.value('katt'), dec = f.value('kdec');
     const open = cutHz * Math.pow(2, env * 0.4);
     const round = clamp(Math.log2(5000 / open) / 5, 0, 0.85);
     const loud = Math.min(1, f.level * 6);
@@ -157,11 +183,9 @@ export default {
     }
     // Drift: the offsets are its handle.
     if (is('kdrift')) { ctx.fillStyle = white; ctx.fillRect(L.x1 + 30, L.top + 4, 1.5, lanesBottom() - L.top - 8); }
-    // The part: one Saw used seven times; its two settings move every copy at once.
-    ctx.fillStyle = ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.font = '800 14px ' + SANS; ctx.fillText('SAW ×7', 24, 26);
-    ctx.font = '600 11px ' + SANS; ctx.fillText('one part, seven copies', 24, 44);
-    ctx.fillRect(38, 52, 2, L.top + L.lane / 2 - 63);
+    // The part: one Saw used seven times; its two settings move every copy at once. The offsets are in semitones.
+    label(ctx, 'SAW ×7 · ONE PART, SEVEN COPIES', 24, 55, 'left', ink, 700);
+    label(ctx, 'ST', 736, 55, 'right', ink, 700);
     // Detune: the lanes are its handle; a crosshair where the hand is.
     if (is('kdetune') && p && p.over) {
       ctx.fillStyle = white;
@@ -186,19 +210,32 @@ export default {
     }
     // The amp lane: a note goes up, holds, is let go over Release; the hall's tail, dotted, rings on.
     const a0 = AMP.top, ab = AMP.top + AMP.h - 6, ah = AMP.h - 14;
-    ctx.fillStyle = white;
+    ctx.fillStyle = ink;
     ctx.beginPath(); ctx.roundRect(24, a0 + AMP.h / 2 - 11, 30, 22, 5); ctx.fill();
-    ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.lineJoin = 'miter';
+    ctx.strokeStyle = white; ctx.lineWidth = 1.5; ctx.lineJoin = 'miter';
     ctx.beginPath(); ctx.moveTo(29, a0 + AMP.h / 2 + 6); ctx.lineTo(32, a0 + AMP.h / 2 - 6); ctx.lineTo(37, a0 + AMP.h / 2 - 2); ctx.lineTo(43, a0 + AMP.h / 2 - 2); ctx.lineTo(49, a0 + AMP.h / 2 + 6); ctx.stroke();
     ctx.fillStyle = ink;
     ctx.fillRect(L.x0, ab, L.x1 - L.x0, 1.5);
-    const xOff = L.x0 + AMP.off, xRel = relX(rel), sus = ab - ah * 0.85;
+    const xOff = L.x0 + AMP.off, xRel = relX(rel), sus = ab - ah * 0.85, xa0 = attX(att), xd = decX(dec);
     ctx.strokeStyle = ink; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.moveTo(L.x0, ab); ctx.lineTo(L.x0 + 6, ab - ah); ctx.quadraticCurveTo(L.x0 + 14, sus, L.x0 + 44, sus);
+    ctx.moveTo(L.x0, ab); ctx.lineTo(xa0, ab - ah); ctx.quadraticCurveTo(xa0 + 8, sus, xa0 + 38, sus);
     ctx.lineTo(xOff, sus);
     for (let i = 1; i <= 24; i++) { const u = i / 24; ctx.lineTo(xOff + (xRel - xOff) * u, ab - (ab - sus) * (1 - u) * (1 - u)); }
     ctx.stroke();
+    // Attack: the rise is its handle.
+    if (is('katt')) { ctx.strokeStyle = white; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(L.x0, ab); ctx.lineTo(xa0, ab - ah); ctx.stroke(); }
+    // The filter's opening, dashed: up to b with the note, closing over Filter decay to where it holds, let go with it.
+    const fr = relX(0.4), hold = fy(0.4);
+    ctx.strokeStyle = is('kdec') ? white : ink; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(L.x0 + 1, ab); ctx.lineTo(L.x0 + 3, FTOP);
+    for (let i = 1; i <= 16; i++) { const u = i / 16; ctx.lineTo(L.x0 + 3 + (xd - L.x0 - 3) * u, hold - (hold - FTOP) * (1 - u) * (1 - u)); }
+    ctx.lineTo(xOff, hold);
+    for (let i = 1; i <= 16; i++) { const u = i / 16; ctx.lineTo(xOff + (fr - xOff) * u, ab - (ab - hold) * (1 - u) * (1 - u)); }
+    ctx.stroke(); ctx.setLineDash([]);
+    label(ctx, 'b', L.x0 - 4, FTOP + 2, 'right', is('kdec') ? white : ink, 700);
+    ctx.fillStyle = is('kdec') ? white : ink;
+    ctx.fillRect(Math.round(xd) - (is('kdec') ? 4 : 3), Math.round(hold) - (is('kdec') ? 4 : 3), is('kdec') ? 8 : 6, is('kdec') ? 8 : 6);
     // The hall's tail: as loud as Space, ringing on for its 2.8 s after the note is let go.
     const tail = ab - ah * 0.9 * space;
     ctx.fillStyle = is('kspace') ? white : ink;
@@ -211,10 +248,19 @@ export default {
     ctx.fillStyle = is('krel') ? white : ink;
     ctx.fillRect(Math.round(xRel) - 1, a0 + 2, 2.5, ab - a0 - 2);
     ctx.fillRect(Math.round(xOff), sus - 4, 1.5, ab - sus + 4);
-    const hx = L.x0 + 96;
+    const hx = xOff - 14;
     ctx.beginPath(); ctx.arc(hx, tail - 1, is('kspace') ? 5.5 : 4.5, 0, Math.PI * 2);
     ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
-    // The filter band: the output's spectrum; a at Cutoff, b where Env opens it to.
+    // The filter band: the output's spectrum; a at Cutoff, b where Env opens it to. Its tab: a lowpass.
+    const fm = (SPEC.top + SPEC.bot) / 2;
+    ctx.fillStyle = ink;
+    ctx.beginPath(); ctx.roundRect(24, fm - 11, 30, 22, 5); ctx.fill();
+    ctx.strokeStyle = white; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(29, fm - 3); ctx.lineTo(38, fm - 3); ctx.quadraticCurveTo(42, fm - 7, 44, fm - 3); ctx.lineTo(49, fm + 6); ctx.stroke();
+    // The output, on its own channel by the band: the trace is the plugin's scope.
+    label(ctx, 'OUT', 564, SPEC.top, 'left', ink, 700);
+    ctx.fillStyle = grid;
+    for (let x = 564; x < 736; x += 3) ctx.fillRect(x, Math.round(fm + 4), 1, 1);
     const spec = f.spectrum || new Float32Array(64);
     const sh = SPEC.bot - SPEC.top - 16;
     ctx.fillStyle = ink;
@@ -226,6 +272,14 @@ export default {
     }
     ctx.fillRect(SPEC.x0, SPEC.bot, SPEC.x1 - SPEC.x0, 1.5);
     const xa = fx(cutHz), xb = fx(cutHz * Math.pow(2, env));
+    // The filter's response over the spectrum: flat, peaking at Cutoff as high as Resonance, then rolling off.
+    ctx.strokeStyle = is('kcut') ? white : ink; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let x = SPEC.x0; x <= SPEC.x1; x += 3) {
+      const y = clamp(SPEC.top + 26 - responseDb(xf(x), cutHz, res) * 0.9, SPEC.top + 2, SPEC.bot);
+      if (x === SPEC.x0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
     ctx.fillStyle = is('kcut') ? white : ink;
     ctx.fillRect(Math.round(xa) - 1, SPEC.top, 2.5, SPEC.bot - SPEC.top);
     ctx.fillStyle = is('kenv') ? white : ink;
@@ -235,8 +289,8 @@ export default {
       ctx.fillRect(xa, SPEC.top + 22, xb - xa, 1.5);
       ctx.beginPath(); ctx.moveTo(xb, SPEC.top + 22.75); ctx.lineTo(xb - 6, SPEC.top + 19); ctx.lineTo(xb - 6, SPEC.top + 26.5); ctx.fill();
     }
-    label(ctx, 'a', xa + 7, SPEC.top + 8, 'left', is('kcut') ? white : ink, 700);
-    label(ctx, 'b', xb + 7, SPEC.top + 34, 'left', is('kenv') ? white : ink, 700);
+    label(ctx, 'CUTOFF a', xa - 7, SPEC.top + 8, 'right', is('kcut') ? white : ink, 700);
+    label(ctx, 'b ENV', xb + 7, SPEC.top + 34, 'left', is('kenv') ? white : ink, 700);
     // The plate by the part the hand is on.
     if (hot) {
       const id = hot.id, px = p && p.over ? p.x : 0, py = p && p.over ? p.y : 0;
@@ -244,15 +298,19 @@ export default {
         kdetune: 'detune ±' + detune.toFixed(2) + ' st',
         kdrift: 'drift ' + drift.toFixed(2),
         kwidth: 'width ' + show(width, ''),
+        katt: 'attack ' + show(att, 's'),
+        kdec: 'filter decay ' + show(dec, 's'),
         krel: 'release ' + show(rel, 's'),
         kspace: 'space ' + show(space, ''),
-        kcut: 'cutoff ' + show(cutHz, 'Hz'),
+        kcut: 'cutoff ' + show(cutHz, 'Hz') + ' · resonance ' + res.toFixed(2),
         kenv: 'env +' + show(env, 'oct'),
       }[id];
       const at = {
         kdetune: [px, Math.max(L.top + 12, py - 26), 'center'],
         kdrift: [L.x1 + 2, py, 'right'],
         kwidth: [cx, 14, 'center'],
+        katt: [xa0 + 10, a0 + 10, 'left'],
+        kdec: [xd + 12, hold - 14, 'left'],
         krel: [xRel + 8, a0 + 10, 'left'],
         kspace: [hx + 12, space > 0.45 ? tail + 14 : tail - 14, 'left'],
         kcut: [xa - 8, SPEC.top + 8, 'right'],
@@ -266,7 +324,7 @@ export default {
     const fine = e.shift ? 0.1 : 1;
     if (e.type === 'down') {
       const t = pick(where(e.x, e.y), e.x, f);
-      s.drag = t ? { ...t, x: e.x, y: e.y, axis: '', from: f.value(t.id), norm: f.norm(t.id), rel: f.value('krel'), space: f.value('kspace') } : null;
+      s.drag = t ? { ...t, x: e.x, y: e.y, axis: '', from: f.value(t.id), norm: f.norm(t.id), rel: f.value('krel'), space: f.value('kspace'), att: f.value('katt'), dec: f.value('kdec'), res: f.norm('kres') } : null;
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = null;
     const d = s.drag;
@@ -275,12 +333,18 @@ export default {
       if (d.kind === 'lanes') f.set('kdetune', clamp(d.from + (dx / 400) * fine, 0, 1));
       else if (d.kind === 'drift') f.setNorm('kdrift', clamp(d.norm - (dy / 200) * fine, 0, 1));
       else if (d.kind === 'width') f.set('kwidth', clamp(Math.abs(e.x - (RULER.x0 + RULER.x1) / 2) / ((RULER.x1 - RULER.x0) / 2), 0, 1));
-      else if (d.kind === 'filter') {
-        if (d.id === 'kcut') f.set('kcut', clamp(xf(fx(d.from) + dx * fine), 60, 8000));
-        else f.set('kenv', clamp(Math.log2(xf(fx(f.value('kcut') * Math.pow(2, d.from)) + dx * fine) / f.value('kcut')), 0, 6));
+      else if (d.kind === 'filter' && d.id === 'kenv')
+        f.set('kenv', clamp(Math.log2(xf(fx(f.value('kcut') * Math.pow(2, d.from)) + dx * fine) / f.value('kcut')), 0, 6));
+      else if (d.kind === 'filter' && e.type === 'move') {
+        // Cursor a: across for Cutoff, up and down for Resonance (the way the drag starts).
+        if (!d.axis && Math.hypot(dx, dy) > 4) d.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        if (d.axis === 'x') f.set('kcut', clamp(xf(fx(d.from) + dx * fine), 60, 8000));
+        if (d.axis === 'y') f.setNorm('kres', clamp(d.res - (dy / 120) * fine, 0, 1));
       } else if (d.kind === 'amp' && e.type === 'move') {
         if (!d.axis && Math.hypot(dx, dy) > 4) d.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        if (d.axis === 'x') f.set('krel', clamp(d.rel * Math.pow(200, (dx / AMP.rel) * fine), 0.02, 4));
+        if (d.axis === 'x' && d.id === 'katt') f.set('katt', clamp(d.att * Math.pow(2000, (dx / 64) * fine), 0.001, 2));
+        else if (d.axis === 'x' && d.id === 'kdec') f.set('kdec', clamp(d.dec * Math.pow(150, (dx / 120) * fine), 0.02, 3));
+        else if (d.axis === 'x') f.set('krel', clamp(d.rel * Math.pow(200, (dx / AMP.rel) * fine), 0.02, 4));
         if (d.axis === 'y') f.set('kspace', clamp(d.space - (dy / (AMP.h - 14) / 0.9) * fine, 0, 1));
       }
     }
@@ -291,7 +355,7 @@ export default {
     }
     const at = s.drag ?? where(e.x, e.y);
     const kind = at && at.kind;
-    f.cursor(!at ? 'default' : s.drag ? 'grabbing' : kind === 'drift' ? 'ns-resize' : kind === 'amp' ? 'grab' : 'ew-resize');
+    f.cursor(!at ? 'default' : s.drag ? 'grabbing' : kind === 'drift' ? 'ns-resize' : kind === 'amp' || kind === 'filter' ? 'grab' : 'ew-resize');
   },
 };
 `;
@@ -488,6 +552,15 @@ export function supersaw(catalog: Catalog) {
         ...patchControl('kwidth', 'Width', 'splay1.width', [0, 1, 'linear', ''], 0.8),
         ...patchControl('kcut', 'Cutoff', 'cut1.hz', [60, 8000, 'log', 'Hz'], 900),
         ...patchControl('kenv', 'Env', 'envamt1.b', [0, 6, 'linear', 'oct'], 2.5),
+        ...patchControl(
+          'kres',
+          'Resonance',
+          ['lpl1.resonance', 'lpr1.resonance'],
+          [0.5, 6, 'linear', ''],
+          0.9,
+        ),
+        ...patchControl('katt', 'Attack', 'aenv1.attack', [0.001, 2, 'log', 's'], 0.01),
+        ...patchControl('kdec', 'Filter decay', 'fenv1.decay', [0.02, 3, 'log', 's'], 0.6),
         ...patchControl('krel', 'Release', 'aenv1.release', [0.02, 4, 'log', 's'], 0.5),
         ...patchControl('kspace', 'Space', 'hall1.mix', [0, 1, 'linear', ''], 0.22),
         el({
@@ -502,11 +575,13 @@ export function supersaw(catalog: Catalog) {
           kind: 'text',
           name: 'Title',
           text: 'SEPTET',
-          rect: r(556, 472, 180, 34),
-          textStyle: { font: 'michroma', size: 24, weight: 400, color: 'fg', align: 'right' },
+          rect: r(24, 10, 300, 34),
+          textStyle: { font: 'michroma', size: 24, weight: 400, color: 'fg', align: 'left' },
         }),
-        ...control('vu1', 'ui.meter', 'Out', null, r(576, 458, 160, 6), {
-          style: { tokens: { track: '#b8301b', accent: '#0a0a0a' } },
+        ...control('vu1', 'ui.scope', 'Out', null, r(564, 462, 172, 40), {
+          style: {
+            skin: { name: 'line', params: { surface: 'transparent', line: 'fg', width: 1.5 } },
+          },
         }),
         wire('gl1.out', 'vu1.in'),
       ],

@@ -33,7 +33,7 @@ export const Play: Story = {
     ),
 };
 
-/** Editing it with the pads selected: their handles, and their settings in the inspector. */
+/** Editing it with the keys selected: their handles, and their settings in the inspector. */
 export const Edit: Story = {
   render: () => {
     const session = storySession(acid());

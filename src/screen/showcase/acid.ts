@@ -10,7 +10,7 @@
 // sound's last moments of spectrum, so what the hill lets through is seen in what
 // plays. Its three settings are set in figures under it. Beside it, three small
 // graphs filled the same way carry the rest: each note's filter envelope, the
-// glide between notes, and the wave from saw to square, rounded by Drive. Two
+// glide between notes, and the wave (saw or square), rounded by Drive. Two
 // octaves of keys play bass notes.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
@@ -23,18 +23,19 @@ function ring(ctx, x, y, r, fill, line, lw) {
   ctx.fillStyle = fill; ctx.fill();
   ctx.lineWidth = lw; ctx.strokeStyle = line; ctx.stroke();
 }
-/** A setting's name and value on a plate by the hand, kept inside the canvas. */
+/** A setting's name and value by the hand, set like a label on a map: paper, a rule round it in the ink. */
 function plate(ctx, text, x, y, w, ink, paper, size) {
   ctx.font = '700 ' + size + 'px ' + FONT; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
   const m = ctx.measureText(text), tw = ((m && m.width) || text.length * size * 0.56) + 16, ph = size + 10;
   const x0 = Math.max(2, Math.min(w - tw - 2, x - tw / 2)), y0 = Math.max(2, y - ph / 2);
-  ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(Math.round(x0), Math.round(y0), Math.round(tw), ph, ph / 2); ctx.fill();
-  ctx.fillStyle = paper; ctx.fillText(text, Math.round(x0 + 8), Math.round(y0 + ph / 2) + 0.5);
+  ctx.fillStyle = paper; ctx.fillRect(Math.round(x0), Math.round(y0), Math.round(tw), ph);
+  ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.strokeRect(Math.round(x0) + 0.75, Math.round(y0) + 0.75, Math.round(tw) - 1.5, ph - 1.5);
+  ctx.fillStyle = ink; ctx.fillText(text, Math.round(x0 + 8), Math.round(y0 + ph / 2) + 0.5);
 }
-/** The graph's name, small, at its top left. */
-function name(ctx, text, color) {
+/** The graph's name, small, at its top left (or as high as y). */
+function name(ctx, text, color, y) {
   ctx.font = '700 11px ' + FONT; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-  ctx.fillStyle = color; ctx.fillText(text, 0, 11);
+  ctx.fillStyle = color; ctx.fillText(text, 0, y ?? 11);
 }
 `;
 
@@ -70,7 +71,7 @@ function peakOf(k) {
   return { at, db: 20 * Math.log10(best) };
 }
 function resonanceAt(db) {
-  let lo = 0, hi = 0.95;
+  let lo = 0, hi = 1;
   for (let i = 0; i < 24; i++) {
     const mid = (lo + hi) / 2;
     if (peakOf(mid).db < db) lo = mid;
@@ -139,22 +140,28 @@ export default {
     }
     ctx.restore();
     ctx.globalAlpha = 1;
-    // Where each note opens it: dashed where it stands above the hill.
-    ctx.beginPath();
-    let on = false;
+    // The hill's edge, drawn over the ends of the lines so the slope stays clean.
+    ctx.beginPath(); hill(ctx, w, h, m.fc, m.k); ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+    // Where each note opens it: dashed where it stands above the hill, fading out towards the right edge.
+    ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = ink;
+    let last = null, run = 0;
     for (let x = 0; x <= w + 1; x += 2) {
       const hz = hzOf(x, w), a = dbAt(hz, m.open, m.k), y = Math.min(h, yOf(Math.min(TOP + 6, a), h));
-      if (a - dbAt(hz, m.fc, m.k) > 1 && y < h - 1) {
-        if (on) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-        on = true;
-      } else on = false;
+      const shown = a - dbAt(hz, m.fc, m.k) > 1 && y < h - 1;
+      if (shown && last) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, (w - 8 - x) / 110));
+        ctx.lineDashOffset = -run;
+        ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(x, y); ctx.stroke();
+        run += Math.hypot(x - last.x, y - last.y);
+      }
+      last = shown ? { x, y } : null;
     }
-    ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = ink; ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
     const p = f.pointer, hot = s.drag || (p && p.over ? zone(p.x, p.y, m) : '');
     ring(ctx, m.ox, m.y, hot === 'open' ? 8 : 6, ink, paper, 2.5);
     ring(ctx, m.px, m.y, hot === 'peak' ? 12 : 9, paper, ink, 3);
-    if (hot === 'peak') plate(ctx, 'cutoff ' + hzText(m.fc) + ' ↔ · resonance ' + m.k.toFixed(2) + ' ↕', m.px, m.y - 32, w, fg, paper, 12);
-    if (hot === 'open') plate(ctx, 'sweep ' + f.value('kenv').toFixed(2) + ' oct ↔', m.ox, m.y - 28, w, fg, paper, 12);
+    if (hot === 'peak') plate(ctx, 'cutoff ' + hzText(m.fc) + ' ↔ · resonance ' + m.k.toFixed(2) + ' ↕', m.px, m.y - 32, w, ink, paper, 12);
+    if (hot === 'open') plate(ctx, 'sweep ' + f.value('kenv').toFixed(2) + ' oct ↔', m.ox, m.y - 28, w, ink, paper, 12);
   },
   pointer(e, f) {
     const s = f.state, m = marks(f), at = zone(e.x, e.y, m);
@@ -199,7 +206,7 @@ export default {
     const decay = f.value('kdec'), peak = g.yO(f.value('kenv')), x0 = g.xT(0), end = g.xT(decay);
     const at = u => peak + (g.base - peak) * (1 - (1 - u) * (1 - u));
     ctx.clearRect(0, 0, w, h);
-    name(ctx, 'each note', muted);
+    name(ctx, 'each note', muted, Math.max(11, peak - 8));
     ctx.fillStyle = track; ctx.fillRect(0, g.base, w, 2);
     ctx.beginPath();
     ctx.moveTo(x0, g.base); ctx.lineTo(x0, peak);
@@ -213,7 +220,7 @@ export default {
     if (age >= 0 && age < decay) ring(ctx, g.xT(age), at(age / decay), 4, paper, ink, 2);
     const p = f.pointer, hot = s.drag || (p && p.over);
     ring(ctx, end, g.base + 1, hot ? 8 : 6, paper, ink, 3);
-    if (hot) plate(ctx, 'decay ' + decay.toFixed(2) + ' s ↔', end, g.base - 26, w, fg, paper, 11);
+    if (hot) plate(ctx, 'decay ' + decay.toFixed(2) + ' s ↔', end, g.base - 26, w, ink, paper, 11);
   },
   pointer(e, f) {
     const s = f.state;
@@ -250,7 +257,7 @@ export default {
     ctx.fillStyle = ink; ctx.fill();
     const p = f.pointer, hot = s.drag || (p && p.over);
     ring(ctx, x1, hi, hot ? 8 : 6, paper, ink, 3);
-    if (hot) plate(ctx, 'glide ' + Math.round(glide * 1000) + ' ms ↔', x1, hi + 22, w, paper, ink, 11);
+    if (hot) plate(ctx, 'glide ' + Math.round(glide * 1000) + ' ms ↔', x1, hi + 22, w, ink, paper, 11);
   },
   pointer(e, f) {
     if (e.type === 'down') f.state.drag = true;
@@ -262,12 +269,12 @@ export default {
 };
 `;
 
-/** The oscillator's wave from saw to square, rounded by Drive, filled; it takes the mouse. */
-export const WAVE_GRAPH = `// The wave into the filter: two cycles between saw and square (Saw to square,
-// kwave), rounder the harder Drive (kdrive) pushes the filter, filled from the
-// middle. The wave is the handle: press and drag, across for the wave, up for
-// Drive.
-const DMAX = 8, PAD = 8;
+/** The oscillator's wave, saw or square, rounded by Drive, filled; it takes the mouse. */
+export const WAVE_GRAPH = `// The wave into the filter: two cycles of saw, or of square while Wave (tsq) is
+// on, rounder the harder Drive (kdrive) pushes the filter, filled from the
+// middle. The wave is the handle: press and drag, across for the wave (the left
+// half saw, the right half square), up for Drive.
+const DMAX = 8;
 ${PARTS}
 function frame(f) {
   const top = 24, base = f.h - 4;
@@ -280,16 +287,16 @@ export default {
   draw(ctx, f) {
     const w = f.w, h = f.h, s = f.state, g = frame(f);
     const ink = f.color('accent'), paper = f.color('bg'), fg = f.color('fg'), muted = f.color('muted');
-    const mix = f.value('kwave'), drive = f.value('kdrive');
+    const mix = f.on('tsq') ? 1 : 0, drive = f.value('kdrive');
     const p = f.pointer, hot = s.drag || (p && p.over);
     ctx.clearRect(0, 0, w, h);
     // While the hand is on it, the plate takes the name's place.
-    if (hot) plate(ctx, 'square ' + Math.round(mix * 100) + '% ↔ · drive ' + drive.toFixed(1) + ' ↕', w / 2, 10, w, fg, paper, 11);
+    if (hot) plate(ctx, (mix ? 'square' : 'saw') + ' ↔ · drive ' + drive.toFixed(1) + ' ↕', w / 2, 10, w, ink, paper, 11);
     else name(ctx, 'wave', muted);
     const round = v => Math.tanh(v * drive * 0.5) / Math.tanh(drive * 0.5);
     ctx.beginPath();
     ctx.moveTo(0, g.mid);
-    for (let x = 0; x <= w; x++) {
+    for (let x = 0; x < w; x++) {
       const ph = ((x / w) * 2) % 1;
       const v = (1 - mix) * (1 - 2 * ph) + mix * (ph < 0.5 ? 1 : -1);
       ctx.lineTo(x, g.mid - round(v) * g.amp);
@@ -303,7 +310,7 @@ export default {
     if (e.type === 'down') f.state.drag = true;
     if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
     if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
-      f.set('kwave', Math.max(0, Math.min(1, (e.x - PAD) / (f.w - 2 * PAD))));
+      if (e.x > f.w / 2 !== f.on('tsq')) f.set('tsq', e.x > f.w / 2);
       f.set('kdrive', 1 + Math.max(0, Math.min(1, (g.base - e.y) / (g.base - g.top))) * (DMAX - 1));
     }
     f.cursor(f.state.drag ? 'grabbing' : 'move');
@@ -387,12 +394,13 @@ export function acid(catalog: Catalog) {
       wire('gain1.out', 'out1.left'),
       // Every setting lives in the patch, off the plugin: the graphs move them.
       ...patchControl('kcut', 'Cutoff', 'cut1.hz', [40, 4000, 'log', 'Hz'], 340),
-      ...patchControl('kres', 'Resonance', 'ladder1.resonance', [0, 0.95, 'linear', ''], 0.72),
+      ...patchControl('kres', 'Resonance', 'ladder1.resonance', [0, 1, 'linear', ''], 0.72),
       ...patchControl('kenv', 'Sweep', 'envamt1.b', [0, 6, 'linear', 'oct'], 3.4),
       ...patchControl('kdec', 'Decay', 'fenv1.decay', [0.03, 1.2, 'log', 's'], 0.2),
       ...patchControl('kglide', 'Glide', 'glide1.seconds', [0, 0.3, 'linear', 's'], 0.06),
-      ...patchControl('kdrive', 'Drive', 'ladder1.drive', [1, 8, 'linear', ''], 2.2),
-      ...patchControl('kwave', 'Saw to square', 'wave1.mix', [0, 1, 'linear', ''], 0),
+      ...patchControl('kdrive', 'Drive', 'ladder1.drive', [1, 8, 'linear', 'gain'], 2.2),
+      add('tsq', 'ui.toggle', { label: 'Wave', values: { value: false } }),
+      wire('tsq.out', 'wave1.mix'),
       // ---- the plugin: a hill on white paper; the graphs are the controls ----
       {
         op: 'setLook',
@@ -411,6 +419,8 @@ export function acid(catalog: Catalog) {
             valueFont: 'lato',
           },
           background: [{ kind: 'color', color: '#f2f3f8' }],
+          // The keys in the hill's two colours: paper keys with blue rules, ultramarine sharps.
+          css: '[data-widget=keys1] { --dk-key-white: #fbfbfe; --dk-key-black: #1e32d6; --dk-key-line: #b9c0e4; --dk-key-label: #4f5784; --dk-key-down: #1e32d6; --dk-key-down-black: #0f1240; --dk-key-down-label: #f2f3f8; }',
         },
       },
       el({

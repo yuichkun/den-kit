@@ -698,6 +698,61 @@ describe('each work does what its controls say', () => {
     expect(values.kcut).toBeGreaterThan(900);
   });
 
+  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, cursor a's up and down", async () => {
+    const doc = build('supersaw');
+    const wired = (id: string) =>
+      Object.values(doc.edges)
+        .filter(e => e.from.node === id)
+        .map(e => `${e.to.node}.${e.to.port}`)
+        .sort();
+    expect(wired('katt')).toEqual(['aenv1.attack']);
+    expect(wired('kdec')).toEqual(['fenv1.decay']);
+    expect(wired('kres')).toEqual(['lpl1.resonance', 'lpr1.resonance']);
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const ranges: Record<string, [number, number]> = { kres: [0.5, 6] };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: (id: string) => {
+        const [lo, hi] = ranges[id] ?? [0, 1];
+        return (values[id]! - lo) / (hi - lo);
+      },
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      setNorm: (id: string, n: number) => {
+        const [lo, hi] = ranges[id] ?? [0, 1];
+        values[id] = lo + n * (hi - lo);
+      },
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        lanes.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    drag(lanes.attX(was.katt!) - 4, 410, 30, 0); // the rise, across
+    expect(values.katt!).toBeGreaterThan(was.katt!);
+    drag(lanes.decX(was.kdec!), lanes.fy(0.4), -30, 0); // the dashed knee, across
+    expect(values.kdec!).toBeLessThan(was.kdec!);
+    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // cursor a, up
+    expect(values.kres!).toBeGreaterThan(was.kres!);
+    expect([values.kcut, values.krel, values.kspace]).toEqual([was.kcut, was.krel, was.kspace]);
+  });
+
   it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {
     const doc = turned(build('rain'), [
       ['kdrops', 'value', 0],
