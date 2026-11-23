@@ -20,6 +20,7 @@ import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
 import { FILTER_HILL, WAVE_GRAPH } from '../../src/screen/showcase/acid.ts';
 import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
+import { ECHO_LINE } from '../../src/screen/showcase/tapeecho.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
 import { TIDE_SHORE } from '../../src/screen/showcase/tide.ts';
@@ -409,6 +410,93 @@ describe('each work does what its controls say', () => {
     expect(rms(r!, 0.415, 0.455)).toBeGreaterThan(10 * rms(r!, 0.12, 0.27)); // 0.05 + 1.5 × 0.25 s
     expect(rms(r!, 0.415, 0.455)).toBeGreaterThan(5 * rms(r!, 0.29, 0.33)); // not at the left head's time
   }, 60000);
+
+  it('Echo Line: every setting is a part of the line to take hold of, and each part sets its own', async () => {
+    const doc = build('tapeecho');
+    const ranges: Record<string, [number, number, boolean]> = {};
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes)) {
+      if (n.type === 'ui.toggle') values[n.id] = n.values.value as boolean;
+      if (n.type === 'ui.knob') {
+        values[n.id] = n.values.value as number;
+        const c = n.config as { min: number; max: number; scale?: string };
+        ranges[n.id] = [c.min, c.max, c.scale === 'log'];
+      }
+    }
+    const norm = (id: string) => {
+      const [lo, hi, log] = ranges[id]!;
+      const v = values[id] as number;
+      return log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo);
+    };
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(ECHO_LINE).toString('base64')}`
+    );
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => Number(values[id]),
+      on: (id: string) => values[id] === true,
+      norm,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      setNorm: (id: string, u: number) => {
+        const [lo, hi, log] = ranges[id]!;
+        values[id] = log ? lo * (hi / lo) ** u : lo + (hi - lo) * u;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const seen = new Set<string>();
+    for (let x = 0; x < el.rect.w; x += 4)
+      for (let y = 0; y < el.rect.h; y += 4) {
+        const t = mod.where(x, y, f) as { id: string } | null;
+        if (t) seen.add(t.id);
+      }
+    expect([...seen].sort()).toEqual(['kecho', 'kfb', 'kin', 'ktime', 'ktone', 'kwow', 'thiss']);
+    const at = (id: string) => {
+      for (let x = 0; x < el.rect.w; x += 2)
+        for (let y = 0; y < el.rect.h; y += 2) if (mod.where(x, y, f)?.id === id) return { x, y };
+      throw new Error(id);
+    };
+    const drag = (p: { x: number; y: number }, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', p.x, p.y],
+        ['move', p.x + dx, p.y + dy],
+        ['up', p.x + dx, p.y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // Each part, dragged its own way, moves its own setting and nothing else.
+    for (const [id, dx, dy] of [
+      ['kin', 0, -40],
+      ['kwow', 0, -40],
+      ['kfb', 0, -40],
+      ['ktone', 40, 0],
+      ['kecho', 0, -30],
+    ] as const) {
+      const was = { ...values };
+      drag(at(id), dx, dy);
+      expect(values[id]).toBeGreaterThan(was[id] as number);
+      for (const other of Object.keys(was))
+        if (other !== id) expect(values[other]).toBe(was[other]);
+    }
+    // Head A dragged right to where 0.5 s is on the scale: Repeat is 0.5 s.
+    const head = at('ktime');
+    drag(head, mod.xAt(0.5) - head.x, 0);
+    expect(values.ktime).toBeCloseTo(0.5, 6);
+    // The breaker is pressed, not dragged: a click turns the hiss off and on again.
+    const hiss = values.thiss;
+    drag(at('thiss'), 0, 0);
+    expect(values.thiss).toBe(!hiss);
+    drag(at('thiss'), 0, 0);
+    expect(values.thiss).toBe(hiss);
+  });
 
   it('Low Res: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
     const box = {
