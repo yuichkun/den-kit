@@ -546,12 +546,8 @@ describe('building the plugin screen by hand', () => {
         await page.keyboard.press('Control+Alt+KeyE');
       await page.waitForSelector('[data-testid=plugin-view]');
     };
-    await open('lofi');
-    assert.equal(await page.locator('[data-widget=fbits] dk-slider').getAttribute('value'), '8');
-    assert.match(
-      await page.locator('[data-widget=frate] dk-slider .value').innerText(),
-      /^11\.0 kHz$/,
-    );
+    await open('lofi'); // its display is the control: the rate under it is text bound to Rate
+    await page.getByText('◀ rate 11.0 kHz ▶', { exact: true }).waitFor();
     await open('tapeecho');
     assert.equal(await page.locator('[data-widget=thiss] dk-toggle').getAttribute('value'), 'true');
     await page.waitForSelector('[data-widget=thiss] dk-toggle .plain.on');
