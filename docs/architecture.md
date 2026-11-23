@@ -65,8 +65,8 @@ and any npm package; a codebox uses the unworklet core API and the asset API; a 
 drawing code gets only the frame its worker passes in (`src/screen/canvas.worker.ts`). The desktop app (`desktop/`) and the development
 host that `vp run dev` serves (`dev/`) implement `host`; both run the local AI bridge in
 `bridge/`, which connects den-kit's tools to the agent runtime. The usage receiver in `receiver/`
-runs on Cloudflare, apart from den-kit, and takes the usage events the desktop app sends
-([usage-receiver.md](usage-receiver.md)).
+runs on Cloudflare, apart from den-kit, takes the usage events the desktop app sends, and shows
+their counts behind Cloudflare Access ([usage-receiver.md](usage-receiver.md)).
 
 ## How a change moves
 

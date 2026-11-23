@@ -7,9 +7,17 @@
   "compatibility_date": "2026-11-01",
   // Wrangler sends Cloudflare nothing about its own use from this project.
   "send_metrics": false,
-  // Reached only at its own host name.
+  // Reached only at its own host names: the app sends to usage, and people read the counts at
+  // stats, behind Cloudflare Access.
   "workers_dev": false,
-  "routes": [{ "pattern": "usage.den-kit.com", "custom_domain": true }],
+  "routes": [
+    { "pattern": "usage.den-kit.com", "custom_domain": true },
+    { "pattern": "stats.den-kit.com", "custom_domain": true },
+  ],
+  // The Access application in front of stats.den-kit.com (dashboard.ts): the team domain,
+  // https://<team-name>.cloudflareaccess.com, and the application's audience (AUD) tag. While
+  // either is empty, the Worker has no page of counts.
+  "vars": { "TEAM_DOMAIN": "", "POLICY_AUD": "" },
   // No logs: a request's log would hold where it came from.
   "observability": { "enabled": false },
   // The daily run (store.ts, count), shortly after each UTC day ends.
