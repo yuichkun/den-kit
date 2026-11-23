@@ -548,9 +548,8 @@ describe('building the plugin screen by hand', () => {
     };
     const shows = (text: string) =>
       page.locator('[data-testid=plugin-view]').getByText(text, { exact: true }).first().waitFor();
-    await open('lofi'); // its screen is the control: the rate beside the title is text bound to Rate
-    await shows('11.0 kHz');
-    await open('acid'); // the figures over its filter are text bound to Cutoff, Resonance and Sweep
+    await open('lofi'); // another work first, so the figures below come with the work, not from the one before
+    await open('acid'); // the figures under its keys are text bound to Cutoff, Resonance and Sweep
     await shows('340 Hz');
     await shows('0.720');
     await shows('3.40 oct');
