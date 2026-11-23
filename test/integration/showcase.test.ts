@@ -817,7 +817,7 @@ describe('each work does what its controls say', () => {
     expect(sideBehind).toBeCloseTo(sideAhead, 0);
   }, 120000);
 
-  it('Rain Field: where a dot sits is all in the work: dragged behind you its Behind switch turns on, and a field started over finds it there', async () => {
+  it('Rain Field: where a sound sits is all in the work: dragged behind you its Behind switch turns on, and a field started over finds it there', async () => {
     const doc = build('rain');
     const values: Record<string, number | boolean> = {};
     for (const n of Object.values(doc.nodes))
@@ -828,7 +828,7 @@ describe('each work does what its controls say', () => {
     );
     const field = mod.default;
     const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
-    /** Where a point on the ground (x right, z ahead, the rim at 1) is on the field. */
+    /** Where a point on the ground (x right, z ahead, the edge of hearing at 1) is on the field. */
     const ground = (x: number, z: number) =>
       mod.ground(x, z, el.rect.w, el.rect.h) as { x: number; y: number };
     let cursor = '';
@@ -851,7 +851,7 @@ describe('each work does what its controls say', () => {
     };
     const at = (f: unknown, type: string, x: number, y: number) =>
       field.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
-    // The drops start ahead of you, a little to the left; drag their stake to half way behind you.
+    // The drops start ahead of you, a little to the left; drag their cloud to half way behind you.
     expect(values.kdropsback).toBe(false);
     const r0 = 1 - (values.kdrops as number),
       pan0 = values.kdropspan as number;
@@ -865,7 +865,7 @@ describe('each work does what its controls say', () => {
     expect(values.kdropsback).toBe(true);
     expect(values.kdrops).toBeCloseTo(0.5, 5);
     expect(values.kdropspan).toBeCloseTo(0, 5);
-    // A field started over (the work opened again) knows only the work: the stake is behind you.
+    // A field started over (the work opened again) knows only the work: the cloud is behind you.
     const again = start();
     at(again, 'move', behind.x, behind.y);
     expect(cursor).toBe('grab');
@@ -875,20 +875,21 @@ describe('each work does what its controls say', () => {
     expect(cursor).toBe('move');
     at(again, 'move', ahead.x, ahead.y);
     expect(cursor).toBe('grab');
-    // The rest is set on the ground, each part up and down or across (a drag keeps to the way it starts).
+    // The rest is set by dragging the puddle, the open ground and the trees, each up and down or across
+    // (a drag keeps to the way it starts).
     const drag = (p: { x: number; y: number }, dx: number, dy: number) => {
       at(again, 'down', p.x, p.y);
       at(again, 'move', p.x + dx, p.y + dy);
       at(again, 'up', p.x + dx, p.y + dy);
     };
     const was = { ...values };
-    drag(ground(0.12, 0.5), 0, -40); // the drops' patch, up: more rain
+    drag(ground(0.12, 0.5), 0, -40); // the drops' puddle, up: more rain
     drag(ground(0.12, 0.5), -40, 0); // and across: narrower
     expect([values.knob1! > was.knob1!, values.kwidth! < was.kwidth!]).toEqual([true, true]);
-    drag(ground(-0.5, -0.3), 40, 0); // the ground inside the rim, across: each drop higher
+    drag(ground(-0.5, -0.3), 40, 0); // the open ground, across: each drop higher
     drag(ground(-0.5, -0.3), 0, -40); // and up: a longer splash
     expect([values.knob2! > was.knob2!, values.knob3! > was.knob3!]).toEqual([true, true]);
-    drag(ground(1.1, 0), 0, -40); // outside the rim, up: more room
+    drag(ground(1.1, 0), 0, -40); // a tree at the edge, up: more room
     expect(values.kroom! > was.kroom!).toBe(true);
     // Each drag moved only its own setting.
     expect(values.kdrops).toBeCloseTo(0.5, 5);

@@ -1,5 +1,5 @@
-// Rain Field — a sound installation of rain all around the listener: drops on
-// the glass, wind with the rain further off, thunder far away and drips from a
+// Rain Field — a sound installation of rain all around the listener: drops
+// close by, wind with the rain further off, thunder far away and drips from a
 // gutter, each placed in the space by hand.
 // One raindrop is a part (Drop): a slow wobble ticks; at each tick one random
 // number decides whether a drop falls and another how high it rings; the drop
@@ -11,16 +11,17 @@
 // which dulls a sound behind the listener (most when straight behind); it is
 // used once for each of the four sounds. A small room holds it all.
 // The design follows the thinking of Odio (Apple Design Awards 2022,
-// Innovation), an app of sound worlds you mix through a circular interface,
+// Innovation), an app of sound worlds you mix by placing sounds round you,
 // with animations that move in step with the sound: the plugin is one canvas,
-// a disc of lime ground around you seen from behind and above, you standing in
-// the middle and the half behind you veiled duller. Each sound stands on a
-// stake where it is, and is drawn on the ground as it is heard (ripples, grass
-// bending, a cloud's shadow, a drip); you drag a stake nearer, further, left or
-// right (its Level, Pan and Behind stay in the patch). The Drop part's knobs
-// (Rain, Pitch, Splash: every copy at once), Drops across and Room are set by
-// dragging the ground, also kept in the patch; your body is the plugin's meter
-// of what reaches you.
+// a clearing in the rain seen from straight above, you under an umbrella in the
+// middle. Each sound is drawn as the thing it is, where it is (a small cloud
+// raining on its puddle, a patch of grass in the wind, a storm cloud, a shed's
+// gutter dripping into a water butt) and moves as it is heard; you drag a thing
+// nearer, further, left, right or behind you (its Level, Pan and Behind stay in
+// the patch). The Drop part's knobs (Rain, Pitch, Splash: every copy at once),
+// Drops across and Room are set by dragging the puddle, the open ground and the
+// trees, also kept in the patch; the water in the ditch along the bottom is the
+// plugin's scope of what you hear.
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
@@ -61,37 +62,49 @@ const LAYERS = [
   },
 ] as const;
 
-/** The ground around the listener, seen from behind and above; it takes the mouse. */
-export const FIELD = `// The space around you: a disc of ground seen from behind and above you, front
-// far up the screen and behind near, you standing in the middle; the half
-// behind you is veiled duller, as it is heard. Each sound stands on a stake
-// where it is: how near it is to you sets its level (1 at your feet, 0 at the
-// rim), the side it is on sets its pan (-1 left, +1 right), and the half it is
-// in sets its Behind switch. Drag a stake to move its sound. Each sound is drawn
-// on the ground as it is heard: drops land as white ripples in a patch round
-// their stake (sharp jumps high in the spectrum), the wind bends a patch of
-// grass (the low middle of the spectrum), thunder is a cloud's shadow that
-// darkens and rolls out when the lowest bands rise, and a drip falls down its
-// stake and rings once (a jump around its note, props.dripHz). The rest is set
-// on the ground, with a plate by the hand saying what: the drops' patch takes
-// Rain (knob1, up and down) and Drops across (kwidth, left and right: the
-// patch's width); the ground inside the rim takes each drop's Pitch (knob2,
-// left and right) and Splash (knob3, up and down), seen in the ripples; outside
-// the rim, Room (kroom, up and down), drawn as an echo of the rim. A drag keeps
-// to the direction it starts in; scrolling moves the up-and-down setting.
+/** The ditch along the bottom of the clearing: its top, bottom, left and right (its water is the scope). */
+const DITCH = { y0: 454, y1: 484, x0: 96, x1: 664 };
+
+/** The clearing round the listener, seen from straight above; it takes the mouse. */
+export const FIELD = `// A clearing in the rain seen from straight above: you under an umbrella in
+// the middle, ahead up the screen (your footprints come from behind you). Each
+// sound is the thing it is, where it is: the drops are a small cloud raining on
+// its puddle, the wind a patch of grass, the thunder a storm cloud and the
+// drips a shed's gutter running into a water butt. How near a thing is to you
+// sets its level (1 at your feet, 0 at the trees round the clearing), the side
+// it is on sets its pan (-1 left, +1 right), and the half it is in sets its
+// Behind switch. Drag a thing to move its sound. Each moves as it is heard:
+// drops ring on the puddle (sharp jumps high in the spectrum), the grass bends
+// and sheds leaves with the low middle of the spectrum, the storm cloud flashes
+// when the lowest bands jump, a drip falls into the butt when the band at its
+// note jumps (props.dripHz), and rain patters on your umbrella as loud as it
+// all is. Rain falls everywhere as loud as the far rain is (kwind), and harder
+// over the puddle the higher Rain is (knob1). The rest is set by dragging, with
+// words by the hand saying what: the puddle takes Rain (knob1, up and down)
+// and Drops across (kwidth, left and right: the puddle's width); the open
+// ground takes each drop's Pitch (knob2, left and right) and Splash (knob3, up
+// and down), seen in the ripples; the trees take Room (kroom, up and down),
+// drawn as echoes coming back off them. A drag keeps to the direction it starts
+// in; scrolling moves the up-and-down setting. The ditch along the bottom
+// (props.ditch: its top, bottom, left and right) holds the plugin's scope of
+// what you hear.
 const TAU = Math.PI * 2;
 const LAYERS = [
-  { name: 'drops', level: 'kdrops', pan: 'kdropspan', back: 'kdropsback' },
-  { name: 'wind', level: 'kwind', pan: 'kwindpan', back: 'kwindback' },
-  { name: 'thunder', level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback' },
-  { name: 'drips', level: 'kdrips', pan: 'kdripspan', back: 'kdripsback' },
+  { name: 'The drops', level: 'kdrops', pan: 'kdropspan', back: 'kdropsback' },
+  { name: 'The wind', level: 'kwind', pan: 'kwindpan', back: 'kwindback' },
+  { name: 'The thunder', level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback' },
+  { name: 'The drips', level: 'kdrips', pan: 'kdripspan', back: 'kdripsback' },
 ];
-const INK = '#141a0b', DULL = '#56633a', WHITE = '#fbfdf0', DISC = '#c5dd68', ECHO = '#141a0b';
+const INK = '#141a0b', GROUND = '#b9d35a', TUFT = '#9cb544', MOWN = '#dcec9f', CUT = '#93ac3b';
+const LEAF = '#8ea53f', LEAF_HI = '#a6c04d', WATER = '#4b5f20', WHITE = '#fbfdf0';
+const STORM = '#585d53', STORM_HI = '#72776c', ROOF = '#8f9589', ROOF_LO = '#5c6256', HALO = '#e3efb3';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-// The settings set on the ground: control, range, log or not, how it reads.
+/** The same random numbers every time, from a seed. */
+function seeded(n) { let s = n >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+// The settings set by dragging: control, range, log or not, how it reads.
 const SET = {
-  knob1: { lo: 0.5, hi: 16, log: true, show: v => v.toFixed(1) + ' a second' },
+  knob1: { lo: 0.5, hi: 16, log: true, show: v => v.toFixed(1) + ' drops a second' },
   knob2: { lo: 400, hi: 8000, log: true, show: v => (v >= 1000 ? (v / 1000).toFixed(2) + ' kHz' : Math.round(v) + ' Hz') },
   knob3: { lo: 0.005, hi: 0.4, log: true, show: v => Math.round(v * 1000) + ' ms' },
   kwidth: { lo: 0, hi: 1, log: false, show: v => Math.round(v * 100) + '%' },
@@ -100,188 +113,363 @@ const SET = {
 const AXES = { patch: { x: 'kwidth', y: 'knob1' }, ground: { x: 'knob2', y: 'knob3' }, room: { y: 'kroom' } };
 const normOf = (id, v) => { const d = SET[id]; return clamp(d.log ? Math.log(v / d.lo) / Math.log(d.hi / d.lo) : (v - d.lo) / (d.hi - d.lo), 0, 1); };
 const valueOf = (id, n) => { const d = SET[id]; n = clamp(n, 0, 1); return d.log ? d.lo * Math.pow(d.hi / d.lo, n) : d.lo + n * (d.hi - d.lo); };
-// The camera, D behind you: the rim runs from 150 down to 26 above the bottom, 340 either side at its widest.
-const D = 7;
-function lens(w, h) {
-  const HF = ((h - 26 - 150) * (D * D - 1)) / 2, F = 340 * Math.sqrt(D * D - 1);
-  return { cx: w / 2, HOR: h - 26 - HF / (D - 1), HF, F };
-}
-/** A point on the ground (x right, z ahead, the rim 1 from you) on the screen, and how big things there are drawn. */
-function toScreen(L, x, z) { const d = D + z; return { x: L.cx + (L.F * x) / d, y: L.HOR + L.HF / d, s: D / d }; }
+/** The clearing on the screen: you in the middle, the trees 1 away (it is wider across than ahead). */
+function layout(w, h) { return { cx: w / 2, cy: h * 0.47, RX: w * 0.434, RZ: h * 0.39 }; }
+/** A point on the ground (x right, z ahead, the trees 1 from you) on the screen. */
+function toScreen(L, x, z) { return { x: L.cx + x * L.RX, y: L.cy - z * L.RZ }; }
 /** A point on the screen back on the ground. */
-function toGround(L, sx, sy) { const d = L.HF / Math.max(1, sy - L.HOR); return { x: ((sx - L.cx) * d) / L.F, z: d - D }; }
+function toGround(L, sx, sy) { return { x: (sx - L.cx) / L.RX, z: (L.cy - sy) / L.RZ }; }
 /** Where a point on the ground is on the screen, for a field w × h. */
-export const ground = (x, z, w, h) => toScreen(lens(w, h), x, z);
-/** A ring of radius r on the ground round (x, z), as a path. */
-function ring(ctx, L, x, z, r) {
-  const n = r > 0.5 ? 128 : 36;
-  ctx.beginPath();
-  for (let i = 0; i <= n; i++) { const a = (i / n) * TAU, p = toScreen(L, x + Math.cos(a) * r, z + Math.sin(a) * r); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }
-  ctx.closePath();
-}
+export const ground = (x, z, w, h) => toScreen(layout(w, h), x, z);
 function spot(f, k) {
   const L = LAYERS[k], r = 1 - clamp(f.value(L.level), 0, 1), a = Math.asin(clamp(f.value(L.pan), -1, 1));
   return { x: r * Math.sin(a), z: (f.on(L.back) ? -1 : 1) * r * Math.cos(a) };
 }
-const patchOf = f => 0.06 + 0.2 * clamp(f.value('kwidth'), 0, 1);
-/** The part under the hand: a stake (or its foot), the drops' patch, the ground inside the rim, or outside it. */
+const patchOf = f => 0.05 + 0.15 * clamp(f.value('kwidth'), 0, 1);
+// What each thing covers round its spot on the screen: left, top, right, bottom.
+const BOX = [[-20, -15, 20, 13], [-40, -28, 46, 22], [-44, -30, 44, 28], [-26, -21, 38, 26]];
+function boxOf(L, f, k) {
+  const g = spot(f, k), p = toScreen(L, g.x, g.z), b = BOX[k];
+  return { x0: p.x + b[0], y0: p.y + b[1], x1: p.x + b[2], y1: p.y + b[3], p, g };
+}
+const UMBRELLA = 26;
+/** The part under the hand: a thing (the clouds over the rest), you, the puddle, a tree or the open ground. */
 function where(f, L, x, y) {
-  for (let k = 0; k < LAYERS.length; k++) {
-    const g = spot(f, k), p = toScreen(L, g.x, g.z), top = p.y - 34 * p.s;
-    if (Math.abs(x - p.x) < 12 && y > top - 12 && y < p.y + 10) return { kind: 'source', k };
+  for (const k of [2, 0, 3, 1]) {
+    const b = boxOf(L, f, k);
+    if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) return { kind: 'source', k };
   }
+  if (Math.hypot(x - L.cx, y - L.cy) < UMBRELLA) return { kind: 'you' };
   const g = toGround(L, x, y), d = spot(f, 0);
   if (Math.hypot(g.x - d.x, g.z - d.z) < patchOf(f)) return { kind: 'patch' };
-  return { kind: Math.hypot(g.x, g.z) <= 1 ? 'ground' : 'room' };
+  for (const t of f.state.trees || []) if (Math.hypot(x - t.x, y - t.y) < t.r) return { kind: 'room' };
+  return { kind: 'ground' };
 }
-function plate(ctx, text, x, y, w) {
-  ctx.font = '700 12px ' + FONT; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const m = ctx.measureText(text), tw = ((m && m.width) || text.length * 6.8) + 18;
-  const x0 = clamp(x - tw / 2, 6, w - tw - 6);
-  ctx.fillStyle = INK; ctx.beginPath(); ctx.roundRect(Math.round(x0), Math.round(y - 12), Math.round(tw), 24, 12); ctx.fill();
-  ctx.fillStyle = DISC; ctx.fillText(text, Math.round(x0 + 9), Math.round(y) + 0.5);
+// The trees round the edge, beyond hearing: where each stands and how wide its crown is (on a field 760 × 500).
+const TREES = [
+  [18, 34, 60], [112, 4, 46], [70, 120, 34], [-8, 150, 50], [-20, 236, 42], [-14, 318, 46], [26, 420, 60],
+  [108, 500, 46], [560, -22, 46], [668, 6, 44], [742, 40, 60], [752, 150, 40], [778, 262, 52], [736, 404, 58],
+  [652, 494, 44], [770, 500, 44],
+];
+// Small puddles about the field, where the far rain rings: middle and size (on a field 760 × 500).
+const PUDDLES = [[168, 312, 17, 9], [598, 352, 21, 11], [262, 420, 12, 7], [640, 230, 11, 6], [110, 214, 10, 6]];
+/** Round lobes as one shape with an ink edge: the edges first, then the fill over the inner ones. */
+function lumps(ctx, x, y, lobes, fill, edge) {
+  ctx.beginPath();
+  for (const l of lobes) { ctx.moveTo(x + l.x + l.r, y + l.y); ctx.arc(x + l.x, y + l.y, l.r, 0, TAU); }
+  ctx.strokeStyle = INK; ctx.lineWidth = edge * 2; ctx.stroke();
+  ctx.fillStyle = fill; ctx.fill();
+}
+function lobePath(ctx, x, y, lobes, k) {
+  for (const l of lobes) { ctx.moveTo(x + l.x + l.r * k, y + l.y); ctx.arc(x + l.x, y + l.y, l.r * k, 0, TAU); }
+}
+// A small rain cloud and a storm cloud, as round lobes about their middle.
+const SHOWER = [{ x: -11, y: 2, r: 8 }, { x: -2, y: -4, r: 10 }, { x: 9, y: 0, r: 8 }, { x: 1, y: 5, r: 8 }];
+const THUNDERHEAD = [
+  { x: -27, y: 4, r: 15 }, { x: -11, y: -9, r: 19 }, { x: 9, y: -8, r: 17 }, { x: 26, y: 4, r: 14 },
+  { x: 1, y: 8, r: 18 }, { x: -17, y: 12, r: 12 }, { x: 17, y: 12, r: 13 },
+];
+/** Words on the map: ink on a light halo, the first line bold. */
+function words(ctx, lines, x, y, w) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
+  let width = 0;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = (i ? '600 12px ' : '700 13px ') + FONT;
+    const m = ctx.measureText(lines[i]);
+    width = Math.max(width, typeof m.width === 'number' ? m.width : lines[i].length * 7);
+  }
+  const x0 = clamp(x, width / 2 + 10, w - width / 2 - 10);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = (i ? '600 12px ' : '700 13px ') + FONT;
+    ctx.strokeStyle = HALO; ctx.lineWidth = 4; ctx.strokeText(lines[i], x0, Math.round(y + i * 16));
+    ctx.fillStyle = INK; ctx.fillText(lines[i], x0, Math.round(y + i * 16));
+  }
+  return { x0: x0 - width / 2, x1: x0 + width / 2 };
 }
 const band = hz => (64 * Math.log(hz / 96)) / Math.log(250);
 export default {
   setup(ctx, f) {
+    const w = f.w, h = f.h, R = seeded(7), sx = w / 760, sy = h / 500;
+    const tufts = [];
+    for (let i = 0; i < 180; i++) tufts.push({ x: R() * w, y: R() * h, a: (R() - 0.5) * 0.7, s: 0.7 + R() * 0.6 });
+    const trees = TREES.map(([x, y, r]) => ({ x: x * sx, y: y * sy, r, ph: R() * TAU })).sort((a, b) => a.y - b.y);
+    const puddles = PUDDLES.map(([x, y, rx, ry]) => ({ x: x * sx, y: y * sy, rx, ry }));
+    // Tall grass in a loose patch, its blades of different lengths.
     const blades = [];
-    // Grass in loose rows, so it reads as a patch of ground rather than a scribble.
-    for (let i = 0; i < 30; i++) { const a = i * 2.39996, r = Math.sqrt((i + 0.5) / 30) * 0.13; blades.push({ x: Math.cos(a) * r, z: Math.sin(a) * r * 0.8, ph: i * 0.7, len: 0.8 + 0.4 * ((i * 7) % 5) / 4 }); }
-    Object.assign(f.state, { drag: null, prev: null, ripples: [], blades, lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0 });
+    for (let i = 0; i < 46; i++) { const a = i * 2.39996, r = Math.sqrt((i + 0.5) / 46); blades.push({ x: Math.cos(a) * r * 32, y: Math.sin(a) * r * 18, ph: i * 0.7, len: 0.75 + 0.45 * R(), dark: R() < 0.4 }); }
+    const shore = [];
+    for (let i = 0; i < 5; i++) shore.push(R() * TAU);
+    Object.assign(f.state, { drag: null, prev: null, ripples: [], rain: [], hits: [], leaves: [], rings: [], blades, tufts, trees, puddles, shore, lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0, owe: { far: 0, near: 0, hit: 0, leaf: 0, ring: 0 } });
   },
   draw(ctx, f) {
-    const s = f.state, w = f.w, h = f.h, L = lens(w, h), C = toScreen(L, 0, 0);
+    const s = f.state, w = f.w, h = f.h, L = layout(w, h), C = { x: L.cx, y: L.cy }, props = f.props || {};
     const room = clamp(f.value('kroom'), 0, 1), splash = normOf('knob3', f.value('knob3')), pitch = normOf('knob2', f.value('knob2'));
     const p = f.pointer, hot = s.drag ? s.drag.at : p && p.over ? where(f, L, p.x, p.y) : null;
-    ctx.clearRect(0, 0, w, h);
-    // The room: an echo of the rim outside it, further out the more the room rings.
-    ctx.strokeStyle = ECHO; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
-    ctx.globalAlpha = hot && hot.kind === 'room' ? 0.7 : 0.3;
-    ring(ctx, L, 0, 0, 1.04 + 0.16 * room); ctx.stroke();
-    ctx.setLineDash([]); ctx.globalAlpha = 1;
-    // The ground you hear, the half behind you veiled.
-    ring(ctx, L, 0, 0, 1); ctx.fillStyle = DISC; ctx.fill();
-    ctx.save();
-    ring(ctx, L, 0, 0, 1); ctx.clip();
-    const veil = ctx.createLinearGradient(0, C.y - 8, 0, C.y + 60);
-    veil.addColorStop(0, 'rgba(20, 26, 11, 0)'); veil.addColorStop(1, 'rgba(20, 26, 11, 0.13)');
-    ctx.fillStyle = veil; ctx.fillRect(0, C.y - 8, w, h - C.y + 8);
-    ctx.restore();
-    ring(ctx, L, 0, 0, 1); ctx.strokeStyle = INK; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
-    const far = toScreen(L, 0, 1), near = toScreen(L, 0, -1), side = toScreen(L, 1, -1 / D);
-    ctx.fillStyle = INK; ctx.font = '600 12px ' + FONT; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 0.75;
-    ctx.textAlign = 'center'; ctx.fillText('front', far.x, far.y - 10); ctx.fillText('behind', near.x, Math.min(h - 6, near.y + 20));
-    ctx.textAlign = 'left'; ctx.fillText('left', L.cx - (side.x - L.cx) + 12, side.y + 4);
-    ctx.textAlign = 'right'; ctx.fillText('right', side.x - 12, side.y + 4);
-    ctx.globalAlpha = 1;
+    const dt = Math.min(0.1, f.dt || 0.016);
     // What is heard: spectral jumps for drops and drips, the low end for thunder and wind
     // (the first frame only sets where each starts from).
     const sp = f.spectrum || new Float32Array(64), first = !s.prev;
     if (first) s.prev = new Float32Array(sp);
     let flux = 0;
     for (let i = 30; i < 58; i++) flux += Math.max(0, sp[i] - s.prev[i]);
-    const dripBand = band(f.props.dripHz || 700), bi = clamp(Math.floor(dripBand), 0, 62);
+    const dripBand = band(props.dripHz || 700), bi = clamp(Math.floor(dripBand), 0, 62);
     const drip = sp[bi] * (1 - (dripBand - bi)) + sp[bi + 1] * (dripBand - bi);
     if (first) s.drip = drip;
     const dripJump = drip - s.drip;
-    s.drip += (drip - s.drip) * Math.min(1, f.dt * 3);
+    s.drip += (drip - s.drip) * Math.min(1, dt * 3);
     let low = 0;
     for (let i = 0; i < 4; i++) low += sp[i] / 4;
     if (first) s.low = low;
     const lowJump = low - s.low;
-    s.low += (low - s.low) * Math.min(1, f.dt * 0.6);
+    s.low += (low - s.low) * Math.min(1, dt * 0.6);
     let wind = 0;
     for (let i = 8; i < 17; i++) wind += sp[i] / 9;
-    s.windHi = wind > s.windHi ? wind : s.windHi - (s.windHi - wind) * f.dt * 0.1;
-    s.windLo = wind < s.windLo ? wind : s.windLo + (wind - s.windLo) * f.dt * 0.1;
-    s.wind += ((s.windHi - s.windLo > 0.02 ? (wind - s.windLo) / (s.windHi - s.windLo) : 0) - s.wind) * Math.min(1, f.dt * 3);
+    s.windHi = wind > s.windHi ? wind : s.windHi - (s.windHi - wind) * dt * 0.1;
+    s.windLo = wind < s.windLo ? wind : s.windLo + (wind - s.windLo) * dt * 0.1;
+    s.wind += ((s.windHi - s.windLo > 0.02 ? (wind - s.windLo) / (s.windHi - s.windLo) : 0) - s.wind) * Math.min(1, dt * 3);
     s.prev.set(sp);
-    const at = [0, 1, 2, 3].map(k => spot(f, k)), pr = patchOf(f);
-    if (flux > 0.6 && f.t - s.lastDrop > 0.05 && f.value('kdrops') > 0.02) {
+    const at = [0, 1, 2, 3].map(k => toScreen(L, spot(f, k).x, spot(f, k).z)), quiet = k => f.value(LAYERS[k].level) <= 0.02;
+    const pr = patchOf(f), PX = pr * L.RX, PY = pr * L.RZ;
+    if (flux > 0.6 && f.t - s.lastDrop > 0.05 && !quiet(0)) {
       s.lastDrop = f.t;
-      const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * pr;
-      s.ripples.push({ x: at[0].x + Math.cos(a) * d, z: at[0].z + Math.sin(a) * d, born: f.t, life: 0.5 + splash, size: 0.025 + 0.06 * splash, k: 0 });
+      const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * 0.85;
+      s.ripples.push({ x: at[0].x + Math.cos(a) * d * PX, y: at[0].y + Math.sin(a) * d * PY, born: f.t, life: 0.5 + splash, size: 7 + 26 * splash, k: 0 });
     }
-    if (dripJump > 0.08 && f.t - s.lastDrip > 0.35 && f.value('kdrips') > 0.02) {
+    if (dripJump > 0.08 && f.t - s.lastDrip > 0.35 && !quiet(3)) {
       s.lastDrip = f.t;
-      s.ripples.push({ x: at[3].x, z: at[3].z, born: f.t + 0.35, life: 1.6, size: 0.13, k: 3 });
+      s.ripples.push({ x: 0, y: 0, born: f.t + 0.35, life: 1.6, size: 9, k: 3 });
     }
-    if (lowJump > 0.05 && f.t - s.lastThunder > 2 && f.value('kthunder') > 0.02) s.lastThunder = f.t;
+    if (lowJump > 0.05 && f.t - s.lastThunder > 2 && !quiet(2)) s.lastThunder = f.t;
     s.ripples = s.ripples.filter(q => f.t - q.born < q.life).slice(-80);
-    // Thunder: a cloud's shadow, darker and wider while it rolls.
-    const roll = Math.max(0, 1 - (f.t - s.lastThunder) / 3);
-    ctx.fillStyle = INK; ctx.globalAlpha = 0.06 + 0.14 * roll;
-    ring(ctx, L, at[2].x, at[2].z, 0.19 + 0.09 * roll); ctx.fill();
+    // Rain in the air: everywhere as loud as the far rain, and over the puddle as hard as Rain.
+    const owe = s.owe;
+    const far = clamp(f.value('kwind'), 0, 1);
+    owe.far += dt * 600 * far;
+    owe.near += quiet(0) ? 0 : dt * (20 + 120 * normOf('knob1', f.value('knob1')));
+    owe.ring += dt * 6 * far;
+    for (; owe.far >= 1; owe.far--) s.rain.push({ x: Math.random() * w, y: Math.random() * h, born: f.t, life: 0.3 + Math.random() * 0.15 });
+    for (; owe.near >= 1; owe.near--) {
+      const a = Math.random() * TAU, d = Math.sqrt(Math.random());
+      s.rain.push({ x: at[0].x + Math.cos(a) * d * PX, y: at[0].y + Math.sin(a) * d * PY, born: f.t, life: 0.25 + Math.random() * 0.1 });
+    }
+    for (; owe.ring >= 1; owe.ring--) {
+      const q = s.puddles[Math.floor(Math.random() * s.puddles.length)], a = Math.random() * TAU, d = Math.random() * 0.5;
+      s.rings.push({ x: q.x + Math.cos(a) * d * q.rx, y: q.y + Math.sin(a) * d * q.ry, born: f.t, size: q.ry * 0.9 });
+    }
+    s.rain = s.rain.filter(q => f.t - q.born < q.life).slice(-420);
+    s.rings = s.rings.filter(q => f.t - q.born < 0.7).slice(-20);
+    const roll = Math.max(0, 1 - (f.t - s.lastThunder) / 3), flash = f.t - s.lastThunder < 0.22;
+
+    // The ground: grass with tufts in it.
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = GROUND; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = TUFT; ctx.lineWidth = 1.1; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const t of s.tufts) for (let j = -1; j <= 1; j++) { ctx.moveTo(t.x + j * 2.2, t.y); ctx.lineTo(t.x + j * 3.2 * t.s + t.a * 3, t.y - 4.5 * t.s); }
+    ctx.stroke();
+    // The name, mown into the grass ahead of you.
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = '800 40px ' + FONT;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '11px';
+    ctx.fillStyle = CUT; ctx.fillText('RAIN FIELD', L.cx + 7, 90);
+    ctx.fillStyle = MOWN; ctx.fillText('RAIN FIELD', L.cx + 5.5, 88.5);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    // Your footprints, from the ditch to where you stand.
+    const ditch = String(props.ditch || '').split(' ').map(Number), DY0 = ditch[0] || h - 46, DY1 = ditch[1] || h - 16;
+    const DX0 = ditch[2] || 96, DX1 = ditch[3] || w - 96;
+    for (let i = 0, y = DY0 - 12; y > C.y + UMBRELLA + 10; i++, y -= 20) {
+      const side = i % 2 ? 1 : -1, x = C.x + 10 * Math.sin((DY0 - y) / 70) + side * 5;
+      ctx.fillStyle = CUT; ctx.globalAlpha = 0.5 + 0.5 * (1 - (y - C.y) / (DY0 - C.y));
+      ctx.beginPath(); ctx.ellipse(x, y, 2.6, 4.6, side * 0.12, 0, TAU); ctx.fill();
+    }
     ctx.globalAlpha = 1;
-    // The ripples: white rings for drops and drips, more rings the lower they ring.
-    ctx.save();
-    ring(ctx, L, 0, 0, 1); ctx.clip();
+    // Small puddles about the field, the far rain ringing in them.
+    for (const q of s.puddles) {
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i++) { const a = (i / 24) * TAU, k = 1 + 0.12 * Math.sin(3 * a + q.x) + 0.06 * Math.sin(5 * a + q.y); if (i) ctx.lineTo(q.x + Math.cos(a) * q.rx * k, q.y + Math.sin(a) * q.ry * k); else ctx.moveTo(q.x + q.rx * k, q.y); }
+      ctx.closePath(); ctx.fillStyle = WATER; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.strokeStyle = MOWN; ctx.globalAlpha = 0.45; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(q.x - q.rx * 0.2, q.y - q.ry * 0.2, q.rx * 0.5, q.ry * 0.4, 0, Math.PI * 1.1, Math.PI * 1.6); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.1;
+    for (const q of s.rings) { const age = (f.t - q.born) / 0.7; ctx.globalAlpha = 1 - age; ctx.beginPath(); ctx.ellipse(q.x, q.y, 1 + age * q.size * 1.4, 0.6 + age * q.size * 0.7, 0, 0, TAU); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    // The ditch along the bottom: dark water between two banks (the scope is its surface).
+    ctx.fillStyle = TUFT; ctx.beginPath(); ctx.roundRect(DX0 - 4, DY0 - 4, DX1 - DX0 + 8, DY1 - DY0 + 8, 10); ctx.fill();
+    ctx.fillStyle = WATER; ctx.beginPath(); ctx.roundRect(DX0, DY0, DX1 - DX0, DY1 - DY0, 8); ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.stroke();
+    // The trees round the edge, drawn as on a site plan: a crown with its branches, its shadow beside it, and
+    // rings in the crown, more of them the more the room rings.
+    ctx.fillStyle = INK; ctx.globalAlpha = 0.15; ctx.beginPath();
+    for (const t of s.trees) { ctx.moveTo(t.x + 10 + t.r, t.y + 12); ctx.arc(t.x + 10, t.y + 12, t.r, 0, TAU); }
+    ctx.fill(); ctx.globalAlpha = 1;
+    const echoes = Math.round(room * 4);
+    for (const t of s.trees) {
+      ctx.beginPath();
+      for (let i = 0; i <= 72; i++) { const a = (i / 72) * TAU, k = t.r * (1 + 0.035 * Math.sin(11 * a + t.ph)); if (i) ctx.lineTo(t.x + Math.cos(a) * k, t.y + Math.sin(a) * k); else ctx.moveTo(t.x + k, t.y); }
+      ctx.fillStyle = LEAF; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.3; ctx.stroke();
+      ctx.lineWidth = 1; ctx.globalAlpha = 0.32; ctx.beginPath();
+      for (let j = 0; j < 7; j++) { const a = t.ph + (j * TAU) / 7, b = a + 0.25; ctx.moveTo(t.x, t.y); ctx.quadraticCurveTo(t.x + Math.cos(a) * t.r * 0.45, t.y + Math.sin(a) * t.r * 0.45, t.x + Math.cos(b) * t.r * 0.82, t.y + Math.sin(b) * t.r * 0.82); }
+      ctx.stroke();
+      ctx.globalAlpha = hot && hot.kind === 'room' ? 0.6 : 0.36;
+      for (let j = 1; j <= echoes; j++) { ctx.beginPath(); ctx.arc(t.x, t.y, t.r * (1 - j * 0.19), 0, TAU); ctx.stroke(); }
+      ctx.globalAlpha = 1; ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(t.x, t.y, 2.4, 0, TAU); ctx.fill();
+    }
+    // The drops' puddle, its edge a little uneven, a drop ringing where each lands (more rings the lower they ring).
+    const puddle = () => {
+      ctx.beginPath();
+      for (let i = 0; i <= 48; i++) {
+        const a = (i / 48) * TAU, k = 1 + 0.07 * Math.sin(3 * a + s.shore[0]) + 0.05 * Math.sin(5 * a + s.shore[1]);
+        const x = at[0].x + Math.cos(a) * PX * k, y = at[0].y + Math.sin(a) * PY * k;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+    };
+    ctx.globalAlpha = quiet(0) ? 0.45 : 1;
+    puddle(); ctx.fillStyle = WATER; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.save(); puddle(); ctx.clip();
+    ctx.strokeStyle = MOWN; ctx.globalAlpha *= 0.35; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(at[0].x - PX * 0.25, at[0].y - PY * 0.3, PX * 0.45, PY * 0.35, 0, Math.PI * 1.05, Math.PI * 1.6); ctx.stroke();
+    ctx.globalAlpha = 1;
     const rings = 1 + Math.round(2 * (1 - pitch));
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5;
     for (const q of s.ripples) {
       const age = (f.t - q.born) / q.life;
-      if (age < 0) continue;
-      const behind = q.z < 0;
-      ctx.strokeStyle = WHITE; ctx.lineWidth = 1.6; ctx.globalAlpha = (1 - age) * (behind ? 0.5 : 0.95);
-      for (let j = 0; j < (q.k === 3 ? 2 : rings); j++) { ring(ctx, L, q.x, q.z, (0.004 + age * q.size) * (1 - j * 0.32)); ctx.stroke(); }
+      if (q.k !== 0 || age < 0) continue;
+      ctx.globalAlpha = 1 - age;
+      for (let j = 0; j < rings; j++) { ctx.beginPath(); ctx.arc(q.x, q.y, (2 + age * q.size) * (1 - j * 0.3), 0, TAU); ctx.stroke(); }
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+    if (hot && hot.kind === 'patch') { ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.ellipse(at[0].x, at[0].y, PX * 1.14, PY * 1.14, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+    // The wind: a patch of grass combed one way, harder and faster as it blows, shedding leaves in gusts.
+    const g1 = at[1];
+    ctx.globalAlpha = quiet(1) ? 0.45 : 1;
+    ctx.fillStyle = TUFT; ctx.beginPath(); ctx.ellipse(g1.x + 4, g1.y + 1, 40, 24, 0, 0, TAU); ctx.fill();
+    ctx.lineCap = 'round';
+    for (const dark of [false, true]) {
+      ctx.strokeStyle = dark ? '#46551c' : INK; ctx.lineWidth = dark ? 1.4 : 1.7; ctx.beginPath();
+      for (const b of s.blades) {
+        if (b.dark !== dark) continue;
+        const x = g1.x + b.x - 6, y = g1.y + b.y, sway = Math.sin(f.t * (1.4 + 3 * s.wind) + b.ph - b.x * 0.06);
+        const lean = (9 + 8 * s.wind + (2 + 5 * s.wind) * sway) * b.len;
+        ctx.moveTo(x, y); ctx.quadraticCurveTo(x + lean * 0.55, y - 3.5 * b.len, x + lean, y - 1 * b.len + sway * 1.5);
+      }
+      ctx.stroke();
+    }
+    owe.leaf += quiet(1) ? 0 : dt * Math.max(0, s.wind - 0.3) * 5;
+    for (; owe.leaf >= 1; owe.leaf--) { const b = s.blades[Math.floor(Math.random() * s.blades.length)]; s.leaves.push({ x: g1.x + b.x, y: g1.y + b.y, born: f.t, ph: Math.random() * TAU }); }
+    s.leaves = s.leaves.filter(q => f.t - q.born < 2.4).slice(-10);
+    for (const q of s.leaves) {
+      const age = f.t - q.born, x = q.x + age * (50 + 40 * s.wind), y = q.y + Math.sin(age * 4 + q.ph) * 6 + age * 4;
+      ctx.globalAlpha = Math.min(1, (2.4 - age) / 0.7);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(age * 3 + q.ph);
+      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.quadraticCurveTo(0, -3.2, 5, 0); ctx.quadraticCurveTo(0, 3.2, -5, 0);
+      ctx.fillStyle = LEAF_HI; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 0.9; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    // The drips: a shed's roof seen from above, its gutter running into a water butt; a drip falls and rings in it.
+    const d3 = at[3], butt = { x: d3.x + 27, y: d3.y + 15 };
+    ctx.globalAlpha = quiet(3) ? 0.45 : 1;
+    ctx.fillStyle = INK; ctx.globalAlpha *= 0.16; ctx.fillRect(d3.x - 23 + 6, d3.y - 18 + 8, 46, 30); ctx.globalAlpha = quiet(3) ? 0.45 : 1;
+    ctx.fillStyle = ROOF; ctx.fillRect(d3.x - 23, d3.y - 18, 46, 15);
+    ctx.fillStyle = ROOF_LO; ctx.fillRect(d3.x - 23, d3.y - 3, 46, 15);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.globalAlpha *= 0.3; ctx.beginPath();
+    for (let x = d3.x - 19; x < d3.x + 22; x += 4) { ctx.moveTo(x, d3.y - 17); ctx.lineTo(x, d3.y + 11); }
+    ctx.stroke(); ctx.globalAlpha = quiet(3) ? 0.45 : 1;
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(d3.x - 23, d3.y - 3); ctx.lineTo(d3.x + 23, d3.y - 3); ctx.stroke();
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.strokeRect(d3.x - 23, d3.y - 18, 46, 30);
+    ctx.strokeStyle = INK; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(d3.x - 23, d3.y + 13.5); ctx.lineTo(d3.x + 22, d3.y + 13.5); ctx.stroke();
+    ctx.strokeStyle = ROOF; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(butt.x, butt.y, 8.5, 0, TAU); ctx.fillStyle = WATER; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.stroke(); ctx.strokeStyle = ROOF_LO; ctx.lineWidth = 2; ctx.stroke();
+    ctx.save(); ctx.beginPath(); ctx.arc(butt.x, butt.y, 7, 0, TAU); ctx.clip();
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.2;
+    for (const q of s.ripples) {
+      const age = (f.t - q.born) / q.life;
+      if (q.k !== 3 || age < 0) continue;
+      ctx.globalAlpha = (1 - age) * (quiet(3) ? 0.45 : 1);
+      for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(butt.x, butt.y, (1 + age * q.size) * (1 - j * 0.4), 0, TAU); ctx.stroke(); }
     }
     ctx.restore();
+    const fall = (f.t - s.lastDrip) / 0.35;
+    if (fall >= 0 && fall < 1) { ctx.fillStyle = WHITE; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(d3.x + 21 + fall * (butt.x - d3.x - 21), d3.y + 13 + fall * (butt.y - d3.y - 13), 2.2, 0, TAU); ctx.fill(); }
     ctx.globalAlpha = 1;
-    // The drops' patch while the hand is on it.
-    if (hot && hot.kind === 'patch') { ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ring(ctx, L, at[0].x, at[0].z, pr); ctx.stroke(); ctx.setLineDash([]); }
-    // The wind: a patch of grass, bent and swaying as hard as it blows.
-    const wb = toScreen(L, at[1].x, at[1].z);
-    ctx.strokeStyle = at[1].z < 0 ? DULL : INK; ctx.lineWidth = 1.3; ctx.lineCap = 'round';
-    ctx.globalAlpha = f.value('kwind') <= 0.02 ? 0.4 : 1;
-    for (const b of s.blades) {
-      const q = toScreen(L, at[1].x + b.x, at[1].z + b.z), len = (9 + 6 * s.wind) * b.len * q.s;
-      const lean = ((1.5 + 5 * s.wind) * Math.sin(f.t * (1.2 + 3 * s.wind) + b.ph) + 2 + 5 * s.wind) * q.s;
-      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.quadraticCurveTo(q.x + lean * 0.2, q.y - len * 0.6, q.x + lean, q.y - len); ctx.stroke();
+    // You: an umbrella seen from above, rain pattering on it as loud as it all is.
+    owe.hit += dt * 40 * clamp((f.level || 0) * 5, 0, 1);
+    for (; owe.hit >= 1; owe.hit--) { const a = Math.random() * TAU, r = Math.sqrt(Math.random()) * (UMBRELLA - 4); s.hits.push({ x: C.x + Math.cos(a) * r, y: C.y + Math.sin(a) * r, born: f.t }); }
+    s.hits = s.hits.filter(q => f.t - q.born < 0.3).slice(-40);
+    ctx.fillStyle = INK; ctx.globalAlpha = 0.16; ctx.beginPath(); ctx.arc(C.x + 6, C.y + 8, UMBRELLA, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+    const tips = [];
+    for (let i = 0; i < 8; i++) { const a = -Math.PI / 2 + (i + 0.5) * (TAU / 8); tips.push({ x: C.x + Math.cos(a) * UMBRELLA, y: C.y + Math.sin(a) * UMBRELLA }); }
+    for (let i = 0; i < 8; i++) {
+      const a = tips[i], b = tips[(i + 1) % 8], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      ctx.beginPath(); ctx.moveTo(C.x, C.y); ctx.lineTo(a.x, a.y);
+      ctx.quadraticCurveTo(C.x + (mx - C.x) * 0.9, C.y + (my - C.y) * 0.9, b.x, b.y); ctx.closePath();
+      ctx.fillStyle = i % 2 ? '#2a3413' : INK; ctx.fill();
+    }
+    ctx.strokeStyle = GROUND; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.beginPath();
+    for (const t of tips) { ctx.moveTo(C.x, C.y); ctx.lineTo(t.x, t.y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = WHITE;
+    for (const q of s.hits) { ctx.globalAlpha = 1 - (f.t - q.born) / 0.3; ctx.beginPath(); ctx.arc(q.x, q.y, 1.5, 0, TAU); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(C.x, C.y, 3.2, 0, TAU); ctx.fillStyle = GROUND; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.stroke();
+    // While a thing is dragged, the edge of hearing: beyond it a sound is silent.
+    if (s.drag && s.drag.at.kind === 'source') { ctx.strokeStyle = INK; ctx.globalAlpha = 0.4; ctx.lineWidth = 1.2; ctx.setLineDash([5, 6]); ctx.beginPath(); ctx.ellipse(C.x, C.y, L.RX, L.RZ, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+    // The clouds' shadows on everything below them.
+    ctx.fillStyle = INK; ctx.globalAlpha = quiet(0) ? 0.06 : 0.13; ctx.beginPath(); lobePath(ctx, at[0].x + 10, at[0].y + 13, SHOWER, 1); ctx.fill();
+    ctx.globalAlpha = (quiet(2) ? 0.06 : 0.14) + 0.12 * roll; ctx.beginPath(); lobePath(ctx, at[2].x + 16, at[2].y + 22, THUNDERHEAD, 1); ctx.fill();
+    ctx.globalAlpha = 1;
+    // The rain in the air: seen from straight above, each drop falls in toward the point below you, longer further out.
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.1; ctx.lineCap = 'round'; ctx.globalAlpha = 0.75; ctx.beginPath();
+    for (const q of s.rain) {
+      const u = (f.t - q.born) / q.life, ox = q.x - C.x, oy = q.y - C.y, k = 0.25 * (1 - u);
+      const hx = q.x + ox * k, hy = q.y + oy * k, len = Math.max(2, Math.hypot(ox, oy) * 0.085), n = Math.hypot(ox, oy) || 1;
+      ctx.moveTo(hx, hy); ctx.lineTo(hx + (ox / n) * len, hy + (oy / n) * len);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    // The drops' cloud, low over its puddle.
+    ctx.globalAlpha = quiet(0) ? 0.45 : 1;
+    lumps(ctx, at[0].x, at[0].y, SHOWER, '#f2f6e2', 1.4);
+    ctx.globalAlpha = 1;
+    // The storm cloud, trembling while the thunder rolls, white with a bolt under it when it flashes.
+    const jx = roll ? Math.sin(f.t * 37) * roll : 0, T = { x: at[2].x + jx, y: at[2].y };
+    ctx.globalAlpha = quiet(2) ? 0.45 : 1;
+    lumps(ctx, T.x, T.y, THUNDERHEAD, flash ? '#eef4d8' : STORM, 1.5);
+    if (!flash) { ctx.fillStyle = STORM_HI; ctx.beginPath(); for (const l of THUNDERHEAD) if (l.y < 6) { ctx.moveTo(T.x + l.x - 3 + l.r * 0.62, T.y + l.y - 4); ctx.arc(T.x + l.x - 3, T.y + l.y - 4, l.r * 0.62, 0, TAU); } ctx.fill(); }
+    else {
+      const bolt = [[2, 8], [12, 24], [5, 27], [17, 46], [8, 48], [20, 66]];
+      ctx.beginPath(); bolt.forEach((q, i) => (i ? ctx.lineTo(T.x + q[0], T.y + q[1]) : ctx.moveTo(T.x + q[0], T.y + q[1])));
+      ctx.lineJoin = 'round'; ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = WHITE; ctx.lineWidth = 2.6; ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    // The stakes, far ones first, each with its name (a plate while the hand is on it); a drip runs down its own.
-    const order = [0, 1, 2, 3].sort((a, b) => at[b].z - at[a].z);
-    for (const k of order) {
-      const g = at[k], q = toScreen(L, g.x, g.z), top = q.y - 34 * q.s, color = g.z < 0 ? DULL : INK;
-      ctx.globalAlpha = f.value(LAYERS[k].level) <= 0.02 ? 0.4 : 1;
-      ctx.fillStyle = color; ctx.strokeStyle = color;
-      ctx.beginPath(); ctx.ellipse(q.x, q.y, 5 * q.s, 2.2 * q.s, 0, 0, TAU); ctx.fill();
-      ctx.lineWidth = 2 * q.s; ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x, top); ctx.stroke();
-      ctx.beginPath(); ctx.arc(q.x, top, 3.4 * q.s, 0, TAU); ctx.fill();
-      if (k === 3) {
-        const fall = (f.t - s.lastDrip) / 0.35;
-        if (fall >= 0 && fall < 1) { ctx.beginPath(); ctx.arc(q.x + 6 * q.s, top + fall * (q.y - top), 2.6 * q.s, 0, TAU); ctx.fill(); }
-      }
-      const on = hot && hot.kind === 'source' && hot.k === k;
-      if (on) {
-        const v = clamp(f.value(LAYERS[k].level), 0, 1);
-        plate(ctx, LAYERS[k].name + ' · ' + Math.round(v * 100) + '% near' + (g.z < 0 ? ', behind' : ''), q.x, top - 22, w);
-      } else {
-        ctx.font = '700 13px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-        ctx.fillText(LAYERS[k].name, q.x, top - 10);
-      }
-      ctx.globalAlpha = 1;
+    // Words by the hand: what a thing is, or what dragging here sets; kept off the other things.
+    if (!hot || !p) return;
+    const v = id => SET[id].show(f.value(id));
+    let lines, ax = p.x, above, below, skip = -1;
+    if (hot.kind === 'source') {
+      const k = hot.k, b = boxOf(L, f, k), near = Math.round(clamp(f.value(LAYERS[k].level), 0, 1) * 100);
+      lines = [LAYERS[k].name, near + '% near, ' + (f.on(LAYERS[k].back) ? 'behind you' : 'in front') + ' · drag to move'];
+      ax = (b.x0 + b.x1) / 2; above = b.y0 - 26; below = b.y1 + 18; skip = k;
+    } else {
+      lines = hot.kind === 'patch' ? ['The drops’ puddle', 'rain ' + v('knob1') + ' ↕ · ' + v('kwidth') + ' across ↔']
+        : hot.kind === 'ground' ? ['Each drop', 'pitch ' + v('knob2') + ' ↔ · splash ' + v('knob3') + ' ↕']
+        : hot.kind === 'room' ? ['The wood’s echo', v('kroom') + ' ↕']
+        : ['You, under your umbrella', 'all of it plays round you'];
+      above = p.y - 40; below = p.y + 30;
     }
-    // You: the plugin's meter is your body (what reaches you); a head on it, your shadow at your feet.
-    ctx.fillStyle = INK; ctx.globalAlpha = 0.25;
-    ctx.beginPath(); ctx.ellipse(C.x, C.y, 10, 3.5, 0, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(C.x, C.y - 33, 6, 0, TAU); ctx.fill();
-    ctx.font = '700 13px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('you', C.x + 11, C.y - 29);
-    // The settings set on the ground: a plate by the hand.
-    if (hot && p && hot.kind !== 'source') {
-      const v = id => SET[id].show(f.value(id));
-      const text = hot.kind === 'patch' ? 'rain ' + v('knob1') + ' ↕ · across ' + v('kwidth') + ' ↔'
-        : hot.kind === 'ground' ? 'each drop: pitch ' + v('knob2') + ' ↔ · splash ' + v('knob3') + ' ↕'
-        : 'room ' + v('kroom') + ' ↕';
-      plate(ctx, text, p.x, p.y - 30, w);
-    }
+    // What the words keep off: the other things, the puddle, you and the name in the grass.
+    const keep = [0, 1, 2, 3].filter(k => k !== skip).map(k => boxOf(L, f, k));
+    if (hot.kind !== 'patch' && skip !== 0) keep.push({ x0: at[0].x - PX, y0: at[0].y - PY, x1: at[0].x + PX, y1: at[0].y + PY });
+    if (hot.kind !== 'you') keep.push({ x0: C.x - UMBRELLA, y0: C.y - UMBRELLA, x1: C.x + UMBRELLA, y1: C.y + UMBRELLA });
+    keep.push({ x0: L.cx - 220, y0: 52, x1: L.cx + 230, y1: 94 });
+    const tall = 16 * lines.length, clash = y => y < 16 || y + tall > h - 4 || keep.some(b => b.x1 > ax - 110 && b.x0 < ax + 110 && b.y1 > y - 14 && b.y0 < y + tall - 12);
+    words(ctx, lines, ax, clash(above) && !clash(below) ? below : above, w);
   },
   pointer(e, f) {
-    const s = f.state, L = lens(f.w, f.h);
+    const s = f.state, L = layout(f.w, f.h);
     if (e.type === 'down') {
       const at = where(f, L, e.x, e.y);
-      if (at.kind === 'source') { const g = spot(f, at.k), q = toScreen(L, g.x, g.z); s.drag = { at, ox: q.x - e.x, oy: q.y - e.y }; }
-      else {
+      if (at.kind === 'source') { const q = boxOf(L, f, at.k).p; s.drag = { at, ox: q.x - e.x, oy: q.y - e.y }; }
+      else if (AXES[at.kind]) {
         const from = {};
         for (const id of Object.values(AXES[at.kind])) from[id] = normOf(id, f.value(id));
         s.drag = { at, x0: e.x, y0: e.y, from, axis: at.kind === 'room' ? 'y' : null };
@@ -301,11 +489,11 @@ export default {
       if (id) f.set(id, valueOf(id, d.from[id] + (d.axis === 'x' ? dx : -dy) / 200));
     }
     if (e.type === 'wheel') {
-      const at = where(f, L, e.x, e.y), id = at.kind === 'source' ? null : AXES[at.kind].y;
+      const at = where(f, L, e.x, e.y), id = AXES[at.kind] && AXES[at.kind].y;
       if (id) f.set(id, valueOf(id, normOf(id, f.value(id)) - Math.sign(e.dy) * 0.025));
     }
     const at = d ? d.at : where(f, L, e.x, e.y);
-    f.cursor(d && d.at.kind === 'source' ? 'grabbing' : at.kind === 'source' ? 'grab' : at.kind === 'room' ? 'ns-resize' : 'move');
+    f.cursor(d && d.at.kind === 'source' ? 'grabbing' : at.kind === 'source' ? 'grab' : at.kind === 'room' ? 'ns-resize' : at.kind === 'you' ? 'default' : 'move');
   },
 };
 `;
@@ -670,7 +858,7 @@ export function rain(catalog: Catalog) {
             add(l.back, 'ui.toggle', { label: `${l.name}: behind`, values: { value: l.behind } }),
             wire(`${l.back}.out`, `place${i + 1}.behind`),
           ]),
-          // ---- the plugin: the ground around you, seen from behind and above ----
+          // ---- the plugin: the clearing round you, seen from straight above ----
           {
             op: 'setLook',
             look: {
@@ -683,37 +871,43 @@ export function rain(catalog: Catalog) {
                 pointer: '#141a0b',
                 muted: '#3f4a1c',
                 glow: '#141a0b',
-                font: 'baloo-2',
-                labelFont: 'baloo-2',
-                valueFont: 'baloo-2',
+                font: 'system',
+                labelFont: 'system',
+                valueFont: 'system',
               },
               background: [{ kind: 'color', color: '#b9d35a' }],
             },
           },
           el({
             kind: 'canvas',
-            name: 'The ground around you',
+            name: 'The clearing round you',
             code: FIELD,
             rect: r(0, 0, 760, 500),
-            props: { dripHz: 700 },
+            props: {
+              dripHz: 700,
+              ditch: `${DITCH.y0} ${DITCH.y1} ${DITCH.x0} ${DITCH.x1}`,
+            },
           }),
-          el({
-            kind: 'text',
-            name: 'Title',
-            text: 'Rain Field',
-            rect: r(24, 14, 300, 48),
-            textStyle: { font: 'baloo-2', size: 36, weight: 700, color: 'fg', align: 'left' },
-          }),
-          // You, in the middle of the field: your body is how loud it is where you stand, both ears.
+          // The water in the ditch along the bottom is what you hear, both ears.
           add('ears1', 'kit.add', { label: 'Both ears' }),
           wire('safel1.out', 'ears1.a'),
           wire('safer1.out', 'ears1.b'),
-          ...control('myou', 'ui.meter', 'What reaches you', null, r(377, 263, 6, 26), {
-            style: {
-              skin: { name: 'bar', params: { fill: '#141a0b', surface: '#8ea53f', scale: false } },
+          ...control(
+            'mditch',
+            'ui.scope',
+            'The water in the ditch',
+            null,
+            r(DITCH.x0 + 60, (DITCH.y0 + DITCH.y1) / 2 - 12, DITCH.x1 - DITCH.x0 - 120, 24),
+            {
+              style: {
+                skin: {
+                  name: 'line',
+                  params: { surface: 'transparent', line: '#e3efb3', width: 1.4 },
+                },
+              },
             },
-          }),
-          wire('ears1.out', 'myou.in'),
+          ),
+          wire('ears1.out', 'mditch.in'),
           // The rest is set by dragging the ground: kept in the patch.
           ...patchControl('kwidth', 'Drops across', 'splay1.width', [0, 1, 'linear', ''], 0.85),
           ...patchControl('kroom', 'Room', 'room1.mix', [0, 1, 'linear', ''], 0.25),
