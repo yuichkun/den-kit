@@ -14,30 +14,31 @@
 // setting is dragged on the shape it changes, its value on a plate on that
 // shape's post while the hand is on it; the controls are kept in the patch. The
 // one control on the plugin is a meter of how far the echoes are giving way
-// now: a give-way sign on the overhead sign that fills with red.
+// now: a give-way sign on the overhead sign whose white, what the echoes keep,
+// sinks to its point as they give way, leaving red.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
 /** The colour that means "the echoes are giving way", everywhere on the plugin. */
 const GIVE = '#c81e24';
-/** The overhead sign, and the meter on it: a give-way sign whose white fills with red. */
+/** The overhead sign, and the meter on it: a give-way sign whose white sinks to its point as the echoes give way. */
 const SIGN = { x: 16, y: 16, w: 736, h: 118 };
 const NOW = { x: 658, y: 34, w: 58 };
 
 /** The road: you, the echoes after you and the rule over it; each setting is dragged on its shape. */
-export const ROAD = `// The road, seen from beside and above it as it goes away to the right, its far
-// end behind the overhead sign. You stand at its start, a diamond on your post
-// as big as what you play now, over a dashed diamond: When louder than
-// (kthresh). The echoes stand after you along the road's far side as give-way
-// signs, one every Repeat (ktime), each on a post as tall as the others for
-// how far away it is, smaller the further down the road they are; each is as
-// big against its post as it is loud against you (Echo level kmix for the
-// first, each next one Feedback kfb of the last; never up into the overhead
-// sign), its corners a little rounder each time round the loop's lowpass (Tone
-// ktone). While you play louder than the threshold the echoes give way: the
-// white of each sign shrinks with what it gives way and its red edge grows.
+export const ROAD = `// The road, seen from beside and above it as it goes away to the right, over
+// flat ground to the horizon under the overhead sign. You stand at its start, a
+// diamond on your post as big as what you play now, over a thin diamond
+// outline: When louder than (kthresh). The echoes stand after you along the
+// road's far side as give-way signs, one every Repeat (ktime), smaller the
+// further down the road they are; each whole sign, post and face, is as big as
+// the echo is loud against you (Echo level kmix for the first, each next one
+// Feedback kfb of the last; never up into the overhead sign), its corners a
+// little rounder each time round the loop's lowpass (Tone ktone). While you
+// play louder than the threshold the echoes give way: the white of each sign
+// shrinks with what it gives way and its red edge grows.
 // What you play runs away down the middle of the road from where you stand, as
-// wide as it was loud, and each echo answers as a note reaches it.
+// wide as it was loud, and each echo jumps as a note reaches it.
 // What you play is worked out from the output level (a canvas hears only the
 // output): the output's own echoes, placed as the settings place them, are
 // taken out of it; that is held against When louder than (with the ducker's
@@ -46,10 +47,10 @@ export const ROAD = `// The road, seen from beside and above it as it goes away 
 // the threshold is only near.
 // Over the road hangs the overhead sign: the plugin's name (text on the
 // plugin), the rule, and the meter of how far the echoes give way now (a
-// give-way sign on the plugin, its rim drawn here). The rule: across is 1.5 s;
-// while you play (0.1 s to 0.5 s, your diamond over it) the echoes' level drops
-// by Depth, full height 40 dB, then comes back over Back after, the time it
-// takes to get most of the way; red is what they give way.
+// give-way sign on the plugin, its red rim drawn here). The rule: across is
+// 1.5 s; while you play (0.1 s to 0.5 s, your diamond over it) the echoes'
+// level drops by Depth, full height 40 dB, then comes back over Back after, the
+// time it takes to get most of the way; red is what they give way.
 // Drag your diamond up and down for When louder than; the first echo, or the
 // road up to it, along the road for Repeat and up and down for Echo level (when
 // it stands close to you, the half nearer to it is its); a later echo, or the
@@ -59,13 +60,13 @@ export const ROAD = `// The road, seen from beside and above it as it goes away 
 // setting. While the hand is on a shape, the settings it moves show on a plate
 // on its post, or for the rule on the overhead sign.
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-const RED = '${GIVE}', WHITE = '#ffffff', ROADC = '#505456', LINE = '#e4e3dd', METAL = '#6b6e6f';
+const RED = '${GIVE}', WHITE = '#ffffff', ROADC = '#505456', LINE = '#e4e3dd', METAL = '#6b6e6f', SKY = '#e4e2dc';
 const FLOOR = -60, MAXK = 12, RULE = 1.5, ROOT3 = Math.sqrt(3);
 const SIGN = ${JSON.stringify(SIGN)}, NOW = ${JSON.stringify(NOW)};
 const A = { l: 288, r: 590, top: 76, bot: 112 }; // the rule's drawing on the overhead sign
 // The road: it goes away towards VP (off to the right); P0 is its far edge where you stand,
 // ACROSS its width there. Down the road t seconds, a thing looks 1 / (1 + K t) as big.
-const VP = { x: 900, y: 124 }, P0 = { x: 168, y: 412 }, ACROSS = { x: 270, y: 106 }, K = 0.75;
+const VP = { x: 900, y: 176 }, P0 = { x: 168, y: 412 }, ACROSS = { x: 270, y: 106 }, K = 0.75;
 const SIDE = -0.035; // the posts stand just beyond the far edge
 const POST = 100, H1 = 110, DH = 62; // at your place: a post's height to its sign, an echo as loud as you, half your diamond at 0 dB
 const RIM = 0.72; // a give-way sign's white against its red edge, when it gives nothing
@@ -205,9 +206,11 @@ export default {
     s.show = level > s.show ? level : s.show + (level - s.show) * (1 - Math.exp(-f.dt / 0.12));
     const active = id => s.over === id || s.drag === id;
     const frac = v => clamp((v - FLOOR) / -FLOOR, 0, 1);
-    // The ground; the horizon is behind the overhead sign.
+    // The sky down to the horizon, and the flat ground from it.
+    ctx.fillStyle = SKY;
+    ctx.fillRect(0, 0, w, VP.y);
     ctx.fillStyle = field;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, VP.y, w, h - VP.y);
     // The road, its edge lines and its middle line, away to the right.
     const NEAR = -0.85, FAR = 40;
     ctx.fillStyle = ROADC;
@@ -229,18 +232,20 @@ export default {
     const q = (Math.log(12000 / tone) / Math.log(15)) * 0.48;
     const signs = [];
     for (let k = 1; k <= MAXK; k++) {
-      const p = ground(k * T, SIDE), tip = p.y - POST * p.s;
-      const H = Math.min(H1 * mix * Math.pow(fb, k - 1) * p.s, tip - SIGN.y - SIGN.h - 8);
+      // The whole sign, post and face, as big as the echo is loud against you, as high as the overhead sign lets it.
+      const p = ground(k * T, SIDE), big = Math.min(mix * Math.pow(fb, k - 1), (p.y - SIGN.y - SIGN.h - 8) / ((POST + H1) * p.s));
+      const H = H1 * p.s * big;
       if (k > 1 && (p.x - H / ROOT3 > w || H < 2)) break;
-      signs.push({ k, x: p.x, foot: p.y, s: p.s, tip, y: tip - (2 * (H < 2 ? 16 * p.s : H)) / 3, H, r: 0.25 * (1 - Math.exp(-k * q)) });
+      signs.push({ k, x: p.x, foot: p.y, s: p.s, big, tip: p.y - POST * p.s * (H < 2 ? 1 : big), H, r: 0.25 * (1 - Math.exp(-k * q)) });
     }
     const give = clamp(s.r / 40, 0, 1);
     for (let i = signs.length - 1; i >= 0; i--) {
-      const { k, x, foot, s: sc, y, H, r } = signs[i];
+      const { k, x, foot, s: sc, big, tip, H, r } = signs[i];
       ctx.fillStyle = METAL;
-      ctx.fillRect(x - 2.5 * sc, y, 5 * sc, foot - y);
       if (H < 2) {
         // No echo: where the first would stand, to drag it back up.
+        const y = tip - (2 * 16 * sc) / 3;
+        ctx.fillRect(x - 2.5 * sc, y, 5 * sc, foot - y);
         tri(ctx, x, y, 16 * sc, 0);
         ctx.setLineDash([3, 3]);
         ctx.strokeStyle = ink;
@@ -249,37 +254,31 @@ export default {
         ctx.setLineDash([]);
         continue;
       }
-      tri(ctx, x, y, H, r * H);
-      ctx.fillStyle = RED;
-      ctx.fill();
-      const inner = H * RIM * (1 - give);
-      if (inner > 1) {
-        tri(ctx, x, y, inner, r * inner);
-        ctx.fillStyle = WHITE;
-        ctx.fill();
-      }
+      // A note reaching the echo: its sign jumps up on its post and settles back.
       let ping = 0;
       for (const n of s.notes) {
         const age = f.t - n - k * T;
         if (age >= 0 && age < 0.45) ping = Math.max(ping, 1 - age / 0.45);
       }
-      if (ping > 0) {
-        const big = H * (1.1 + (1 - ping) * 0.3);
-        tri(ctx, x, y, big, r * big);
-        ctx.globalAlpha = ping;
-        ctx.strokeStyle = ink;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+      const face = H * (1 + 0.14 * ping), y = tip - (2 * face) / 3, pw = Math.max(1.5, 5 * sc * Math.min(1, big));
+      ctx.fillRect(x - pw / 2, y, pw, foot - y);
+      tri(ctx, x, y, face, r * face);
+      ctx.fillStyle = RED;
+      ctx.fill();
+      const inner = face * RIM * (1 - give);
+      if (inner > 1) {
+        tri(ctx, x, y, inner, r * inner);
+        ctx.fillStyle = WHITE;
+        ctx.fill();
       }
       if (active(i === 0 ? 'first' : 'later')) {
-        tri(ctx, x, y, H + 14 * sc, r * (H + 14 * sc));
+        tri(ctx, x, y, face + 14 * sc, r * (face + 14 * sc));
         ctx.strokeStyle = ink;
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
     }
-    // You: your post, the diamond as big as what you play, and When louder than, dashed.
+    // You: your post, the diamond as big as what you play, and When louder than as a thin outline.
     const you = ground(0, SIDE), cy = you.y - POST;
     ctx.fillStyle = METAL;
     ctx.fillRect(you.x - 3, cy, 6, you.y - cy);
@@ -293,7 +292,6 @@ export default {
     diamond(ctx, you.x, cy, hh * 0.72);
     ctx.fillStyle = ink;
     ctx.fill();
-    ctx.setLineDash([6, 5]);
     ctx.lineWidth = active('you') ? 3 : 2;
     diamond(ctx, you.x, cy, th);
     ctx.strokeStyle = ink;
@@ -305,7 +303,6 @@ export default {
     ctx.strokeStyle = WHITE;
     ctx.stroke();
     ctx.restore();
-    ctx.setLineDash([]);
     // The overhead sign: hung from above, black, ruled in white; the name, the rule, now.
     ctx.fillStyle = METAL;
     for (const x of [SIGN.x + 120, SIGN.x + SIGN.w - 120]) ctx.fillRect(x - 4, 0, 8, SIGN.y + 8);
@@ -372,12 +369,12 @@ export default {
     // The settings of the shape under the hand: on a plate on its post, or for the rule on the overhead sign.
     const z = s.drag || s.over;
     const on = k => {
-      const g = ground(k * T, SIDE), tip = g.y - POST * g.s;
-      return { x: g.x, y: tip + 8 * g.s, size: Math.max(11, 13 * g.s) };
+      const g = ground(k * T, SIDE), q = signs[k - 1] || { x: g.x, s: g.s, tip: g.y - POST * g.s };
+      return { x: q.x, y: q.tip + 8 * q.s, size: Math.max(11, 13 * q.s) };
     };
     if (z === 'you') plate(ctx, ink, ['louder than', dB(thresh)], you.x, cy + DH + 10, 13);
     if (z === 'first') { const q = on(1); plate(ctx, ink, ['every ' + secs(T), 'level ' + pct(mix)], q.x, q.y, q.size); }
-    if (z === 'later') { const q = on(2); plate(ctx, ink, ['tone ' + hz(tone), 'keeps ' + pct(fb)], q.x, q.y, q.size); }
+    if (z === 'later') { const q = on(2); plate(ctx, ink, ['tone ' + hz(tone), 'each ' + pct(fb) + ' of the last'], q.x, q.y, q.size); }
     if (z === 'rule') {
       ctx.font = '700 13px ' + FONT;
       ctx.textAlign = 'right';
@@ -438,7 +435,6 @@ export function duck(catalog: Catalog) {
       }),
       add('mixl1', 'kit.mix', { label: 'Mix L', config: { channels: 2 }, values: { level2: 0.8 } }),
       add('mixr1', 'kit.mix', { label: 'Mix R', config: { channels: 2 }, values: { level2: 0.8 } }),
-      add('gr1', 'kit.scale', { label: 'Ducking', values: { scale: -1, offset: 1 } }),
       add('out1', 'kit.out'),
       wire('in1.left', 'dly1.left'),
       wire('in1.right', 'dly1.right'),
@@ -452,7 +448,6 @@ export function duck(catalog: Catalog) {
       wire('duck1.right', 'mixr1.in2'),
       wire('mixl1.out', 'out1.left'),
       wire('mixr1.out', 'out1.right'),
-      wire('duck1.gain', 'gr1.in'),
       // ---- the plugin: the road; each setting is dragged on its shape ----
       ...patchControl(
         'ktime',
@@ -497,9 +492,10 @@ export function duck(catalog: Catalog) {
           },
           background: [{ kind: 'color', color: '#d2d0c9' }],
           skins: {
-            meter: { name: 'bar', params: { fill: GIVE, surface: '#ffffff', scale: false } },
+            meter: { name: 'bar', params: { fill: '#ffffff', surface: GIVE, scale: false } },
           },
-          // The meter is the white of a give-way sign: cut to the triangle, it fills with red from its point.
+          // The meter is a give-way sign: cut to the triangle, its white (what the echoes keep, the ducker's gain on
+          // the meter's dB scale) sinks to its point as they give way, leaving red.
           css: '[data-widget=grm1] dk-scope::part(canvas) { clip-path: polygon(0 0, 100% 0, 50% 86.6%); border-radius: 0; }',
         },
       },
@@ -513,7 +509,7 @@ export function duck(catalog: Catalog) {
       }),
       // How far the echoes give way now: a give-way sign on the overhead sign.
       ...control('grm1', 'ui.meter', 'Giving way', null, r(NOW.x, NOW.y, NOW.w, NOW.w)),
-      wire('gr1.out', 'grm1.in'),
+      wire('duck1.gain', 'grm1.in'),
     ],
   );
 }
