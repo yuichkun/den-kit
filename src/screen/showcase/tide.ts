@@ -61,25 +61,25 @@ export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky
 // The hour is khour (0 to 24); the tide comes from the same table as the
 // codebox's, so where the water stands on the posts is what the sound plays.
 // The waves wash props.reach metres above and below the tide, moving the
-// water's surface up and down through a paler band across the bay, edged with
-// foam at their highest and lowest reach; the posts are dark where they wash
-// above the water. A bell rings while they reach its lip (its lip hangs in the
-// band), rings spreading on the water round its post. The bells (props.heights
-// in metres and props.notes, low to high, as lists) hang at their heights; they
-// stand along the shore in no order of height, on posts that stay above the
-// highest water. A bell in the waves' reach is polished bronze, one out of it
-// dull; what is under the water is seen through it (a post down to the bell it
-// holds), a bell in the band through its pale water, one under it as a dark
-// shape. A bell the waves reach swings when its note jumps in the spectrum (a
-// strike is heard). The water on the posts bobs with the waves, read from how
-// loud the sea is (the low end of the spectrum, below the bells). The sun or
-// the moon crosses the sky with the hour; headlands close the bay in as Bay
-// (kbay) rises; crests on the sea grow with Sea (ksea) and drift at the pace of
-// the waves (kwaves). On the quay stands the harbour's tide board: the work's
-// name, the hour in large plain figures, the height of the water and which way
-// it goes, the day's tide in the colours of each hour's sky marked at the hour,
-// and on its last line the setting under the hand (at rest, the bells the waves
-// reach).
+// water's surface (a line of foam across the bay) up and down through a paler
+// band, marked by a dashed line at their highest and lowest reach; the posts
+// are dark where they wash above the water. A bell rings while they reach its
+// lip (its lip hangs in the band), rings spreading on the water round its post.
+// The bells (props.heights in metres and props.notes, low to high, as lists)
+// hang at their heights; they stand along the shore in no order of height, on
+// posts that stay above the highest water. A bell in the waves' reach is
+// polished bronze, one out of it dull; what is under the water is seen through
+// it (a post down to the bell it holds), a bell in the band through its pale
+// water, one under it as a dark shape. A bell the waves reach swings when its
+// note jumps in the spectrum (a strike is heard). The water on the posts bobs
+// with the waves, read from how loud the sea is (the low end of the spectrum,
+// below the bells). The sun or the moon crosses the sky with the hour;
+// headlands close the bay in as Bay (kbay) rises; crests on the sea grow with
+// Sea (ksea) and drift at the pace of the waves (kwaves). On the quay stands
+// the harbour's tide board: the work's name, the hour in large plain figures,
+// the height of the water and which way it goes, the day's tide in the colours
+// of each hour's sky marked at the hour, and on its last line the setting under
+// the hand (at rest, the bells the waves reach).
 // Drag the sun or the moon, or along the board's tide, for the hour; a bell or
 // its post up and down for Bells (kbells); a headland up and down for Bay; the
 // sea up and down for Sea and across for Waves. The horizon is at y
@@ -282,21 +282,17 @@ export default {
     const sw = s.hi - s.lo > 0.03 ? ((v - s.lo) / (s.hi - s.lo)) * 2 - 1 : 0;
     s.sw += (sw - s.sw) * Math.min(1, f.dt * 4);
     const now = tide(hour), live = now + reach * s.sw, wl = Y(live), wash = Y(now + reach), stir = Y(now - reach);
-    // The waves move the water up and down between their highest and lowest reach: a paler band across the bay,
-    // edged at both by a line of foam that rolls at the waves' pace, with the water's surface running through it. A
-    // bell whose lip hangs in the band rings.
+    // The waves move the water's surface up and down between their highest and lowest reach: a paler band across the
+    // bay, marked at both by a dashed line; the surface runs through it, a line of foam across the bay that rolls at
+    // the waves' pace. A bell whose lip hangs in the band rings.
     const churn = mix(seaAt(wl + 1), foam, 0.2), roll = f.t * (waves / 60) * TAU;
-    const rim = (y, x, at) => clamp(y + 1.6 * Math.sin(x / 7 + roll + at), L.YH, L.QY);
-    ctx.beginPath();
-    for (let x = 0; x <= w; x += 6) ctx.lineTo(x, rim(wash, x, 0));
-    for (let x = w; x >= 0; x -= 6) ctx.lineTo(x, rim(stir, x, 1.3));
-    ctx.closePath(); ctx.fillStyle = css(churn); ctx.fill();
-    ctx.lineWidth = 1.2;
-    for (const [y, at, a] of [[wash, 0, 0.5], [stir, 1.3, 0.4]]) {
-      ctx.strokeStyle = css(foam, a); ctx.beginPath();
-      for (let x = 0; x <= w; x += 6) ctx.lineTo(x, rim(y, x, at));
-      ctx.stroke();
-    }
+    const cy0 = Math.floor(clamp(wash, L.YH, L.QY)), cy1 = Math.ceil(clamp(stir, L.YH, L.QY));
+    ctx.fillStyle = css(churn); ctx.fillRect(0, cy0, w, Math.max(0, cy1 - cy0));
+    ctx.fillStyle = css(foam, 0.6);
+    for (const y of [cy0, cy1 - 1]) for (let x = 0; x < w; x += 10) ctx.fillRect(x, y, 5, 1);
+    ctx.strokeStyle = css(foam, 0.9); ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let x = 0; x <= w; x += 6) ctx.lineTo(x, wl + 1.6 * Math.sin(x / 7 + roll));
+    ctx.stroke();
     // The sun or the moon on the water: a scatter of glints under it, wider towards the quay.
     if (body.y < L.YH - 4) {
       const gl = body.sun ? [255, 243, 214] : [226, 232, 244], power = (body.sun ? 0.75 : 0.45) * (1 - (body.y - 60) / (L.YH * 1.6));
@@ -372,15 +368,13 @@ export default {
         ctx.restore();
       }
     });
-    // The water on each post, lapping round it, and rings spreading from a post whose bell rings.
+    // The water lapping round each post, and rings spreading from a post whose bell rings.
     for (let k = 0; k < n; k++) {
       const px = Math.round(L.PX(k)), bob = Math.sin(f.t * 2.2 + k * 1.7) * 0.6;
       ctx.strokeStyle = css(foam, 0.35); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(px, wl + bob, 11, 2.8, 0, Math.PI, TAU); ctx.stroke();
       ctx.strokeStyle = css(foam, 0.9); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.ellipse(px, wl + bob, 11, 2.8, 0, 0, Math.PI); ctx.stroke();
-      ctx.strokeStyle = css(foam, 0.4); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(px - 26, wl + 3 - bob); ctx.lineTo(px - 15, wl + 3 - bob); ctx.moveTo(px + 15, wl + 3 + bob); ctx.lineTo(px + 28, wl + 3 + bob); ctx.stroke();
     }
     for (const [px, ring] of rings)
       for (const r0 of [14, 26]) {
