@@ -66,8 +66,9 @@ export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky
 // low to high, as lists) hang at their heights; they stand along the shore in no
 // order of height, on posts that stay above the highest water. A bell in the
 // waves' reach is polished bronze, one out of it dull; what is under the water is
-// seen through it, a bell under the waves for good as a dark shape. A bell the
-// waves reach swings when its note jumps in the spectrum (a strike is heard). The water on the posts bobs with the waves, read
+// seen through it (a post down to the bell it holds), a bell under the waves for
+// good as a dark shape. A bell the waves reach swings when its note jumps in the
+// spectrum (a strike is heard). The water on the posts bobs with the waves, read
 // from how loud the sea is (the low end of the spectrum, below the bells). The
 // sun or the moon crosses the sky with the hour; headlands close the bay in as
 // Bay (kbay) rises; crests on the sea grow with Sea (ksea) and drift at the pace
@@ -300,14 +301,15 @@ export default {
     const sw = s.hi - s.lo > 0.03 ? ((v - s.lo) / (s.hi - s.lo)) * 2 - 1 : 0;
     s.sw += (sw - s.sw) * Math.min(1, f.dt * 4);
     const now = tide(hour), live = now + reach * s.sw, wl = Y(live), wash = Y(now + reach);
-    // The posts: dry above the waves, dark where they wash, fading into the water below it.
-    const deep = ctx.createLinearGradient(0, wl, 0, Math.min(L.QY, wl + 120));
-    deep.addColorStop(0, css(drowned)); deep.addColorStop(1, css(drowned, 0));
+    // The posts: dry above the waves, dark where they wash, and seen through the water below it, down past the arm
+    // of a bell hung under it, then fading out.
     for (let k = 0; k < n; k++) {
-      const px = Math.round(L.PX(k)), pt = L.TOP(k);
+      const px = Math.round(L.PX(k)), pt = L.TOP(k), held = clamp(Y(bells[k].height) - HANG + 12, wl, L.QY);
+      const end = Math.min(L.QY, Math.max(wl + 120, held + 60)), deep = ctx.createLinearGradient(0, wl, 0, end);
+      deep.addColorStop(0, css(drowned)); deep.addColorStop(clamp((held - wl) / Math.max(1, end - wl), 0, 1), css(drowned)); deep.addColorStop(1, css(drowned, 0));
       ctx.fillStyle = css(wood); ctx.fillRect(px - 4.5, pt, 9, Math.max(0, wash - pt));
       ctx.fillStyle = css(wet); ctx.fillRect(px - 4.5, Math.max(pt, wash), 9, Math.max(0, wl - Math.max(pt, wash)));
-      ctx.fillStyle = deep; ctx.fillRect(px - 4.5, wl, 9, L.QY - wl);
+      ctx.fillStyle = deep; ctx.fillRect(px - 4.5, wl, 9, Math.max(0, end - wl));
       ctx.fillStyle = css(mix(wood, [0, 0, 0], 0.3)); ctx.fillRect(px - 5.5, pt - 3, 11, 3);
     }
     // The bells, each on an arm off its post.
