@@ -792,11 +792,21 @@ describe('each work does what its controls say', () => {
     drag(m.ox, m.y, -20, 0);
     expect(values.kenv).toBeCloseTo(6 - (Math.log2(hill.HI / hill.LO) * 20) / el.rect.w, 6);
     expect([values.kcut, values.kres]).toEqual([4000, 0.72]);
-    // Resonance 0.98 peaks above the graph's top: pressing the summit keeps it.
+    // Resonance 0.98 peaks above the graph's top: pressing the summit keeps it, and a little up does not lower it.
     Object.assign(values, { kcut: 900, kres: 0.98, kenv: 2 });
     m = marks();
     drag(m.px, m.y, 0, 0);
     expect(values).toEqual({ kcut: 900, kres: 0.98, kenv: 2 });
+    drag(m.px, m.y, 0, -2);
+    expect(values.kres).toBeGreaterThanOrEqual(0.98);
+    // At its maximum the peak is far above the top: the summit dragged down from where it is drawn still brings it down.
+    Object.assign(values, { kcut: 900, kres: 1, kenv: 2 });
+    m = marks();
+    drag(m.px, m.y, 0, 0);
+    expect(values.kres).toBe(1);
+    drag(m.px, m.y, 0, 80);
+    expect(values.kres).toBeLessThan(0.9);
+    expect(marks().y).toBeCloseTo(m.y + 80, 0);
     // With Sweep at 0 the dot sits on the summit: just right of it takes the dot, just left the summit.
     Object.assign(values, { kcut: 900, kres: 0.7, kenv: 0 });
     m = marks();

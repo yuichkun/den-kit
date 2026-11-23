@@ -191,14 +191,17 @@ export default {
     if (e.type === 'down') {
       s.drag = at === 'open' ? 'open' : 'peak';
       // A handle taken hold of keeps where it started; a press away from both brings the summit to the hand.
-      s.from = at ? { x: e.x, y: e.y, env: f.value('kenv'), hz: m.fc * m.at, db: m.db, k: m.k } : null;
+      // The summit is taken from where it is drawn (held at the graph's top, however high the peak really is).
+      s.from = at ? { x: e.x, y: e.y, env: f.value('kenv'), hz: m.fc * m.at, db: Math.min(TOP, m.db), k: m.k } : null;
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = '';
     const o = s.from, moved = o && e.type === 'move' && (e.x !== o.x || e.y !== o.y);
     if (e.type === 'wheel') f.set('kenv', clamp(f.value('kenv') - e.dy / 200, 0, 6));
     else if (s.drag === 'open' && moved) f.set('kenv', clamp(o.env + (Math.log2(HI / LO) * (e.x - o.x)) / f.w, 0, 6));
     else if (s.drag === 'peak' && (o ? moved : e.type === 'down' || e.type === 'move')) {
-      const k = !o ? resonanceAt(dbOf(e.y, f.h)) : e.y === o.y ? o.k : resonanceAt(o.db + dbOf(e.y, f.h) - dbOf(o.y, f.h));
+      // At or above the top, a drag only ever raises Resonance: the peak may already be higher than the graph shows.
+      const to = o && o.db + dbOf(e.y, f.h) - dbOf(o.y, f.h);
+      const k = !o ? resonanceAt(dbOf(e.y, f.h)) : e.y === o.y ? o.k : to >= TOP ? Math.max(o.k, resonanceAt(to)) : resonanceAt(to);
       f.set('kres', k);
       f.set('kcut', clamp((o ? o.hz * Math.pow(HI / LO, (e.x - o.x) / f.w) : hzOf(e.x, f.w)) / peakOf(k).at, 40, 4000));
     }
