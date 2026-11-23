@@ -333,7 +333,8 @@ export default {
       else if (d.kind === 'drift') f.setNorm('kdrift', clamp(d.norm - (dy / 200) * fine, 0, 1));
       else if (d.kind === 'width') f.set('kwidth', clamp(Math.abs(e.x - (RULER.x0 + RULER.x1) / 2) / ((RULER.x1 - RULER.x0) / 2), 0, 1));
       else if (d.kind === 'filter' && d.id === 'kenv')
-        f.set('kenv', clamp(Math.log2(xf(fx(f.value('kcut') * Math.pow(2, d.from)) + dx * fine) / f.value('kcut')), 0, 6));
+        // In octaves from where it started, so a press alone keeps Env even with the cursor held at the band's end.
+        f.set('kenv', clamp(d.from + (dx * fine * Math.log2(FMAX / FMIN)) / (SPEC.x1 - SPEC.x0), 0, 6));
       else if (d.kind === 'filter' && e.type === 'move') {
         // Cursor a: across for Cutoff, up and down for Resonance (the way the drag starts).
         if (!d.axis && Math.hypot(dx, dy) > 4) d.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';

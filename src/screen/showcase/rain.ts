@@ -125,7 +125,9 @@ function spot(f, k) {
   const L = LAYERS[k], r = 1 - clamp(f.value(L.level), 0, 1), a = Math.asin(clamp(f.value(L.pan), -1, 1));
   return { x: r * Math.sin(a), z: (f.on(L.back) ? -1 : 1) * r * Math.cos(a) };
 }
-const patchOf = f => 0.05 + 0.15 * clamp(f.value('kwidth'), 0, 1);
+// How far the drops' puddle reaches on the ground: wider with Drops across, and at its narrowest still out
+// past its cloud's sides, where it takes the hand.
+const patchOf = f => 0.09 + 0.11 * clamp(f.value('kwidth'), 0, 1);
 // What each thing covers round its spot on the screen: left, top, right, bottom.
 const BOX = [[-20, -15, 20, 13], [-40, -28, 46, 22], [-44, -30, 44, 28], [-26, -21, 38, 26]];
 function boxOf(L, f, k) {

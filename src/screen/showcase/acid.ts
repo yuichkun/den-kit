@@ -46,11 +46,14 @@ export const FILTER_HILL = `// The filter as a hill: the ladder's response, draw
 // line every 60 ms, older lines higher and fainter (flat while nothing plays).
 // The dashed outline is where each note opens the filter to (Sweep, kenv), with
 // a dot on its summit; it comes down to the ground like the hill. Drag the
-// summit (or press anywhere): across is the cutoff, up the resonance, and the
-// summit follows the hand. Drag the dot across, or scroll: Sweep. While the
-// hand is on a handle, small arrows by it show the ways it moves; the values
-// are the figures under the hill.
+// summit: across is the cutoff, up the resonance; press anywhere else and the
+// summit comes to the hand. Drag the dot across, or scroll: Sweep. A handle
+// moves as far as the hand does, so pressing one changes nothing, even where it
+// is held at the edge of the graph; where the dot meets the summit, the right
+// of it is the dot's. While the hand is on a handle, small arrows by it show
+// the ways it moves; the values are the figures under the hill.
 const LO = 30, HI = 20000, TOP = 30, BOTTOM = -40, PAD = 28, ROWS = 18, GAP = 12;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const xOf = (hz, w) => (Math.log(hz / LO) / Math.log(HI / LO)) * w;
 const hzOf = (x, w) => LO * Math.pow(HI / LO, Math.min(1, Math.max(0, x / w)));
 const yOf = (db, h) => PAD + ((TOP - db) / (TOP - BOTTOM)) * (h - PAD);
@@ -95,16 +98,16 @@ function levelAt(sp, hz) {
   const i = Math.floor(b), t = b - i;
   return (sp[i] || 0) * (1 - t) + (sp[Math.min(63, i + 1)] || 0) * t;
 }
-/** Where the summit and the dot sit. */
-function marks(f) {
+/** Where the summit and the dot sit (each held inside the graph), and how high the peak really is. */
+export function marks(f) {
   const fc = f.value('kcut'), k = f.value('kres'), pk = peakOf(k);
   const open = Math.min(HI, fc * Math.pow(2, f.value('kenv')));
-  return { fc, k, open, at: pk.at, px: xOf(fc * pk.at, f.w), ox: Math.min(f.w - 10, xOf(open * pk.at, f.w)), y: yOf(Math.min(TOP, pk.db), f.h) };
+  return { fc, k, open, at: pk.at, db: pk.db, px: xOf(fc * pk.at, f.w), ox: Math.min(f.w - 10, xOf(open * pk.at, f.w)), y: yOf(Math.min(TOP, pk.db), f.h) };
 }
-/** The part under the hand: the dot (near it), the summit (near it), or nothing. */
+/** The part under the hand: the dot (near it, on the summit's right: it is never left of it), the summit (near it), or nothing. */
 function zone(x, y, m) {
   const dOpen = Math.hypot(x - m.ox, y - m.y), dPeak = Math.hypot(x - m.px, y - m.y);
-  if (dOpen < 16 && dOpen < dPeak) return 'open';
+  if (dOpen < 16 && x > (m.ox + m.px) / 2) return 'open';
   return dPeak < 44 ? 'peak' : '';
 }
 /** Small arrowheads round a handle, r from its middle: left and right, and up and down too; rimmed in paper, so they show on the hill. */
@@ -167,22 +170,27 @@ export default {
     }
     ctx.stroke(); ctx.setLineDash([]);
     const p = f.pointer, hot = s.drag || (p && p.over ? zone(p.x, p.y, m) : '');
-    ring(ctx, m.ox, m.y, hot === 'open' ? 8 : 6, ink, paper, 2.5);
+    // The dot over the summit, so it shows where the two meet.
     ring(ctx, m.px, m.y, hot === 'peak' ? 12 : 9, paper, ink, 3);
+    ring(ctx, m.ox, m.y, hot === 'open' ? 8 : 6, ink, paper, 2.5);
     if (hot === 'peak') arrows(ctx, m.px, m.y, 21, true, ink, paper);
     if (hot === 'open') arrows(ctx, m.ox, m.y, 16, false, ink, paper);
   },
   pointer(e, f) {
     const s = f.state, m = marks(f), at = zone(e.x, e.y, m);
-    if (e.type === 'down') s.drag = at === 'open' ? 'open' : 'peak';
+    if (e.type === 'down') {
+      s.drag = at === 'open' ? 'open' : 'peak';
+      // A handle taken hold of keeps where it started; a press away from both brings the summit to the hand.
+      s.from = at ? { x: e.x, y: e.y, env: f.value('kenv'), hz: m.fc * m.at, db: m.db, k: m.k } : null;
+    }
     if (e.type === 'up' || e.type === 'leave') s.drag = '';
-    if (e.type === 'wheel') f.set('kenv', Math.max(0, Math.min(6, f.value('kenv') - e.dy / 200)));
-    else if (s.drag === 'open' && (e.type === 'down' || e.type === 'move'))
-      f.set('kenv', Math.max(0, Math.min(6, Math.log2(hzOf(e.x, f.w) / m.at / m.fc))));
-    else if (s.drag === 'peak' && (e.type === 'down' || e.type === 'move')) {
-      const k = resonanceAt(dbOf(e.y, f.h));
+    const o = s.from, moved = o && e.type === 'move' && (e.x !== o.x || e.y !== o.y);
+    if (e.type === 'wheel') f.set('kenv', clamp(f.value('kenv') - e.dy / 200, 0, 6));
+    else if (s.drag === 'open' && moved) f.set('kenv', clamp(o.env + (Math.log2(HI / LO) * (e.x - o.x)) / f.w, 0, 6));
+    else if (s.drag === 'peak' && (o ? moved : e.type === 'down' || e.type === 'move')) {
+      const k = !o ? resonanceAt(dbOf(e.y, f.h)) : e.y === o.y ? o.k : resonanceAt(o.db + dbOf(e.y, f.h) - dbOf(o.y, f.h));
       f.set('kres', k);
-      f.set('kcut', Math.max(40, Math.min(4000, hzOf(e.x, f.w) / peakOf(k).at)));
+      f.set('kcut', clamp((o ? o.hz * Math.pow(HI / LO, (e.x - o.x) / f.w) : hzOf(e.x, f.w)) / peakOf(k).at, 40, 4000));
     }
     f.cursor(s.drag === 'peak' ? 'grabbing' : s.drag === 'open' || at === 'open' ? 'ew-resize' : 'grab');
   },

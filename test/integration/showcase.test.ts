@@ -18,6 +18,7 @@ import { flatten } from '../../src/work/parts.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
+import { FILTER_HILL } from '../../src/screen/showcase/acid.ts';
 import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
@@ -699,6 +700,105 @@ describe('each work does what its controls say', () => {
     expect(values.kcut).toBeGreaterThan(900);
   });
 
+  it("Septet: Env's cursor moves as far as the hand does, so pressing it where it is held at the band's end keeps Env", async () => {
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    // Cutoff 8 kHz opened 2.5 octaves is past the band's 20 kHz end, so the cursor stands at the end.
+    const values: Record<string, number> = { kcut: 8000, kenv: 2.5, krel: 0.5, kspace: 0.22 };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    const end = lanes.fx(20000) as number;
+    expect(lanes.fx(8000 * 2 ** 2.5)).toBe(end);
+    const at = (type: string, x: number) =>
+      lanes.default.pointer(
+        { type, x, y: 480, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+        f,
+      );
+    at('down', end - 1);
+    at('up', end - 1);
+    expect(values.kenv).toBe(2.5);
+    // Dragged left, it comes down from 2.5 by as many octaves as the hand moves across the band.
+    at('down', end - 1);
+    at('move', end - 41);
+    at('up', end - 41);
+    expect(values.kenv).toBeCloseTo(
+      2.5 - (40 / (end - (lanes.fx(60) as number))) * Math.log2(20000 / 60),
+      6,
+    );
+    expect(values.kcut).toBe(8000);
+  });
+
+  it('Contour: a handle moves as far as the hand does (a press keeps it, even held at the edge), the dot is taken from the right where it meets the summit, and a press elsewhere brings the summit to the hand', async () => {
+    const doc = build('acid');
+    const el = Object.values(doc.ui.elements).find(e => e.name === 'The filter’s hill')!;
+    const hill = await import(
+      `data:text/javascript;base64,${Buffer.from(FILTER_HILL).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => values[id]!,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    hill.default.setup(fakeCanvas(), f);
+    const marks = () => hill.marks(f) as { px: number; ox: number; y: number };
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        hill.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // Cutoff 4 kHz opened 6 octaves: the dot is held at the graph's right edge.
+    Object.assign(values, { kcut: 4000, kres: 0.72, kenv: 6 });
+    let m = marks();
+    expect(m.ox).toBe(el.rect.w - 10);
+    drag(m.ox, m.y, 0, 0);
+    expect(values).toEqual({ kcut: 4000, kres: 0.72, kenv: 6 });
+    drag(m.ox, m.y, -20, 0);
+    expect(values.kenv).toBeCloseTo(6 - (Math.log2(20000 / 30) * 20) / el.rect.w, 6);
+    expect([values.kcut, values.kres]).toEqual([4000, 0.72]);
+    // Resonance 0.98 peaks above the graph's top: pressing the summit keeps it.
+    Object.assign(values, { kcut: 900, kres: 0.98, kenv: 2 });
+    m = marks();
+    drag(m.px, m.y, 0, 0);
+    expect(values).toEqual({ kcut: 900, kres: 0.98, kenv: 2 });
+    // With Sweep at 0 the dot sits on the summit: just right of it takes the dot, just left the summit.
+    Object.assign(values, { kcut: 900, kres: 0.7, kenv: 0 });
+    m = marks();
+    expect(m.ox).toBe(m.px);
+    drag(m.px + 3, m.y, 30, 0);
+    expect(values.kenv).toBeGreaterThan(0.4);
+    expect(values.kcut).toBe(900);
+    values.kenv = 0;
+    drag(m.px - 3, m.y, 30, 0);
+    expect(values.kcut).toBeGreaterThan(1000);
+    expect(values.kenv).toBe(0);
+    // A press away from both handles brings the summit to the hand.
+    drag(200, 123, 0, 0);
+    m = marks();
+    expect(m.px).toBeCloseTo(200, 0);
+    expect(m.y).toBeCloseTo(123, 0);
+  });
+
   it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: the rise, the dashed knee, Cutoff's cursor up and down", async () => {
     const doc = build('supersaw');
     const wired = (id: string) =>
@@ -893,6 +993,57 @@ describe('each work does what its controls say', () => {
     expect(values.kroom! > was.kroom!).toBe(true);
     // Each drag moved only its own setting.
     expect(values.kdrops).toBeCloseTo(0.5, 5);
+  });
+
+  it('Rain Field: at its narrowest the drops’ puddle still reaches past its cloud and takes a drag, and its cloud the rest', async () => {
+    const doc = build('rain');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    values.kwidth = 0;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`
+    );
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => values[id] as number,
+      on: (id: string) => values[id] === true,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const r = 1 - (values.kdrops as number),
+      pan = values.kdropspan as number;
+    const p = mod.ground(r * pan, r * Math.sqrt(1 - pan * pan), el.rect.w, el.rect.h) as {
+      x: number;
+      y: number;
+    };
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    // Its cloud covers 20 px each side of the spot: 25 px out on either side is the puddle.
+    drag(p.x + 25, p.y, 0, -40);
+    drag(p.x - 25, p.y, 40, 0);
+    expect([values.knob1! > was.knob1!, values.kwidth! > 0]).toEqual([true, true]);
+    expect([values.kdrops, values.kdropspan]).toEqual([was.kdrops, was.kdropspan]);
+    // The cloud itself still moves the sound.
+    drag(p.x, p.y, 0, 30);
+    expect(values.kdrops).not.toBe(was.kdrops);
   });
 
   it('Tonic: plays by itself; Sa moves the whole drone, Jawari brightens the buzz', async () => {
