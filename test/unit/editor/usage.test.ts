@@ -159,6 +159,21 @@ describe('what a session counts', () => {
     expect(analytics.events).toHaveLength(3);
   });
 
+  it('does not count starting another work, or undoing that, as a change to a work', () => {
+    const k = session();
+    k.restore('bass');
+    const analytics = recorder();
+    const usage = new Usage(analytics, null);
+    usage.allow(true);
+    countUsage(k, usage);
+    k.loadStarter('pad');
+    expect(k.undo()).not.toBeNull();
+    expect(k.redo()).not.toBeNull();
+    expect(analytics.events).toEqual(['app_used']);
+    k.commit([{ op: 'setName', name: 'Mine' }]);
+    expect(analytics.events).toEqual(['app_used', 'work_edited']);
+  });
+
   it('counts each request the AI takes, not one it could not take', () => {
     const k = session();
     k.restore('bass');
