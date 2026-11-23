@@ -155,6 +155,31 @@ describe('desktop analytics', () => {
     expect(await tick()).toBeNull();
   });
 
+  it('waits as long after a failure when an event comes while the batch is on its way', async () => {
+    let reply!: (status: number) => void;
+    const sent: string[][] = [];
+    const { analytics, tick } = setup({
+      post: async (_url, body) => {
+        sent.push(JSON.parse(body).records.map((r: UsageRecord) => r.event));
+        return new Promise<number>(r => (reply = r));
+      },
+    });
+    analytics.choose({ usage: true });
+    analytics.record('ai_requested');
+    expect(await tick()).toBe(5000);
+    analytics.record('work_exported');
+    reply(503);
+    await new Promise(r => setTimeout(r, 0));
+    expect(await tick()).toBe(60_000);
+    expect(sent).toEqual([['ai_requested'], ['ai_requested', 'work_exported']]);
+    // After a batch goes, one that came while it was on its way goes at once.
+    analytics.record('app_used');
+    reply(202);
+    await new Promise(r => setTimeout(r, 0));
+    expect(await tick()).toBe(0);
+    expect(sent.at(-1)).toEqual(['app_used']);
+  });
+
   it('drops a batch the receiver refuses, since it never becomes valid', async () => {
     const { analytics, replies, tick, kept } = setup();
     analytics.choose({ usage: true });

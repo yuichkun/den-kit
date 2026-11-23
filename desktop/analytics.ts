@@ -281,7 +281,9 @@ export class DesktopAnalytics {
       this.keep({ ...this.kept, waiting: this.kept.waiting.filter(r => !sent.has(r.id)) });
       this.failures = 0;
     } else this.failures++;
-    // Usage data may have been turned off while the batch was on its way.
+    // Usage data may have been turned off while the batch was on its way. An event that came
+    // meanwhile set a short wait, which this one replaces.
+    this.cancel();
     if (this.sendsUsage && this.kept.waiting.length)
       this.schedule(done ? 0 : RETRY_MS[Math.min(this.failures, RETRY_MS.length) - 1]!);
   }
