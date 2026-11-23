@@ -440,6 +440,8 @@ export function tide(catalog: Catalog) {
             background: [{ kind: 'color', color: '#f3f5f7' }],
             skins: { slider: { name: 'bar', params: { radius: 2, label: 'top' } } },
             css: [
+              '/* A lit lamp is a plain dot: no halo. */',
+              ':scope { --led-glow: 0px; }',
               'dk-slider { position: relative; }',
               'dk-slider::part(label) { text-align: left; font-size: 11px; font-weight: 600; color: var(--dk-muted); }',
               'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 12px; font-weight: 600; color: var(--dk-fg); font-variant-numeric: tabular-nums; }',

@@ -61,7 +61,9 @@ export default {
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
     ctx.globalAlpha = 1;
-    // Plucks ringing out.
+    // Plucks ringing out, inside the ring of names (so the names stay readable).
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R + 8, 0, Math.PI * 2); ctx.clip();
     for (const q of s.rings) {
       const age = (f.t - q.born) / 2.4, [qx, qy] = at(q.pc);
       ctx.strokeStyle = q.low ? fg : accent;
@@ -69,6 +71,7 @@ export default {
       ctx.lineWidth = 2 * (1 - age) + 0.5;
       ctx.beginPath(); ctx.arc(qx, qy, 10 + age * (q.low ? 70 : 46), 0, Math.PI * 2); ctx.stroke();
     }
+    ctx.restore();
     ctx.globalAlpha = 1;
     // The twelve places; Sa filled, Pa ringed.
     for (let pc = 0; pc < 12; pc++) {
@@ -125,7 +128,7 @@ export default {
       ctx.beginPath(); ctx.roundRect(0, y + 3, w, row - 6, 8); ctx.fill();
       if (lit > 0) {
         ctx.fillStyle = f.color('accent');
-        ctx.globalAlpha = 0.28 * lit;
+        ctx.globalAlpha = 0.16 * lit;
         ctx.beginPath(); ctx.roundRect(0, y + 3, w, row - 6, 8); ctx.fill();
         ctx.globalAlpha = lit;
         ctx.fillRect(0, y + 3, 3, row - 6);
@@ -302,7 +305,7 @@ export function tonic(catalog: Catalog) {
               track: '#2c2c48',
               knob: '#1d1d38',
               pointer: '#f1ede4',
-              muted: '#9a98b5',
+              muted: '#b1afc9',
               glow: '#e8b65a',
               font: 'lato',
               labelFont: 'lato',

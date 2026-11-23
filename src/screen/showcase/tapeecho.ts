@@ -198,7 +198,7 @@ export function tapeecho(catalog: Catalog) {
             track: '#d3d8dc',
             knob: '#ffffff',
             pointer: '#1b1f23',
-            muted: '#58616a',
+            muted: '#4b535b',
             glow: '#00897b',
             font: 'lato',
             labelFont: 'lato',

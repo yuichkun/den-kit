@@ -254,7 +254,7 @@ export function supersaw(catalog: Catalog) {
               track: '#dde1e5',
               knob: '#ffffff',
               pointer: '#17191c',
-              muted: '#5d646d',
+              muted: '#4f555d',
               glow: '#1c64d8',
               font: 'lato',
               labelFont: 'lato',

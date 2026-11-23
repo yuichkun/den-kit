@@ -582,6 +582,8 @@ export function rain(catalog: Catalog) {
                 slider: { name: 'bar', params: { radius: 2, label: 'top' } },
               },
               css: [
+                '/* A lit lamp is a plain dot: no halo. */',
+                ':scope { --led-glow: 0px; }',
                 'dk-slider { position: relative; }',
                 'dk-slider::part(label) { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dk-muted); }',
                 'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 11px; color: var(--dk-fg); }',
