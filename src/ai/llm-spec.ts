@@ -92,6 +92,9 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief) · {"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"Live weather for the sky display"}]}  (the origins the code parts need; the person allows them, until then they are unreachable)',
       '  {"op":"addElement","element":{"kind":"code","part":"reels","rect":{"x":0,"y":0,"w":720,"h":200},"props":{"speed":1.5}}}  (a code part: src/parts/reels.ts of the screen project, written with kit_write_file or kit_bash; kit_ui_reference "code")',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
+      "The work's icon and cover (kit_get_art shows their layers and fields):",
+      '  {"op":"setArt","board":"cover","layers":[{"id":"ground1","kind":"ground"},{"id":"mark1","kind":"mark","rect":{"x":96,"y":300,"w":800,"h":300},"text":"Acid Line","textStyle":{"font":"font","size":120,"color":"fg"}}]}  (a whole board; null removes it)',
+      '  {"op":"addArtLayer","board":"icon","layer":{"kind":"window","rect":{"x":56,"y":56,"w":400,"h":400},"focus":{"x":120,"y":90},"zoom":2.4},"index"?:1} · {"op":"updateArtLayer","board":"cover","id":"mark1","set":{"rect":{...}}} · {"op":"removeArtLayer","board":"icon","id":"mark1"} · {"op":"arrangeArtLayer","board":"icon","id":"window1","to":"front"}',
     ].join('\n'),
     inputSchema: {
       type: 'object',
@@ -145,6 +148,11 @@ export const KIT_TOOLS: ToolSpec[] = [
                   'placeMyPart',
                   'putFace',
                   'makeScreenPart',
+                  'setArt',
+                  'addArtLayer',
+                  'updateArtLayer',
+                  'removeArtLayer',
+                  'arrangeArtLayer',
                 ],
               },
               node: {},
@@ -184,6 +192,10 @@ export const KIT_TOOLS: ToolSpec[] = [
               spread: {},
               at: { type: 'object' },
               face: {},
+              board: { type: 'string', enum: ['icon', 'cover'] },
+              layer: { type: 'object' },
+              layers: {},
+              index: { type: 'number' },
             },
             required: ['op'],
           },
@@ -253,6 +265,12 @@ export const KIT_TOOLS: ToolSpec[] = [
       properties: { canvas: { type: 'string' } },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'kit_get_art',
+    description:
+      "Read the work's icon and cover as they are now: each board's layers (ground, window onto the plugin, letters, a pattern made from the patch) with their exact fields, what they draw from, and how to edit them with kit_apply_ops.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'kit_ui_reference',
@@ -506,6 +524,11 @@ The screen project (code parts: when den-kit's own pieces are not enough)
 - Work as in any web project: write files, add the packages you need to package.json (den-kit installs them), run npm run check and npm run lint, fix what they report, and git diff to see your changes. Then put the part on the plugin with kit_apply_ops (addElement kind "code") and look with kit_look: it shows code parts as they draw and reports their errors.
 - A control a code part reads or moves must exist in the patch (a knob wired to the input it stands for; it need not be on the plugin). Use the look's colours (the --dk-* CSS variables) so the part belongs to the plugin, and keep parts light (one animation loop through kit.frame).
 - What you change in the project lands in the work at once (assets once den-kit has checked them; kit_bash says which files) and undoes with your request; node_modules, dist and .git stay in the pod.
+
+The icon and cover (the work where works are lined up)
+- A work's icon and cover are boards of a few layers drawn from the work itself: its ground, windows onto its plugin, letters in its fonts and colours, a pattern made from its patch. Read them with kit_get_art; edit them with kit_apply_ops (setArt, addArtLayer, updateArtLayer, removeArtLayer, arrangeArtLayer).
+- Change only the board the request is about, and keep what the person made by hand unless asked: they often work on the icon while you work on the cover.
+- The icon is seen small (32-64 pixels): one big, clear thing of this work (its telling piece, its initial, its pattern), not the whole plugin.
 
 Module types
 ${blocks}`;

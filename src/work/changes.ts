@@ -1,5 +1,6 @@
 // Who changed what, and when. Every part of the work an operation touches has a
-// key ("node:osc1/value:freq", "element:title", "file:src/parts/reels.ts"), and
+// key ("node:osc1/value:freq", "element:title", "file:src/parts/reels.ts",
+// "art:cover/layer:mark1"), and
 // the log keeps the revision and the author of each key's last change. An AI's
 // operation on something a person changed after the AI read the work fails and
 // says what changed (docs/principles.md, principle 3); undoing an AI request
@@ -54,6 +55,12 @@ export function keysOf(op: ResolvedOp): ChangeKey[] {
       return [`part:${op.id}`];
     case 'setFile':
       return [`file:${op.path}`];
+    case 'setArtLayer':
+      return [`art:${op.board}/layer:${op.id}`];
+    case 'setArtOrder':
+      return [`art:${op.board}/order`];
+    case 'setArtBoard':
+      return [`art:${op.board}`];
   }
 }
 
@@ -76,11 +83,13 @@ export function describeKey(key: ChangeKey): string {
             ? `part ${id}`
             : kind === 'file'
               ? `file ${id}`
-              : kind === 'doc'
-                ? `the work's ${rest.join('/') || 'name'}`
-                : `the plugin's ${rest.join('/')}`;
+              : kind === 'art'
+                ? `the work's ${id}`
+                : kind === 'doc'
+                  ? `the work's ${rest.join('/') || 'name'}`
+                  : `the plugin's ${rest.join('/')}`;
   const field = kind === 'doc' || kind === 'ui' ? '' : rest.join('/');
-  return field ? `${what} (${field.replace(/^(value|config|in|out):/, '')})` : what;
+  return field ? `${what} (${field.replace(/^(value|config|in|out|layer):/, '')})` : what;
 }
 
 /** One change of one key: an edit, or an undo or redo of one. */

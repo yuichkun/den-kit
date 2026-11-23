@@ -44,7 +44,140 @@ export default part({
 });
 `;
 
+/** A board's layers as kit_get_art prints them (null: not made yet). */
+function boardOf(text: string, board: 'icon' | 'cover'): Array<Record<string, any>> | null {
+  const m = new RegExp(`^${board} \\(\\d+×\\d+\\), bottom to top:\\n(.*)$`, 'm').exec(text);
+  return m ? JSON.parse(m[1]!) : null;
+}
+/** The cover's layers a refusal says the person changed after the AI read the work. */
+const changedByPerson = (text: string) =>
+  [...text.matchAll(/the work's cover \(([a-zA-Z0-9]+)\) was changed by the person/g)].map(
+    m => m[1]!,
+  );
+
+/**
+ * The cover made to match the icon, the way a model would from what kit_get_art says: the
+ * icon's ground and its window (as a large porthole) come to the cover, the letters move left
+ * to make room, a pattern steps back. Only the cover is touched. It takes a few seconds to
+ * think between reading and editing; when the person changed a layer meanwhile, the edit is
+ * refused, and it reads again and leaves that layer as the person made it.
+ */
+async function coverLikeIcon(t: Parameters<Scenario['run']>[0]) {
+  await t.think();
+  const plan = (text: string, skip: readonly string[]) => {
+    const icon = boardOf(text, 'icon') ?? [];
+    const cover = boardOf(text, 'cover') ?? [];
+    const ops: Array<Record<string, unknown>> = [];
+    const notes: string[] = [];
+    const iconGround = icon.find(l => l.kind === 'ground');
+    const iconWindow = icon.find(l => l.kind === 'window');
+    const ground = cover.find(l => l.kind === 'ground');
+    if (ground && !skip.includes(ground.id))
+      ops.push({
+        op: 'updateArtLayer',
+        board: 'cover',
+        id: ground.id,
+        set: { fill: iconGround?.fill ?? null },
+      });
+    else if (!ground)
+      ops.push({
+        op: 'addArtLayer',
+        board: 'cover',
+        index: 0,
+        layer: { kind: 'ground', ...(iconGround?.fill ? { fill: iconGround.fill } : {}) },
+      });
+    if (iconWindow) {
+      const rect = { x: 900, y: 150, w: 600, h: 600 };
+      const k = rect.w / iconWindow.rect.w;
+      const style = iconWindow.style
+        ? {
+            ...iconWindow.style,
+            ...(iconWindow.style.radius
+              ? { radius: Math.min(rect.w / 2, iconWindow.style.radius * k) }
+              : {}),
+            ...(iconWindow.style.stroke
+              ? {
+                  stroke: {
+                    ...iconWindow.style.stroke,
+                    width: Math.round(iconWindow.style.stroke.width * 1.4),
+                  },
+                }
+              : {}),
+          }
+        : { radius: 300 };
+      const fields = {
+        rect,
+        focus: iconWindow.focus,
+        zoom: Math.round(iconWindow.zoom * k * 100) / 100,
+        style,
+      };
+      const window = cover.find(l => l.kind === 'window');
+      if (window && skip.includes(window.id)) notes.push(`left ${window.id} as you made it`);
+      else if (window)
+        ops.push({ op: 'updateArtLayer', board: 'cover', id: window.id, set: fields });
+      else ops.push({ op: 'addArtLayer', board: 'cover', layer: { kind: 'window', ...fields } });
+    }
+    for (const l of cover) {
+      if (skip.includes(l.id)) {
+        if (l.kind !== 'window') notes.push(`left ${l.id} as you made it`);
+        continue;
+      }
+      if (l.kind === 'mark')
+        ops.push({
+          op: 'updateArtLayer',
+          board: 'cover',
+          id: l.id,
+          set: {
+            rect: { x: 110, y: 300, w: 720, h: 300 },
+            textStyle: { ...l.textStyle, align: 'left' },
+            style: null,
+          },
+        });
+      if (l.kind === 'pattern')
+        ops.push({
+          op: 'updateArtLayer',
+          board: 'cover',
+          id: l.id,
+          set: { style: { opacity: 0.16 } },
+        });
+    }
+    return { ops, notes };
+  };
+  const first = await t.call('kit_get_art', {});
+  await t.sleep(5000); // thinking: the person may change the cover meanwhile
+  let { ops, notes } = plan(first.text, []);
+  let done = await t.call('kit_apply_ops', { ops });
+  if (!done.success && /changed by the person/.test(done.text)) {
+    const skip = changedByPerson(done.text);
+    const again = await t.call('kit_get_art', {});
+    ({ ops, notes } = plan(again.text, skip));
+    done = await t.call('kit_apply_ops', { ops });
+  }
+  if (!done.success) {
+    await t.say(`I could not change the cover: ${done.text.slice(0, 200)}`);
+    return;
+  }
+  const did = (what: RegExp) => ops.some(o => what.test(JSON.stringify(o)));
+  const summary = [
+    "The cover now wears the icon's ground and its window, large, on the right",
+    ...(did(/"textStyle"/) ? ['the letters moved left'] : []),
+    ...(did(/"opacity":0.16/) ? ['the pattern stepped back'] : []),
+  ]
+    .join('; ')
+    .concat('.', notes.length ? ` I ${notes.join(', ')}.` : '');
+  await t.call('kit_finish', { summary });
+  await t.say(summary);
+}
+
 const scenarios: Scenario[] = [
+  {
+    name: 'art-cover-like-icon',
+    match: text => {
+      const request = text.split('\n\n').at(-1) ?? '';
+      return /\bcover\b/i.test(request) && /\bicon\b/i.test(request);
+    },
+    run: coverLikeIcon,
+  },
   {
     name: 'connection-failure-during-tool',
     match: /connection failure during tool/i,

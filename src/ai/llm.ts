@@ -162,6 +162,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   kit_read_file: 'reading a file…',
   kit_write_file: 'writing a file…',
   kit_get_plugin: 'reading the plugin screen…',
+  kit_get_art: 'reading the icon and cover…',
   kit_ui_reference: 'looking up how screens are built…',
   kit_look: 'looking at the screen…',
   kit_view_picture: 'looking at a picture…',
@@ -172,6 +173,7 @@ const TOOL_DONE: Record<string, string> = {
   kit_list_blocks: 'looked up modules',
   kit_describe_block: 'looked up a module',
   kit_get_plugin: 'read the plugin screen',
+  kit_get_art: 'read the icon and cover',
   kit_ui_reference: 'looked up the screen reference',
   kit_read_file: 'read a file',
 };

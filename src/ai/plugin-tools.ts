@@ -619,6 +619,16 @@ export function describeUiOp(op: Intent): string | null {
       return 'design brief';
     case 'setTheme':
       return `theme ${op.theme}`;
+    case 'setArt':
+      return op.layers ? `${op.board}: ${op.layers.length} layers` : `− ${op.board}`;
+    case 'addArtLayer':
+      return `+ ${op.board} ${typeof op.layer?.kind === 'string' ? op.layer.kind : 'layer'}`;
+    case 'updateArtLayer':
+      return `${op.board} ${op.id}: ${Object.keys(op.set ?? {}).join(', ')}`;
+    case 'removeArtLayer':
+      return `− ${op.board} ${op.id}`;
+    case 'arrangeArtLayer':
+      return `${op.board} ${op.id} ${op.to}`;
     default:
       return null;
   }

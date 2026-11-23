@@ -43,6 +43,19 @@ function base(): PatchDocument {
   ]);
 }
 
+/** An icon: the plugin's ground and a window onto its first knob, in a round frame. */
+const ICON = [
+  { id: 'ground1', kind: 'ground' },
+  {
+    id: 'window1',
+    kind: 'window',
+    rect: { x: 56, y: 56, w: 400, h: 400 },
+    focus: { x: 50, y: 55 },
+    zoom: 2,
+    style: { radius: 200 },
+  },
+];
+
 interface Case {
   /** Changes that fit, applied to the base. */
   ok: (doc: PatchDocument) => Intent[];
@@ -297,6 +310,47 @@ const CASES: Record<Intent['op'], Case> = {
     ],
     bad: () => [
       { op: 'setSpread', node: 'osc1', port: 'frequency', spread: { kind: 'wobbly' as 'range' } },
+    ],
+  },
+  setArt: {
+    ok: () => [{ op: 'setArt', board: 'icon', layers: ICON }],
+    bad: () => [{ op: 'setArt', board: 'icon', layers: [{ id: 'x1', kind: 'sticker' }] }],
+  },
+  addArtLayer: {
+    ok: () => [
+      {
+        op: 'addArtLayer',
+        board: 'cover',
+        layer: { kind: 'mark', rect: { x: 0, y: 0, w: 800, h: 200 }, text: 'Bass' },
+      },
+    ],
+    bad: () => [{ op: 'addArtLayer', board: 'poster' as 'cover', layer: { kind: 'ground' } }],
+  },
+  updateArtLayer: {
+    ok: () => [
+      { op: 'setArt', board: 'icon', layers: ICON },
+      { op: 'updateArtLayer', board: 'icon', id: 'window1', set: { zoom: 3, style: null } },
+    ],
+    bad: () => [
+      { op: 'setArt', board: 'icon', layers: ICON },
+      { op: 'updateArtLayer', board: 'icon', id: 'window1', set: { text: 'no' } },
+    ],
+  },
+  removeArtLayer: {
+    ok: () => [
+      { op: 'setArt', board: 'icon', layers: ICON },
+      { op: 'removeArtLayer', board: 'icon', id: 'ground1' },
+    ],
+    bad: () => [{ op: 'removeArtLayer', board: 'icon', id: 'ground1' }],
+  },
+  arrangeArtLayer: {
+    ok: () => [
+      { op: 'setArt', board: 'icon', layers: ICON },
+      { op: 'arrangeArtLayer', board: 'icon', id: 'window1', to: 'back' },
+    ],
+    bad: () => [
+      { op: 'setArt', board: 'icon', layers: ICON },
+      { op: 'arrangeArtLayer', board: 'icon', id: 'window1', to: 'sideways' as 'back' },
     ],
   },
 };

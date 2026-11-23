@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// den-kit's shell: the toolbar, the Patch, Plugin, Code and Project views, the
+// den-kit's shell: the toolbar, the Patch, Plugin, Art, Code and Project views, the
 // inspector, the AI panel, the keyboard bar, the dialogs and the app's shortcuts.
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { SESSION } from './context.ts';
@@ -12,6 +12,7 @@ import PatchView from './PatchView.vue';
 import PluginView from './PluginView.vue';
 import CodeView from './CodeView.vue';
 import ProjectView from './ProjectView.vue';
+import ArtView from './ArtView.vue';
 import Inspector from './Inspector.vue';
 import KeyboardBar from './KeyboardBar.vue';
 import CodeboxEditor from './CodeboxEditor.vue';
@@ -30,7 +31,7 @@ const session = props.session;
 provide(SESSION, session);
 // Code parts on any plugin drawn in the editor come from the work's pod (through the host's sandbox when it has one).
 provide(POD, session.codeParts?.source ?? session.pod);
-const view = ref<'patch' | 'plugin' | 'code' | 'project'>('patch');
+const view = ref<'patch' | 'plugin' | 'art' | 'code' | 'project'>('patch');
 /** A file of the screen project to open in the Project view. */
 const projectFile = ref<string | null>(null);
 function openProject(path?: string) {
@@ -418,6 +419,14 @@ async function importPatch(e: Event) {
         >
           Plugin
         </button>
+        <button
+          :class="{ active: view === 'art' }"
+          data-testid="view-art"
+          title="The work's icon and cover"
+          @click="view = 'art'"
+        >
+          Art
+        </button>
         <button :class="{ active: view === 'code' }" data-testid="view-code" @click="view = 'code'">
           Code
         </button>
@@ -472,8 +481,8 @@ async function importPatch(e: Event) {
     </div>
     <div class="body">
       <div class="left">
-        <div class="main" :class="{ wide: view === 'project' }">
-          <div v-show="!focusMode && view !== 'project'" class="sidebar">
+        <div class="main" :class="{ wide: view === 'project' || view === 'art' }">
+          <div v-show="!focusMode && view !== 'project' && view !== 'art'" class="sidebar">
             <PluginInspector
               v-if="view === 'plugin' && pluginEdit"
               @edit-canvas="id => (editingCanvas = id)"
@@ -493,6 +502,7 @@ async function importPatch(e: Event) {
               @edit-canvas="id => (editingCanvas = id)"
             />
             <ProjectView v-else-if="view === 'project'" :open="projectFile" />
+            <ArtView v-else-if="view === 'art'" />
             <CodeView v-else />
             <div
               v-if="banner.length"

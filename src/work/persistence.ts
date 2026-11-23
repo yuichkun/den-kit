@@ -1,6 +1,7 @@
 // The document as JSON (in a work file, see work-file.ts, and in saved records).
 // Loading never trusts the data: unknown versions are refused, broken pieces are
 // repaired or dropped and every repair is reported, so nothing disappears silently.
+import { ART_BOARDS, checkArtBoard, type WorkArt } from './art.ts';
 import type { Catalog } from './catalog.ts';
 import { hashString, canonicalJson } from './hash.ts';
 import type { Issue } from './issues.ts';
@@ -437,6 +438,7 @@ export function parseDocument(input: string | unknown, catalog: Catalog): ParseR
       doc.panel.height = Math.min(4000, data.panel.height);
   }
   if (isObject(data.ui)) readUi(data.ui, doc, report, rename);
+  if (isObject(data.art)) readArt(data.art, doc, report, rename);
   if (!Object.keys(doc.parts).length) return { ok: true, doc, report };
   // Parts: inputs, outputs and parameters follow what is inside; parts nothing uses are dropped (as after any edit).
   try {
@@ -690,6 +692,45 @@ function readUi(
   }
 }
 
+/** The icon and cover: each board that can be read is kept, a moment follows renamed controls. */
+function readArt(
+  raw: Record<string, unknown>,
+  doc: PatchDocument,
+  report: Issue[],
+  rename: Map<string, string>,
+) {
+  const art: WorkArt = {};
+  for (const board of ART_BOARDS) {
+    const value = raw[board];
+    if (value === undefined) continue;
+    const layers = isObject(value) && Array.isArray(value.layers) ? value.layers : value;
+    try {
+      art[board] = checkArtBoard(
+        Array.isArray(layers)
+          ? layers.map(l =>
+              isObject(l) && isObject(l.moment)
+                ? {
+                    ...l,
+                    moment: Object.fromEntries(
+                      Object.entries(l.moment).map(([id, v]) => [rename.get(id) ?? id, v]),
+                    ),
+                  }
+                : l,
+            )
+          : layers,
+        lenient(doc, report),
+      );
+    } catch (error) {
+      report.push({
+        severity: 'warning',
+        code: 'dropped-art',
+        message: `Dropped the work's ${board}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+  if (Object.keys(art).length) doc.art = art;
+}
+
 /** Autosave record with a checksum, so a torn or corrupted write is detected on load. */
 export interface SaveRecord {
   savedAt: number;
@@ -721,6 +762,7 @@ export function documentHash(doc: PatchDocument): string {
       ui: doc.ui,
       parts: doc.parts,
       files: doc.files,
+      art: doc.art,
     }),
   );
 }

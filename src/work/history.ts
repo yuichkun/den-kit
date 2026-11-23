@@ -245,11 +245,13 @@ function mergeValueOps(
           ? `f:${op.node}:${op.field}`
           : op.op === 'setElement'
             ? `e:${op.id}:${op.field}`
-            : op.op === 'setUi'
-              ? `u:${op.field}`
-              : op.op === 'setSize'
-                ? 's'
-                : null;
+            : op.op === 'setArtLayer' && op.from && op.to
+              ? `a:${op.board}:${op.id}`
+              : op.op === 'setUi'
+                ? `u:${op.field}`
+                : op.op === 'setSize'
+                  ? 's'
+                  : null;
     if (key && index.has(key)) {
       const at = index.get(key)!;
       out[at] = { ...(out[at] as typeof op), to: (op as { to: unknown }).to } as ResolvedOp;
@@ -372,6 +374,16 @@ export function describeIntents(intents: Intent[]): string {
         return `Hide ${i.id} from the part`;
       case 'updatePart':
         return i.name !== undefined ? 'Rename a part' : 'Describe a part';
+      case 'setArt':
+        return i.layers === null ? `Remove the ${i.board}` : `Start the ${i.board}`;
+      case 'addArtLayer':
+        return `Add a layer to the ${i.board}`;
+      case 'updateArtLayer':
+        return `Change the ${i.board}'s ${i.id}`;
+      case 'removeArtLayer':
+        return `Remove the ${i.board}'s ${i.id}`;
+      case 'arrangeArtLayer':
+        return `Arrange the ${i.board}'s layers`;
       default:
         return i.op;
     }

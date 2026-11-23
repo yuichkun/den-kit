@@ -10,6 +10,7 @@ import type { Catalog, PortDef } from '../work/catalog.ts';
 import { currentAssets, generate, type Generated } from '../sound/codegen.ts';
 import { decodeAudio, slotPayload, type Decoded } from '../sound/assets.ts';
 import { describePatch } from './describe.ts';
+import { describeArt } from './art-tools.ts';
 import { formatIssue, type Issue } from '../work/issues.ts';
 import { applyIntents, OpError, type Intent } from '../work/ops.ts';
 import { PHRASES, phraseEvents, type Phrase } from '../sound/phrases.ts';
@@ -42,7 +43,7 @@ export type { ToolOutput };
 
 /** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
 /** Tools that show the AI the work as it is now. */
-const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_look']);
+const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_get_art', 'kit_look']);
 
 export interface WorkspaceDeps {
   catalog: Catalog;
@@ -126,7 +127,7 @@ export const dataUrl = (bytes: Uint8Array, mime: string) => {
 };
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS =
-  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
+  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_get_art, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
 /** Kept of a command's output for the model (the end, where errors are). */
 const MAX_COMMAND_TEXT = 12000;
 const clipEnd = (s: string, n = MAX_COMMAND_TEXT) =>
@@ -194,6 +195,8 @@ export class LlmWorkspace {
             ),
           };
         }
+        case 'kit_get_art':
+          return { success: true, text: clip(describeArt(this.deps.read(), this.deps.catalog)) };
         case 'kit_look':
           return a.as === 'seen'
             ? await this.lookSeen(
@@ -609,9 +612,12 @@ export class LlmWorkspace {
     const landed = this.deps.land(intents, step, this.seen);
     if (!landed.ok) {
       this.steps.push(`${step} — not applied`);
+      const read = intents.some(i => 'board' in i)
+        ? 'kit_get_art to see the art'
+        : 'kit_get_patch to see the patch';
       return {
         success: false,
-        text: `Not applied: ${landed.message} Call kit_get_patch to see the patch as it is now, then try again.`,
+        text: `Not applied: ${landed.message} Call ${read} as it is now, then try again.`,
       };
     }
     this.landed++;

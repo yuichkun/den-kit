@@ -13,6 +13,20 @@ import {
   type ConfigDef,
 } from './catalog.ts';
 import { createsCycle } from './scope.ts';
+import {
+  ART_BOARDS,
+  ART_LIMITS,
+  LAYER_KINDS,
+  checkArtBoard,
+  checkArtLayer,
+  isBoard,
+  layerFields,
+  nextLayerId,
+  type ArtBoard,
+  type ArtBoardId,
+  type ArtLayer,
+  type ArtLayerKind,
+} from './art.ts';
 import { OpError, fail } from './op-error.ts';
 import { CODEBOX_TEMPLATE } from './codebox-template.ts';
 import { moveAssetReads } from './codebox-assets.ts';
@@ -226,7 +240,14 @@ export type Intent =
   /** Run a node (or a part) as this many copies side by side (1: once). Its outputs then carry one signal per copy (a thick cable). */
   | { op: 'setCount'; node: NodeId; count: number }
   /** How the copies differ on one knob (null: the same in every copy). */
-  | { op: 'setSpread'; node: NodeId; port: PortId; spread: Spread | null };
+  | { op: 'setSpread'; node: NodeId; port: PortId; spread: Spread | null }
+  /** The work's icon or cover (art.ts): a whole board (null removes it), or one of its layers. */
+  | { op: 'setArt'; board: ArtBoardId; layers: unknown[] | null }
+  | { op: 'addArtLayer'; board: ArtBoardId; layer: Record<string, unknown>; index?: number }
+  /** Fields of one layer (null removes one). */
+  | { op: 'updateArtLayer'; board: ArtBoardId; id: string; set: Record<string, unknown> }
+  | { op: 'removeArtLayer'; board: ArtBoardId; id: string }
+  | { op: 'arrangeArtLayer'; board: ArtBoardId; id: string; to: Arrange };
 
 type Field =
   | 'pos'
@@ -270,7 +291,20 @@ export type ResolvedOp =
   | { op: 'removePart'; part: PartDef }
   | { op: 'setPart'; id: string; from: PartDef; to: PartDef }
   /** A file of the work added (from undefined), replaced or removed (to undefined). */
-  | { op: 'setFile'; path: string; from: WorkFile | undefined; to: WorkFile | undefined };
+  | { op: 'setFile'; path: string; from: WorkFile | undefined; to: WorkFile | undefined }
+  /** A layer of the icon or cover added (from null) at `index`, changed, or removed (to null) from `index`. */
+  | {
+      op: 'setArtLayer';
+      board: ArtBoardId;
+      id: string;
+      index: number;
+      from: ArtLayer | null;
+      to: ArtLayer | null;
+    }
+  /** The order of a board's layers, by id, bottom to top. */
+  | { op: 'setArtOrder'; board: ArtBoardId; from: string[]; to: string[] }
+  /** A whole board made (from null), replaced, or removed (to null). */
+  | { op: 'setArtBoard'; board: ArtBoardId; from: ArtBoard | null; to: ArtBoard | null };
 
 export { OpError } from './op-error.ts';
 
@@ -464,7 +498,43 @@ function applyResolved(doc: PatchDocument, op: ResolvedOp) {
       doc.files = files;
       break;
     }
+    case 'setArtLayer': {
+      const layers = [...(doc.art?.[op.board]?.layers ?? [])];
+      const at = layers.findIndex(l => l.id === op.id);
+      if (op.from === null) {
+        if (at >= 0 || !op.to) throw new Error(`art layer ${op.id} is already there`);
+        layers.splice(Math.min(op.index, layers.length), 0, clone(op.to));
+      } else {
+        if (at < 0) throw new Error(`missing art layer ${op.id}`);
+        if (op.to === null) layers.splice(at, 1);
+        else layers[at] = clone(op.to);
+      }
+      setBoard(doc, op.board, { layers });
+      break;
+    }
+    case 'setArtOrder': {
+      const layers = doc.art?.[op.board]?.layers;
+      if (!layers) throw new Error(`missing art board ${op.board}`);
+      // Layers the order does not name (added since) stay on top, as they were.
+      const listed = op.to.flatMap(id => layers.filter(l => l.id === id));
+      setBoard(doc, op.board, {
+        layers: [...listed, ...layers.filter(l => !op.to.includes(l.id))],
+      });
+      break;
+    }
+    case 'setArtBoard':
+      setBoard(doc, op.board, op.to ? clone(op.to) : null);
+      break;
   }
+}
+
+/** Replace one board of the art (null: none); the art and the board are new objects, never mutated. */
+function setBoard(doc: PatchDocument, board: ArtBoardId, value: ArtBoard | null) {
+  const art = { ...doc.art };
+  if (value) art[board] = value;
+  else delete art[board];
+  if (Object.keys(art).length) doc.art = art;
+  else delete doc.art;
 }
 
 export function invert(op: ResolvedOp): ResolvedOp {
@@ -503,6 +573,12 @@ export function invert(op: ResolvedOp): ResolvedOp {
       return { ...op, from: op.to, to: op.from };
     case 'setFile':
       return { ...op, from: op.to, to: op.from };
+    case 'setArtLayer':
+      return { ...op, from: op.to, to: op.from };
+    case 'setArtOrder':
+      return { ...op, from: op.to, to: op.from };
+    case 'setArtBoard':
+      return { ...op, from: op.to, to: op.from };
   }
 }
 
@@ -521,7 +597,7 @@ export function applyResolvedOps(base: PatchDocument, ops: readonly ResolvedOp[]
 export interface ApplyResult {
   doc: PatchDocument;
   ops: ResolvedOp[];
-  /** Ids created by addNode, addElement, group and makePart intents (and the modules unpackPart brings out), in order. */
+  /** Ids created by addNode, addElement, group, makePart and addArtLayer intents (and the modules unpackPart brings out), in order. */
   created: NodeId[];
   /** The index of the intent that made each of `created`. */
   createdBy: number[];
@@ -1184,6 +1260,21 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       draft.apply({ op: 'setUi', field: 'underlay', from: draft.doc.ui.underlay, to });
       return;
     }
+    case 'setArt':
+      return setArt(draft, intent.board, intent.layers);
+    case 'addArtLayer':
+      return addArtLayer(draft, intent.board, intent.layer, intent.index, created);
+    case 'updateArtLayer':
+      return updateArtLayer(draft, intent.board, intent.id, intent.set);
+    case 'removeArtLayer': {
+      const board = requireBoard(intent.board);
+      const old = requireLayer(draft, board, intent.id);
+      const index = draft.doc.art![board]!.layers.indexOf(old);
+      draft.apply({ op: 'setArtLayer', board, id: old.id, index, from: old, to: null });
+      return;
+    }
+    case 'arrangeArtLayer':
+      return arrangeArtLayer(draft, intent.board, intent.id, intent.to);
     case 'makePart':
       return makePart(draft, intent, created);
     case 'unpackPart':
@@ -1296,7 +1387,7 @@ function resolveIntent(draft: Draft, intent: Intent, created: NodeId[]) {
       fail(
         'bad-intent',
         `Unknown op "${(intent as { op?: unknown }).op}".`,
-        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, replaceAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread.',
+        'Valid ops: addNode, removeNode, connect, disconnect, disconnectInput, setValue, setConfig, setCode, move, setLabel, setText, setPanel, setName, setTheme, addElement, removeElement, updateElement, setRect, setStyle, arrange, group, ungroup, setLook, setPanelSize, addAsset, updateAsset, replaceAsset, removeAsset, setUnderlay, setBrief, setNetwork, setProjectFiles, makePart, unpackPart, detachPart, updatePart, addParam, removeParam, importPart, replacePart, setCount, setSpread, setArt, addArtLayer, updateArtLayer, removeArtLayer, arrangeArtLayer.',
       );
   }
 }
@@ -1496,6 +1587,118 @@ function arrange(draft: Draft, ids: readonly string[], to: Arrange) {
   draft.apply({ op: 'setUi', field: 'order', from: draft.doc.ui.order, to: order });
 }
 
+// ---- the work's art ------------------------------------------------------------------------
+function requireBoard(board: unknown): ArtBoardId {
+  if (!isBoard(board)) fail('bad-art', `board must be ${ART_BOARDS.join(' or ')}.`);
+  return board as ArtBoardId;
+}
+function requireLayer(draft: Draft, board: ArtBoardId, id: unknown): ArtLayer {
+  const layers = draft.doc.art?.[board]?.layers ?? [];
+  const layer = layers.find(l => l.id === id);
+  if (!layer)
+    fail(
+      'unknown-layer',
+      `No layer "${String(id)}" on the ${board}.`,
+      layers.length
+        ? `Layers, bottom first: ${layers.map(l => `${l.id} (${l.kind})`).join(', ')}`
+        : `The ${board} has no layers yet.`,
+    );
+  return layer!;
+}
+function setArt(draft: Draft, boardId: unknown, layers: unknown[] | null) {
+  const board = requireBoard(boardId);
+  const from = draft.doc.art?.[board] ?? null;
+  let to: ArtBoard | null = null;
+  if (layers !== null) {
+    if (!Array.isArray(layers))
+      fail('bad-art', 'layers is a list of layers (bottom first), or null to remove the board.');
+    to = checkArtBoard({ layers }, checkContext(draft));
+  }
+  if (JSON.stringify(from) === JSON.stringify(to)) return;
+  draft.apply({ op: 'setArtBoard', board, from, to });
+}
+function addArtLayer(
+  draft: Draft,
+  boardId: unknown,
+  spec: Record<string, unknown>,
+  index: number | undefined,
+  created: string[],
+) {
+  const board = requireBoard(boardId);
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec))
+    fail('bad-intent', 'addArtLayer needs layer {kind, ...}.');
+  if (!(LAYER_KINDS as readonly unknown[]).includes(spec.kind))
+    fail(
+      'bad-art',
+      `Unknown layer kind ${JSON.stringify(spec.kind)}.`,
+      `Kinds: ${LAYER_KINDS.join(', ')}.`,
+    );
+  const current = draft.doc.art?.[board];
+  const count = current?.layers.length ?? 0;
+  if (count >= ART_LIMITS.layers)
+    fail('too-large', `A board has at most ${ART_LIMITS.layers} layers.`);
+  const id =
+    typeof spec.id === 'string' && spec.id
+      ? spec.id
+      : nextLayerId(current, spec.kind as ArtLayerKind);
+  if (current?.layers.some(l => l.id === id))
+    fail('duplicate-id', `The ${board} already has a layer "${id}".`);
+  const layer = checkArtLayer({ ...spec, id }, checkContext(draft));
+  if (!current) draft.apply({ op: 'setArtBoard', board, from: null, to: { layers: [] } });
+  draft.apply({
+    op: 'setArtLayer',
+    board,
+    id,
+    index: finite(index) ? Math.max(0, Math.min(count, Math.round(index))) : count,
+    from: null,
+    to: layer,
+  });
+  created.push(id);
+}
+function updateArtLayer(draft: Draft, boardId: unknown, id: unknown, set: Record<string, unknown>) {
+  const board = requireBoard(boardId);
+  const old = requireLayer(draft, board, id);
+  if (!set || typeof set !== 'object' || Array.isArray(set))
+    fail('bad-intent', 'updateArtLayer needs set {field: value}.');
+  const allowed = ['name', 'hidden', ...layerFields(old.kind)];
+  for (const key of Object.keys(set))
+    if (!allowed.includes(key))
+      fail(
+        'bad-art',
+        `A ${old.kind} layer has no "${key}" to change.`,
+        `Fields: ${allowed.join(', ')}.`,
+      );
+  const candidate: Record<string, unknown> = { ...old };
+  for (const [key, value] of Object.entries(set)) {
+    if (value === null) delete candidate[key];
+    else candidate[key] = value;
+  }
+  const to = checkArtLayer(candidate, checkContext(draft));
+  if (JSON.stringify(old) === JSON.stringify(to)) return;
+  const index = draft.doc.art![board]!.layers.indexOf(old);
+  draft.apply({ op: 'setArtLayer', board, id: old.id, index, from: old, to });
+}
+function arrangeArtLayer(draft: Draft, boardId: unknown, id: unknown, to: Arrange) {
+  const board = requireBoard(boardId);
+  const layer = requireLayer(draft, board, id);
+  if (!['front', 'back', 'forward', 'backward'].includes(to))
+    fail('bad-intent', 'arrangeArtLayer to: front, back, forward or backward.');
+  const from = draft.doc.art![board]!.layers.map(l => l.id);
+  const at = from.indexOf(layer.id);
+  const order = from.filter(l => l !== layer.id);
+  const index =
+    to === 'front'
+      ? order.length
+      : to === 'back'
+        ? 0
+        : to === 'forward'
+          ? Math.min(order.length, at + 1)
+          : Math.max(0, at - 1);
+  order.splice(index, 0, layer.id);
+  if (JSON.stringify(order) === JSON.stringify(from)) return;
+  draft.apply({ op: 'setArtOrder', board, from, to: order });
+}
+
 /** Ops that turn `prev` into `next` wholesale (loading a patch as one undoable step). */
 export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp[] {
   const ops: ResolvedOp[] = [
@@ -1530,6 +1733,14 @@ export function replaceOps(prev: PatchDocument, next: PatchDocument): ResolvedOp
   for (const field of ['look', 'order', 'groups', 'underlay', 'brief', 'network'] as const)
     if (JSON.stringify(prev.ui[field]) !== JSON.stringify(next.ui[field]))
       ops.push({ op: 'setUi', field, from: prev.ui[field], to: next.ui[field] });
+  for (const board of ART_BOARDS)
+    if (JSON.stringify(prev.art?.[board]) !== JSON.stringify(next.art?.[board]))
+      ops.push({
+        op: 'setArtBoard',
+        board,
+        from: prev.art?.[board] ?? null,
+        to: next.art?.[board] ?? null,
+      });
   return ops;
 }
 
@@ -1601,7 +1812,7 @@ function defaultStem(type: string): string {
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
 
-/** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay, part faces, node settings and what codeboxes read. */
+/** Point every reference to an asset at its new path: the look, decorations, widget styles, the underlay, part faces, node settings, what codeboxes read and the art. */
 function moveAssetRefs(draft: Draft, from: string, to: string) {
   const move = (value: unknown): unknown => {
     const text = JSON.stringify(value ?? null);
@@ -1638,5 +1849,11 @@ function moveAssetRefs(draft: Draft, from: string, to: string) {
   for (const part of Object.values(draft.doc.parts)) {
     const after = move(part) as PartDef;
     if (after !== part) draft.apply({ op: 'setPart', id: part.id, from: part, to: after });
+  }
+  for (const board of ART_BOARDS) {
+    const before = draft.doc.art?.[board];
+    const after = move(before) as ArtBoard | undefined;
+    if (before && after !== before)
+      draft.apply({ op: 'setArtBoard', board, from: before, to: after! });
   }
 }

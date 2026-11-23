@@ -47,6 +47,13 @@ manual edits during that request keep their own undo steps. Each work has one
 conversation: when you open the work again, the next request goes on from it. Loading a
 starter over the work starts a new conversation.
 
+## Icon and cover
+
+**Art** makes the work's icon and cover from the work itself: start from a window onto the
+plugin, its most telling control or picture, or the patch as a pattern, then pan, zoom and
+add layers. They follow the work when its look or patch changes, and the AI edits them with
+the same steps and undo. The shelf below shows them small, next to the example works.
+
 ## Common shortcuts
 
 These shortcuts apply outside text inputs. The table uses macOS key names.

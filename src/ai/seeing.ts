@@ -6,7 +6,7 @@
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument } from '../work/schema.ts';
 
-export type SeenView = 'patch' | 'plugin' | 'code' | 'project';
+export type SeenView = 'patch' | 'plugin' | 'code' | 'project' | 'art';
 export interface Seeing {
   view: SeenView;
   /** The plugin is being edited (not played). */
@@ -18,6 +18,8 @@ export interface Seeing {
   inView?: string[];
   /** The plugin's scale on screen (1 = its design size). */
   scale?: number;
+  /** The board of the art being edited (icon or cover), and its selected layer. */
+  art?: { board: string; layer?: string };
 }
 
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -60,6 +62,10 @@ export function seeingText(
       : '';
     parts.push(`the patch${where}${s.zoom ? ` (zoom ${Math.round(s.zoom * 100)}%${sight})` : ''}`);
   } else if (s.view === 'code') parts.push('the generated code');
+  else if (s.view === 'art')
+    parts.push(
+      `the work's icon and cover${s.art ? `, editing the ${s.art.board}${s.art.layer ? ` (layer ${s.art.layer} selected)` : ''}` : ''} (kit_get_art shows them)`,
+    );
   else parts.push('the screen project (files and terminal)');
   if (extra.selection.length)
     parts.push(
