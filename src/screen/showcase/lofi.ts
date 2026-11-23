@@ -65,11 +65,12 @@ export const CRUSH_GRID = `// The sound as a landscape of blocks on a black tabl
 // zoomed to fit (its loudest point of about the last second reaches 90% of the
 // height). The front row is solid (white tops, dotted fronts), so its steps
 // read as the wave; the rows behind are black with white edges, the older the
-// sparser their edges; a black side closes the landscape at its right end. A
+// sparser their edges; a black side closes the landscape at its right end, the
+// rows cut through on it (each row's last column, dotted). A
 // ruler along the front has a tick at every column, the rate at its end; one at
 // the left has a tick at every level, the bits under it. The rows sway with the
-// wobble (fwob). In front, on a floor of dots every 40 px, stand three towers
-// here and there, each on a square of the dots, as tall as its value, its name
+// wobble (fwob). In front, on a floor ruled in dots every 40 px, stand three towers
+// here and there, each on a square of the floor, as tall as its value, its name
 // upright in front of it: the wobble (it sways), the hiss (its faces fizz with
 // white dots, the more the louder) and the tone; and the OUT tower, whose face
 // is the meter on the plugin. Every tower has a white top, a dotted front and a
@@ -77,7 +78,7 @@ export const CRUSH_GRID = `// The sound as a landscape of blocks on a black tabl
 // ruler along itself; pull a tower up and down. Under the hand, the tower's name
 // reads its value, or the ruler's value at its end, black on a white bar. Words
 // are in the screen's own pixel letters, the work's name large on the floor at
-// the front left; no dot of the floor runs into a word.
+// the front left; no line of the floor runs into a word.
 const SR = 48000, RMIN = 1500, RMAX = 48000, BMIN = 2, BMAX = 16;
 const WOB = [0, 0.005], HISS = [0, 0.06], TONE = [900, 14000];
 const ROWS = 12, LI = 560, LJ = 180, H = 120;
@@ -100,7 +101,7 @@ const TOWERS = [
   { id: 'fhiss', kind: 'hiss', name: 'HISS', i: 400, j: 560, range: HISS, log: false },
   { id: 'ftone', kind: 'tone', name: 'TONE', i: 600, j: 480, range: TONE, log: true },
 ];
-// The table's floor in front of the landscape, dotted every 40 px: its first and last i and j.
+// The table's floor in front of the landscape, ruled every 40 px: its first and last i and j.
 const FLOOR = { i0: 160, i1: 840, j0: 400, j1: 640 };
 const tnorm = (f, q) => { const v = val(f, q.id, q.range); return q.log ? lnorm(v, q.range[0], q.range[1]) : (v - q.range[0]) / (q.range[1] - q.range[0]); };
 const tall = (f, q) => 24 + tnorm(f, q) * TH;
@@ -245,16 +246,19 @@ export default {
     Object.assign(bb, { x: 16, x0: 10, x1: 16 + bb.w + 6 });
     words.push({ text: rateText, b: rb, on: rateOn }, { text: bitsText, b: bb, on: bitsOn });
     const title = { x0: 10, y0: h - 44, x1: 16 + 7 * 18 + 3, y1: h - 10 };
-    // The table's floor in front: a dot every 40 px, none where a word is.
-    ctx.fillStyle = ink;
-    const clear = (x, y) => [...words.map(z => z.b), title].some(b => x > b.x0 - 3 && x < b.x1 + 3 && y > b.y0 - 3 && y < b.y1 + 3);
-    for (let i = FLOOR.i0; i <= FLOOR.i1; i += 40)
-      for (let j = FLOOR.j0; j <= FLOOR.j1; j += 40) {
-        const [x, y] = P(i, j, 0);
-        if (x > 2 && x < w - 2 && y < h - 2 && !clear(x, y)) ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
-      }
+    // The table's floor in front: a dotted line every 40 px each way, stopping short of every word.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, w, h);
+    for (const b of [...words.map(z => z.b), title]) ctx.rect(b.x0 - 3, b.y0 - 3, b.x1 - b.x0 + 6, b.y1 - b.y0 + 6);
+    ctx.clip('evenodd');
+    ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.setLineDash([1, 3]);
+    ctx.beginPath();
+    for (let j = FLOOR.j0; j <= FLOOR.j1; j += 40) { const [x0, y0] = P(FLOOR.i0, j, 0), [x1, y1] = P(FLOOR.i1, j, 0); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+    for (let i = FLOOR.i0; i <= FLOOR.i1; i += 40) { const [x0, y0] = P(i, FLOOR.j0, 0), [x1, y1] = P(i, FLOOR.j1, 0); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
     // The work's name, large, on the floor at the front left.
-    px(ctx, 'LOW RES', 16, h - 37, 3, 'left');
+    ctx.fillStyle = ink; px(ctx, 'LOW RES', 16, h - 37, 3, 'left');
     // The rulers: along the front a tick at every column; at the left a tick at every level, the bits under it.
     const ui = LI / C, uj = LJ / ROWS;
     ctx.strokeStyle = ink; ctx.lineWidth = 1;
@@ -298,9 +302,18 @@ export default {
       ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke();
     }
     ctx.restore();
-    // The landscape's right end: one black side, edged in white, over the ends of its rows.
+    // The landscape's right end: one black side, edged in white, over the ends of its rows, and on it the rows cut
+    // through, dotted: each row's last column, as tall as it stands.
     ctx.beginPath(); side.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
     ctx.fillStyle = paper; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+    ctx.beginPath();
+    for (let r = 0; r < R; r++) {
+      const row = s.rows[r], j = ROWS - R + r, v = row[Math.min(row.length - 1, Math.floor(((C - 1) / C) * row.length))];
+      const y = Math.max(2, ((v + 1) / 2) * H);
+      [P(LI, j * uj, 0), P(LI, j * uj, y), P(LI, (j + 1) * uj, y), P(LI, (j + 1) * uj, 0)].forEach(([x, yy], k) => (k ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy)));
+      ctx.closePath();
+    }
+    ctx.fillStyle = d25; ctx.fill(); ctx.stroke();
     // The towers, back to front: the wobble sways, the hiss fizzes. OUT's face is the meter.
     for (const q of [...TOWERS].sort((a, b) => a.j - b.j)) {
       const v = tnorm(f, q), hgt = tall(f, q);
