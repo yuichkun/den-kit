@@ -650,7 +650,7 @@ export function rain(catalog: Catalog) {
           el({
             kind: 'text',
             name: 'Subtitle',
-            text: 'Rain all around you. Drag a sound nearer or further, to the left or the right.',
+            text: 'Rain all around you. Drag a sound nearer or further, left or right. Behind you, it sounds duller.',
             rect: r(24, 52, 560, 16),
             textStyle: { size: 12, color: 'muted', align: 'left' },
           }),
