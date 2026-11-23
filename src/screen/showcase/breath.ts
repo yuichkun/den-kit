@@ -11,7 +11,7 @@
 // The design follows the thinking of Loóna (Apple Design Awards 2021, Visuals
 // and Graphics), calm sessions in which type, colour, motion and 3D are made
 // together for one soothing scene: here the whole plugin is one picture, a
-// gallery at night where a great soft form of air sits on the polished floor
+// gallery at night where a great soft form of air sits on the floor
 // and rises, rounds and goes taut as the breath comes in, then settles and
 // creases as it goes out, in step with what is heard, while the room grows
 // lighter and darker with it. Lettering high on the wall, centred over the form,
@@ -23,7 +23,7 @@ import { add, el, onlyParams, patchControl, r, wire, workInSteps } from './build
 
 /** The gallery: a great soft form of air that breathes; it takes the mouse. */
 export const SCENE = `// A gallery at night seen from the front: a great soft form of air sits on
-// the polished floor and breathes. How full the breath is comes from the output
+// the floor and breathes. How full the breath is comes from the output
 // level, eased and placed between the quietest and loudest of the last few
 // breaths, so the form moves with what is heard: as the breath comes in it
 // rises, rounds and goes taut, as far as Depth (kdepth) lets it, and the room
@@ -61,8 +61,8 @@ function lit(phi, t) {
   const d = Math.max(0, Math.sin(phi) * ct * LIGHT[0] - Math.sin(th) * LIGHT[1] + Math.cos(phi) * ct * LIGHT[2]);
   return clamp(0.07 + 0.9 * d + 0.1 * Math.pow(Math.max(0, Math.sin(phi)), 3) * ct, 0, 1) * (1 - 0.4 * Math.pow(t, 6));
 }
-/** The floor line (further up the bigger the hall), where the form stands, and the eye. */
-function layout(w, h, hall) { const FL = Math.round(h * 0.58 - 36 * hall); return { cx: w / 2, FL, BY: FL + 104, EYE: Math.round(h * 0.3) }; }
+/** The floor line (further up the bigger the hall), where the form stands, and the eye (a little over the floor line, as the form is seen almost level). */
+function layout(w, h, hall) { const FL = Math.round(h * 0.58 - 36 * hall); return { cx: w / 2, FL, BY: FL + 104, EYE: FL - 30 }; }
 /** How wide and tall the form is, for how full the breath is (b) and how deep (d). */
 function sizeOf(b, d) { const k = (b - 0.5) * 2 * d; return { k, W: 424 - 44 * k, H: 228 + 88 * k }; }
 /** The form's outline: a soft dome over its base, the front edge bulging toward you. */
@@ -141,26 +141,22 @@ export default {
     let g = ctx.createLinearGradient(0, 0, 0, FL);
     g.addColorStop(0, rgb(WALL)); g.addColorStop(1, rgb(lerp(WALL_LO, WALL_LIT, 0.75 * clamp(0.5 + k / 2, 0, 1))));
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, FL);
-    // The floor, polished.
+    // The floor.
     g = ctx.createLinearGradient(0, FL, 0, h);
     g.addColorStop(0, FLOOR); g.addColorStop(1, FLOOR_LO);
     ctx.fillStyle = g; ctx.fillRect(0, FL, w, h - FL);
     ctx.fillStyle = INK; ctx.fillRect(0, FL - 1, w, 2);
     if (zone === 'room') { ctx.fillStyle = LETTER; ctx.globalAlpha = 0.4; ctx.fillRect(0, FL - 1, w, 1.5); ctx.globalAlpha = 1; }
-    // The form's shadow, falling to the right away from the light, and its reflection in the floor.
+    // The form's shadow, falling to the right away from the light.
     ctx.fillStyle = INK; ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.ellipse(cx + W * 0.1, BY + 9, W * 0.58, 16, 0, 0, TAU); ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.rect(0, BY + 10, w, h); ctx.clip();
-    ctx.translate(0, 1.55 * (BY + 10)); ctx.scale(1, -0.55);
-    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = rgb(band(1)); ctx.globalAlpha = 0.07; ctx.fill();
-    ctx.restore(); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 1;
     // The blower on the floor that fills it: a box seen from the front and above, its fan turning behind a round guard, its duct running into the form.
     s.fan = (s.fan || 0) + dt * (3 + 12 * s.b);
     const bx = cx - W * 0.5 - 50, fy = BY + 30, x0 = bx - 17, x1 = bx + 17, y0 = fy - 24;
-    const back = (x, y) => [x + (cx - x) * 0.07, y + (EYE - y) * 0.07];
+    const back = (x, y) => [x + (cx - x) * 0.06, y + (EYE - y) * 0.06];
     const [tx0, ty0] = back(x0, y0), [tx1, ty1] = back(x1, y0), [sx1, sy1] = back(x1, fy);
     const ex = cx - W * 0.36, ey = BY + 4;
-    ctx.strokeStyle = INK; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x1 + 6, fy - 10); ctx.bezierCurveTo(x1 + 30, fy + 18, ex - 40, ey + 30, ex, ey); ctx.stroke();
-    ctx.strokeStyle = rgb(band(1)); ctx.lineWidth = 9; ctx.stroke();
+    ctx.strokeStyle = rgb(band(1)); ctx.lineWidth = 11; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x1 + 6, fy - 10); ctx.bezierCurveTo(x1 + 30, fy + 18, ex - 40, ey + 30, ex, ey); ctx.stroke();
     ctx.strokeStyle = rgb(band(0)); ctx.lineWidth = 1; ctx.beginPath();
     for (let i = 1; i < 12; i++) {
       const u = i / 12, a = 1 - u, x = a * a * a * (x1 + 6) + 3 * a * a * u * (x1 + 30) + 3 * a * u * u * (ex - 40) + u * u * u * ex;
