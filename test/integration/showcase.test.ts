@@ -16,7 +16,7 @@ import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
 import { validate } from '../../src/work/validate.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
-import { CRUSHER } from '../../src/screen/showcase/lofi.ts';
+import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
@@ -372,6 +372,52 @@ describe('each work does what its controls say', () => {
     expect(loud).toBeGreaterThan(l!.length / 4);
     expect(changes).toBeLessThanOrEqual(Math.ceil(l!.length / 8) + 1); // 6000 Hz: a new sample every 8
   }, 60000);
+
+  it("Low Res: the display's columns are the samples Rate keeps, at the time scale of f.wave (every 8th sample)", async () => {
+    const grid = (
+      await import(`data:text/javascript;base64,${Buffer.from(CRUSH_GRID).toString('base64')}`)
+    ).default;
+    const [w, h] = [432, 300];
+    /** The x of every line drawn from the top to the bottom (a column). */
+    const columns = (rate: number) => {
+      const xs: number[] = [];
+      let from: [number, number] | null = null;
+      const ctx = new Proxy(
+        {},
+        {
+          get: (_t, k) =>
+            k === 'moveTo'
+              ? (x: number, y: number) => {
+                  from = [x, y];
+                }
+              : k === 'lineTo'
+                ? (x: number, y: number) => {
+                    if (from && from[0] === x && from[1] === 0 && y === h) xs.push(x);
+                    from = null;
+                  }
+                : () => {},
+          set: () => true,
+        },
+      );
+      grid.draw(ctx, {
+        t: 0,
+        dt: 1 / 60,
+        w,
+        h,
+        wave: new Float32Array(256).map((_, i) => 0.5 * Math.sin(i / 10)),
+        state: {},
+        color: () => '#000',
+        value: (id: string) => (id === 'fbits' ? 8 : rate),
+      });
+      return xs;
+    };
+    // 1500 Hz keeps one sample in 32: 4 points of f.wave apart.
+    const slow = columns(1500);
+    expect(slow.length).toBeGreaterThan(30);
+    expect((slow.at(-1)! - slow[0]!) / (slow.length - 1)).toBeCloseTo((4 * w) / 255, 1);
+    // 11 025 Hz keeps one in about 4.4: closer than two points, so no columns.
+    expect(columns(11025)).toEqual([]);
+  });
 
   /** Correlation of the two sides (1: the same on both). */
   const correlation = ([l, r]: Float32Array[]) => {

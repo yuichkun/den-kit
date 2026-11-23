@@ -37,13 +37,16 @@ export default defineSubgraph((config: { sampleRate: number }) => {
 `;
 
 /** The crusher at work: the output on the grid of levels (Bits) and held samples (Rate). */
-export const CRUSH_GRID = `// The output wave (256 samples, about 5 ms) on the crusher's grid: rows are the
-// levels Bits (fbits) leaves (drawn when they are far enough apart to see),
-// columns the samples Rate (frate) keeps. The wave is snapped to that grid
-// (held, then rounded, as the codebox does) and what that adds is filled in.
+export const CRUSH_GRID = `// The output wave on the crusher's grid: rows are the levels Bits (fbits)
+// leaves (drawn when they are far enough apart to see), columns the samples
+// Rate (frate) keeps (drawn when at least 4 px apart). f.wave is 256 points
+// taken from the last 2048 samples of the output (every 8th, about 43 ms at
+// 48 kHz), so a kept sample lasts SR / rate / 8 points: above about 6 kHz
+// several fall between two points. The wave is snapped to that grid (held,
+// then rounded, as the codebox does) and what that adds is filled in.
 // Quiet sound is zoomed in (up to 16 times, eased), grid and all, so the steps
 // stay in view. A thin scan line sweeps across, and corner marks frame it.
-const SR = 48000;
+const SR = 48000, PER_POINT = 2048 / 256;
 export default {
   draw(ctx, f) {
     let top = 0;
@@ -56,7 +59,7 @@ export default {
     const bits = Math.max(2, Math.min(16, f.value('fbits')));
     const rate = Math.max(100, f.value('frate'));
     const steps = Math.pow(2, bits - 1);
-    const hold = SR / rate, n = f.wave.length, dx = w / (n - 1);
+    const hold = SR / rate / PER_POINT, n = f.wave.length, dx = w / (n - 1);
     ctx.clearRect(0, 0, w, h);
     // Rows: the levels left, when at least 5 px apart.
     const rowGap = amp / steps;
@@ -79,7 +82,7 @@ export default {
     }
     ctx.strokeStyle = muted;
     ctx.beginPath(); ctx.moveTo(0, mid + 0.5); ctx.lineTo(w, mid + 0.5); ctx.stroke();
-    // The wave snapped: held for \`hold\` samples, rounded to the levels.
+    // The wave snapped: held for \`hold\` points, rounded to the levels.
     const snapped = new Float32Array(n);
     let held = 0, next = 0;
     for (let i = 0; i < n; i++) {
@@ -295,7 +298,7 @@ export function lofi(catalog: Catalog) {
       el({
         kind: 'text',
         name: 'Display caption',
-        text: 'OUT, ZOOMED TO FIT, ON THE GRID  /  5 MS',
+        text: 'OUT, ZOOMED TO FIT, ON THE GRID  /  43 MS',
         rect: r(24, 400, 432, 14),
         textStyle: { ...mono(10, 'muted'), spacing: 0.12 },
       }),
