@@ -8,7 +8,8 @@
 // - Steps: the take as steps to do at their own pace. Going to a step puts the controls
 //   where it starts. Watch plays it; Your turn draws where the take went (and lights
 //   the keys to play), keeps the step's notes playing, and ticks the step off when the
-//   person lets go of their control where the take's went, or has played its notes.
+//   person lets go of their control where the take's went, or has played its notes;
+//   letting go elsewhere says what is still off.
 // Whoever shows it applies what it sends, the take's moves and notes and the person's
 // alike, and starts the sound when asked (`start`). Notes the person plays elsewhere
 // (the computer keys, MIDI) reach it through `heard`. Nothing here changes a work.
@@ -18,7 +19,7 @@ import { formatValue } from '../format.ts';
 import type { PluginSpec, Rect, WidgetSpec } from '../spec.ts';
 import { takeSteps, type Take, type TakeValues } from '../../work/takes.ts';
 import { TakePlayback } from './take-play.ts';
-import { describeStep, reached, stepNotes, stepTargets } from './take-steps.ts';
+import { describeStep, reached, stepNotes, stepTargets, stillToDo } from './take-steps.ts';
 
 const props = defineProps<{
   spec: PluginSpec;
@@ -60,10 +61,11 @@ const hand = ref<string[]>([]);
 const step = ref(0);
 const turn = ref<'watch' | 'yours' | null>(null);
 const done = ref<number[]>([]);
-/** What the person moved and played in their turn, and whether they got there. */
+/** What the person moved and played in their turn, whether they got there, and what was off when they let go short of it. */
 const touched = ref<string[]>([]);
 const played = ref<number[]>([]);
 const finished = ref(false);
+const miss = ref('');
 
 const out = {
   move: (control: string, values: TakeValues) => {
@@ -208,6 +210,7 @@ function personChange(
       setHand(widget, true);
     if (mode.value === 'steps' && turn.value === 'yours') {
       touched.value = [...new Set([...touched.value, widget])];
+      miss.value = '';
       if (done) checkTurn({ id: widget, values });
     }
   }
@@ -238,17 +241,22 @@ const notesToPlay = computed(() => (current.value ? stepNotes(current.value) : [
 /** Your turn is done when the person has played the step's notes, or let go of its controls where the take's went. */
 function checkTurn(latest?: { id: string; values: TakeValues }) {
   if (mode.value !== 'steps' || turn.value !== 'yours' || finished.value || !current.value) return;
-  const list = [...targets.value].filter(([id]) => props.spec.controls[id]);
+  const list = [...targets.value].flatMap(([id, target]) => {
+    const w = props.spec.controls[id];
+    if (!w) return [];
+    const now =
+      latest && latest.id === id ? { ...w, values: { ...w.values, ...latest.values } } : w;
+    const mine = touched.value.includes(id);
+    return [{ ok: mine && reached(now, target), off: () => stillToDo(now, target, mine) }];
+  });
   const ok = notesToPlay.value.length
     ? notesToPlay.value.every(n => played.value.includes(n))
-    : list.length > 0 &&
-      list.every(([id, target]) => {
-        const w = props.spec.controls[id]!;
-        const now =
-          latest && latest.id === id ? { ...w, values: { ...w.values, ...latest.values } } : w;
-        return touched.value.includes(id) && reached(now, target);
-      });
-  if (!ok) return;
+    : list.length > 0 && list.every(c => c.ok);
+  if (!ok) {
+    if (latest) miss.value = list.flatMap(c => (c.ok ? [] : [c.off()])).join(' ');
+    return;
+  }
+  miss.value = '';
   finished.value = true;
   if (!done.value.includes(step.value)) done.value = [...done.value, step.value];
   playback.value?.pause();
@@ -290,6 +298,7 @@ function goTo(i: number) {
   touched.value = [];
   played.value = [];
   finished.value = false;
+  miss.value = '';
   // The controls where the step starts.
   p?.seek(steps.value[i]!.from);
   at.value = p?.position ?? 0;
@@ -322,6 +331,7 @@ function yourTurn() {
     touched.value = [];
     played.value = [];
     finished.value = false;
+    miss.value = '';
     turn.value = 'yours';
     if (s.gestures.length && s.notes.length) {
       p.playRange(s.from, s.to + 400);
@@ -558,9 +568,11 @@ const keyboardRect = computed(() => props.spec.widgets.find(w => w.type === 'ui.
               : turn === 'yours'
                 ? finished
                   ? 'That’s it. On to the next one when you like.'
-                  : notesToPlay.length
-                    ? 'Play these notes on the keys, at your own pace.'
-                    : 'Your turn: the ring shows what to move, the line where the take went. The take keeps the rest going.'
+                  : miss
+                    ? `Not quite. ${miss}`
+                    : notesToPlay.length
+                      ? 'Play these notes on the keys, at your own pace.'
+                      : 'Your turn: the ring shows what to move, the line where the take went. The take keeps the rest going.'
                 : done.includes(step)
                   ? 'Done. Watch or try it again, or go on.'
                   : 'Watch it first, or go straight to your turn.'

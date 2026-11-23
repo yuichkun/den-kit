@@ -3,13 +3,14 @@
 // when it returns to where the take has it; keys in the person's hands silence the
 // take's notes; played from the middle, the controls start where the take has them
 // and the notes held there sound. And a take's steps in words, and when the person's
-// control has got where the take's went.
+// control has got where the take's went, and what is off when it has not.
 import { describe, expect, it } from 'vite-plus/test';
 import {
   describeStep,
   reached,
   stepNotes,
   stepTargets,
+  stillToDo,
 } from '../../../src/screen/takes/take-steps.ts';
 import { TakePlayback } from '../../../src/screen/takes/take-play.ts';
 import type { WidgetSpec } from '../../../src/screen/spec.ts';
@@ -215,5 +216,15 @@ describe("whether the person's control got where the take's went", () => {
     const sw = widget({ type: 'ui.toggle', control: 'toggle', values: { value: true } });
     expect(reached(sw, { value: 1 })).toBe(true);
     expect(reached(sw, { value: false })).toBe(false);
+  });
+
+  it('says what is still off when it did not', () => {
+    expect(stillToDo(widget({ values: { value: 4000 } }), { value: 2400 }, true)).toBe(
+      'CUTOFF is at 4.00 kHz: bring it down to 2.40 kHz.',
+    );
+    expect(stillToDo(controls.pad, { x: 0.9, y: 0.1 }, true)).toBe(
+      'End Tone in the circle, at the bottom right.',
+    );
+    expect(stillToDo(controls.cut, { value: 400 }, false)).toBe('Now move CUTOFF too.');
   });
 });

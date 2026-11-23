@@ -5,9 +5,12 @@
 // origin, the work's own font and a control's pictures are loaded, and moving a
 // control changes only the player's own state. The record and the build are of
 // the work as it was when the export started: the build's document is the
-// record's without the text files, which only the record keeps. The build plays
-// the whole sound, whatever the editor has soloed. Needs den-kit's player build
-// (vp run build makes dist/player/).
+// record's without the text files, which only the record keeps, except the takes.
+// The build plays the whole sound, whatever the editor has soloed. A take recorded
+// on the plugin screen is one step to undo and leaves the work as it was; the
+// player plays a take: its control moves, the person can take it over and give it
+// back, and its steps say what to do. Needs den-kit's player build (vp run build
+// makes dist/player/).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -17,6 +20,14 @@ import { kitRoot, openKit, startHarness, waitCompiled, type Harness } from './ha
 import { catalog } from '../../src/sound/blocks/index.ts';
 import { generate } from '../../src/sound/codegen.ts';
 import { parseDocument } from '../../src/work/persistence.ts';
+import {
+  isTakePath,
+  parseTake,
+  serializeTake,
+  TAKE_FORMAT,
+  TAKE_VERSION,
+  type Take,
+} from '../../src/work/takes.ts';
 import { assetFontFamily } from '../../src/work/ui.ts';
 import { readZip } from '../../src/work/zip.ts';
 
@@ -59,11 +70,43 @@ const entriesOf = (bytes: number[]) =>
     }).map(e => [e.path, e.data] as const),
   );
 const json = (data: Uint8Array | undefined) => JSON.parse(new TextDecoder().decode(data));
-/** A record's document without its text files, as the build's build.json has it. */
+/** A record's document without its text files except its takes, as the build's build.json has it. */
 const withoutText = (doc: { files: Record<string, object> }) => ({
   ...doc,
-  files: Object.fromEntries(Object.entries(doc.files).filter(([, file]) => !('text' in file))),
+  files: Object.fromEntries(
+    Object.entries(doc.files).filter(([path, file]) => !('text' in file) || isTakePath(path)),
+  ),
 });
+/** A take that turns the knob `cutknob` up from 300 to 1500 over four seconds, over a held C3. */
+const SWEEP: Take = {
+  format: TAKE_FORMAT,
+  version: TAKE_VERSION,
+  name: 'Sweep',
+  length: 6000,
+  start: { cutknob: { value: 300 } },
+  moves: Array.from({ length: 41 }, (_, i) => ({
+    t: 500 + i * 100,
+    control: 'cutknob',
+    values: { value: 300 + i * 30 },
+  })),
+  notes: [{ t: 0, note: 48, velocity: 100, length: 5800 }],
+};
+/** A knob on the plugin that sets the filter's cutoff. */
+const CUTKNOB = [
+  {
+    op: 'addNode',
+    node: {
+      id: 'cutknob',
+      type: 'ui.knob',
+      label: 'Cutoff',
+      pos: { x: 400, y: 480 },
+      panel: { x: 160, y: 20, w: 120, h: 140 },
+      config: { min: 100, max: 2000, scale: 'linear', unit: 'Hz' },
+      values: { value: 300 },
+    },
+  },
+  { op: 'connect', from: { node: 'cutknob', port: 'out' }, to: { node: 'cut1', port: 'hz' } },
+];
 const servers: Server[] = [];
 async function serve(files: Map<string, Uint8Array>, headers: Record<string, string>) {
   const server = createServer((req, res) => {
@@ -126,7 +169,7 @@ describe('the playable build', () => {
       );
       assert.deepEqual(added, ['assets/title.woff2', 'assets/logo.svg']);
       const placed = await page.evaluate(
-        async ([part, logoPart]) => {
+        async ([part, logoPart, knob]) => {
           const k = (window as any).__kit;
           // den-kit's own files (the controls list, the kit's behaviors) are not kept in the work.
           const files = Object.fromEntries(
@@ -139,24 +182,7 @@ describe('the playable build', () => {
               op: 'setProjectFiles',
               files: { ...files, 'src/parts/meter.ts': part, 'src/parts/logo.ts': logoPart },
             },
-            // A knob on the plugin that sets the filter's cutoff.
-            {
-              op: 'addNode',
-              node: {
-                id: 'cutknob',
-                type: 'ui.knob',
-                label: 'Cutoff',
-                pos: { x: 400, y: 480 },
-                panel: { x: 160, y: 20, w: 120, h: 140 },
-                config: { min: 100, max: 2000, scale: 'linear', unit: 'Hz' },
-                values: { value: 300 },
-              },
-            },
-            {
-              op: 'connect',
-              from: { node: 'cutknob', port: 'out' },
-              to: { node: 'cut1', port: 'hz' },
-            },
+            ...knob,
             // A switch drawn with the work's picture.
             {
               op: 'addNode',
@@ -187,7 +213,7 @@ describe('the playable build', () => {
           ]);
           return { ok: result.ok, error: result.error?.message };
         },
-        [METER, LOGO_PART] as const,
+        [METER, LOGO_PART, CUTKNOB] as const,
       );
       assert.equal(placed.ok, true, placed.error);
       // The work file carries the playable build: the player, the compiled sound and the built code parts.
@@ -307,28 +333,36 @@ describe('the playable build', () => {
   );
 
   it(
-    "is of the work as it was when the export started, edits made meanwhile in neither the record nor the build, has the record's document without its text files, and plays the whole sound while the editor solos a part",
+    "is of the work as it was when the export started, edits made meanwhile in neither the record nor the build, has the record's document without its text files but the takes, and plays the whole sound while the editor solos a part",
     { timeout: 300000 },
     async () => {
       const { page, errors } = await openKit(h);
       await waitCompiled(page);
       // A code part, a part of the sound soloed in the editor, then a change to what the solo leaves out.
-      const soloed: string = await page.evaluate(async part => {
-        const k = (window as any).__kit;
-        const files = Object.fromEntries(
-          [...k.pod.wanted()].filter(
-            ([p]: [string]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
-          ),
-        );
-        if (
-          !k.commit([{ op: 'setProjectFiles', files: { ...files, 'src/parts/meter.ts': part } }]).ok
-        )
-          throw new Error('the code part was not added');
-        const made = k.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]);
-        k.setSolo([made.created[0]]);
-        k.commit([{ op: 'setConfig', node: 'osc1', key: 'waveform', value: 'square' }]);
-        return k.generated.value.hash;
-      }, METER);
+      const soloed: string = await page.evaluate(
+        async ([part, take]) => {
+          const k = (window as any).__kit;
+          const files = Object.fromEntries(
+            [...k.pod.wanted()].filter(
+              ([p]: [string]) => !p.startsWith('src/kit/behaviors/') && p !== 'src/kit/controls.ts',
+            ),
+          );
+          if (
+            !k.commit([
+              {
+                op: 'setProjectFiles',
+                files: { ...files, 'src/parts/meter.ts': part, 'takes/sweep.json': take },
+              },
+            ]).ok
+          )
+            throw new Error('the code part and the take were not added');
+          const made = k.commit([{ op: 'makePart', ids: ['cut1', 'filter1'], name: 'Tone' }]);
+          k.setSolo([made.created[0]]);
+          k.commit([{ op: 'setConfig', node: 'osc1', key: 'waveform', value: 'square' }]);
+          return k.generated.value.hash;
+        },
+        [METER, serializeTake(SWEEP)] as const,
+      );
       await waitCompiled(page);
       const exported = await page.evaluate(async () => {
         const k = (window as any).__kit;
@@ -347,15 +381,15 @@ describe('the playable build', () => {
       const manifest = json(file.get('build/build.json'));
       assert.equal(record.name, exported.name);
       assert.doesNotMatch(JSON.stringify(record), /\/\/ changed/);
-      // The record keeps the work's text files; the build leaves them out.
-      for (const path of ['src/parts/meter.ts', 'package.json'])
+      // The record keeps the work's text files; the build leaves them out but the takes, which the player plays.
+      for (const path of ['src/parts/meter.ts', 'package.json', 'takes/sweep.json'])
         assert.equal(typeof record.files[path]?.text, 'string', `${path} in the record`);
       assert.deepEqual(
         Object.keys(manifest.document.files).filter(
           path => 'text' in manifest.document.files[path],
         ),
-        [],
-        'no text file in the build',
+        ['takes/sweep.json'],
+        'no text file in the build but the take',
       );
       assert.deepEqual(manifest.document, withoutText(record));
       const read = parseDocument(record, catalog);
@@ -381,6 +415,140 @@ describe('the playable build', () => {
       assert.deepEqual(json(again.get('build/build.json')).document, withoutText(record2));
       assert.ok(again.has('build/parts/index.html'), 'the code parts were built');
       assert.deepEqual(errors, []);
+      await page.close();
+    },
+  );
+
+  it(
+    'keeps a take recorded on the plugin screen as one step to undo, the work left as it was; the player plays a take, its control moving, the person taking it over and giving it back, its steps in words',
+    { timeout: 300000 },
+    async () => {
+      const { page, errors } = await openKit(h);
+      await waitCompiled(page);
+      assert.ok(
+        await page.evaluate(knob => (window as any).__kit.commit(knob).ok, CUTKNOB),
+        'the knob was added',
+      );
+      await page.keyboard.press('Control+Alt+KeyE');
+      await page.waitForSelector('[data-testid=plugin-view]');
+      // Recorded: the knob turned by hand and a note on the computer keys.
+      await page.click('[data-testid=take-rec]');
+      const box = (await page.locator('[data-widget=cutknob] dk-knob').boundingBox())!;
+      await page.keyboard.down('a');
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      for (let i = 1; i <= 15; i++) {
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - i * 4);
+        await page.waitForTimeout(30);
+      }
+      await page.mouse.up();
+      await page.keyboard.up('a');
+      const during = await page.evaluate(
+        () => (window as any).__kit.doc.value.nodes.cutknob.values,
+      );
+      await page.click('[data-testid=take-rec]');
+      await page.waitForSelector('[data-testid=takes-menu]');
+      const work = () =>
+        page.evaluate(() => {
+          const doc = (window as any).__kit.doc.value;
+          return {
+            knob: doc.nodes.cutknob.values,
+            takes: Object.keys(doc.files).filter((p: string) => p.startsWith('takes/')),
+            text: doc.files['takes/take-1.json']?.text as string | undefined,
+          };
+        });
+      const recorded = await work();
+      assert.deepEqual(during, { value: 300 }, 'the work stays as it was while recording');
+      assert.deepEqual(recorded.knob, { value: 300 }, 'and after');
+      assert.deepEqual(recorded.takes, ['takes/take-1.json']);
+      const take = parseTake(recorded.text ?? '');
+      assert.ok(!('error' in take), JSON.stringify(take));
+      assert.equal(take.name, 'Take 1');
+      assert.deepEqual(take.start.cutknob, { value: 300 });
+      assert.ok(take.moves.length >= 2 && take.moves.every(m => m.control === 'cutknob'));
+      assert.ok(Number(take.moves.at(-1)!.values.value) > 400, JSON.stringify(take.moves));
+      assert.deepEqual(
+        take.notes.map(n => n.note),
+        [48],
+      );
+      await page.keyboard.press('Control+z');
+      assert.deepEqual((await work()).takes, [], 'one undo takes the take back');
+      await page.keyboard.press('Control+Shift+z');
+      assert.deepEqual((await work()).takes, ['takes/take-1.json']);
+      // Tried as the recipient, in the editor: nothing changes the work.
+      if (!(await page.$('[data-testid=take-try]'))) await page.click('[data-testid=takes-open]');
+      await page.click('[data-testid=take-try]');
+      await page.waitForSelector('[data-testid=take-room] [data-testid=take-stage]');
+      await page.click('[data-testid=take-room] [data-testid=take-play]');
+      await page.waitForTimeout(1500);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-testid=take-room]', { state: 'detached' });
+      assert.deepEqual((await work()).knob, { value: 300 }, 'trying the take leaves the work');
+      // The player, with a longer take added: it is the first in the list.
+      await page.evaluate(
+        take =>
+          (window as any).__kit.commit([
+            { op: 'setProjectFiles', files: { 'takes/sweep.json': take } },
+          ]),
+        serializeTake(SWEEP),
+      );
+      const bytes = await page.evaluate(async () =>
+        Array.from((await (window as any).__kit.exportWork()) as Uint8Array),
+      );
+      const build = new Map(
+        [...entriesOf(bytes)]
+          .filter(([p]) => p.startsWith('build/'))
+          .map(([p, d]) => [p.slice('build/'.length), d] as const),
+      );
+      const site = await serve(build, {
+        'cross-origin-opener-policy': 'same-origin',
+        'cross-origin-embedder-policy': 'require-corp',
+      });
+      const player = await h.browser.newPage();
+      const playerErrors: string[] = [];
+      player.on('pageerror', e => playerErrors.push(e.message));
+      await player.goto(`${site}/index.html`);
+      await player.waitForSelector('[data-testid=take-bar]');
+      assert.deepEqual(await player.evaluate(() => (window as any).__player.takes()), [
+        'takes/sweep.json',
+        'takes/take-1.json',
+      ]);
+      // Play starts the sound, then the take: the knob moves by itself.
+      const before = JSON.stringify(await player.evaluate(() => (window as any).__player.values()));
+      await player.click('[data-testid=take-play]');
+      await player.waitForFunction(
+        () =>
+          document.querySelector('[data-testid=player]')?.getAttribute('data-state') === 'playing',
+        null,
+        { timeout: 30000 },
+      );
+      await player.waitForFunction(
+        b => JSON.stringify((window as any).__player.values()) !== b,
+        before,
+        { timeout: 10000 },
+      );
+      // The person turns it while the take plays: it is theirs, and given back it is the take's again.
+      await player.locator('[data-widget=cutknob] dk-knob').focus();
+      await player.keyboard.press('ArrowUp');
+      const part = player.locator('[data-testid=take-part-cutknob]');
+      await player.waitForFunction(() =>
+        /you/.test(document.querySelector('[data-testid=take-part-cutknob]')?.textContent ?? ''),
+      );
+      assert.ok(
+        await player.$('[data-take-mark="you:cutknob"]'),
+        'the knob is marked as the person’s',
+      );
+      await part.click();
+      assert.match((await part.textContent()) ?? '', /take/);
+      // Steps: the take in words, the note held from the start first.
+      await player.click('[data-testid=take-mode-steps]');
+      assert.deepEqual(
+        await player.locator('[data-testid=take-steps] .all button').allTextContents(),
+        ['Hold C3 for 5.8 s', 'Turn Cutoff up, 300 Hz → 1.50 kHz, over 4.0 s'],
+      );
+      assert.deepEqual(playerErrors, []);
+      assert.deepEqual(errors, []);
+      await player.close();
       await page.close();
     },
   );

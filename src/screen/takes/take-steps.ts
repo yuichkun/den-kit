@@ -1,6 +1,6 @@
 // A take's steps (src/work/takes.ts) in words, for the person who follows them: what
 // to move, which way, from where to where and how fast, and which notes to play; and
-// whether the person's control has got where the take's went.
+// whether the person's control has got where the take's went, and what is off if not.
 import type { TakeGesture, TakeNote, TakeStep, TakeValues } from '../../work/takes.ts';
 import { formatValue, noteName, toUnit } from '../format.ts';
 import type { WidgetSpec } from '../spec.ts';
@@ -125,4 +125,17 @@ export function reached(w: WidgetSpec, target: TakeValues): boolean {
         toUnit(num(target.value), r.min, r.max, r.log),
     ) <= 0.06
   );
+}
+
+/** What is left for the control to be where the take's went, in words (`touched`: the person has moved it). */
+export function stillToDo(w: WidgetSpec, target: TakeValues, touched: boolean): string {
+  if (!touched) return `Now move ${w.label} too.`;
+  if (w.type === 'ui.xy')
+    return `End ${w.label} in the circle, at ${zone(num(target.x ?? w.values.x), num(target.y ?? w.values.y))}.`;
+  if (w.type === 'ui.button') return `Press ${w.label}.`;
+  if (w.type === 'ui.toggle') return `Switch ${w.label} ${num(target.value) ? 'on' : 'off'}.`;
+  const r = ranged(w);
+  const now = num(w.values.value),
+    to = num(target.value);
+  return `${w.label} is at ${formatValue(now, r.unit)}: bring it ${now > to ? 'down' : 'up'} to ${formatValue(to, r.unit)}.`;
 }
