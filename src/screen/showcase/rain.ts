@@ -377,6 +377,7 @@ export default {
     scaled(g1, () => {
       ctx.globalAlpha = quiet(1) ? 0.45 : 1;
       ctx.fillStyle = TUFT; ctx.beginPath(); ctx.ellipse(g1.x + 4, g1.y + 1, 40, 24, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.stroke();
       ctx.lineCap = 'round';
       for (const dark of [false, true]) {
         ctx.strokeStyle = dark ? '#46551c' : INK; ctx.lineWidth = dark ? 1.4 : 1.7; ctx.beginPath();
