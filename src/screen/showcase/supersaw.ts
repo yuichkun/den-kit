@@ -231,13 +231,14 @@ export default {
     }
     ctx.stroke();
     // The hall: once the copies stop, a field of dots as tall as Space (on a square-root scale, as loudness
-    // is heard), dying away to the right.
+    // is heard), dying away to the right. The dots sit on one fixed screen, 6 px apart with every other column
+    // set half a step down, centred on the lanes' middle; the field shows the ones inside its height.
     const cy = (L.top + lb) / 2, half = (lb - L.top) / 2;
     const hall = x => half * Math.sqrt(space) * Math.exp((-2.4 * (x - xr - 8)) / (L.x1 - KEYUP));
     ctx.fillStyle = is('kspace') ? white : ink;
-    for (let x = Math.ceil((xr + 8) / 6) * 6, i = 0; x <= L.x1; x += 6, i++) {
-      const hh = hall(x);
-      for (let y = cy - hh + ((i % 2) * 3); y <= cy + hh; y += 6) ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
+    for (let x = Math.ceil((xr + 8) / 6) * 6; x <= L.x1; x += 6) {
+      const hh = hall(x), off = (x / 6) % 2 ? 3 : 0;
+      for (let y = cy + off + Math.ceil((-hh - off) / 6) * 6; y <= cy + hh; y += 6) ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
     }
     const hx = xr + 8, hy = cy - hall(hx);
     // The time cursors: a line through the lanes at Attack, Filter decay and Release.
