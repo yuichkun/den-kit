@@ -5,12 +5,14 @@
 // DESIGN AWARD 2025): the clarity of road signs — heavy type, basic shapes,
 // fixed and moving graphics together, and colours that always mean the same
 // thing. The plugin is one canvas, a road low across it read left to right in
-// time: you stand at its start as a diamond, and the echoes stand after you as
-// triangles on their points, one every Repeat, each as tall as it is loud. Red
-// is the one colour for giving way: what the echoes give way while you play,
-// and the rule on the plate above you. Every setting is dragged on the shape it
-// changes; the controls are kept in the patch. The one control on the plugin is
-// a meter of how far the echoes are giving way now, on the rule's plate.
+// time: you stand at its start as the priority road's diamond, on a post that
+// carries the rule's plate, and the echoes stand after you as give-way
+// triangles, one every Repeat, each as tall as it is loud. Red is the one
+// colour for giving way: what the echoes give way while you play, and the rule
+// on the plate. Every setting is dragged on the shape it changes, its value on
+// a plate by it while the hand is on it; the controls are kept in the patch.
+// The one control on the plugin is a meter of how far the echoes are giving way
+// now, on the rule's plate.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
@@ -25,16 +27,16 @@ export const ROAD = `// The road, read left to right in time: 2 s of it after yo
 // kmix for the first, each next one Feedback kfb of the last), its corners a
 // little rounder each time round the loop's lowpass (Tone ktone). While you
 // play louder than the threshold the echoes give way: each shrinks to what is
-// heard, and the red is what it gives way. Each note you play runs along the
-// road as a small diamond, and each echo answers as the note reaches it.
+// heard, and the red is what it gives way. What you play runs down the road
+// behind you, as tall as it was loud, and each echo answers as a note reaches it.
 // What you play is worked out from the output level (a canvas hears only the
 // output): the output's own echoes, placed as the settings place them, are
 // taken out of it; that is held against When louder than (with the ducker's
 // 3 dB of hysteresis), and the echoes drop by Depth (kdepth) in 8 ms and come
 // back over Back after (krel). The output is read after the app's volume, so
 // the threshold is only near.
-// Under the road, a plate under each shape: you, then each echo's time. Above
-// you, the rule's plate: across is 1.5 s; while you play (0.1 s to 0.5 s) the
+// Under the road, a plate under each shape: you, then each echo's time. On your
+// post, the rule's plate: across is 1.5 s; while you play (0.1 s to 0.5 s) the
 // echoes' level drops by Depth, full height 40 dB, then comes back over Back
 // after, the time it takes to get most of the way; red is what they give way.
 // Drag the diamond up and down for When louder than; the first echo, or the
@@ -42,7 +44,8 @@ export const ROAD = `// The road, read left to right in time: 2 s of it after yo
 // later echo, or the road after the first, up and down for Feedback and left
 // and right for Tone; the rule up and down for Depth and left and right for
 // Back after. A drag keeps to the direction it starts in; scrolling moves the
-// up-and-down setting.
+// up-and-down setting. The settings a shape moves show on a black plate by it
+// while the hand is on it.
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const RED = '${GIVE}';
 const FLOOR = -60, SPAN = 2, MAXK = 12, RULE = 1.5, ROOT3 = Math.sqrt(3);
@@ -73,15 +76,15 @@ const AXES = {
 };
 // Where things are: the road low across, you at X0, the 2 s after you to X1; the rule's plate P above you.
 function layout(w, h) {
-  const ROAD = h - 54, X0 = 112, X1 = w - 24;
-  const P = { x: 20, y: 18, w: 300, h: 114 };
+  const ROAD = h - 54, X0 = 200, X1 = w - 24;
+  const P = { x: 24, y: 20, w: 352, h: 146 }; // its post at X0
   return {
     ROAD, X0, X1, P,
     pps: (X1 - X0) / SPAN,
     X: t => X0 + (t / SPAN) * (X1 - X0),
     H1: 166, // an echo as loud as you, in px
     DH: 120, // half the diamond's height at 0 dB
-    A: { l: P.x + 16, r: P.x + P.w - 48, top: P.y + 44, bot: P.y + 88 }, // the rule's drawing
+    A: { l: P.x + 20, r: P.x + P.w - 56, top: P.y + 56, bot: P.y + 112 }, // the rule's drawing
   };
 }
 // An echo: a triangle on its point at x on the road, H tall, its corners rounded by r.
@@ -104,21 +107,19 @@ function diamond(ctx, x, road, hh) {
   ctx.lineTo(x - hw, road - hh);
   ctx.closePath();
 }
-// A label on the field, edged in the field's colour so it reads over the shapes; underlined when its shape is under the hand.
-function say(ctx, f, text, x, y, align, hot) {
-  ctx.font = '600 13px ' + FONT;
-  ctx.textAlign = align;
-  ctx.textBaseline = 'alphabetic';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = f.color('bg');
-  ctx.strokeText(text, x, y);
+// The settings of what the hand is on, on a black plate by it.
+function tag(ctx, f, text, x, y, align) {
+  ctx.font = '700 13px ' + FONT;
+  const m = ctx.measureText(text), tw = ((m && m.width) || text.length * 7.5) + 16;
+  const x0 = clamp(align === 'left' ? x : align === 'right' ? x - tw : x - tw / 2, 4, f.w - tw - 4);
   ctx.fillStyle = f.color('fg');
-  ctx.fillText(text, x, y);
-  if (hot) {
-    const tw = ctx.measureText(text).width;
-    ctx.fillRect(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, y + 4, tw, 1.5);
-  }
+  ctx.beginPath();
+  ctx.roundRect(Math.round(x0), Math.round(y - 12), Math.round(tw), 24, 4);
+  ctx.fill();
+  ctx.fillStyle = f.color('bg');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, Math.round(x0 + 8), Math.round(y) + 0.5);
 }
 // A plate under the road, centred at x: white, edged in black.
 function plate(ctx, f, text, x, y, hot) {
@@ -194,16 +195,22 @@ export default {
     s.show = level > s.show ? level : s.show + (level - s.show) * (1 - Math.exp(-f.dt / 0.12));
     const active = id => s.over === id || s.drag === id;
     ctx.clearRect(0, 0, w, h);
-    // The road, edge to edge; each note you play runs along it, a small diamond.
-    ctx.fillStyle = fg;
-    ctx.fillRect(0, ROAD, w, 6);
-    for (const n of s.notes) {
-      const age = f.t - n;
-      ctx.globalAlpha = clamp(1 - age / (SPAN + 1), 0, 1);
-      diamond(ctx, X(age), ROAD, 7);
-      ctx.fill();
+    const frac = v => clamp((v - FLOOR) / -FLOOR, 0, 1);
+    // What you play runs down the road behind you, as tall as it was loud.
+    ctx.beginPath();
+    ctx.moveTo(X0, ROAD);
+    for (let x = X0; x <= L.X1; x += 3) {
+      const v = at(s.hist, f.t - (x - X0) / L.pps);
+      ctx.lineTo(x, ROAD - 2 * DH * frac(20 * Math.log10(v + 1e-9)));
     }
-    ctx.globalAlpha = 1;
+    ctx.lineTo(L.X1, ROAD);
+    ctx.closePath();
+    ctx.fillStyle = f.color('track');
+    ctx.fill();
+    // Your post, from the road up to the rule's plate; the road, edge to edge.
+    ctx.fillStyle = fg;
+    ctx.fillRect(X0 - 3, P.y + P.h, 6, ROAD - P.y - P.h);
+    ctx.fillRect(0, ROAD, w, 6);
     // The echoes, the furthest first: red is what each gives way now.
     const q = (Math.log(12000 / tone) / Math.log(15)) * 0.48;
     const signs = [];
@@ -254,7 +261,6 @@ export default {
       }
     }
     // You, and When louder than: dashed, black on the field and light where it crosses you.
-    const frac = v => clamp((v - FLOOR) / -FLOOR, 0, 1);
     const hh = Math.max(3, DH * frac(s.show)), th = DH * frac(thresh);
     diamond(ctx, X0, ROAD, hh);
     ctx.fillStyle = fg;
@@ -272,22 +278,13 @@ export default {
     ctx.stroke();
     ctx.restore();
     ctx.setLineDash([]);
-    // The labels, on what they set.
-    say(ctx, f, 'louder than', X0, ROAD - 2 * th - 29, 'center', false);
-    say(ctx, f, dB(thresh) + ' ↕', X0, ROAD - 2 * th - 12, 'center', active('you'));
     const first = signs[0], second = signs[1] && signs[1].H >= 3 ? signs[1] : null;
     const H1now = Math.max(14, first.H);
-    say(ctx, f, 'level ' + pct(mix) + ' ↕', first.x, ROAD - H1now - 12, 'center', active('first'));
-    const lx = second ? second.x : first.x + H1now / ROOT3 + 24;
-    const ly = second ? ROAD - second.H - 31 : ROAD - 48;
-    const la = second ? 'center' : 'left';
-    say(ctx, f, 'keeps ' + pct(fb) + ' ↕', lx, ly, la, active('later'));
-    say(ctx, f, 'tone ' + hz(tone) + ' ↔', lx, ly + 17, la, active('later'));
     // The plates under the road: you, then each echo's time (only the first while they crowd).
     plate(ctx, f, 'you', X0, ROAD + 12, active('you'));
     signs.forEach(({ k, x, H }, i) => {
       if (i > 0 && (L.pps * T < 64 || H < 8 || x > w - 24)) return;
-      plate(ctx, f, secs(k * T) + (i === 0 ? ' ↔' : ''), x, ROAD + 12, i === 0 && active('first'));
+      plate(ctx, f, secs(k * T), x, ROAD + 12, i === 0 && active('first'));
     });
     // The rule: while you play, the echoes' level drops by Depth and comes back over Back after.
     ctx.fillStyle = '#ffffff';
@@ -304,7 +301,7 @@ export default {
       for (let x = A.l; x <= A.r; x += 2) ctx.lineTo(x, dy(lvl(((x - A.l) / (A.r - A.l)) * RULE)));
     };
     ctx.fillStyle = fg;
-    ctx.fillRect(tx(0.1), P.y + 12, tx(0.5) - tx(0.1), 18);
+    ctx.fillRect(tx(0.1), P.y + 16, tx(0.5) - tx(0.1), 24);
     ctx.beginPath();
     ctx.moveTo(A.l, A.top);
     curve();
@@ -318,19 +315,23 @@ export default {
     ctx.lineWidth = 3;
     ctx.lineJoin = 'miter';
     ctx.stroke();
-    ctx.font = '600 12px ' + FONT;
+    ctx.font = '700 14px ' + FONT;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
     ctx.fillStyle = bg;
-    ctx.fillText('you play', (tx(0.1) + tx(0.5)) / 2, P.y + 21.5);
+    ctx.fillText('you play', (tx(0.1) + tx(0.5)) / 2, P.y + 28.5);
     ctx.fillStyle = fg;
-    ctx.textAlign = 'right';
-    ctx.fillText('back in ' + secs(rel) + ' ↔', A.r, P.y + 21.5);
     ctx.textBaseline = 'alphabetic';
-    ctx.textAlign = 'left';
-    ctx.fillText('gives way up to ' + dB(depth) + ' ↕', A.l, A.bot + 16);
-    ctx.textAlign = 'center';
-    ctx.fillText('now', P.x + P.w - 26, A.bot + 16);
+    ctx.fillText('now', P.x + P.w - 30, A.bot + 22);
+    // The settings of the shape under the hand, on a plate by it.
+    const z = s.drag || s.over;
+    if (z === 'you') tag(ctx, f, 'louder than ' + dB(thresh) + ' ↕', X0, ROAD - 2 * Math.max(th, hh) - 22, 'center');
+    if (z === 'first') tag(ctx, f, 'repeat ' + secs(T) + ' ↔ · level ' + pct(mix) + ' ↕', first.x, ROAD - H1now - 22, 'center');
+    if (z === 'later') {
+      const sx = second ? second.x : first.x + H1now / ROOT3 + 60, sh = second ? second.H : 30;
+      tag(ctx, f, 'tone ' + hz(tone) + ' ↔ · keeps ' + pct(fb) + ' ↕', sx, ROAD - sh - 22, 'center');
+    }
+    if (z === 'rule') tag(ctx, f, 'gives way ' + dB(depth) + ' ↕ · back in ' + secs(rel) + ' ↔', P.x + P.w + 10, P.y + P.h / 2, 'left');
   },
   pointer(e, f) {
     const s = f.state, L = layout(f.w, f.h), zone = zoneAt(e, f);
@@ -453,15 +454,8 @@ export function duck(catalog: Catalog) {
         rect: r(464, 8, 280, 76),
         textStyle: { font: 'bebas-neue', size: 80, color: GIVE, align: 'right', spacing: 0.04 },
       }),
-      el({
-        kind: 'text',
-        name: 'What it does',
-        text: 'a delay whose echoes give way while you play',
-        rect: r(404, 80, 340, 16),
-        textStyle: { font: 'lato', size: 13, weight: 700, color: 'muted', align: 'right' },
-      }),
       // How far the echoes give way now, on the rule's plate.
-      ...control('grm1', 'ui.meter', 'Giving way', null, r(290, 62, 8, 44)),
+      ...control('grm1', 'ui.meter', 'Giving way', null, r(342, 76, 8, 56)),
       wire('gr1.out', 'grm1.in'),
     ],
   );
