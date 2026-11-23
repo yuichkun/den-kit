@@ -3,75 +3,196 @@
 // little off the note — spread evenly from flat to sharp by Detune, plus a
 // small fixed drift of its own. Used ×7 in every voice, its thick cable goes
 // through Splay (Width: from one centre saw to a wall from left to right), a
-// lowpass per side that opens with each note, and a hall. Detune and Drift
-// are on the Saw's face on the plugin; turning them never recompiles.
+// lowpass per side that opens with each note, and a hall. Detune and Drift are
+// the Saw's own parameters, set for every copy at once; turning them never
+// recompiles.
 // The design follows the thinking of the Tektronix 5 Series MSO (Red Dot 2018,
-// Product Design): every incoming signal shown at once on one large display,
-// colour-coded channels, and controls big enough for a finger. The display
-// draws the seven saws as seven lanes — how far apart they run is Detune, how
-// they drift against each other is the beating you hear, and the marker at
-// each lane's end is where Width puts it between left and right.
+// Product Design): an instrument made for touch, where every incoming signal is
+// on one large display at once and gestures on the display replace most
+// physical controls. The whole plugin is that display: the seven copies run as
+// seven stacked lanes, each at its own pitch, so Detune shows as lanes that
+// drift against each other; dragging across the lanes spreads them (Detune),
+// dragging the dots of the stereo column spreads them from left to right
+// (Width), and the other settings are readout tags along the bottom edge,
+// dragged up and down like a scope's badges.
 import type { Catalog } from '../../work/catalog.ts';
-import type { PartFace, PatchDocument } from '../../work/schema.ts';
-import { faceIntents } from '../faces.ts';
-import { add, control, el, onlyParams, r, wire, workInSteps } from './build.ts';
+import type { PartFace } from '../../work/schema.ts';
+import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The seven lanes' colours (copy 1 is the flattest saw, copy 7 the sharpest). */
-const LANES = ['#c2410c', '#a16207', '#2f7d32', '#0e7490', '#1d4ed8', '#6d28d9', '#be185d'];
-
-/** The display: seven saws, one lane each, moving as they beat; Width's place at each lane's end. */
-export const SAW_LANES = `// Seven saws, one lane each (props.colors, top: the flattest). A saw's lane is drawn
-// at its own pitch: copy k plays Detune × (its place from -1 to +1) semitones off
-// the note, plus a small drift of its own (props.detune and props.drift name the
-// Saw's face knobs). The lanes slide against each other as fast as they beat at
-// A3, slowed down to be followed by eye; the louder the sound, the taller the
-// saws. The marker at the right is where Width (kwidth) puts the copy.
+/** The display: the seven saws as lanes you spread, the stereo column, the readout tags; it takes the mouse. */
+export const SAW_LANES = `// The whole plugin is one display. Seven lanes, one per copy of the Saw (top:
+// the flattest). Copy k plays Detune × (its place from -1 to +1) semitones off
+// the note plus a small drift of its own (kdetune, kdrift), so each lane is drawn
+// at its own pitch (the difference shown 8× larger) and slides against the
+// middle lane as fast as it beats, slowed down for the eye; a lower Cutoff
+// (kcut, opened by Env, kenv) rounds the teeth. Drag across the lanes: Detune.
+// The column on the right is where Width (kwidth) puts each copy from left to
+// right: drag a dot. The tags along the bottom are dragged up and down (200 px
+// is the whole range, Shift is finer), scrolled, or double-clicked for their
+// first value.
 const DRIFT = [0.42, -0.77, 0.15, -0.31, 0.88, -0.56, 0.69];
+const N = 7, ZOOM = 8, TEETH = 18;
+const LANES = { x0: 64, x1: 548, top: 84, lane: 48 };
+const COLUMN = { x0: 596, x1: 736 };
+const TAGS = [
+  { id: 'kdetune', label: 'Detune', unit: 'st', x: 120, w: 100, first: 0.35 },
+  { id: 'kdrift', label: 'Drift', unit: 'st', x: 228, w: 100, first: 0.08 },
+  { id: 'kcut', label: 'Cutoff', unit: 'Hz', x: 352, w: 92, first: 900 },
+  { id: 'kenv', label: 'Env', unit: 'oct', x: 452, w: 92, first: 2.5 },
+  { id: 'krel', label: 'Release', unit: 's', x: 552, w: 92, first: 0.5 },
+  { id: 'kspace', label: 'Space', unit: '', x: 652, w: 84, first: 0.22 },
+];
+const TAG_Y = 450, TAG_H = 50;
+const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, monospace';
+const bottom = () => LANES.top + N * LANES.lane;
+const placeOf = k => (k / (N - 1)) * 2 - 1;
+function show(v, unit) {
+  if (unit === 'Hz') return v >= 1000 ? (v / 1000).toFixed(2) + ' kHz' : Math.round(v) + ' Hz';
+  if (unit === 's') return v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s';
+  if (unit === 'st') return v.toFixed(2) + ' st';
+  if (unit === 'oct') return v.toFixed(1) + ' oct';
+  return Math.round(v * 100) + ' %';
+}
+function where(x, y) {
+  for (const t of TAGS) if (x >= t.x && x <= t.x + t.w && y >= TAG_Y && y <= TAG_Y + TAG_H) return t;
+  if (y >= LANES.top && y <= bottom()) {
+    if (x >= LANES.x0 - 10 && x <= LANES.x1 + 30) return { id: 'kdetune', lanes: true };
+    if (x >= COLUMN.x0 - 12 && x <= COLUMN.x1 + 6) return { id: 'kwidth', column: true, lane: Math.min(N - 1, Math.floor((y - LANES.top) / LANES.lane)) };
+  }
+  return null;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+}
 export default {
+  setup(ctx, f) {
+    f.state.drag = null;
+  },
   draw(ctx, f) {
-    const w = f.w, h = f.h, n = 7, lane = h / n;
-    const colors = String(f.props.colors || '').split(',');
-    const detune = f.value(String(f.props.detune)), drift = f.value(String(f.props.drift));
-    const width = f.value('kwidth');
-    const loud = Math.min(1, f.level * 7);
-    const track = f.color('track'), muted = f.color('muted');
-    const left = 34, right = w - 92, period = 78;
+    const w = f.w, h = f.h, s = f.state;
+    const ink = f.color('fg'), paper = f.color('bg'), white = f.color('accent'), line = f.color('track');
+    const detune = f.value('kdetune'), drift = f.value('kdrift'), width = f.value('kwidth');
+    const cut = f.value('kcut') * Math.pow(2, f.value('kenv') * 0.4);
+    const round = Math.max(0, Math.min(0.85, Math.log2(5000 / cut) / 5));
+    const loud = Math.min(1, f.level * 6);
+    const p = f.pointer, hot = s.drag ? s.drag : p && p.over ? where(p.x, p.y) : null;
     ctx.clearRect(0, 0, w, h);
-    for (let k = 0; k < n; k++) {
-      const y0 = k * lane, mid = y0 + lane / 2;
-      const place = n > 1 ? (k / (n - 1)) * 2 - 1 : 0;
-      const st = detune * place + drift * DRIFT[k];
-      const ratio = Math.pow(2, st / 12);
-      const p = period / ratio;
-      const phase = (f.t * 220 * (ratio - 1) * 0.12) % 1;
-      const amp = (lane * 0.36) * (0.35 + 0.65 * loud);
-      const c = colors[k] || f.color('accent');
-      ctx.strokeStyle = track;
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(left, Math.round(y0 + lane) - 0.5); ctx.lineTo(w, Math.round(y0 + lane) - 0.5); ctx.stroke();
+    // The lanes: one copy each, a tab with its number on the left edge, like a scope's channels.
+    const T = (LANES.x1 - LANES.x0) / TEETH;
+    const knot = TEETH / 2 + (TEETH / 2 - 2) * Math.sin(f.t * 0.45);
+    for (let k = 0; k < N; k++) {
+      const y0 = LANES.top + k * LANES.lane, mid = y0 + LANES.lane / 2;
+      const st = detune * placeOf(k) + drift * DRIFT[k];
+      const ratio = 1 + ZOOM * (Math.pow(2, st / 12) - 1);
+      const amp = LANES.lane * 0.3 * (0.5 + 0.5 * loud);
+      ctx.fillStyle = ink;
+      roundRect(ctx, 24, mid - 11, 28, 22, 5); ctx.fill();
+      ctx.fillStyle = white;
+      ctx.font = '700 13px ' + SANS; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(k + 1), 38, mid + 0.5);
+      ctx.strokeStyle = line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(LANES.x0, mid + 0.5); ctx.lineTo(LANES.x1, mid + 0.5); ctx.stroke();
+      // Teeth where this copy's phase is whole: all lanes meet at the knot and part away from it.
       ctx.save();
-      ctx.beginPath(); ctx.rect(left, y0, right - left, lane); ctx.clip();
-      ctx.strokeStyle = c;
-      ctx.lineWidth = 2;
-      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.rect(LANES.x0, y0, LANES.x1 - LANES.x0, LANES.lane); ctx.clip();
+      ctx.strokeStyle = ink; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
       ctx.beginPath();
-      const shift = phase * p;
-      for (let x = left - p + shift; x < right + p; x += p) {
-        ctx.moveTo(x, mid + amp);
-        ctx.lineTo(x + p, mid - amp);
-        ctx.lineTo(x + p, mid + amp);
+      const at = n => LANES.x0 + ((n + (ratio - 1) * knot) / ratio) * T;
+      const first = Math.floor(-(ratio - 1) * knot) - 1;
+      const fall = (round * 0.6 * T) / ratio;
+      for (let n = first; at(n) < LANES.x1 + T; n++) {
+        const xa = at(n), xb = at(n + 1);
+        if (n === first) ctx.moveTo(xa, mid + amp);
+        ctx.lineTo(xb - fall, mid - amp);
+        ctx.lineTo(xb, mid + amp);
       }
       ctx.stroke();
       ctx.restore();
-      // Where Width puts this copy, left to right.
-      const sx = right + 14, sw = w - sx - 6;
-      ctx.strokeStyle = track;
-      ctx.beginPath(); ctx.moveTo(sx, mid + 0.5); ctx.lineTo(sx + sw, mid + 0.5); ctx.stroke();
-      ctx.fillStyle = muted;
-      ctx.fillRect(sx + sw / 2 - 0.5, mid - 4, 1, 9);
-      ctx.fillStyle = c;
-      ctx.beginPath(); ctx.arc(sx + sw / 2 + (place * width * sw) / 2, mid + 0.5, 4.5, 0, Math.PI * 2); ctx.fill();
+      // This copy's offset, in semitones.
+      ctx.fillStyle = ink;
+      ctx.font = '600 11px ' + MONO; ctx.textAlign = 'right';
+      ctx.fillText((st >= 0 ? '+' : '−') + Math.abs(st).toFixed(2), LANES.x1 + 40, mid + 0.5);
+      // Where Width puts it, left to right.
+      const cx = (COLUMN.x0 + COLUMN.x1) / 2, half = (COLUMN.x1 - COLUMN.x0) / 2;
+      ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(COLUMN.x0, mid + 0.5); ctx.lineTo(COLUMN.x1, mid + 0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, mid - 6); ctx.lineTo(cx, mid + 7); ctx.stroke();
+      const dot = cx + placeOf(k) * width * half;
+      ctx.beginPath(); ctx.arc(dot, mid + 0.5, hot && hot.column ? 8 : 7, 0, Math.PI * 2);
+      ctx.fillStyle = white; ctx.fill();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = ink; ctx.stroke();
     }
+    // The column's head: L, R and Width.
+    ctx.fillStyle = ink; ctx.textBaseline = 'middle';
+    ctx.font = '700 12px ' + SANS;
+    ctx.textAlign = 'left'; ctx.fillText('L', COLUMN.x0, LANES.top - 14);
+    ctx.textAlign = 'right'; ctx.fillText('R', COLUMN.x1, LANES.top - 14);
+    ctx.textAlign = 'center';
+    ctx.fillText('Width ' + show(width, ''), (COLUMN.x0 + COLUMN.x1) / 2, LANES.top - 14);
+    // The output level's name, by its meter (the meter is a control over the display).
+    ctx.textAlign = 'right'; ctx.font = '700 12px ' + SANS;
+    ctx.fillText('Out', COLUMN.x0 - 10, 33);
+    ctx.textAlign = 'center';
+    // Over the lanes: the handle that says what dragging does.
+    const grip = { x: LANES.x1 - 104, y: LANES.top - 26, w: 104, h: 22 };
+    ctx.fillStyle = hot && hot.lanes ? ink : white;
+    roundRect(ctx, grip.x, grip.y, grip.w, grip.h, 11); ctx.fill();
+    ctx.fillStyle = hot && hot.lanes ? white : ink;
+    ctx.font = '700 12px ' + SANS;
+    ctx.fillText('◂  Detune  ▸', grip.x + grip.w / 2, grip.y + grip.h / 2 + 0.5);
+    if (hot && hot.lanes && p && p.over) {
+      ctx.strokeStyle = white; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(Math.round(p.x) + 0.5, LANES.top); ctx.lineTo(Math.round(p.x) + 0.5, bottom()); ctx.stroke();
+    }
+    // The Saw: one part, its seven copies are the lanes; its tags set every copy at once.
+    ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(38, bottom() - LANES.lane / 2 + 11); ctx.lineTo(38, TAG_Y); ctx.stroke();
+    roundRect(ctx, 24, TAG_Y, 88, TAG_H, 8);
+    ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.fillStyle = ink; ctx.textAlign = 'left';
+    ctx.font = '800 15px ' + SANS; ctx.fillText('Saw ×7', 34, TAG_Y + 18);
+    ctx.font = '600 11px ' + SANS; ctx.fillText('every copy', 34, TAG_Y + 36);
+    for (const t of TAGS) {
+      const on = hot && hot.id === t.id && !hot.lanes && !hot.column;
+      ctx.fillStyle = ink;
+      roundRect(ctx, t.x, TAG_Y, t.w, TAG_H, 8); ctx.fill();
+      if (on) { ctx.lineWidth = 2.5; ctx.strokeStyle = white; ctx.stroke(); }
+      ctx.textAlign = 'left';
+      ctx.fillStyle = paper; ctx.font = '700 11px ' + SANS;
+      ctx.fillText(t.label, t.x + 10, TAG_Y + 15);
+      ctx.fillStyle = white; ctx.font = '600 14px ' + MONO;
+      ctx.fillText(show(f.value(t.id), t.unit), t.x + 10, TAG_Y + 34);
+      // Up and down: a tag is dragged like a scope's readout.
+      ctx.fillStyle = paper;
+      const ax = t.x + t.w - 12;
+      ctx.beginPath(); ctx.moveTo(ax - 4, TAG_Y + 21); ctx.lineTo(ax, TAG_Y + 15); ctx.lineTo(ax + 4, TAG_Y + 21); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(ax - 4, TAG_Y + 29); ctx.lineTo(ax, TAG_Y + 35); ctx.lineTo(ax + 4, TAG_Y + 29); ctx.fill();
+    }
+  },
+  pointer(e, f) {
+    const s = f.state;
+    const fine = e.shift ? 0.1 : 1;
+    if (e.type === 'down') {
+      const t = where(e.x, e.y);
+      s.drag = t ? { ...t, x: e.x, y: e.y, from: f.value(t.id), norm: f.norm(t.id) } : null;
+    }
+    if (e.type === 'up' || e.type === 'leave') s.drag = null;
+    const d = s.drag;
+    if (d && (e.type === 'down' || e.type === 'move')) {
+      if (d.lanes) f.set('kdetune', Math.max(0, Math.min(1, d.from + ((e.x - d.x) / 400) * fine)));
+      else if (d.column) {
+        const place = placeOf(d.lane), cx = (COLUMN.x0 + COLUMN.x1) / 2, half = (COLUMN.x1 - COLUMN.x0) / 2;
+        const v = Math.abs(place) > 0.1 ? (e.x - cx) / (half * place) : d.from + (e.x - d.x) / half;
+        f.set('kwidth', Math.max(0, Math.min(1, v)));
+      } else if (e.type === 'move') f.setNorm(d.id, Math.max(0, Math.min(1, d.norm + ((d.y - e.y) / 200) * fine)));
+    }
+    if (e.type === 'wheel' || e.type === 'double') {
+      const t = where(e.x, e.y);
+      if (t && e.type === 'wheel') f.setNorm(t.id, Math.max(0, Math.min(1, f.norm(t.id) - (e.dy / 100) * 0.01 * fine)));
+      if (t && e.type === 'double') f.set(t.id, t.first ?? (t.lanes ? 0.35 : 0.8));
+    }
+    const at = s.drag ?? where(e.x, e.y);
+    f.cursor(!at ? 'default' : at.lanes || at.column ? 'ew-resize' : 'ns-resize');
   },
 };
 `;
@@ -86,7 +207,7 @@ const CARD = {
   stroke: { color: '#d9dde2', width: 1, style: 'solid' as const },
 };
 
-/** The Saw's own screen: Detune and Drift under its name. */
+/** The Saw's own screen, for a plugin that puts it on: Detune and Drift under its name. */
 export const SAW_FACE: PartFace = {
   width: 208,
   height: 140,
@@ -131,17 +252,13 @@ export const SAW_FACE: PartFace = {
   ],
 };
 
-/** The control on the plugin wired to a parameter of the Saw's use (its face). */
-const faceKnob = (doc: PatchDocument, param: string) =>
-  Object.values(doc.edges).find(e => e.to.node === 'saw1' && e.to.port === param)?.from.node ?? '';
-
 export function supersaw(catalog: Catalog) {
   const inside = ['copy1', 'spread1', 'driftdir1', 'drift1', 'offset1', 'note1', 'mtof1', 'osc1'];
   return workInSteps(
     'supersaw',
     'Septet',
     catalog,
-    [760, 556],
+    [760, 520],
     [
       [
         // ---- one saw of seven: the note, moved by where this copy sits and a little drift of its own ----
@@ -243,128 +360,54 @@ export function supersaw(catalog: Catalog) {
           face: SAW_FACE,
         },
         { op: 'setCount', node: 'saw1', count: 7 },
-        // ---- the plugin: one display with all seven saws, finger-sized controls below ----
+        // ---- the plugin: one display, operated on the display ----
         {
           op: 'setLook',
           look: {
             tokens: {
-              bg: '#f3f4f1',
-              fg: '#17191c',
-              accent: '#1c64d8',
-              track: '#dde1e5',
-              knob: '#ffffff',
-              pointer: '#17191c',
-              muted: '#4f555d',
-              glow: '#1c64d8',
-              font: 'lato',
-              labelFont: 'lato',
+              bg: '#e5432a',
+              fg: '#0a0a0a',
+              accent: '#ffffff',
+              track: '#b8301b',
+              knob: '#0a0a0a',
+              pointer: '#ffffff',
+              muted: '#ffffff',
+              glow: '#ffffff',
+              font: 'michroma',
+              labelFont: 'michroma',
               valueFont: 'jetbrains-mono',
             },
-            background: [{ kind: 'color', color: '#f3f4f1' }],
-            skins: {
-              knob: { name: 'ring', params: { thickness: 5, ticks: 0, round: true } },
-              keyboard: { name: 'piano', params: { octaves: 3, start: 48, lit: '#1c64d8' } },
-            },
-            css: '[data-widget=keys1] { --dk-key-line: #c9ced4; --dk-key-black: #2a2e33; }',
+            background: [{ kind: 'color', color: '#e5432a' }],
+            skins: { meter: { name: 'bar', params: { scale: false } } },
           },
         },
-        el({
-          kind: 'text',
-          name: 'Title',
-          text: 'Septet',
-          rect: r(24, 18, 200, 30),
-          textStyle: { size: 24, weight: 700, color: 'fg', align: 'left' },
-        }),
-        el({
-          kind: 'text',
-          name: 'Subtitle',
-          text: 'Supersaw. Seven saws for every note, all on one screen.',
-          rect: r(24, 50, 420, 16),
-          textStyle: { size: 12, color: 'muted', align: 'left' },
-        }),
-        el({
-          kind: 'shape',
-          shape: 'rect',
-          name: 'Display',
-          rect: r(24, 80, 712, 228),
-          locked: true,
-          style: CARD,
-        }),
-        ...LANES.flatMap((color, k) => [
-          el({
-            kind: 'shape',
-            shape: 'rect',
-            name: `Lane ${k + 1} chip`,
-            rect: r(32, Math.round(84 + (k + 0.5) * (220 / 7) - 9), 22, 18),
-            locked: true,
-            style: { radius: 4, fill: [{ kind: 'color', color }] },
-          }),
-          el({
-            kind: 'text',
-            name: `Lane ${k + 1}`,
-            text: String(k + 1),
-            rect: r(32, Math.round(84 + (k + 0.5) * (220 / 7) - 8), 22, 16),
-            textStyle: {
-              font: 'jetbrains-mono',
-              size: 11,
-              weight: 700,
-              color: '#ffffff',
-              align: 'center',
-            },
-          }),
-        ]),
-        ...control('kwidth', 'ui.knob', 'Width', 'splay1.width', r(240, 350, 96, 108), {
-          min: 0,
-          max: 1,
-          value: 0.8,
-          style: KNOB,
-        }),
-        ...control('kcut', 'ui.knob', 'Cutoff', 'cut1.hz', r(340, 350, 96, 108), {
-          min: 60,
-          max: 8000,
-          scale: 'log',
-          unit: 'Hz',
-          value: 900,
-          style: KNOB,
-        }),
-        ...control('kenv', 'ui.knob', 'Env', 'envamt1.b', r(440, 350, 96, 108), {
-          min: 0,
-          max: 6,
-          unit: 'oct',
-          value: 2.5,
-          style: KNOB,
-        }),
-        ...control('krel', 'ui.knob', 'Release', 'aenv1.release', r(540, 350, 96, 108), {
-          min: 0.02,
-          max: 4,
-          scale: 'log',
-          unit: 's',
-          value: 0.5,
-          style: KNOB,
-        }),
-        ...control('kspace', 'ui.knob', 'Space', 'hall1.mix', r(640, 350, 96, 108), {
-          min: 0,
-          max: 1,
-          value: 0.22,
-          style: KNOB,
-        }),
-        ...control('keys1', 'ui.keyboard', 'Keys', null, r(24, 476, 712, 60)),
       ],
-      // The Saw's face on the plugin: Detune and Drift for all seven saws of every voice.
-      doc => faceIntents(doc, catalog, 'saw1', { at: { x: 24, y: 324 } }).intents,
-      // The display reads the face's knobs (their ids come with the face).
-      doc => [
+      // The Saw's parameters, for every copy at once, and the voice's: in the patch, moved on the display.
+      () => [
+        ...patchControl('kdetune', 'Detune', 'saw1.detune', [0, 1, 'linear', 'st'], 0.35),
+        ...patchControl('kdrift', 'Drift', 'saw1.drift', [0, 0.5, 'linear', 'st'], 0.08),
+        ...patchControl('kwidth', 'Width', 'splay1.width', [0, 1, 'linear', ''], 0.8),
+        ...patchControl('kcut', 'Cutoff', 'cut1.hz', [60, 8000, 'log', 'Hz'], 900),
+        ...patchControl('kenv', 'Env', 'envamt1.b', [0, 6, 'linear', 'oct'], 2.5),
+        ...patchControl('krel', 'Release', 'aenv1.release', [0.02, 4, 'log', 's'], 0.5),
+        ...patchControl('kspace', 'Space', 'hall1.mix', [0, 1, 'linear', ''], 0.22),
         el({
           kind: 'canvas',
           name: 'Seven saws',
           code: SAW_LANES,
-          rect: r(28, 84, 704, 220),
-          props: {
-            detune: faceKnob(doc, 'detune'),
-            drift: faceKnob(doc, 'drift'),
-            colors: LANES.join(','),
-          },
+          rect: r(0, 0, 760, 520),
         }),
+        el({
+          kind: 'text',
+          name: 'Title',
+          text: 'SEPTET',
+          rect: r(24, 22, 300, 34),
+          textStyle: { font: 'michroma', size: 26, weight: 400, color: 'fg', align: 'left' },
+        }),
+        ...control('vu1', 'ui.meter', 'Out', null, r(596, 28, 140, 10), {
+          style: { tokens: { track: '#b8301b', accent: '#0a0a0a' } },
+        }),
+        wire('gl1.out', 'vu1.in'),
       ],
     ],
   );

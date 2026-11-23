@@ -1,8 +1,8 @@
 // The showcase works with parts through the real UI: Rain Field, opened from the
-// start screen, rains by itself (one Drop part ×16, its face on the plugin);
-// turning the Drop's face knob plays all sixteen copies without recompiling,
-// each still moved by its own spread. Septet plays a held note through seven
-// saws per voice; its Detune knob is the Saw's face and plays live too. Both
+// start screen, rains by itself (one Drop part ×16); dragging the Drop's Rain
+// figure on the field plays all sixteen copies without recompiling, each still
+// moved by its own spread. Septet plays a held note through seven saws per
+// voice; dragging across its lanes moves the Saw part's Detune, live too. Both
 // pass the plugin check in the browser.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,40 +36,41 @@ const faceKnob = (page: Page, use: string, param: string): Promise<string> =>
       ).from.node,
     [use, param] as const,
   );
-async function turnUp(page: Page, id: string, by = 70) {
-  const knob = page.locator(`[data-widget=${id}] dk-knob`);
-  await knob.waitFor();
-  const b = (await knob.boundingBox())!;
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+/** Drags on the playing plugin from (x, y) by (dx, dy), in the panel's own pixels. */
+async function dragOnPlugin(page: Page, x: number, y: number, dx: number, dy: number) {
+  const panel = page.locator('[data-testid=plugin-window] [data-testid=panel]');
+  await panel.waitFor();
+  const b = (await panel.boundingBox())!;
+  const k = b.width / (await kit(page, k => k.doc.value.panel.width));
+  await page.mouse.move(b.x + x * k, b.y + y * k);
   await page.mouse.down();
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - by, { steps: 8 });
+  await page.mouse.move(b.x + (x + dx) * k, b.y + (y + dy) * k, { steps: 8 });
   await page.mouse.up();
 }
 
 describe('the showcase works with parts', () => {
-  it('Rain Field rains by itself; the Drop face plays all sixteen copies live; the patch shows one Drop ×16', async () => {
+  it("Rain Field rains by itself; the Drop's Rain plays all sixteen copies live; the patch shows one Drop ×16", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     assert.equal((await openWork(page, 'rain')).status, 'ok');
     assert.match(await page.locator('.vue-flow__node[data-id="drop1"]').innerText(), /×16/);
     assert.ok((await outputPeak(page, 800)) > 0.01, 'it rains with no keys held');
     const rain = await faceKnob(page, 'drop1', 'rain');
-    assert.deepEqual(await kit(page, k => k.doc.value.ui.groups.drop1Face.length), 7);
     await page.keyboard.press('Control+Alt+KeyE');
     const before = await page.evaluate(
       id => (window as any).__kit.doc.value.nodes[id].values.value,
       rain,
     );
     const started = await compiles(page);
-    await turnUp(page, rain);
+    await dragOnPlugin(page, 50, 408, 0, -40); // the Rain figure, bottom left of the field
     const after = await page.evaluate(
       id => (window as any).__kit.doc.value.nodes[id].values.value,
       rain,
     );
     assert.ok(after > before, `Rain went up (${before} → ${after})`);
     await page.waitForTimeout(300);
-    assert.equal(await compiles(page), started, 'turning a face knob does not recompile');
-    // The knob reaches every copy through its spread: sixteen copies, each moved by its own amount (Rain and Pitch spread at random).
+    assert.equal(await compiles(page), started, "dragging the Drop's Rain does not recompile");
+    // Rain reaches every copy through its spread: sixteen copies, each moved by its own amount (Rain and Pitch spread at random).
     const spreads: number[] = await kit(page, k =>
       Object.entries(k.generated.value.values)
         .filter(([name]) => name.endsWith('$spread_scale'))
@@ -88,7 +89,7 @@ describe('the showcase works with parts', () => {
     await page.close();
   });
 
-  it("Septet: a held note through seven saws per voice; the Saw face's Detune plays live", async () => {
+  it("Septet: a held note through seven saws per voice; the Saw part's Detune plays live from the lanes", async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     assert.equal((await openWork(page, 'supersaw')).status, 'ok');
@@ -102,7 +103,7 @@ describe('the showcase works with parts', () => {
     );
     await page.keyboard.press('Control+Alt+KeyE');
     const started = await compiles(page);
-    await turnUp(page, detune, 40);
+    await dragOnPlugin(page, 300, 200, 40, 0); // across the lanes
     await page.waitForTimeout(300);
     assert.equal(await compiles(page), started, 'Detune does not recompile');
     assert.ok(

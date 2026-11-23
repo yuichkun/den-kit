@@ -534,7 +534,7 @@ describe('building the plugin screen by hand', () => {
     await page.close();
   });
 
-  it('a work opens with every control showing its value (faders, switches, knobs)', async () => {
+  it('a work opens with every value showing (text bound to its controls)', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     const open = async (id: string) => {
@@ -546,15 +546,14 @@ describe('building the plugin screen by hand', () => {
         await page.keyboard.press('Control+Alt+KeyE');
       await page.waitForSelector('[data-testid=plugin-view]');
     };
+    const shows = (text: string) =>
+      page.locator('[data-testid=plugin-view]').getByText(text, { exact: true }).first().waitFor();
     await open('lofi'); // its display is the control: the rate under it is text bound to Rate
-    await page.getByText('◀ rate 11.0 kHz ▶', { exact: true }).waitFor();
-    await open('tapeecho');
-    assert.equal(await page.locator('[data-widget=thiss] dk-toggle').getAttribute('value'), 'true');
-    await page.waitForSelector('[data-widget=thiss] dk-toggle .plain.on');
-    assert.match(
-      (await page.locator('[data-widget=ktime] dk-knob').getAttribute('value')) ?? '',
-      /^0\.32$/,
-    );
+    await shows('◀ rate 11.0 kHz ▶');
+    await open('acid'); // the figures over its filter are text bound to Cutoff, Resonance and Sweep
+    await shows('340 Hz');
+    await shows('0.720');
+    await shows('3.40 oct');
     assert.deepEqual(errors, []);
     await page.close();
   });
