@@ -35,8 +35,12 @@ export const MAT = {
   groove: '#d77ba4',
   light: '#ffc8de',
 };
-/** The floor beside the mat: painted boards running the whole height of the screen, the joints between them a shade darker. */
-const FLOOR = { x: 3 * MAT.tile, color: '#c42f6c', joint: '#ad2860' };
+/**
+ * The floor beside the mat: painted boards running the whole height of the screen, the joints between them a shade
+ * darker. The toys stand on the middle board, wide enough for their names; the boards either side run on under the
+ * mat and off the screen.
+ */
+const FLOOR = { x: 3 * MAT.tile, color: '#c42f6c', joint: '#ad2860', board: 84 };
 /** The middle of the middle tile, where the Beat sits. */
 const MID = { x: 1.5 * MAT.tile, y: 1.5 * MAT.tile };
 /** The Beat's four studs, on a ring this far from its middle. */
@@ -124,7 +128,7 @@ export const TOYS = `// Three toys on the floor beside the mat, one beside each 
 // toy under the hand lifts, and a row of five dots under its name says how much.
 const IDS = ['kbounce', 'kring', 'kfizz'];
 const NAMES = ['BOUNCE', 'RING', 'FIZZ'];
-const SHADE = '${SHADOW.color}', DROP = ${SHADOW.dy}, FLOOR = '${FLOOR.color}';
+const SHADE = '${SHADOW.color}', DROP = ${SHADOW.dy};
 const RED = '#ff4b2b', YELLOW = '#ffc531', TEAL = '#12a594', CREAM = '#fff3df';
 // How far each toy reaches above the floor it stands on (the ball at its highest hop, the top's knob, the straw), and how far below it its name sits;
 // the bottom of the work's name over the first row.
@@ -147,14 +151,12 @@ function dotted(ctx, pts, gap) {
     left -= len;
   }
 }
-// A toy's name, and under it (while the hand is on it) five dots, as many filled as there is of it. The floor's
-// joints stop short of them, so they read clear of the lines.
+// A toy's name, painted on the middle board, and under it (while the hand is on it) five dots, as many filled as there
+// is of it.
 function name(ctx, i, x, y, n, shown) {
   ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const spaced = 'letterSpacing' in ctx;
   if (spaced) ctx.letterSpacing = '2px';
-  const m = ctx.measureText(NAMES[i]), tw = Math.max((m && m.width) || 0, NAMES[i].length * 10, shown ? 52 : 0);
-  ctx.fillStyle = FLOOR; ctx.fillRect(Math.round(x - tw / 2 - 6), Math.round(y - 9), Math.round(tw + 12), shown ? 35 : 18);
   ctx.fillStyle = CREAM; ctx.fillText(NAMES[i], x + (spaced ? 1 : 0), y);
   if (spaced) ctx.letterSpacing = '0px';
   if (!shown) return;
@@ -590,22 +592,27 @@ function padOf(shape: Shape, d: { x: number; y: number; s: number }) {
   };
 }
 
-/** A seam of the foam mat from one point to another (straight across or down): a line with interlocking teeth. */
+/**
+ * A seam of the foam mat from one point to another (straight across or down), a tile's side at a time: a line
+ * with three interlocking teeth along each side, at its quarters, so the corners where seams cross stay straight.
+ */
 function seam(ax: number, ay: number, bx: number, by: number): string {
   const across = ay === by,
     len = across ? bx - ax : by - ay,
-    n = Math.max(1, Math.round(len / 60)),
-    step = len / n;
+    sides = Math.max(1, Math.round(len / MAT.tile)),
+    side = len / sides;
   const at = (t: number, o: number) =>
     across
       ? `${(ax + t).toFixed(1)} ${(ay + o).toFixed(1)}`
       : `${(ax + o).toFixed(1)} ${(ay + t).toFixed(1)}`;
   const pts = [at(0, 0)];
-  for (let i = 0; i < n; i++) {
-    const c = (i + 0.5) * step,
-      o = i % 2 ? 6 : -6;
-    pts.push(at(c - 4.5, 0), at(c - 7, o), at(c + 7, o), at(c + 4.5, 0));
-  }
+  let k = 0;
+  for (let j = 0; j < sides; j++)
+    for (const u of [0.25, 0.5, 0.75]) {
+      const c = (j + u) * side,
+        o = k++ % 2 ? 6 : -6;
+      pts.push(at(c - 4.5, 0), at(c - 7, o), at(c + 7, o), at(c + 4.5, 0));
+    }
   pts.push(at(len, 0));
   return `M${pts.join(' L')}`;
 }
@@ -613,13 +620,11 @@ function seam(ax: number, ay: number, bx: number, by: number): string {
 function matSvg(): string {
   const T = MAT.tile,
     X1 = 3 * T,
-    board = (W - FLOOR.x) / 3;
+    mid = (FLOOR.x + W) / 2;
   const out: string[] = [];
-  // The floor: three long boards running up beside the mat, a joint between each two.
-  for (let k = 1; k < 3; k++) {
-    const x = (FLOOR.x + k * board).toFixed(1);
-    out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
-  }
+  // The floor: long boards running up beside the mat, the middle one under the toys, a joint either side of it.
+  for (const x of [mid - FLOOR.board / 2, mid + FLOOR.board / 2])
+    out.push(`<path d="M${x.toFixed(1)} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
   // The mat, its tiles running off the top, left and bottom, its straight right edge lying on the boards.
   out.push(`<rect x="0" y="0" width="${FLOOR.x}" height="${H}" fill="${MAT.color}"/>`);
   // Its tiles meet in seams with teeth.
