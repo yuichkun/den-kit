@@ -261,7 +261,8 @@ export default {
     ctx.beginPath();
     for (let k = 0; k <= 9; k++) { const x = NOISE.x - 9 + k * 2, y = NOISE.y + ((k * 7) % 5) * 1.5 - 3; if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
     ctx.lineWidth = 1.5; ctx.stroke();
-    label(ctx, 'Hiss', NOISE.x, NOISE.y + NOISE.r + UNDER, 'center', ink, 700);
+    // Its name, which the breaker's bubble takes over while the hand is on the breaker.
+    if (!is('breaker')) label(ctx, 'Hiss', NOISE.x, NOISE.y + NOISE.r + UNDER, 'center', ink, 700);
     // The breaker on its line: a blade from the lower contact, closed up to the upper one, or swung out.
     if (is('breaker')) { ctx.fillStyle = hot1; ctx.beginPath(); ctx.arc(BREAKER.x, BREAKER.y, 20, 0, TAU); ctx.fill(); }
     ctx.fillStyle = ink;
