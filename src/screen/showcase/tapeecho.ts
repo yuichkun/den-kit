@@ -20,10 +20,15 @@
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
+// The pipe from In up to Rec, and the sight glass standing on it: the meter element is the glass's column.
+const LINE_IN = 296;
+const GLASS = { x: 160, top: 246, bot: LINE_IN - 4 };
+
 /** The line: the pump, the tape and its heads, the return through the valve and the strainer, the vessel that sends the echoes out; it takes the mouse. */
 export const ECHO_LINE = `// The line as a plant's flow diagram, read left to right like a filling line:
 // the In pump drives the sound up onto the tape at the Rec head (the sight glass
-// on its pipe, a meter laid over the canvas, shows the level going onto tape);
+// standing on its pipe, its column a meter laid over the canvas, shows the level
+// going onto tape);
 // the tape runs past head A at the repeat time (ktime) and head B 1.5 times
 // later; their echoes are collected into the vessel, which sends them Out, and
 // go back onto the tape through the valve (Intensity, kfb) and the strainer
@@ -40,17 +45,21 @@ export const ECHO_LINE = `// The line as a plant's flow diagram, read left to ri
 // scale over it, the tape itself for Wow (kwow, up and down), the valve (up and
 // down; its stem lifts as it opens), the strainer (across; the finer its mesh,
 // the darker each pass), the vessel's level for Echoes (kecho, up and down).
-// Click the breaker for the hiss (thiss), which joins the vessel from its own
-// source. Wheel: finer steps; double click: first value.
-const SPAN = 1.3, DRY = 52, BELT = 140, LINE_IN = 300, WET = 252, RET = 336;
-const REC = 256, TAPE_END = 600, ROLL = [222, 624];
-const PUMP = { x: 84, y: LINE_IN, r: 34 };
-const VESSEL = { x: 628, y: WET - 30, w: 92, h: 60 };
-const VALVE = { x: 380, y: RET }, STRAINER = { x: 500, y: RET, r: 24 };
-const BREAKER = { x: 698, y: 352 }, NOISE = { x: 750, y: 352, r: 18 };
-const GLASS = { x0: 140, x1: 212 }; // the sight glass on the pipe from In to Rec (the meter lies in it)
-const OUTLET = { y: WET, x1: 752 }; // the vessel's way Out, to the right
-const K = 604; // where the echoes split: on to the vessel, and back down the return
+// Click the breaker for the hiss (thiss), which runs down into the vessel from
+// its own source. Each part is named in one weight under it; the heads, whose
+// pipes run down, beside their pipes; the pipes' names are lighter, over them.
+// Wheel: finer steps; double click: first value.
+const SPAN = 1.3, DRY = 48, BELT = 136, LINE_IN = ${LINE_IN}, WET = 240, RET = 330;
+const REC = 228, TAPE_END = 572, ROLL = [194, 596];
+const PUMP = { x: 80, y: LINE_IN, r: 34 };
+const VESSEL = { x: 600, y: WET - 30, w: 92, h: 60 };
+const VALVE = { x: 352, y: RET }, STRAINER = { x: 472, y: RET, r: 24 };
+// The hiss: its source beside the tape, its line in from the left and down through the breaker into the vessel's shoulder.
+const NOISE = { x: 715, y: BELT, r: 17 }, FEED = 676, BREAKER = { x: FEED, y: 176 };
+const GLASS = ${JSON.stringify(GLASS)}; // the sight glass standing on the pipe from In to Rec (the meter is its column)
+const OUTLET = { y: WET, x1: 722 }; // the vessel's way Out, to the right
+const K = 576; // where the echoes split: on to the vessel, and back down the return
+const UNDER = 18; // how far under its part a name sits
 const FIRST = { kin: 1.4, ktime: 0.32, kwow: 0.0012, kfb: 0.55, ktone: 2600, kecho: 0.7 };
 const SANS = 'system-ui, sans-serif', TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -137,6 +146,10 @@ export default {
     pipe(ctx, [[xa, BELT + 40], [xa, WET], [VESSEL.x, WET]], tube, flow, f.t, 40, 9);
     pipe(ctx, [[xb, BELT + 40], [xb, WET]], tube, flow, f.t, 40, 9);
     pipe(ctx, [[K, WET], [K, RET], [REC, RET], [REC, LINE_IN]], tube, live && fb > 0.02 ? white : null, f.t, 24 + fb * 30, 4 + fb * 7);
+    // The hiss line: from its source to the breaker, and from the breaker down into the vessel's shoulder.
+    const t0 = BREAKER.y - 12, t1 = BREAKER.y + 12;
+    pipe(ctx, [[NOISE.x - NOISE.r, NOISE.y], [FEED, NOISE.y], [FEED, t0]], tube, null, f.t, 20, 5);
+    pipe(ctx, [[FEED, t1], [FEED, VESSEL.y + 12]], tube, hiss && live ? white : null, f.t, 20, 5);
     // Junctions: where the return joins the input, and where the echoes split to the vessel and back.
     for (const [x, y] of [[REC, LINE_IN], [K, WET]]) {
       ctx.fillStyle = tube; ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.fill();
@@ -144,10 +157,14 @@ export default {
     }
     label(ctx, 'Dry', (PUMP.x + VX) / 2, DRY - 16, 'center', line, 600);
     label(ctx, 'Return', REC + 44, RET - 18, 'left', line, 600);
-    // The sight glass on the pipe up to Rec: a flange at each end (the meter is the glass).
+    // The sight glass on the pipe up to Rec: a glass column standing on it, marked at each quarter (the meter laid
+    // over the canvas is the column, rising with the sound going onto tape).
+    const gx = GLASS.x, gr = 8, dome = () => { ctx.beginPath(); ctx.moveTo(gx - gr, GLASS.bot + 1); ctx.arc(gx, GLASS.top + 4, gr, Math.PI, 0); ctx.lineTo(gx + gr, GLASS.bot + 1); };
+    ctx.fillStyle = tube; dome(); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 2; dome(); ctx.stroke();
     ctx.fillStyle = ink;
-    for (const x of [GLASS.x0, GLASS.x1]) { ctx.beginPath(); ctx.roundRect(x - 3, LINE_IN - 12, 6, 24, 2); ctx.fill(); }
-    label(ctx, 'Onto tape', (GLASS.x0 + GLASS.x1) / 2, LINE_IN + 24, 'center', line, 600);
+    for (let i = 1; i < 4; i++) ctx.fillRect(gx + gr + 3, Math.round(GLASS.bot - ((GLASS.bot - GLASS.top) * i) / 4) - 0.75, 5, 1.5);
+    label(ctx, 'Onto tape', gx, LINE_IN + 4.5 + UNDER, 'center', ink, 700);
     // The In pump: a casing round an impeller that turns while sound comes in; more Drive, longer vanes.
     lift(ctx, true); ctx.fillStyle = face('pump'); ctx.beginPath(); ctx.arc(PUMP.x, PUMP.y, PUMP.r, 0, TAU); ctx.fill(); lift(ctx, false);
     ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke();
@@ -162,7 +179,7 @@ export default {
     }
     ctx.lineCap = 'butt';
     ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(PUMP.x, PUMP.y, 4.5, 0, TAU); ctx.fill();
-    label(ctx, 'In', PUMP.x, PUMP.y + PUMP.r + 18, 'center', ink, 700);
+    label(ctx, 'In', PUMP.x, PUMP.y + PUMP.r + UNDER, 'center', ink, 700);
     // The time scale over the tape, from Rec: every 0.1 s, named every 0.5 s from 0.
     ctx.fillStyle = line;
     for (let i = 0; i <= SPAN * 10 + 0.01; i++) {
@@ -193,7 +210,7 @@ export default {
     }
     // The heads under the tape: Rec, then A and B at their times, marked on the scale; a head lights as its echo is heard.
     ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(REC - 15, BELT + 28, 30, 14, 4); ctx.fill();
-    label(ctx, 'Rec', REC - 20, BELT + 35, 'right', ink, 700);
+    label(ctx, 'Rec', REC - 12, BELT + 54, 'right', ink, 700);
     for (const [x, at, name] of [[xa, time, 'A'], [xb, time * 1.5, 'B']]) {
       ctx.fillStyle = ink; ctx.fillRect(Math.round(x) - 1, BELT - 46, 2, 18);
       lift(ctx, true);
@@ -201,7 +218,7 @@ export default {
       ctx.beginPath(); ctx.roundRect(x - 13, BELT + 28, 26, 14, 4); ctx.fill();
       lift(ctx, false);
       ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke();
-      label(ctx, name, x + 12, BELT + 54, 'left', ink, 700);
+      label(ctx, name, x - 12, BELT + 54, 'right', ink, 700);
     }
     // The valve on the return: its stem lifts as it opens (Intensity), the flow thickens.
     const vx = VALVE.x, vy = VALVE.y, stem = 12 + fb * 26;
@@ -233,38 +250,37 @@ export default {
     ctx.lineTo(V.x + V.w, V.y + V.h); ctx.closePath(); ctx.fill();
     ctx.restore();
     ctx.strokeStyle = ink; ctx.lineWidth = 2; capsule(); ctx.stroke();
+    label(ctx, 'Echoes', VX, V.y + V.h + UNDER, 'center', ink, 700);
     // The way Out, to the right.
     pipe(ctx, [[V.x + V.w, OUTLET.y], [OUTLET.x1, OUTLET.y]], tube, flow, f.t, 40, 9);
     ctx.fillStyle = ink; ctx.beginPath(); ctx.moveTo(OUTLET.x1 + 10, OUTLET.y); ctx.lineTo(OUTLET.x1 - 2, OUTLET.y - 9); ctx.lineTo(OUTLET.x1 - 2, OUTLET.y + 9); ctx.closePath(); ctx.fill();
-    label(ctx, 'Out', OUTLET.x1, OUTLET.y - 20, 'center', ink, 700);
-    // The hiss: its source, wired through the breaker and up into the vessel when it is on.
-    const c0 = BREAKER.x - 15, c1 = BREAKER.x + 15, cy = BREAKER.y + 6;
-    pipe(ctx, [[NOISE.x - NOISE.r, cy], [c1, cy]], tube, null, f.t, 20, 5);
-    pipe(ctx, [[c0, cy], [c0, V.y + V.h]], tube, hiss && live ? white : null, f.t, 20, 5);
-    lift(ctx, true); ctx.fillStyle = white; ctx.beginPath(); ctx.arc(NOISE.x, cy, NOISE.r, 0, TAU); ctx.fill(); lift(ctx, false);
+    label(ctx, 'Out', OUTLET.x1, OUTLET.y + 4.5 + UNDER, 'center', ink, 700);
+    // The hiss source beside the tape (its line is drawn with the pipes).
+    lift(ctx, true); ctx.fillStyle = white; ctx.beginPath(); ctx.arc(NOISE.x, NOISE.y, NOISE.r, 0, TAU); ctx.fill(); lift(ctx, false);
     ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke();
     ctx.beginPath();
-    for (let k = 0; k <= 9; k++) { const x = NOISE.x - 9 + k * 2, y = cy + ((k * 7) % 5) * 1.5 - 3; if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    for (let k = 0; k <= 9; k++) { const x = NOISE.x - 9 + k * 2, y = NOISE.y + ((k * 7) % 5) * 1.5 - 3; if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
     ctx.lineWidth = 1.5; ctx.stroke();
+    label(ctx, 'Hiss', NOISE.x, NOISE.y + NOISE.r + UNDER, 'center', ink, 700);
+    // The breaker on its line: a blade from the lower contact, closed up to the upper one, or swung out.
     if (is('breaker')) { ctx.fillStyle = hot1; ctx.beginPath(); ctx.arc(BREAKER.x, BREAKER.y, 20, 0, TAU); ctx.fill(); }
     ctx.fillStyle = ink;
-    for (const x of [c0, c1]) { ctx.beginPath(); ctx.arc(x, cy, 4.5, 0, TAU); ctx.fill(); }
+    for (const y of [t0, t1]) { ctx.beginPath(); ctx.arc(FEED, y, 4.5, 0, TAU); ctx.fill(); }
     ctx.strokeStyle = ink; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(c0, cy);
-    if (hiss) ctx.lineTo(c1, cy - 2); else ctx.lineTo(c1 - 5, cy - 18);
+    ctx.beginPath(); ctx.moveTo(FEED, t1);
+    if (hiss) ctx.lineTo(FEED + 2, t0); else ctx.lineTo(FEED + 17, t0 + 6);
     ctx.stroke(); ctx.lineCap = 'butt';
-    label(ctx, 'Hiss', BREAKER.x, BREAKER.y + 30, 'center', ink, 700);
     // The bubble by the hand: what the part under it sets, and the value.
     if (hot) {
       const v = f.value(hot.id);
       const say = {
-        pump: ['Drive', v.toFixed(2) + '×', PUMP.x + 66, PUMP.y - 56, PUMP.x + 24, PUMP.y - 24],
-        head: hot.k === 1 ? ['Repeat', Math.round(time * 1000) + ' ms', xa + 44, BELT + 78, xa + 13, BELT + 40] : ['Head B', Math.round(time * 1500) + ' ms', xb + 44, BELT + 78, xb + 13, BELT + 40],
+        pump: ['Drive', v.toFixed(2) + '×', PUMP.x + 56, PUMP.y - 96, PUMP.x + 24, PUMP.y - 24],
+        head: hot.k === 1 ? ['Repeat', Math.round(time * 1000) + ' ms', xa - 46, BELT + 96, xa - 13, BELT + 42] : ['Head B', Math.round(time * 1500) + ' ms', xb + 44, BELT + 78, xb + 13, BELT + 40],
         tape: ['Wow', (v * 1000).toFixed(2) + ' ms', ROLL[0] - 70, BELT, ROLL[0] - 26, BELT],
         valve: ['Intensity', Math.round(v * 100) + '%', VALVE.x + 58, VALVE.y - 50, VALVE.x + 12, VALVE.y - 12 - fb * 26],
         tone: ['Tone', (v / 1000).toFixed(2) + ' kHz', STRAINER.x + 62, STRAINER.y - 46, STRAINER.x + 14, STRAINER.y - 10],
         vessel: ['Echoes', Math.round((v / 1.2) * 100) + '%', VESSEL.x - 36, VESSEL.y - 18, VESSEL.x + 4, VESSEL.y + 12],
-        breaker: ['Hiss', hiss ? 'on' : 'off', BREAKER.x + 46, BREAKER.y - 48, BREAKER.x + 14, BREAKER.y - 8],
+        breaker: ['Hiss', hiss ? 'on' : 'off', BREAKER.x + 46, BREAKER.y + 28, BREAKER.x + 10, BREAKER.y + 6],
       }[hot.kind];
       bubble(ctx, say[0], say[1], say[2], say[3], say[4], say[5], ink, white);
     }
@@ -406,17 +422,24 @@ export function tapeecho(catalog: Catalog) {
         code: ECHO_LINE,
         rect: r(0, 0, 780, 400),
       }),
+      // The drawing's title block, bottom right, on the line of the return's names.
       el({
         kind: 'text',
         name: 'Title',
         text: 'Echo Line',
-        rect: r(20, 12, 140, 24),
-        textStyle: { font: 'system', size: 15, weight: 700, color: 'fg', align: 'left' },
+        rect: r(572, 356, 160, 24),
+        textStyle: { font: 'system', size: 16, weight: 700, color: 'fg', align: 'right' },
       }),
-      // The level going onto tape: the sight glass in the pipe from In to Rec (the canvas draws its flanges).
-      ...control('vu1', 'ui.meter', 'Onto tape', null, r(146, 294, 60, 12), {
-        style: { tokens: { track: '#137a5f', accent: '#ffffff' } },
-      }),
+      // The level going onto tape: the column of the sight glass standing on the pipe from In to Rec (the canvas
+      // draws the glass round it).
+      ...control(
+        'vu1',
+        'ui.meter',
+        'Onto tape',
+        null,
+        r(GLASS.x - 5, GLASS.top, 10, GLASS.bot - GLASS.top),
+        { style: { tokens: { track: '#137a5f', accent: '#ffffff' } } },
+      ),
       wire('trim1.out', 'vu1.in'),
     ],
   );
