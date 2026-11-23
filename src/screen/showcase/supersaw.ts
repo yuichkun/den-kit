@@ -34,7 +34,8 @@ export const SAW_LANES = `// The whole plugin is one display, read like a scope'
 // life: up, held, let go over Release (krel), with the hall's tail (kspace)
 // dotted under it; drag the release mark across, the tail up and down. The
 // filter band is the output's spectrum with two cursors: a at Cutoff, b where
-// Env opens it to; drag either. Wheel: finer steps; double click: first value.
+// Env opens it to; drag either. A setting's name and value show on a plate by
+// it while the hand is on it. Wheel: finer steps; double click: first value.
 const DRIFT = [0.42, -0.77, 0.15, -0.31, 0.88, -0.56, 0.69];
 const N = 7, ZOOM = 8, TEETH = 18;
 const L = { x0: 72, x1: 640, top: 64, lane: 44 };
@@ -84,6 +85,14 @@ function label(ctx, text, x, y, align, ink, weight) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = ink;
   ctx.fillText(text, x, y);
+}
+// The plate by a part, while the hand is on it: its setting's name and value.
+function plate(ctx, text, x, y, align, ink, paper, w) {
+  ctx.font = '700 12px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const m = ctx.measureText(text), tw = ((m && m.width) || text.length * 7.2) + 14;
+  const x0 = clamp(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, 4, w - tw - 4);
+  ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(Math.round(x0), Math.round(y - 11), Math.round(tw), 22, 3); ctx.fill();
+  ctx.fillStyle = paper; ctx.fillText(text, Math.round(x0 + 7), Math.round(y) + 0.5);
 }
 export default {
   setup(ctx, f) {
@@ -140,16 +149,14 @@ export default {
       ctx.restore();
       label(ctx, (st >= 0 ? '+' : '−') + Math.abs(st).toFixed(2), 736, mid + 0.5, 'right', is('kdrift') ? white : ink, 700);
     }
-    // Drift: the offsets' own handle, under them.
-    label(ctx, 'drift ' + drift.toFixed(2) + ' ↕', 736, lanesBottom() + 4, 'right', is('kdrift') ? white : ink);
+    // Drift: the offsets are its handle.
     if (is('kdrift')) { ctx.fillStyle = white; ctx.fillRect(L.x1 + 30, L.top + 4, 1.5, lanesBottom() - L.top - 8); }
     // The part: one Saw used seven times; its two settings move every copy at once.
     ctx.fillStyle = ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.font = '800 14px ' + SANS; ctx.fillText('SAW ×7', 24, 26);
     ctx.font = '600 11px ' + SANS; ctx.fillText('one part, seven copies', 24, 44);
     ctx.fillRect(38, 52, 2, L.top + L.lane / 2 - 63);
-    // Detune: the lanes' own handle, over them; a crosshair where the hand is.
-    label(ctx, '↔ detune ±' + detune.toFixed(2) + ' st', L.x0 + 128, 44, 'left', is('kdetune') ? white : ink, 700);
+    // Detune: the lanes are its handle; a crosshair where the hand is.
     if (is('kdetune') && p && p.over) {
       ctx.fillStyle = white;
       ctx.fillRect(Math.round(clamp(p.x, L.x0, L.x1)), L.top, 1.5, lanesBottom() - L.top);
@@ -171,7 +178,6 @@ export default {
       ctx.beginPath(); ctx.moveTo(x, ry - r); ctx.lineTo(x + r, ry + 0.75); ctx.lineTo(x, ry + r + 1.5); ctx.lineTo(x - r, ry + 0.75); ctx.closePath();
       ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
     }
-    label(ctx, 'width ' + show(width, '') + ' ↔', cx, 14, 'center', is('kwidth') ? white : ink, 700);
     // The amp lane: a note goes up, holds, is let go over Release; the hall's tail, dotted, rings on.
     const a0 = AMP.top, ab = AMP.top + AMP.h - 6, ah = AMP.h - 14;
     ctx.fillStyle = white;
@@ -199,11 +205,9 @@ export default {
     ctx.fillStyle = is('krel') ? white : ink;
     ctx.fillRect(Math.round(xRel) - 1, a0 + 2, 2.5, ab - a0 - 2);
     ctx.fillRect(Math.round(xOff), sus - 4, 1.5, ab - sus + 4);
-    label(ctx, 'release ' + show(rel, 's') + ' ↔', xRel + 8, a0 + 9, 'left', is('krel') ? white : ink, 700);
     const hx = L.x0 + 96;
     ctx.beginPath(); ctx.arc(hx, tail - 1, is('kspace') ? 5.5 : 4.5, 0, Math.PI * 2);
     ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
-    label(ctx, 'space ' + show(space, '') + ' ↕', hx + 10, space > 0.45 ? tail + 11 : tail - 11, 'left', is('kspace') ? white : ink, 700);
     // The filter band: the output's spectrum; a at Cutoff, b where Env opens it to.
     const spec = f.spectrum || new Float32Array(64);
     const sh = SPEC.bot - SPEC.top - 16;
@@ -225,10 +229,31 @@ export default {
       ctx.fillRect(xa, SPEC.top + 22, xb - xa, 1.5);
       ctx.beginPath(); ctx.moveTo(xb, SPEC.top + 22.75); ctx.lineTo(xb - 6, SPEC.top + 19); ctx.lineTo(xb - 6, SPEC.top + 26.5); ctx.fill();
     }
-    label(ctx, 'a  cutoff ' + show(cutHz, 'Hz'), xa + 7, SPEC.top + 8, 'left', is('kcut') ? white : ink, 700);
-    const envText = 'b  env +' + show(env, 'oct');
-    const right = xb + 7 + envText.length * 6.7 > SPEC.x1 + 40;
-    label(ctx, envText, right ? xb - 7 : Math.max(xb + 7, xa + 150), SPEC.top + 34, right ? 'right' : 'left', is('kenv') ? white : ink, 700);
+    label(ctx, 'a', xa + 7, SPEC.top + 8, 'left', is('kcut') ? white : ink, 700);
+    label(ctx, 'b', xb + 7, SPEC.top + 34, 'left', is('kenv') ? white : ink, 700);
+    // The plate by the part the hand is on.
+    if (hot) {
+      const id = hot.id, px = p && p.over ? p.x : 0, py = p && p.over ? p.y : 0;
+      const text = {
+        kdetune: 'detune ±' + detune.toFixed(2) + ' st',
+        kdrift: 'drift ' + drift.toFixed(2),
+        kwidth: 'width ' + show(width, ''),
+        krel: 'release ' + show(rel, 's'),
+        kspace: 'space ' + show(space, ''),
+        kcut: 'cutoff ' + show(cutHz, 'Hz'),
+        kenv: 'env +' + show(env, 'oct'),
+      }[id];
+      const at = {
+        kdetune: [px, Math.max(L.top + 12, py - 26), 'center'],
+        kdrift: [L.x1 + 2, py, 'right'],
+        kwidth: [cx, 14, 'center'],
+        krel: [xRel + 8, a0 + 10, 'left'],
+        kspace: [hx + 12, space > 0.45 ? tail + 14 : tail - 14, 'left'],
+        kcut: [xa - 8, SPEC.top + 8, 'right'],
+        kenv: [xb + 18, SPEC.top + 34, 'left'],
+      }[id];
+      if (text && at) plate(ctx, text, at[0], at[1], at[2], ink, white, w);
+    }
   },
   pointer(e, f) {
     const s = f.state;
