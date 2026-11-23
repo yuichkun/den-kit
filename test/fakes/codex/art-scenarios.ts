@@ -1,7 +1,7 @@
 // Scripted turns that edit the work's icon and cover like a model would: read the art with
 // kit_get_art, change only the surface asked about, in place, with the same operations the
-// person uses (kit_apply_ops with "on"), then finish. They act on whatever the art holds, so
-// they follow what the person made by hand.
+// person uses (kit_apply_ops with "on"), look at the result (kit_look with "art"), then finish.
+// They act on whatever the art holds, so they follow what the person made by hand.
 import type { Scenario } from './fake-codex.ts';
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -54,8 +54,9 @@ const artScenarios: Scenario[] = [
         await t.say(`Not applied: ${edit.text}`);
         return;
       }
+      const look = await t.call('kit_look', { art: 'cover' });
       await t.call('kit_finish', {
-        summary: `Moved ${moving.map(e => e.id).join(', ')} 120 px right on the cover; the icon is as it was.`,
+        summary: `Moved ${moving.map(e => e.id).join(', ')} 120 px right on the cover; the icon is as it was.${look.images ? ' Looked at it.' : ''}`,
       });
     },
   },
@@ -96,6 +97,7 @@ const artScenarios: Scenario[] = [
         await t.say(`Not applied: ${edit.text}`);
         return;
       }
+      await t.call('kit_look', { art: 'icon' });
       await t.call('kit_finish', { summary: 'Bolder lines and letters on the icon.' });
     },
   },

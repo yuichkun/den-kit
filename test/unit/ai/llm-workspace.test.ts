@@ -414,6 +414,42 @@ describe('LlmWorkspace', () => {
     expect((await plain.ws.call('kit_look', {})).imageDataUrl).toBeUndefined();
   });
 
+  it('kit_look with "art": a picture of the icon or the cover for image models, words otherwise', async () => {
+    const drawn: string[] = [];
+    const lookArt: WorkspaceDeps['lookArt'] = async (_doc, on) => {
+      drawn.push(on);
+      return { png: new Uint8Array([137, 80, 78, 71]), width: 512, height: 512 };
+    };
+    const { ws, state } = workspace({ images: true, lookArt });
+    expect((await ws.call('kit_look', { art: 'icon' })).text).toMatch(/^There is no icon yet/);
+    await ws.call('kit_apply_ops', {
+      ops: [
+        {
+          op: 'addElement',
+          on: 'icon',
+          element: {
+            id: 'mark',
+            kind: 'shape',
+            shape: 'ellipse',
+            rect: { x: 64, y: 64, w: 384, h: 384 },
+          },
+        },
+      ],
+    });
+    const seen = await ws.call('kit_look', { art: 'icon' });
+    expect(seen.text).toMatch(
+      /^Looked at the icon \(512×512\), drawn as it is now\. The picture is attached/,
+    );
+    expect(seen.text).toMatch(/rounded square/);
+    expect(seen.imageDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(ws.steps.at(-1)).toBe('looked at the icon');
+    const plain = workspace({ images: false, lookArt }, state.live);
+    const told = await plain.ws.call('kit_look', { art: 'icon' });
+    expect(told.text).toMatch(/does not take pictures.*kit_get_art lists everything on it/);
+    expect(told.imageDataUrl).toBeUndefined();
+    expect(drawn).toEqual(['icon']);
+  });
+
   it('kit_view_picture: a picture of the patch (or a bundled one) with its main colours; the picture itself only for image models', async () => {
     const seen = {
       png: new Uint8Array([137, 80, 78, 71]),

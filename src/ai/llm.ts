@@ -37,6 +37,7 @@ import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
 import { handEdits } from './plugin-tools.ts';
 import { artHandEdits } from './art-tools.ts';
+import { lookAtArt } from '../screen/art-look.ts';
 import { describeAttachments } from './attachments.ts';
 import type { Attachment } from './attachments.ts';
 import { handEditsSince } from './conversation.ts';
@@ -596,6 +597,7 @@ export class LlmController {
         const seeing = this.session.seeingNow();
         return seeing.view === 'art' && seeing.art ? seeing.art : null;
       },
+      lookArt: (doc, on) => lookAtArt(doc, on, { assetUrls: this.session.assetUrls.value }),
       pod: this.session.pod?.access(),
       scope: (before, after) => this.scopeCheck(turn, agent, before, after),
       project: () => this.projectCheck(turn, agent),

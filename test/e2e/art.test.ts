@@ -164,6 +164,20 @@ describe("the work's art", () => {
       assert.match(read.text, /The person has the cover open/);
       assert.match(read.text, / {2}- title: \{.*"y":240/);
       assert.match(read.text, /title on the cover \(added it, place\)/);
+      // It looked at the cover it changed: a picture of the surface as drawn.
+      assert.deepEqual(r1.steps, [
+        'read the icon and cover',
+        'cover: place title, place rule, place symbol1 ✓',
+        'looked at the cover',
+      ]);
+      const look = h
+        .codex!.mcpCalls()
+        .filter(c => c.tool === 'kit_look')
+        .at(-1)!;
+      assert.match(look.text, /^Looked at the cover \(1280×720\), drawn as it is now\./);
+      assert.deepEqual(look.types, ['text', 'image']);
+      assert.equal(look.images[0]!.mimeType, 'image/png');
+      assert.match(look.images[0]!.prefix, /^iVBORw0KGgo/);
 
       // The person goes on with what the AI changed: the same pieces, by hand.
       const moved = a.cover.elements.title.rect;

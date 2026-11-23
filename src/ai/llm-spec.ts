@@ -327,12 +327,13 @@ export const KIT_TOOLS: ToolSpec[] = [
   {
     name: 'kit_look',
     description:
-      'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words.',
+      'Look at the plugin screen as it is drawn now (code parts included, as they draw): checks for things off or cut by the edge, controls on top of each other or hidden, text that does not fit or is too small, text too faint against what is behind it (measured on the pixels), controls that drive nothing or have no label, missing pictures, failing canvases and code parts (with their errors); with a picture of the screen when your model accepts images. Use it after screen edits, and fix what it finds. With as "seen": a picture of exactly what the person sees now, their current view as on their screen (only when they share it; "view" asks for the plugin, the patch or the whole window) — use it when they say "look", "this here", or sketched on the screen; without sharing you get the plugin re-drawn, or the patch in words. With art "icon" or "cover": a picture of the work\'s icon or cover as it is drawn now, instead of the plugin.',
     inputSchema: {
       type: 'object',
       properties: {
         as: { type: 'string', enum: ['design', 'seen'] },
         view: { type: 'string', enum: ['plugin', 'patch', 'window'] },
+        art: { type: 'string', enum: ['icon', 'cover'] },
       },
       additionalProperties: false,
     },
@@ -517,6 +518,7 @@ The work's art (its icon and cover, where the work is listed)
 - Read it with kit_get_art; edit it with kit_apply_ops and "on" ("icon" or "cover"), the same element edits as on the plugin. Change only the surface the request is about: "the cover" leaves the icon as it is, and the other way round.
 - What the person made or changed there by hand (kit_get_art lists it) is theirs: keep it unless the request is about it, and change it in place (move, restyle) rather than removing and re-adding it, so they can go on editing the same pieces.
 - An icon is read small (32 px): one bold mark, a symbol or a letter, thick lines, strong contrast with its background. A cover has room for the work's name and a picture: keep the name large and clear of busy parts. Use the look's tokens, so the art follows the look.
+- After changing how a surface looks, see it with kit_look and "art" ("icon" or "cover") before you finish, and fix what looks wrong.
 
 The screen project (code parts: when den-kit's own pieces are not enough)
 - Each work can have a web project (Vite + TypeScript, ESLint, git) that lives in the pod; its code parts show on the plugin in their own box, fed with the controls' values and the sound, and can move controls (one drag is one undo step for the person). Use it when the screen needs what controls, skins, decorations and canvases do not do: a look of its own, 3D (three.js), motion and physics, a display of the sound, a control that behaves its own way, a whole custom screen.

@@ -31,7 +31,7 @@ import {
 import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
 import { checkPlugin, formatPluginIssue } from '../screen/checks.ts';
 import { describeArt } from './art-tools.ts';
-import type { ArtSurfaceName } from '../work/art.ts';
+import { ART_SIZE, type ArtSurfaceName } from '../work/art.ts';
 import type { LookResult } from '../screen/look.ts';
 
 import type { ToolOutput } from '../host/ai.ts';
@@ -77,6 +77,11 @@ export interface WorkspaceDeps {
   artHandEdits?(): string[];
   /** The surface of the art the person has open and what is selected on it (null: not in the art view). */
   artOpen?(): { on: ArtSurfaceName; selected: string | null } | null;
+  /** A picture of the icon or the cover as drawn now (lookAtArt in src/screen/art-look.ts). */
+  lookArt?(
+    doc: PatchDocument,
+    on: ArtSurfaceName,
+  ): Promise<{ png: Uint8Array; width: number; height: number }>;
   /** The person's saved parts (My parts), to list and place. */
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
@@ -211,6 +216,7 @@ export class LlmWorkspace {
             ),
           };
         case 'kit_look':
+          if (a.art === 'icon' || a.art === 'cover') return await this.lookArt(a.art);
           return a.as === 'seen'
             ? await this.lookSeen(
                 a.view === 'plugin' || a.view === 'patch' || a.view === 'window'
@@ -691,6 +697,34 @@ export class LlmWorkspace {
       success: true,
       text: `${head}\n${body}`,
       imageDataUrl: this.deps.images && seen.png ? pngDataUrl(seen.png) : undefined,
+    };
+  }
+
+  /** The icon or the cover as drawn now: a picture when the model takes pictures. */
+  private async lookArt(on: ArtSurfaceName): Promise<ToolOutput> {
+    const doc = this.deps.read();
+    const { width, height } = ART_SIZE[on];
+    const where = `the ${on} (${width}×${height})`;
+    const icon =
+      on === 'icon'
+        ? ' Lists and docks show it in a rounded square (corners about 22% of its side) and as small as 32 px.'
+        : '';
+    if (!doc.art?.[on])
+      return {
+        success: true,
+        text: `There is no ${on} yet: the first edit with "on":"${on}" makes it.`,
+      };
+    if (!this.deps.images || !this.deps.lookArt)
+      return {
+        success: true,
+        text: `Your model does not take pictures, so there is none of ${where}; kit_get_art lists everything on it.${icon}`,
+      };
+    const picture = await this.deps.lookArt(doc, on);
+    this.steps.push(`looked at the ${on}`);
+    return {
+      success: true,
+      text: `Looked at ${where}, drawn as it is now. The picture is attached (${picture.width}×${picture.height}); kit_get_art lists everything on it.${icon}`,
+      imageDataUrl: pngDataUrl(picture.png),
     };
   }
 
