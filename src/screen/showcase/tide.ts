@@ -59,22 +59,23 @@ const HORIZON = { y: 168 };
 export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky and the sea of the hour,
 // each in flat bands, and six bronze bells hung on posts standing in the water.
 // The hour is khour (0 to 24); the tide comes from the same table as the
-// codebox's, so where the water stands on the posts is what the sound plays. The
-// waves wash props.reach metres above and below the tide: the posts are dark
-// where they wash above the water, and under it the water they stir is a paler
-// band across the bay, down to a hard edge at their lowest reach. A bell rings
-// while they reach its lip, rings spreading on the water round its post. The
-// bells (props.heights in metres and props.notes, low to high, as lists) hang at
-// their heights; they stand along the shore in no order of height, on posts that
-// stay above the highest water. A bell in the waves' reach is polished bronze,
-// one out of it dull; what is under the water is seen through it (a post down to
-// the bell it holds), a bell in the stirred band through its pale water, one
-// under it as a dark shape. A bell the waves reach swings when its note jumps in the
-// spectrum (a strike is heard). The water on the posts bobs with the waves, read
-// from how loud the sea is (the low end of the spectrum, below the bells). The
-// sun or the moon crosses the sky with the hour; headlands close the bay in as
-// Bay (kbay) rises; crests on the sea grow with Sea (ksea) and drift at the pace
-// of the waves (kwaves). On the quay stands the harbour's tide board: the work's
+// codebox's, so where the water stands on the posts is what the sound plays.
+// The waves wash props.reach metres above and below the tide, moving the
+// water's surface up and down through a paler band across the bay, edged with
+// foam at their highest and lowest reach; the posts are dark where they wash
+// above the water. A bell rings while they reach its lip (its lip hangs in the
+// band), rings spreading on the water round its post. The bells (props.heights
+// in metres and props.notes, low to high, as lists) hang at their heights; they
+// stand along the shore in no order of height, on posts that stay above the
+// highest water. A bell in the waves' reach is polished bronze, one out of it
+// dull; what is under the water is seen through it (a post down to the bell it
+// holds), a bell in the band through its pale water, one under it as a dark
+// shape. A bell the waves reach swings when its note jumps in the spectrum (a
+// strike is heard). The water on the posts bobs with the waves, read from how
+// loud the sea is (the low end of the spectrum, below the bells). The sun or
+// the moon crosses the sky with the hour; headlands close the bay in as Bay
+// (kbay) rises; crests on the sea grow with Sea (ksea) and drift at the pace of
+// the waves (kwaves). On the quay stands the harbour's tide board: the work's
 // name, the hour in large plain figures, the height of the water and which way
 // it goes, the day's tide in the colours of each hour's sky marked at the hour,
 // and on its last line the setting under the hand (at rest, the bells the waves
@@ -228,7 +229,7 @@ export default {
     const foam = mix([150, 170, 190], [240, 246, 246], day);
     const stone = mix([43, 47, 59], [190, 184, 170], day);
     const board = mix([52, 57, 70], [238, 233, 220], day), letter = light(board) > 0.5 ? [22, 34, 52] : [232, 228, 218];
-    const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55), drowned = mix(wood, near, 0.74), stirred = mix(drowned, foam, 0.32);
+    const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55);
     const iron = mix([24, 26, 32], [52, 50, 54], day);
     const bronze = mix([84, 66, 60], [190, 132, 58], day), shade = mix(bronze, [40, 24, 10], 0.42), shine = mix(bronze, [255, 236, 190], 0.5);
     const dull = mix(bronze, mix([60, 62, 64], [112, 106, 96], day), 0.62), dullShade = mix(dull, [24, 22, 20], 0.38);
@@ -281,10 +282,21 @@ export default {
     const sw = s.hi - s.lo > 0.03 ? ((v - s.lo) / (s.hi - s.lo)) * 2 - 1 : 0;
     s.sw += (sw - s.sw) * Math.min(1, f.dt * 4);
     const now = tide(hour), live = now + reach * s.sw, wl = Y(live), wash = Y(now + reach), stir = Y(now - reach);
-    // Under the water the waves stir it as far down as they reach: a paler band across the bay, from the water's
-    // surface to a hard edge at their lowest reach. A bell whose lip hangs in it, or in their wash above it, rings.
-    const churn = mix(seaAt(wl + 1), foam, 0.2), cy0 = Math.floor(clamp(wl, L.YH, L.QY)), cy1 = Math.ceil(clamp(stir, L.YH, L.QY));
-    ctx.fillStyle = css(churn); ctx.fillRect(0, cy0, w, Math.max(0, cy1 - cy0));
+    // The waves move the water up and down between their highest and lowest reach: a paler band across the bay,
+    // edged at both by a line of foam that rolls at the waves' pace, with the water's surface running through it. A
+    // bell whose lip hangs in the band rings.
+    const churn = mix(seaAt(wl + 1), foam, 0.2), roll = f.t * (waves / 60) * TAU;
+    const rim = (y, x, at) => clamp(y + 1.6 * Math.sin(x / 7 + roll + at), L.YH, L.QY);
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 6) ctx.lineTo(x, rim(wash, x, 0));
+    for (let x = w; x >= 0; x -= 6) ctx.lineTo(x, rim(stir, x, 1.3));
+    ctx.closePath(); ctx.fillStyle = css(churn); ctx.fill();
+    ctx.lineWidth = 1.2;
+    for (const [y, at, a] of [[wash, 0, 0.5], [stir, 1.3, 0.4]]) {
+      ctx.strokeStyle = css(foam, a); ctx.beginPath();
+      for (let x = 0; x <= w; x += 6) ctx.lineTo(x, rim(y, x, at));
+      ctx.stroke();
+    }
     // The sun or the moon on the water: a scatter of glints under it, wider towards the quay.
     if (body.y < L.YH - 4) {
       const gl = body.sun ? [255, 243, 214] : [226, 232, 244], power = (body.sun ? 0.75 : 0.45) * (1 - (body.y - 60) / (L.YH * 1.6));
@@ -308,16 +320,15 @@ export default {
       ctx.fillRect(x - len / 2, y, len, 1 + d * 1.2);
       ctx.fillRect(x - len * 0.15, y - 1 - d, len * 0.45, 1);
     }
-    // The posts: dry above the waves, dark where they wash; under the water paler through the band the waves stir,
-    // then seen through the still water under it, down past the arm of a bell hung there, then fading out.
+    // The posts: dry above the waves, dark where they wash; under the water seen through it, through the band's pale
+    // water, then under the band as a dark shape, down past the arm of a bell hung there, then fading out.
     for (let k = 0; k < n; k++) {
       const px = Math.round(L.PX(k)), pt = L.TOP(k), held = clamp(Y(bells[k].height) - HANG + 12, wl, L.QY);
-      const end = Math.min(L.QY, Math.max(wl + 120, held + 60)), deep = ctx.createLinearGradient(0, wl, 0, end);
-      deep.addColorStop(0, css(drowned)); deep.addColorStop(clamp((held - wl) / Math.max(1, end - wl), 0, 1), css(drowned)); deep.addColorStop(1, css(drowned, 0));
+      const end = Math.min(L.QY, Math.max(wl + 120, held + 60)), st = clamp(stir, wl, end), deep = ctx.createLinearGradient(0, st, 0, end);
+      deep.addColorStop(0, css([0, 0, 0], 0.22)); deep.addColorStop(clamp((held - st) / Math.max(1, end - st), 0, 1), css([0, 0, 0], 0.22)); deep.addColorStop(1, css([0, 0, 0], 0));
       ctx.fillStyle = css(wood); ctx.fillRect(px - 4.5, pt, 9, Math.max(0, wash - pt));
       ctx.fillStyle = css(wet); ctx.fillRect(px - 4.5, Math.max(pt, wash), 9, Math.max(0, wl - Math.max(pt, wash)));
-      const st = clamp(stir, wl, end);
-      ctx.fillStyle = css(stirred); ctx.fillRect(px - 4.5, wl, 9, st - wl);
+      ctx.fillStyle = css(mix(wet, churn, 0.3)); ctx.fillRect(px - 4.5, wl, 9, st - wl);
       ctx.fillStyle = deep; ctx.fillRect(px - 4.5, st, 9, Math.max(0, end - st));
       ctx.fillStyle = css(mix(wood, [0, 0, 0], 0.3)); ctx.fillRect(px - 5.5, pt - 3, 11, 3);
     }
@@ -335,7 +346,7 @@ export default {
       const age = f.t - s.last[k], ring = inReach && age < 1.6 ? 1 - age / 1.6 : 0;
       if (ring > 0) rings.push([px, ring]);
       const a = Math.sin(age * 14) * (0.12 + loud * 0.3) * ring;
-      ctx.fillStyle = css(arm < wl ? iron : drowned);
+      ctx.fillStyle = css(arm < wl ? iron : arm < stir ? mix(iron, churn, 0.3) : mix(seaAt(arm), [0, 0, 0], 0.22));
       ctx.fillRect(px + 4, arm - 1.5, bx - px - 2, 3);
       ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(px + 4.5, arm + 9); ctx.lineTo(px + 13, arm + 1); ctx.stroke();
@@ -354,7 +365,7 @@ export default {
       ctx.beginPath(); ctx.arc(0, 3.5, 3.2, 0, TAU); ctx.fill();
       if (active('kbells')) { bellPath(ctx, BELL); ctx.strokeStyle = css(foam); ctx.lineWidth = 1.5; ctx.stroke(); }
       ctx.restore();
-      // What is under the water is seen through it: a bell in the stirred band through its pale water, one under it as a dark shape.
+      // What is under the water is seen through it: a bell in the band through its pale water, one under it as a dark shape.
       if (lip > wl) {
         ctx.save(); ctx.beginPath(); ctx.rect(0, wl, w, h); ctx.clip();
         hangAt(ctx, bx, arm, a); bellPath(ctx, BELL); ctx.fillStyle = inReach ? css(churn, 0.3) : css(mix(seaAt(lip), [0, 0, 0], 0.25), 0.86); ctx.fill();
