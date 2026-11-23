@@ -30,6 +30,8 @@ import {
 } from './plugin-tools.ts';
 import { PICTURE_DOC, SHOWCASE_ASSETS } from '../screen/showcase/assets.ts';
 import { checkPlugin, formatPluginIssue } from '../screen/checks.ts';
+import { describeArt } from './art-tools.ts';
+import type { ArtSurfaceName } from '../work/art.ts';
 import type { LookResult } from '../screen/look.ts';
 
 import type { ToolOutput } from '../host/ai.ts';
@@ -42,7 +44,7 @@ export type { ToolOutput };
 
 /** What the workspace may do with the pod (the screen project's workbench: bash, git, Node, npm). */
 /** Tools that show the AI the work as it is now. */
-const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_look']);
+const READS = new Set(['kit_get_patch', 'kit_get_plugin', 'kit_get_art', 'kit_look']);
 
 export interface WorkspaceDeps {
   catalog: Catalog;
@@ -71,6 +73,10 @@ export interface WorkspaceDeps {
   viewPicture?(id: string): Promise<Picture | null>;
   /** What the person changed on the screen by hand (handEdits in plugin-tools.ts). */
   handEdits?(): string[];
+  /** What the person made or changed on the art by hand (artHandEdits in art-tools.ts). */
+  artHandEdits?(): string[];
+  /** The surface of the art the person has open and what is selected on it (null: not in the art view). */
+  artOpen?(): { on: ArtSurfaceName; selected: string | null } | null;
   /** The person's saved parts (My parts), to list and place. */
   myParts?(): Library;
   /** The pod (absent in tests that do not need it: its tools then say there is none). */
@@ -126,7 +132,7 @@ export const dataUrl = (bytes: Uint8Array, mime: string) => {
 };
 const issueKey = (i: Issue) => `${i.code}|${i.node ?? ''}|${i.port ?? ''}|${i.edge ?? ''}`;
 const TOOLS =
-  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
+  'kit_get_patch, kit_list_blocks, kit_describe_block, kit_apply_ops, kit_write_codebox, kit_listen, kit_get_plugin, kit_get_art, kit_ui_reference, kit_view_picture, kit_look, kit_bash, kit_read_file, kit_write_file, kit_claim_scope, kit_finish';
 /** Kept of a command's output for the model (the end, where errors are). */
 const MAX_COMMAND_TEXT = 12000;
 const clipEnd = (s: string, n = MAX_COMMAND_TEXT) =>
@@ -194,6 +200,16 @@ export class LlmWorkspace {
             ),
           };
         }
+        case 'kit_get_art':
+          return {
+            success: true,
+            text: clip(
+              describeArt(this.deps.read(), this.deps.catalog, {
+                open: this.deps.artOpen?.() ?? null,
+                handEdits: this.deps.artHandEdits?.(),
+              }),
+            ),
+          };
         case 'kit_look':
           return a.as === 'seen'
             ? await this.lookSeen(
@@ -609,9 +625,15 @@ export class LlmWorkspace {
     const landed = this.deps.land(intents, step, this.seen);
     if (!landed.ok) {
       this.steps.push(`${step} — not applied`);
+      const onArt = intents.filter(o => 'on' in o && o.on).length;
+      const reread = !onArt
+        ? 'kit_get_patch to see the patch'
+        : onArt === intents.length
+          ? 'kit_get_art to see the icon and cover'
+          : 'kit_get_patch and kit_get_art to see the work';
       return {
         success: false,
-        text: `Not applied: ${landed.message} Call kit_get_patch to see the patch as it is now, then try again.`,
+        text: `Not applied: ${landed.message} Call ${reread} as it is now, then try again.`,
       };
     }
     this.landed++;

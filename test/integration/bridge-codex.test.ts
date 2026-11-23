@@ -350,6 +350,7 @@ describe('a turn', () => {
       'kit_write_codebox',
       'kit_listen',
       'kit_get_plugin',
+      'kit_get_art',
       'kit_ui_reference',
       'kit_view_picture',
       'kit_import_asset',

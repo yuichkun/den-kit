@@ -4,6 +4,7 @@
 // tests; what the tools answer decides what the script does next, like a model.
 import { inflateSync } from 'node:zlib';
 import type { Scenario } from './fake-codex.ts';
+import artScenarios from './art-scenarios.ts';
 
 /** The colour of a one-colour PNG (the doctor's picture check): what a model would say it sees. */
 function colourOf(url: string): string {
@@ -1028,5 +1029,6 @@ const scenarios: Scenario[] = [
     },
   },
 ];
+scenarios.push(...artScenarios);
 
 export default scenarios;

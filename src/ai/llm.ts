@@ -36,6 +36,7 @@ import type { AgentLane, AiRequests, Outcome } from './requests.ts';
 import { developerInstructions } from './llm-spec.ts';
 import { LlmWorkspace, type WorkspaceDeps } from './llm-workspace.ts';
 import { handEdits } from './plugin-tools.ts';
+import { artHandEdits } from './art-tools.ts';
 import { describeAttachments } from './attachments.ts';
 import type { Attachment } from './attachments.ts';
 import { handEditsSince } from './conversation.ts';
@@ -162,6 +163,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   kit_read_file: 'reading a file…',
   kit_write_file: 'writing a file…',
   kit_get_plugin: 'reading the plugin screen…',
+  kit_get_art: 'reading the icon and cover…',
   kit_ui_reference: 'looking up how screens are built…',
   kit_look: 'looking at the screen…',
   kit_view_picture: 'looking at a picture…',
@@ -172,6 +174,7 @@ const TOOL_DONE: Record<string, string> = {
   kit_list_blocks: 'looked up modules',
   kit_describe_block: 'looked up a module',
   kit_get_plugin: 'read the plugin screen',
+  kit_get_art: 'read the icon and cover',
   kit_ui_reference: 'looked up the screen reference',
   kit_read_file: 'read a file',
 };
@@ -588,6 +591,11 @@ export class LlmController {
       },
       handEdits: () =>
         handEdits(this.session.history.entries(), this.session.doc.value, this.session.catalog),
+      artHandEdits: () => artHandEdits(this.session.history.entries()),
+      artOpen: () => {
+        const seeing = this.session.seeingNow();
+        return seeing.view === 'art' && seeing.art ? seeing.art : null;
+      },
       pod: this.session.pod?.access(),
       scope: (before, after) => this.scopeCheck(turn, agent, before, after),
       project: () => this.projectCheck(turn, agent),

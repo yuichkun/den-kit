@@ -47,6 +47,18 @@ manual edits during that request keep their own undo steps. Each work has one
 conversation: when you open the work again, the next request goes on from it. Loading a
 starter over the work starts a new conversation.
 
+## Icon and cover
+
+**Art** holds the work's icon (512×512) and cover (1280×720). **From the look** starts
+either one from the work's look, name and one of its modules, and **Shot of the plugin**
+puts a picture of the plugin screen on it. Add text, shapes, pictures and symbols: a symbol
+draws the shape of one of the patch's modules as it was when drawn, and **Redraw** draws it
+again. Drag to move, drag a corner to resize (`Shift` frees the proportions of a picture or
+symbol), and use the arrow keys and `Delete` as on the plugin screen. Each change is one undo
+step and is saved with the work. An AI request about the icon or the cover changes only that
+surface, with the same edits, so you can go on editing what it changed. den-kit does not yet
+show the icon and cover outside **Art**.
+
 ## Common shortcuts
 
 These shortcuts apply outside text inputs. The table uses macOS key names.

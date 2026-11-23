@@ -92,6 +92,10 @@ export const KIT_TOOLS: ToolSpec[] = [
       '  {"op":"wearLook","work":"neon"}  (put a ready look on the plugin: kit_ui_reference "looks") · {"op":"setBrief","brief":"Warm 70s tape machine: brushed steel, cream type, amber lamps; a row of big knobs over the reels"}  (the design brief) · {"op":"setNetwork","network":[{"origin":"https://api.example.com","reason":"Live weather for the sky display"}]}  (the origins the code parts need; the person allows them, until then they are unreachable)',
       '  {"op":"addElement","element":{"kind":"code","part":"reels","rect":{"x":0,"y":0,"w":720,"h":200},"props":{"speed":1.5}}}  (a code part: src/parts/reels.ts of the screen project, written with kit_write_file or kit_bash; kit_ui_reference "code")',
       '  Bundled pictures (kit_ui_reference "pictures") are used by id and added to the patch when an edit uses them.',
+      'The work\'s art (its icon, 512×512, and its cover, 1280×720; kit_get_art shows them): the element edits with "on":"icon" or "on":"cover" change that surface instead of the plugin; ids are per surface.',
+      '  {"op":"addElement","on":"cover","element":{"kind":"text","text":"ACID LINE","rect":{"x":96,"y":520,"w":900,"h":120},"textStyle":{"font":"font","size":96,"color":"fg"}}} · {"op":"updateElement","on":"icon","id":"symbol1","set":{"weight":8}} · {"op":"setRect","on":"cover","id":"title","rect":{...}} · {"op":"arrange","on":"cover","ids":["shot1"],"to":"back"} · {"op":"removeElement","on":"cover","id":"rule"}',
+      '  Art holds text, shapes, images and svg (as on the plugin, without bind) and symbols: {"kind":"symbol","node":"filter1","ink":"accent","weight":4,"rect":{...},"style"?:{"fill":[{"kind":"color","color":"knob"}],"radius":200}} draws that module\'s shape (its curve, wave or response) as it is now; setting "node" again redraws it.',
+      '  {"op":"setArt","on":"cover","set":{"background":[{"kind":"color","color":"bg"}]}}  (null: the look\'s bg) · {"op":"clearArt","on":"icon"}  (removes everything on it)',
     ].join('\n'),
     inputSchema: {
       type: 'object',
@@ -145,8 +149,11 @@ export const KIT_TOOLS: ToolSpec[] = [
                   'placeMyPart',
                   'putFace',
                   'makeScreenPart',
+                  'setArt',
+                  'clearArt',
                 ],
               },
+              on: { type: 'string', enum: ['icon', 'cover'] },
               node: {},
               id: { type: 'string' },
               from: portRef,
@@ -253,6 +260,12 @@ export const KIT_TOOLS: ToolSpec[] = [
       properties: { canvas: { type: 'string' } },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'kit_get_art',
+    description:
+      "Read the work's art as it is now: its icon and its cover (size, background, every element back to front with its exact fields), which one the person has open and what is selected, what the person changed on them by hand, the modules a symbol can draw, the look's colour tokens and the pictures. Read it before editing the art, and again when an edit of it was refused.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'kit_ui_reference',
@@ -499,6 +512,11 @@ The plugin screen (what the user plays)
 - Colours: use the tokens (bg, fg, accent, track, knob, pointer, muted, glow) so the screen survives a change of look; fixed colours only for things printed on a picture or a plate.
 - Canvas elements draw with code; with a pointer handler they take the mouse and move controls (f.set), e.g. a curve whose points you drag.
 - Keep what the user built unless asked to change it; change the screen only when the request is about it (or a new sound needs controls).
+
+The work's art (its icon and cover, where the work is listed)
+- Read it with kit_get_art; edit it with kit_apply_ops and "on" ("icon" or "cover"), the same element edits as on the plugin. Change only the surface the request is about: "the cover" leaves the icon as it is, and the other way round.
+- What the person made or changed there by hand (kit_get_art lists it) is theirs: keep it unless the request is about it, and change it in place (move, restyle) rather than removing and re-adding it, so they can go on editing the same pieces.
+- An icon is read small (32 px): one bold mark, a symbol or a letter, thick lines, strong contrast with its background. A cover has room for the work's name and a picture: keep the name large and clear of busy parts. Use the look's tokens, so the art follows the look.
 
 The screen project (code parts: when den-kit's own pieces are not enough)
 - Each work can have a web project (Vite + TypeScript, ESLint, git) that lives in the pod; its code parts show on the plugin in their own box, fed with the controls' values and the sound, and can move controls (one drag is one undo step for the person). Use it when the screen needs what controls, skins, decorations and canvases do not do: a look of its own, 3D (three.js), motion and physics, a display of the sound, a control that behaves its own way, a whole custom screen.

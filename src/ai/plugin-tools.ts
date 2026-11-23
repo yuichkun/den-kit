@@ -582,8 +582,13 @@ export function expandOps(
   return { intents, origin, notes };
 }
 
-/** "+ text "NEBULA"", "look", "ktime on the plugin" — a short account of a screen edit. */
+/** "+ text "NEBULA"", "look", "ktime on the plugin", "cover: place title" — a short account of a screen or art edit. */
 export function describeUiOp(op: Intent): string | null {
+  const on = 'on' in op && typeof op.on === 'string' ? op.on : null;
+  if (on && op.op !== 'setArt' && op.op !== 'clearArt') {
+    const text = describeUiOp({ ...op, on: undefined } as Intent);
+    return text && `${on}: ${text}`;
+  }
   switch (op.op) {
     case 'addElement': {
       const e = op.element as Record<string, unknown>;
@@ -619,6 +624,10 @@ export function describeUiOp(op: Intent): string | null {
       return 'design brief';
     case 'setTheme':
       return `theme ${op.theme}`;
+    case 'setArt':
+      return `${op.on}: background`;
+    case 'clearArt':
+      return `clear the ${op.on}`;
     default:
       return null;
   }
