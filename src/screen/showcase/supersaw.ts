@@ -9,60 +9,81 @@
 // The design follows the thinking of the Tektronix 5 Series MSO (Red Dot 2018,
 // Product Design): an instrument made for touch, where every incoming signal is
 // on one large display at once and gestures on the display replace most
-// physical controls. The whole plugin is that display: the seven copies run as
-// seven stacked lanes, each at its own pitch, so Detune shows as lanes that
-// drift against each other; dragging across the lanes spreads them (Detune),
-// dragging the dots of the stereo column spreads them from left to right
-// (Width), and the other settings are readout tags along the bottom edge,
-// dragged up and down like a scope's badges.
+// physical controls. The whole plugin is that display, read like a scope's: the
+// seven copies run as seven stacked lanes, each at its own pitch, so Detune
+// shows as lanes that drift against each other, and every other setting is a
+// cursor or a handle on a trace of its own: the stereo ruler over the lanes
+// (Width), the amp lane under them (Release, and the hall's tail for Space) and
+// the filter band at the bottom (the output's spectrum, with a cursor at Cutoff
+// and one where Env opens it to). Dragging across the lanes spreads them
+// (Detune); dragging their offsets up and down scatters them (Drift).
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The display: the seven saws as lanes you spread, the stereo column, the readout tags; it takes the mouse. */
-export const SAW_LANES = `// The whole plugin is one display. Seven lanes, one per copy of the Saw (top:
-// the flattest). Copy k plays Detune × (its place from -1 to +1) semitones off
-// the note plus a small drift of its own (kdetune, kdrift), so each lane is drawn
-// at its own pitch (the difference shown 8× larger) and slides against the
-// middle lane as fast as it beats, slowed down for the eye; a lower Cutoff
-// (kcut, opened by Env, kenv) rounds the teeth. Drag across the lanes: Detune.
-// The column on the right is where Width (kwidth) puts each copy from left to
-// right: drag a dot. The tags along the bottom are dragged up and down (200 px
-// is the whole range, Shift is finer), scrolled, or double-clicked for their
-// first value.
+/** The display: the seven saws as lanes, the stereo ruler, the amp lane and the filter band; each setting is dragged where it shows. */
+export const SAW_LANES = `// The whole plugin is one display, read like a scope's: every copy of the Saw
+// on its own lane at once, cursors and handles on the traces themselves.
+// Lanes: copy k plays Detune × (its place from -1 to +1) semitones off the note
+// plus a small drift of its own (kdetune, kdrift), so each lane is drawn at its
+// own pitch (the difference shown 8× larger) and slides against the middle lane
+// as fast as it beats, slowed down for the eye; a lower Cutoff (kcut, opened by
+// Env, kenv) rounds the teeth. Drag across the lanes: Detune. The offsets on the
+// right, drag them up and down: Drift. The ruler on top is where Width (kwidth)
+// puts each copy from left to right: drag its bracket. The amp lane is a note's
+// life: up, held, let go over Release (krel), with the hall's tail (kspace)
+// dotted under it; drag the release mark across, the tail up and down. The
+// filter band is the output's spectrum with two cursors: a at Cutoff, b where
+// Env opens it to; drag either. Wheel: finer steps; double click: first value.
 const DRIFT = [0.42, -0.77, 0.15, -0.31, 0.88, -0.56, 0.69];
 const N = 7, ZOOM = 8, TEETH = 18;
-const LANES = { x0: 64, x1: 548, top: 84, lane: 48 };
-const COLUMN = { x0: 596, x1: 736 };
-const TAGS = [
-  { id: 'kdetune', label: 'Detune', unit: 'st', x: 120, w: 100, first: 0.35 },
-  { id: 'kdrift', label: 'Drift', unit: 'st', x: 228, w: 100, first: 0.08 },
-  { id: 'kcut', label: 'Cutoff', unit: 'Hz', x: 352, w: 92, first: 900 },
-  { id: 'kenv', label: 'Env', unit: 'oct', x: 452, w: 92, first: 2.5 },
-  { id: 'krel', label: 'Release', unit: 's', x: 552, w: 92, first: 0.5 },
-  { id: 'kspace', label: 'Space', unit: '', x: 652, w: 84, first: 0.22 },
-];
-const TAG_Y = 450, TAG_H = 50;
-const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, monospace';
-const bottom = () => LANES.top + N * LANES.lane;
+const L = { x0: 72, x1: 640, top: 64, lane: 44 };
+const RULER = { x0: 412, x1: 736, y: 40 };
+const AMP = { top: 384, h: 56, off: 150, rel: 250 };
+const SPEC = { x0: 72, x1: 540, top: 452, bot: 508 };
+const FMIN = 60, FMAX = 20000;
+const FIRST = { kdetune: 0.35, kdrift: 0.08, kwidth: 0.8, kcut: 900, kenv: 2.5, krel: 0.5, kspace: 0.22 };
+const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lanesBottom = () => L.top + N * L.lane;
 const placeOf = k => (k / (N - 1)) * 2 - 1;
+const fx = hz => SPEC.x0 + (Math.log(clamp(hz, FMIN, FMAX) / FMIN) / Math.log(FMAX / FMIN)) * (SPEC.x1 - SPEC.x0);
+const xf = x => FMIN * Math.pow(FMAX / FMIN, clamp((x - SPEC.x0) / (SPEC.x1 - SPEC.x0), 0, 1));
+// Where Release lets go of the note, and where the sound has gone (log time: 20 ms to 4 s).
+const relX = rel => L.x0 + AMP.off + 10 + (Math.log(rel / 0.02) / Math.log(200)) * AMP.rel;
 function show(v, unit) {
-  if (unit === 'Hz') return v >= 1000 ? (v / 1000).toFixed(2) + ' kHz' : Math.round(v) + ' Hz';
+  if (unit === 'Hz') return v >= 1000 ? (v / 1000).toFixed(1) + ' kHz' : Math.round(v) + ' Hz';
   if (unit === 's') return v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s';
   if (unit === 'st') return v.toFixed(2) + ' st';
   if (unit === 'oct') return v.toFixed(1) + ' oct';
-  return Math.round(v * 100) + ' %';
+  return Math.round(v * 100) + '%';
 }
 function where(x, y) {
-  for (const t of TAGS) if (x >= t.x && x <= t.x + t.w && y >= TAG_Y && y <= TAG_Y + TAG_H) return t;
-  if (y >= LANES.top && y <= bottom()) {
-    if (x >= LANES.x0 - 10 && x <= LANES.x1 + 30) return { id: 'kdetune', lanes: true };
-    if (x >= COLUMN.x0 - 12 && x <= COLUMN.x1 + 6) return { id: 'kwidth', column: true, lane: Math.min(N - 1, Math.floor((y - LANES.top) / LANES.lane)) };
+  if (y < 60) return x > RULER.x0 - 24 ? { id: 'kwidth', kind: 'width' } : null;
+  if (y >= L.top && y < lanesBottom()) {
+    if (x >= L.x0 - 12 && x < L.x1 + 8) return { id: 'kdetune', kind: 'lanes' };
+    if (x >= L.x1 + 8) return { id: 'kdrift', kind: 'drift' };
   }
+  if (y >= AMP.top - 6 && y < AMP.top + AMP.h + 4 && x >= L.x0 - 12 && x < L.x1 + 8) return { id: 'krel', kind: 'amp' };
+  if (y >= SPEC.top - 6 && x >= SPEC.x0 - 12 && x < SPEC.x1 + 12) return { id: 'kcut', kind: 'filter' };
   return null;
 }
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+// In the amp lane, the release mark (across) or the hall's tail (up and down); in the filter band, the nearer cursor.
+function pick(t, x, f) {
+  if (!t) return null;
+  if (t.kind === 'amp') return x < relX(f.value('krel')) + 24 ? { ...t, id: 'krel' } : { ...t, id: 'kspace' };
+  if (t.kind === 'filter') {
+    const a = fx(f.value('kcut')), b = fx(f.value('kcut') * Math.pow(2, f.value('kenv')));
+    return Math.abs(x - b) < Math.abs(x - a) && b - a > 3 ? { ...t, id: 'kenv' } : { ...t, id: 'kcut' };
+  }
+  return t;
+}
+function label(ctx, text, x, y, align, ink, weight) {
+  ctx.font = (weight || 600) + ' 11px ' + MONO;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = ink;
+  ctx.fillText(text, x, y);
 }
 export default {
   setup(ctx, f) {
@@ -70,37 +91,46 @@ export default {
   },
   draw(ctx, f) {
     const w = f.w, h = f.h, s = f.state;
-    const ink = f.color('fg'), paper = f.color('bg'), white = f.color('accent'), line = f.color('track');
+    const ink = f.color('fg'), white = f.color('accent'), grid = f.color('track');
     const detune = f.value('kdetune'), drift = f.value('kdrift'), width = f.value('kwidth');
-    const cut = f.value('kcut') * Math.pow(2, f.value('kenv') * 0.4);
-    const round = Math.max(0, Math.min(0.85, Math.log2(5000 / cut) / 5));
+    const cutHz = f.value('kcut'), env = f.value('kenv'), rel = f.value('krel'), space = f.value('kspace');
+    const open = cutHz * Math.pow(2, env * 0.4);
+    const round = clamp(Math.log2(5000 / open) / 5, 0, 0.85);
     const loud = Math.min(1, f.level * 6);
-    const p = f.pointer, hot = s.drag ? s.drag : p && p.over ? where(p.x, p.y) : null;
+    const p = f.pointer;
+    const hot = s.drag ? s.drag : p && p.over ? pick(where(p.x, p.y), p.x, f) : null;
+    const is = id => hot && hot.id === id;
     ctx.clearRect(0, 0, w, h);
-    // The lanes: one copy each, a tab with its number on the left edge, like a scope's channels.
-    const T = (LANES.x1 - LANES.x0) / TEETH;
+    // The graticule: ten divisions across the lanes, dotted.
+    ctx.fillStyle = grid;
+    for (let i = 0; i <= 10; i++) {
+      const x = Math.round(L.x0 + ((L.x1 - L.x0) * i) / 10);
+      for (let y = L.top; y < AMP.top + AMP.h; y += 4) ctx.fillRect(x, y, 1, 2);
+    }
+    // The lanes: one copy each, its number in a tab on the left edge, its offset on the right.
+    const T = (L.x1 - L.x0) / TEETH;
     const knot = TEETH / 2 + (TEETH / 2 - 2) * Math.sin(f.t * 0.45);
     for (let k = 0; k < N; k++) {
-      const y0 = LANES.top + k * LANES.lane, mid = y0 + LANES.lane / 2;
+      const y0 = L.top + k * L.lane, mid = y0 + L.lane / 2;
       const st = detune * placeOf(k) + drift * DRIFT[k];
       const ratio = 1 + ZOOM * (Math.pow(2, st / 12) - 1);
-      const amp = LANES.lane * 0.3 * (0.5 + 0.5 * loud);
+      const amp = L.lane * 0.3 * (0.5 + 0.5 * loud);
       ctx.fillStyle = ink;
-      roundRect(ctx, 24, mid - 11, 28, 22, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(24, mid - 11, 30, 22, 5); ctx.fill();
       ctx.fillStyle = white;
       ctx.font = '700 13px ' + SANS; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(k + 1), 38, mid + 0.5);
-      ctx.strokeStyle = line; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(LANES.x0, mid + 0.5); ctx.lineTo(LANES.x1, mid + 0.5); ctx.stroke();
+      ctx.fillText(String(k + 1), 39, mid + 0.5);
+      ctx.fillStyle = grid;
+      for (let x = L.x0; x < L.x1; x += 3) ctx.fillRect(x, Math.round(mid), 1, 1);
       // Teeth where this copy's phase is whole: all lanes meet at the knot and part away from it.
       ctx.save();
-      ctx.beginPath(); ctx.rect(LANES.x0, y0, LANES.x1 - LANES.x0, LANES.lane); ctx.clip();
+      ctx.beginPath(); ctx.rect(L.x0, y0, L.x1 - L.x0, L.lane); ctx.clip();
       ctx.strokeStyle = ink; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
       ctx.beginPath();
-      const at = n => LANES.x0 + ((n + (ratio - 1) * knot) / ratio) * T;
+      const at = n => L.x0 + ((n + (ratio - 1) * knot) / ratio) * T;
       const first = Math.floor(-(ratio - 1) * knot) - 1;
       const fall = (round * 0.6 * T) / ratio;
-      for (let n = first; at(n) < LANES.x1 + T; n++) {
+      for (let n = first; at(n) < L.x1 + T; n++) {
         const xa = at(n), xb = at(n + 1);
         if (n === first) ctx.moveTo(xa, mid + amp);
         ctx.lineTo(xb - fall, mid - amp);
@@ -108,91 +138,129 @@ export default {
       }
       ctx.stroke();
       ctx.restore();
-      // This copy's offset, in semitones.
-      ctx.fillStyle = ink;
-      ctx.font = '600 11px ' + MONO; ctx.textAlign = 'right';
-      ctx.fillText((st >= 0 ? '+' : '−') + Math.abs(st).toFixed(2), LANES.x1 + 40, mid + 0.5);
-      // Where Width puts it, left to right.
-      const cx = (COLUMN.x0 + COLUMN.x1) / 2, half = (COLUMN.x1 - COLUMN.x0) / 2;
-      ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(COLUMN.x0, mid + 0.5); ctx.lineTo(COLUMN.x1, mid + 0.5); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx, mid - 6); ctx.lineTo(cx, mid + 7); ctx.stroke();
-      const dot = cx + placeOf(k) * width * half;
-      ctx.beginPath(); ctx.arc(dot, mid + 0.5, hot && hot.column ? 8 : 7, 0, Math.PI * 2);
-      ctx.fillStyle = white; ctx.fill();
-      ctx.lineWidth = 2.5; ctx.strokeStyle = ink; ctx.stroke();
+      label(ctx, (st >= 0 ? '+' : '−') + Math.abs(st).toFixed(2), 736, mid + 0.5, 'right', is('kdrift') ? white : ink, 700);
     }
-    // The column's head: L, R and Width.
-    ctx.fillStyle = ink; ctx.textBaseline = 'middle';
-    ctx.font = '700 12px ' + SANS;
-    ctx.textAlign = 'left'; ctx.fillText('L', COLUMN.x0, LANES.top - 14);
-    ctx.textAlign = 'right'; ctx.fillText('R', COLUMN.x1, LANES.top - 14);
-    ctx.textAlign = 'center';
-    ctx.fillText('Width ' + show(width, ''), (COLUMN.x0 + COLUMN.x1) / 2, LANES.top - 14);
-    // The output level's name, by its meter (the meter is a control over the display).
-    ctx.textAlign = 'right'; ctx.font = '700 12px ' + SANS;
-    ctx.fillText('Out', COLUMN.x0 - 10, 33);
-    ctx.textAlign = 'center';
-    // Over the lanes: the handle that says what dragging does.
-    const grip = { x: LANES.x1 - 104, y: LANES.top - 26, w: 104, h: 22 };
-    ctx.fillStyle = hot && hot.lanes ? ink : white;
-    roundRect(ctx, grip.x, grip.y, grip.w, grip.h, 11); ctx.fill();
-    ctx.fillStyle = hot && hot.lanes ? white : ink;
-    ctx.font = '700 12px ' + SANS;
-    ctx.fillText('◂  Detune  ▸', grip.x + grip.w / 2, grip.y + grip.h / 2 + 0.5);
-    if (hot && hot.lanes && p && p.over) {
-      ctx.strokeStyle = white; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(Math.round(p.x) + 0.5, LANES.top); ctx.lineTo(Math.round(p.x) + 0.5, bottom()); ctx.stroke();
+    // Drift: the offsets' own handle, under them.
+    label(ctx, 'drift ' + drift.toFixed(2) + ' ↕', 736, lanesBottom() + 4, 'right', is('kdrift') ? white : ink);
+    if (is('kdrift')) { ctx.fillStyle = white; ctx.fillRect(L.x1 + 30, L.top + 4, 1.5, lanesBottom() - L.top - 8); }
+    // The part: one Saw used seven times; its two settings move every copy at once.
+    ctx.fillStyle = ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = '800 14px ' + SANS; ctx.fillText('SAW ×7', 24, 26);
+    ctx.font = '600 11px ' + SANS; ctx.fillText('one part, seven copies', 24, 44);
+    ctx.fillRect(38, 52, 2, L.top + L.lane / 2 - 63);
+    // Detune: the lanes' own handle, over them; a crosshair where the hand is.
+    label(ctx, '↔ detune ±' + detune.toFixed(2) + ' st', L.x0 + 128, 44, 'left', is('kdetune') ? white : ink, 700);
+    if (is('kdetune') && p && p.over) {
+      ctx.fillStyle = white;
+      ctx.fillRect(Math.round(clamp(p.x, L.x0, L.x1)), L.top, 1.5, lanesBottom() - L.top);
     }
-    // The Saw: one part, its seven copies are the lanes; its tags set every copy at once.
-    ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(38, bottom() - LANES.lane / 2 + 11); ctx.lineTo(38, TAG_Y); ctx.stroke();
-    roundRect(ctx, 24, TAG_Y, 88, TAG_H, 8);
-    ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.fillStyle = ink; ctx.textAlign = 'left';
-    ctx.font = '800 15px ' + SANS; ctx.fillText('Saw ×7', 34, TAG_Y + 18);
-    ctx.font = '600 11px ' + SANS; ctx.fillText('every copy', 34, TAG_Y + 36);
-    for (const t of TAGS) {
-      const on = hot && hot.id === t.id && !hot.lanes && !hot.column;
-      ctx.fillStyle = ink;
-      roundRect(ctx, t.x, TAG_Y, t.w, TAG_H, 8); ctx.fill();
-      if (on) { ctx.lineWidth = 2.5; ctx.strokeStyle = white; ctx.stroke(); }
-      ctx.textAlign = 'left';
-      ctx.fillStyle = paper; ctx.font = '700 11px ' + SANS;
-      ctx.fillText(t.label, t.x + 10, TAG_Y + 15);
-      ctx.fillStyle = white; ctx.font = '600 14px ' + MONO;
-      ctx.fillText(show(f.value(t.id), t.unit), t.x + 10, TAG_Y + 34);
-      // Up and down: a tag is dragged like a scope's readout.
-      ctx.fillStyle = paper;
-      const ax = t.x + t.w - 12;
-      ctx.beginPath(); ctx.moveTo(ax - 4, TAG_Y + 21); ctx.lineTo(ax, TAG_Y + 15); ctx.lineTo(ax + 4, TAG_Y + 21); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(ax - 4, TAG_Y + 29); ctx.lineTo(ax, TAG_Y + 35); ctx.lineTo(ax + 4, TAG_Y + 29); ctx.fill();
+    // Width: the ruler from left to right, a diamond for each copy, the bracket around them.
+    const cx = (RULER.x0 + RULER.x1) / 2, half = (RULER.x1 - RULER.x0) / 2, ry = RULER.y;
+    ctx.fillStyle = ink;
+    ctx.fillRect(RULER.x0, ry, RULER.x1 - RULER.x0, 1.5);
+    ctx.fillRect(RULER.x0, ry - 5, 1.5, 11); ctx.fillRect(RULER.x1 - 1.5, ry - 5, 1.5, 11); ctx.fillRect(cx, ry - 3, 1.5, 7);
+    label(ctx, 'L', RULER.x0 - 8, ry + 1, 'right', ink, 700);
+    label(ctx, 'R', RULER.x1 + 6, ry + 1, 'left', ink, 700);
+    const bw = Math.max(4, width * half);
+    ctx.fillStyle = is('kwidth') ? white : ink;
+    ctx.fillRect(cx - bw - 1, ry - 13, 2.5, 27); ctx.fillRect(cx + bw - 1, ry - 13, 2.5, 27);
+    ctx.fillRect(cx - bw - 1, ry - 13, 7, 2.5); ctx.fillRect(cx + bw - 5, ry - 13, 7, 2.5);
+    ctx.fillRect(cx - bw - 1, ry + 11.5, 7, 2.5); ctx.fillRect(cx + bw - 5, ry + 11.5, 7, 2.5);
+    for (let k = 0; k < N; k++) {
+      const x = cx + placeOf(k) * width * half, r = 4.5 + loud * 1.5;
+      ctx.beginPath(); ctx.moveTo(x, ry - r); ctx.lineTo(x + r, ry + 0.75); ctx.lineTo(x, ry + r + 1.5); ctx.lineTo(x - r, ry + 0.75); ctx.closePath();
+      ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
     }
+    label(ctx, 'width ' + show(width, '') + ' ↔', cx, 14, 'center', is('kwidth') ? white : ink, 700);
+    // The amp lane: a note goes up, holds, is let go over Release; the hall's tail, dotted, rings on.
+    const a0 = AMP.top, ab = AMP.top + AMP.h - 6, ah = AMP.h - 14;
+    ctx.fillStyle = white;
+    ctx.beginPath(); ctx.roundRect(24, a0 + AMP.h / 2 - 11, 30, 22, 5); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.lineJoin = 'miter';
+    ctx.beginPath(); ctx.moveTo(29, a0 + AMP.h / 2 + 6); ctx.lineTo(32, a0 + AMP.h / 2 - 6); ctx.lineTo(37, a0 + AMP.h / 2 - 2); ctx.lineTo(43, a0 + AMP.h / 2 - 2); ctx.lineTo(49, a0 + AMP.h / 2 + 6); ctx.stroke();
+    ctx.fillStyle = ink;
+    ctx.fillRect(L.x0, ab, L.x1 - L.x0, 1.5);
+    const xOff = L.x0 + AMP.off, xRel = relX(rel), sus = ab - ah * 0.85;
+    ctx.strokeStyle = ink; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(L.x0, ab); ctx.lineTo(L.x0 + 6, ab - ah); ctx.quadraticCurveTo(L.x0 + 14, sus, L.x0 + 44, sus);
+    ctx.lineTo(xOff, sus);
+    for (let i = 1; i <= 24; i++) { const u = i / 24; ctx.lineTo(xOff + (xRel - xOff) * u, ab - (ab - sus) * (1 - u) * (1 - u)); }
+    ctx.stroke();
+    // The hall's tail: as loud as Space, ringing on for its 2.8 s after the note is let go.
+    const tail = ab - ah * 0.9 * space;
+    ctx.fillStyle = is('kspace') ? white : ink;
+    for (let x = L.x0 + 10; x < L.x1; x += 5) {
+      const u = x < xOff ? 1 : Math.exp(-((x - xOff) / (L.x1 - xOff)) * 3.2);
+      const y = ab - (ab - tail) * u * Math.min(1, (x - L.x0) / 30);
+      ctx.fillRect(Math.round(x), Math.round(y) - 1, 2, 2);
+    }
+    // The release mark and the tail's handle.
+    ctx.fillStyle = is('krel') ? white : ink;
+    ctx.fillRect(Math.round(xRel) - 1, a0 + 2, 2.5, ab - a0 - 2);
+    ctx.fillRect(Math.round(xOff), sus - 4, 1.5, ab - sus + 4);
+    label(ctx, 'release ' + show(rel, 's') + ' ↔', xRel + 8, a0 + 9, 'left', is('krel') ? white : ink, 700);
+    const hx = L.x0 + 96;
+    ctx.beginPath(); ctx.arc(hx, tail - 1, is('kspace') ? 5.5 : 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = white; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = ink; ctx.stroke();
+    label(ctx, 'space ' + show(space, '') + ' ↕', hx + 10, space > 0.45 ? tail + 11 : tail - 11, 'left', is('kspace') ? white : ink, 700);
+    // The filter band: the output's spectrum; a at Cutoff, b where Env opens it to.
+    const spec = f.spectrum || new Float32Array(64);
+    const sh = SPEC.bot - SPEC.top - 16;
+    ctx.fillStyle = ink;
+    for (let k = 0; k < 64; k++) {
+      const lo = 96 * Math.pow(250, k / 64), hi = 96 * Math.pow(250, (k + 1) / 64);
+      if (hi < FMIN || lo > FMAX) continue;
+      const x = fx(lo), bw2 = Math.max(1, Math.min(3, fx(hi) - x - 1)), v = clamp((spec[k] || 0) * 1.4, 0, 1);
+      ctx.fillRect(Math.round(x), Math.round(SPEC.bot - v * sh), Math.round(bw2), Math.round(v * sh));
+    }
+    ctx.fillRect(SPEC.x0, SPEC.bot, SPEC.x1 - SPEC.x0, 1.5);
+    const xa = fx(cutHz), xb = fx(cutHz * Math.pow(2, env));
+    ctx.fillStyle = is('kcut') ? white : ink;
+    ctx.fillRect(Math.round(xa) - 1, SPEC.top, 2.5, SPEC.bot - SPEC.top);
+    ctx.fillStyle = is('kenv') ? white : ink;
+    for (let y = SPEC.top; y < SPEC.bot; y += 4) ctx.fillRect(Math.round(xb) - 1, y, 2.5, 2);
+    ctx.fillStyle = ink;
+    if (xb - xa > 12) {
+      ctx.fillRect(xa, SPEC.top + 22, xb - xa, 1.5);
+      ctx.beginPath(); ctx.moveTo(xb, SPEC.top + 22.75); ctx.lineTo(xb - 6, SPEC.top + 19); ctx.lineTo(xb - 6, SPEC.top + 26.5); ctx.fill();
+    }
+    label(ctx, 'a  cutoff ' + show(cutHz, 'Hz'), xa + 7, SPEC.top + 8, 'left', is('kcut') ? white : ink, 700);
+    const envText = 'b  env +' + show(env, 'oct');
+    const right = xb + 7 + envText.length * 6.7 > SPEC.x1 + 40;
+    label(ctx, envText, right ? xb - 7 : Math.max(xb + 7, xa + 150), SPEC.top + 34, right ? 'right' : 'left', is('kenv') ? white : ink, 700);
   },
   pointer(e, f) {
     const s = f.state;
     const fine = e.shift ? 0.1 : 1;
     if (e.type === 'down') {
-      const t = where(e.x, e.y);
-      s.drag = t ? { ...t, x: e.x, y: e.y, from: f.value(t.id), norm: f.norm(t.id) } : null;
+      const t = pick(where(e.x, e.y), e.x, f);
+      s.drag = t ? { ...t, x: e.x, y: e.y, axis: '', from: f.value(t.id), norm: f.norm(t.id), rel: f.value('krel'), space: f.value('kspace') } : null;
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = null;
     const d = s.drag;
     if (d && (e.type === 'down' || e.type === 'move')) {
-      if (d.lanes) f.set('kdetune', Math.max(0, Math.min(1, d.from + ((e.x - d.x) / 400) * fine)));
-      else if (d.column) {
-        const place = placeOf(d.lane), cx = (COLUMN.x0 + COLUMN.x1) / 2, half = (COLUMN.x1 - COLUMN.x0) / 2;
-        const v = Math.abs(place) > 0.1 ? (e.x - cx) / (half * place) : d.from + (e.x - d.x) / half;
-        f.set('kwidth', Math.max(0, Math.min(1, v)));
-      } else if (e.type === 'move') f.setNorm(d.id, Math.max(0, Math.min(1, d.norm + ((d.y - e.y) / 200) * fine)));
+      const dx = e.x - d.x, dy = e.y - d.y;
+      if (d.kind === 'lanes') f.set('kdetune', clamp(d.from + (dx / 400) * fine, 0, 1));
+      else if (d.kind === 'drift') f.setNorm('kdrift', clamp(d.norm - (dy / 200) * fine, 0, 1));
+      else if (d.kind === 'width') f.set('kwidth', clamp(Math.abs(e.x - (RULER.x0 + RULER.x1) / 2) / ((RULER.x1 - RULER.x0) / 2), 0, 1));
+      else if (d.kind === 'filter') {
+        if (d.id === 'kcut') f.set('kcut', clamp(xf(fx(d.from) + dx * fine), 60, 8000));
+        else f.set('kenv', clamp(Math.log2(xf(fx(f.value('kcut') * Math.pow(2, d.from)) + dx * fine) / f.value('kcut')), 0, 6));
+      } else if (d.kind === 'amp' && e.type === 'move') {
+        if (!d.axis && Math.hypot(dx, dy) > 4) d.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        if (d.axis === 'x') f.set('krel', clamp(d.rel * Math.pow(200, (dx / AMP.rel) * fine), 0.02, 4));
+        if (d.axis === 'y') f.set('kspace', clamp(d.space - (dy / (AMP.h - 14) / 0.9) * fine, 0, 1));
+      }
     }
     if (e.type === 'wheel' || e.type === 'double') {
-      const t = where(e.x, e.y);
-      if (t && e.type === 'wheel') f.setNorm(t.id, Math.max(0, Math.min(1, f.norm(t.id) - (e.dy / 100) * 0.01 * fine)));
-      if (t && e.type === 'double') f.set(t.id, t.first ?? (t.lanes ? 0.35 : 0.8));
+      const t = pick(where(e.x, e.y), e.x, f);
+      if (t && e.type === 'wheel') f.setNorm(t.id, clamp(f.norm(t.id) - (e.dy / 100) * 0.01 * fine, 0, 1));
+      if (t && e.type === 'double') f.set(t.id, FIRST[t.id]);
     }
     const at = s.drag ?? where(e.x, e.y);
-    f.cursor(!at ? 'default' : at.lanes || at.column ? 'ew-resize' : 'ns-resize');
+    const kind = at && at.kind;
+    f.cursor(!at ? 'default' : s.drag ? 'grabbing' : kind === 'drift' ? 'ns-resize' : kind === 'amp' ? 'grab' : 'ew-resize');
   },
 };
 `;
@@ -401,10 +469,10 @@ export function supersaw(catalog: Catalog) {
           kind: 'text',
           name: 'Title',
           text: 'SEPTET',
-          rect: r(24, 22, 300, 34),
-          textStyle: { font: 'michroma', size: 26, weight: 400, color: 'fg', align: 'left' },
+          rect: r(556, 472, 180, 34),
+          textStyle: { font: 'michroma', size: 24, weight: 400, color: 'fg', align: 'right' },
         }),
-        ...control('vu1', 'ui.meter', 'Out', null, r(596, 28, 140, 10), {
+        ...control('vu1', 'ui.meter', 'Out', null, r(576, 458, 160, 6), {
           style: { tokens: { track: '#b8301b', accent: '#0a0a0a' } },
         }),
         wire('gl1.out', 'vu1.in'),
