@@ -1341,7 +1341,7 @@ describe('each work does what its controls say', () => {
     expect(buzzing).toBeGreaterThan(1.3 * plain);
   }, 120000);
 
-  it('Tonic: the staff takes the pace, the room’s handle the hall, and the tonic in the corner steps to the ends of its range', async () => {
+  it('Tonic: the staff takes the pace, the room’s rings the hall, and the tonic in the corner steps to the ends of its range', async () => {
     const doc = build('tonic');
     const values: Record<string, number | boolean> = {};
     for (const n of Object.values(doc.nodes))
@@ -1376,8 +1376,8 @@ describe('each work does what its controls say', () => {
     drag((STAFF.lines + STAFF.x1) / 2, (STAFF.top + STAFF.bot) / 2, 24, 0);
     expect(values.kbpm).toBeCloseTo(60 / (60 / (was.kbpm as number) + 24 / (2 * STAFF.speed)), 6);
     expect([values.ksa, values.kspace, values.kjaw]).toEqual([was.ksa, was.kspace, was.kjaw]);
-    // The room's handle dragged 21 px out from the gourd (half the room's reach): half a hall more.
-    const h = mod.hallHandle(was.kspace) as { x: number; y: number };
+    // The room's outermost ring dragged 21 px out from the gourd (half the room's reach): half a hall more.
+    const h = mod.roomEdge(was.kspace) as { x: number; y: number };
     const out = {
       x: (h.x - 262) / Math.hypot(h.x - 262, h.y - 260),
       y: (h.y - 260) / Math.hypot(h.x - 262, h.y - 260),

@@ -16,7 +16,8 @@
 // and over the neck a practice staff writes each pluck on its note as it is
 // heard. Jawari, the pace and the hall are set on the drawing itself (the thread
 // on the strings, the staff, the room round the gourd), the setting written by
-// the hand, and the tonic stands in the corner as a singer asks for it.
+// the hand, and the tonic stands in the corner as a singer asks for it. The
+// work's name is written on the gourd under the strings, as a maker signs one.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
@@ -39,17 +40,18 @@ export const TONIC_CIRCLE = `// The tanpura, lying on its side. The gourd, on th
 // plucks wait to the right of the now line, as far apart as the pace sets them
 // (kbpm, plucks a minute). Each pluck also spreads a ring into the room round
 // the gourd, as far as the hall reaches (kspace); the room's rings are as many
-// as the hall holds, with a handle on the outermost. In the corner is the tonic
-// as a singer asks for it: its note and octave, and its pitch.
+// as the hall holds and spread as far out as it reaches. In the corner is the
+// tonic as a singer asks for it: its note and octave, and its pitch, in the
+// same type as the names on the ring.
 // Press a note to make it Sa; drag the thread along the strings for Jawari, the
 // staff across for the pace (the plucks waiting spread out or close up with the
 // hand), the room in or out for the hall, and the tonic up or down a semitone at
 // a time (it reaches the ends of its range, which the ring does not). The
 // setting under the hand is written by it.
 const CX = 262, CY = 260, DISC = 148, R = 130, SW = R - 26;
-const BX = CX - 72, NUT = 650, END = 744; // the bridge, the nut, the end of the neck
+const BX = CX - 72, NUT = 628, END = 720; // the bridge, the nut, the end of the neck
 const YS = [-15, -5, 5, 15], YN = [-8, -2.7, 2.7, 8]; // the strings at the bridge and at the nut, in the order they are plucked
-const PEGS = [672, 716, 738, 694], PEG_SIDE = [-1, -1, 1, 1]; // each string's peg, and on which side: the outer strings to the nearer pegs, so none cross
+const PEGS = [648, 692, 714, 670], PEG_SIDE = [-1, -1, 1, 1]; // each string's peg, and on which side: the outer strings to the nearer pegs, so none cross
 const LOW = [true, false, false, true]; // Pa and the last Sa are an octave down
 const THREAD = 64;
 const NAMES = ${JSON.stringify(NOTE_NAMES)};
@@ -61,10 +63,11 @@ export const STAFF = { x0: 480, x1: 736, lines: 516, now: 660, top: 36, bot: 180
 const LINE_OF = [STAFF.sa + 5 * 8, STAFF.sa, STAFF.sa, STAFF.sa + 12 * 8]; // each string's line, in the order they are plucked
 // The room round the gourd: its first ring, and how far its rings reach out at a full hall.
 const ROOM = DISC + 36, REACH = 42;
-const HALL_AT = (150 / 360) * TAU; // where the room's handle sits on its outermost ring
-export const hallHandle = space => {
+const EDGE_AT = (150 / 360) * TAU; // where the hall's value is written, by the room's outermost ring
+/** A point on the room's outermost ring (lower left), for a hall: the room is dragged in or out anywhere on it. */
+export const roomEdge = space => {
   const r = ROOM + Math.max(0, Math.min(1, space)) * REACH;
-  return { x: CX + Math.cos(HALL_AT) * r, y: CY + Math.sin(HALL_AT) * r };
+  return { x: CX + Math.cos(EDGE_AT) * r, y: CY + Math.sin(EDGE_AT) * r };
 };
 // The tonic in the corner: its right edge, and the box that takes the mouse.
 export const TONIC = { x: 736, left: 548, top: 352, bot: 500 };
@@ -127,26 +130,24 @@ export default {
     s.rings = s.rings.filter(t0 => f.t - t0 < 3);
     s.plucks = s.plucks.filter(q => f.t - q.t < (STAFF.now - STAFF.lines + 20) / STAFF.speed);
     const p = f.pointer, under = s.drag || (p && p.over ? zone(p.x, p.y, jaw) : null);
-    // The room round the gourd: its rings, thin and apart, more of them the more the hall holds; each pluck sends one out.
+    // The room round the gourd: its rings, thin and apart, more of them and further out the more the hall holds
+    // (darker under the hand); each pluck sends one out.
     const reach = ROOM + hall * REACH;
     ctx.strokeStyle = wine;
-    ctx.lineWidth = under === 'hall' ? 2 : 1.25;
+    ctx.lineWidth = 1.25;
     const rings = Math.max(1, Math.round(hall * 6));
     for (let i = 1; i <= rings; i++) {
-      ctx.globalAlpha = 0.75 * (1 - i / 8);
+      ctx.globalAlpha = (under === 'hall' ? 1 : 0.75) * (1 - i / 8);
       ctx.beginPath(); ctx.arc(CX, CY, ROOM + ((reach - ROOM) * i) / rings, 0, TAU); ctx.stroke();
     }
     for (const t0 of s.rings) {
       const age = (f.t - t0) / 3;
       ctx.globalAlpha = (1 - age) * (0.25 + 0.6 * hall);
-      ctx.lineWidth = 2.5 * (1 - age) + 0.5;
+      ctx.lineWidth = 1.25 * (1 - age) + 0.5;
       ctx.beginPath(); ctx.arc(CX, CY, ROOM + age * REACH * hall, 0, TAU); ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    // The room's handle, on its outermost ring.
-    const { x: hx, y: hy } = hallHandle(hall);
-    ctx.beginPath(); ctx.arc(hx, hy, under === 'hall' ? 7 : 5.5, 0, TAU);
-    ctx.fillStyle = bone; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = wine; ctx.stroke();
+    const { x: hx, y: hy } = roomEdge(hall);
     // The practice staff: a line for each note the strings play, the plucks written on them as they are heard,
     // drifting left as they ring; the next ones waiting right of the now line.
     ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -276,14 +277,14 @@ export default {
     const midi = Math.round(f.value('ksa')), hz = 440 * Math.pow(2, (midi - 69) / 12);
     ctx.fillStyle = wine; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
     const note = NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
-    ctx.font = '800 76px system-ui, sans-serif';
-    ctx.fillText(note, TONIC.x, TONIC.bot - 36);
-    const nm = ctx.measureText(note), nw = typeof nm.width === 'number' ? nm.width : note.length * 46;
-    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.font = '700 46px system-ui, sans-serif';
+    ctx.fillText(note, TONIC.x, TONIC.bot - 34);
+    const nm = ctx.measureText(note), nw = typeof nm.width === 'number' ? nm.width : note.length * 28;
+    ctx.font = '700 14px system-ui, sans-serif';
     ctx.fillText('Sa  ' + hz.toFixed(1) + ' Hz', TONIC.x, TONIC.bot - 12);
     if (under === 'tonic') {
       // Up or down a semitone: a wedge each way, by the note.
-      const wx = TONIC.x - nw - 18, wy = TONIC.bot - 64;
+      const wx = TONIC.x - nw - 16, wy = TONIC.bot - 48;
       ctx.beginPath(); ctx.moveTo(wx - 7, wy - 10); ctx.lineTo(wx + 7, wy - 10); ctx.lineTo(wx, wy - 20); ctx.closePath();
       ctx.moveTo(wx - 7, wy + 4); ctx.lineTo(wx + 7, wy + 4); ctx.lineTo(wx, wy + 14); ctx.closePath(); ctx.fill();
     }
@@ -493,12 +494,13 @@ export function tonic(catalog: Catalog) {
           },
         }),
         wire('gl1.out', 'mlevel.in'),
+        // The name, signed on the gourd under the strings, in bone.
         el({
           kind: 'text',
           name: 'Title',
           text: 'Tonic',
-          rect: r(24, 16, 120, 44),
-          textStyle: { font: 'kalam', size: 34, weight: 700, color: 'fg', align: 'left' },
+          rect: r(CENTRE.x - 60, CENTRE.y + 42, 120, 38),
+          textStyle: { font: 'kalam', size: 28, weight: 700, color: '#fff1d6', align: 'center' },
         }),
         ...NOTE_NAMES.map((name, pc) => {
           const a = ((pc + 0.5) / 12) * Math.PI * 2 - Math.PI / 2;
