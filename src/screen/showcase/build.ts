@@ -59,6 +59,20 @@ export function control(
   return [add(id, type, node), ...list.map(t => wire(`${id}.${o.out ?? 'out'}`, t))];
 }
 
+/** A knob kept in the patch but off the plugin (a canvas moves it), wired to `node.port`. */
+export function patchControl(
+  id: string,
+  label: string,
+  target: string,
+  [min, max, scale, unit]: [number, number, 'linear' | 'log', string],
+  value: number,
+): Intent[] {
+  return [
+    add(id, 'ui.knob', { label, config: { min, max, scale, unit }, values: { value } }),
+    wire(`${id}.out`, target),
+  ];
+}
+
 /** A work: the sound and the plugin, built from intents on an empty patch, its modules laid out. */
 export function work(
   id: string,

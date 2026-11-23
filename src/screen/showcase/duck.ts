@@ -1,35 +1,76 @@
-// Evaluation prompt 9 — A delay that ducks while playing and blooms afterward, with an instrument-style display and a gain reduction meter.
+// Yield — a delay whose echoes give way while you play and come back when you stop.
 // A delay whose echoes duck under what you play (a ducker keyed by the dry
-// input) and bloom when you stop. A bench instrument: phosphor scope, a ladder
-// meter of how far the echoes sink, every value in numbers.
+// input) and bloom when you stop.
+// The design follows the thinking of the ABB A400 EV charger's interface (iF
+// DESIGN AWARD 2025): the clarity of road signs — heavy type, basic shapes,
+// fixed and moving graphics together, and colours that always mean the same
+// thing. Three signs: the echo (black), how far the echoes give way (amber,
+// the one colour for ducking, wherever it appears), and what they are doing
+// now. Each sign's number is its main setting, readable from across the room.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, r, wire, work } from './build.ts';
 
+/** The colour that means "the echoes are giving way", everywhere on the plugin. */
+const DUCK = '#f0a000';
+
 export function duck(catalog: Catalog) {
-  const knob = {
-    skin: { name: 'ring', params: { thickness: 3, ticks: 21, round: false, value: 'none' } },
-    textStyle: { size: 11, case: 'upper' as const, spacing: 0.16, color: 'muted' },
-  };
-  const readout = (bind: string, x: number) =>
+  const slider = (fill: string) => ({
+    skin: { name: 'bar', params: { radius: 0, label: 'top', fill } },
+  });
+  const sign = (name: string, x: number, band: string, ink: string, caption: string) => [
+    el({
+      kind: 'shape',
+      shape: 'rect',
+      name: `${name} sign`,
+      rect: r(x, 84, 232, 336),
+      locked: true,
+      style: { radius: 16, fill: [{ kind: 'color', color: '#ffffff' }], stroke: { color: '#111111', width: 3, style: 'solid' } },
+    }),
+    el({
+      kind: 'shape',
+      shape: 'rect',
+      name: `${name} band`,
+      rect: r(x, 84, 232, 44),
+      locked: true,
+      style: { radius: 16, fill: [{ kind: 'color', color: band }] },
+    }),
+    el({
+      kind: 'shape',
+      shape: 'rect',
+      name: `${name} band edge`,
+      rect: r(x, 112, 232, 16),
+      locked: true,
+      style: { fill: [{ kind: 'color', color: band }] },
+    }),
     el({
       kind: 'text',
-      name: `${bind} readout`,
+      name: `${name} title`,
+      text: name,
+      rect: r(x + 18, 92, 196, 30),
+      textStyle: { font: 'bebas-neue', size: 28, color: ink, align: 'left', spacing: 0.06 },
+    }),
+    el({
+      kind: 'text',
+      name: `${name} caption`,
+      text: caption,
+      rect: r(x + 18, 140, 196, 14),
+      textStyle: { size: 11, weight: 700, color: '#4d4d4d', align: 'left', spacing: 0.1, case: 'upper' },
+    }),
+  ];
+  const figure = (name: string, bind: string, x: number) =>
+    el({
+      kind: 'text',
+      name: `${name} figure`,
       text: '{value}',
       bind,
-      rect: r(x, 270, 92, 22),
-      textStyle: {
-        font: 'share-tech-mono',
-        size: 17,
-        color: '#ffb000',
-        shadows: [{ x: 0, y: 0, blur: 6, color: '#ffb00066' }],
-      },
+      rect: r(x + 16, 156, 200, 70),
+      textStyle: { font: 'oswald', size: 58, weight: 600, color: '#111111', align: 'left' },
     });
-  const names = ['ktime', 'kfb', 'ktone', 'kmix', 'kthresh', 'kdepth', 'krel'];
   return work(
     'duck',
-    'Duck Delay',
+    'Yield',
     catalog,
-    [780, 420],
+    [768, 444],
     [
       // ---- sound ----
       add('in1', 'kit.audioIn'),
@@ -65,196 +106,128 @@ export function duck(catalog: Catalog) {
       wire('mixl1.out', 'out1.left'),
       wire('mixr1.out', 'out1.right'),
       wire('duck1.gain', 'gr1.in'),
-      // ---- the plugin: a bench instrument ----
+      // ---- the plugin: three signs ----
       {
         op: 'setLook',
         look: {
           tokens: {
-            bg: '#15181b',
-            fg: '#d7e3ea',
-            accent: '#5ec8ff',
-            track: '#26313a',
-            knob: '#2b3238',
-            pointer: '#5ec8ff',
-            muted: '#8fa3b3',
-            glow: '#5ec8ff',
-            font: 'share-tech-mono',
-            labelFont: 'share-tech-mono',
-            valueFont: 'share-tech-mono',
+            bg: '#ecebe6',
+            fg: '#111111',
+            accent: '#111111',
+            track: '#dcdbd4',
+            knob: '#ffffff',
+            pointer: '#111111',
+            muted: '#4d4d4d',
+            glow: DUCK,
+            font: 'lato',
+            labelFont: 'lato',
+            valueFont: 'lato',
           },
-          background: [
-            {
-              kind: 'linear',
-              angle: 180,
-              stops: [
-                { color: '#1b1f23', at: 0 },
-                { color: '#111417', at: 1 },
-              ],
-            },
-          ],
-          skins: { knob: { name: 'ring', params: { thickness: 3, ticks: 21 } } },
+          background: [{ kind: 'color', color: '#ecebe6' }],
+          skins: {
+            slider: { name: 'bar', params: { radius: 0, label: 'top' } },
+            meter: { name: 'bar', params: { fill: DUCK, scale: false } },
+          },
+          css: [
+            'dk-slider { position: relative; }',
+            'dk-slider::part(label) { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #111; }',
+            'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 12px; font-weight: 700; color: #111; }',
+            'dk-slider::part(track) { max-height: 10px; margin-top: 4px; }',
+          ].join('\n'),
         },
       },
       el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Header',
-        rect: r(0, 0, 780, 44),
-        locked: true,
-        style: {
-          fill: [{ kind: 'color', color: '#0d1013' }],
-          shadows: [{ x: 0, y: 1, blur: 0, spread: 0, color: '#ffffff12', inset: false }],
-        },
-      }),
-      el({
         kind: 'text',
         name: 'Title',
-        text: 'DUCK DELAY',
-        rect: r(22, 8, 220, 28),
-        textStyle: { size: 20, color: '#d7e3ea', align: 'left', spacing: 0.2 },
-      }), // on the header bar: its own colours
-      el({
-        kind: 'text',
-        name: 'Model',
-        text: 'MODEL 9 · SIDECHAIN ECHO',
-        rect: r(250, 12, 300, 22),
-        textStyle: { size: 12, color: '#6f8494', align: 'left', spacing: 0.2 },
-      }),
-      el({
-        kind: 'led',
-        name: 'Signal',
-        bind: '@level',
-        color: '#3ddc84',
-        threshold: 0,
-        rect: r(744, 16, 12, 12),
+        text: 'Yield',
+        rect: r(24, 14, 200, 44),
+        textStyle: { font: 'bebas-neue', size: 46, color: 'fg', align: 'left', spacing: 0.04 },
       }),
       el({
         kind: 'text',
-        name: 'Signal label',
-        text: 'SIG',
-        rect: r(706, 14, 34, 16),
-        textStyle: { size: 11, color: '#6f8494', align: 'right' },
+        name: 'Subtitle',
+        text: 'A delay whose echoes give way while you play, and come back when you stop.',
+        rect: r(24, 56, 560, 16),
+        textStyle: { size: 12, color: 'muted', align: 'left' },
       }),
-      el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Screen',
-        rect: r(22, 60, 560, 186),
-        locked: true,
-        style: {
-          radius: 6,
-          fill: [{ kind: 'color', color: '#04100a' }],
-          stroke: { color: '#2b3a44', width: 2, style: 'solid' },
-          shadows: [{ x: 0, y: 0, blur: 18, spread: 0, color: '#000000cc', inset: true }],
-        },
-      }),
-      ...control('scope1', 'ui.scope', 'OUT', null, r(30, 68, 544, 170), {
-        style: {
-          skin: {
-            name: 'phosphor',
-            params: { line: '#7dff9a', surface: '#04100a', glow: 8, persistence: 0.7, grid: true },
-          },
-        },
-      }),
-      wire('mixl1.out', 'scope1.in'),
-      el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Meter bay',
-        rect: r(600, 60, 158, 186),
-        locked: true,
-        style: {
-          radius: 6,
-          fill: [{ kind: 'color', color: '#0d1013' }],
-          stroke: { color: '#2b3a44', width: 2, style: 'solid' },
-        },
-      }),
-      ...control('grm1', 'ui.meter', 'DUCK', null, r(622, 76, 30, 140), {
-        style: {
-          skin: {
-            name: 'led',
-            params: {
-              segments: 18,
-              low: '#ffb000',
-              mid: '#ff7a00',
-              high: '#ff3b30',
-              off: '#26313a',
-            },
-          },
-        },
-      }),
-      wire('gr1.out', 'grm1.in'),
-      ...control('outm1', 'ui.meter', 'OUT', null, r(706, 76, 30, 140), {
-        style: { skin: { name: 'led', params: { segments: 18 } } },
-      }),
-      wire('mixl1.out', 'outm1.in'),
-      el({
-        kind: 'text',
-        name: 'Duck label',
-        text: 'DUCK',
-        rect: r(610, 220, 54, 18),
-        textStyle: { size: 12, color: '#ffb000' },
-      }),
-      el({
-        kind: 'text',
-        name: 'Out label',
-        text: 'OUT',
-        rect: r(694, 220, 54, 18),
-        textStyle: { size: 12, color: '#3ddc84' },
-      }),
+      // The echo: how long, how many, how bright, how loud.
+      ...sign('Echo', 24, '#111111', '#ffffff', 'repeats every'),
       ...control(
         'ktime',
-        'ui.knob',
-        'Time',
+        'ui.slider',
+        'Repeat',
         ['dly1.timeLeftSeconds', 'dly1.timeRightSeconds'],
-        r(26, 298, 92, 104),
-        { min: 0.05, max: 1.2, scale: 'log', unit: 's', value: 0.375, style: knob },
+        r(42, 238, 196, 36),
+        { min: 0.05, max: 1.2, scale: 'log', unit: 's', value: 0.375, style: slider('#111111') },
       ),
-      ...control('kfb', 'ui.knob', 'Feedback', 'dly1.feedback', r(132, 298, 92, 104), {
+      ...control('kfb', 'ui.slider', 'Feedback', 'dly1.feedback', r(42, 282, 196, 36), {
         min: 0,
         max: 0.9,
         value: 0.5,
-        style: knob,
+        style: slider('#111111'),
       }),
-      ...control('ktone', 'ui.knob', 'Tone', 'dly1.cutoffHz', r(238, 298, 92, 104), {
+      ...control('ktone', 'ui.slider', 'Tone', 'dly1.cutoffHz', r(42, 326, 196, 36), {
         min: 800,
         max: 12000,
         scale: 'log',
         unit: 'Hz',
         value: 4000,
-        style: knob,
+        style: slider('#111111'),
       }),
-      ...control(
-        'kmix',
-        'ui.knob',
-        'Echo',
-        ['mixl1.level2', 'mixr1.level2'],
-        r(344, 298, 92, 104),
-        { min: 0, max: 1.5, value: 0.8, style: knob },
-      ),
-      ...control('kthresh', 'ui.knob', 'Thresh', 'duck1.thresholdDb', r(450, 298, 92, 104), {
-        min: -60,
-        max: 0,
-        unit: 'dB',
-        value: -32,
-        style: knob,
+      ...control('kmix', 'ui.slider', 'Echo level', ['mixl1.level2', 'mixr1.level2'], r(42, 370, 196, 36), {
+        min: 0,
+        max: 1.5,
+        value: 0.8,
+        style: slider('#111111'),
       }),
-      ...control('kdepth', 'ui.knob', 'Depth', 'duck1.rangeDb', r(556, 298, 92, 104), {
+      // Giving way: how far down, from how loud, how fast back.
+      figure('Echo', 'ktime', 24),
+      ...sign('Give way', 274, DUCK, '#111111', 'echoes drop by up to'),
+      ...control('kdepth', 'ui.slider', 'Depth', 'duck1.rangeDb', r(292, 238, 196, 36), {
         min: 0,
         max: 40,
         unit: 'dB',
         value: 24,
-        style: knob,
+        style: slider(DUCK),
       }),
-      ...control('krel', 'ui.knob', 'Release', 'duck1.release', r(662, 298, 92, 104), {
+      ...control('kthresh', 'ui.slider', 'When louder than', 'duck1.thresholdDb', r(292, 282, 196, 36), {
+        min: -60,
+        max: 0,
+        unit: 'dB',
+        value: -32,
+        style: slider(DUCK),
+      }),
+      ...control('krel', 'ui.slider', 'Back after', 'duck1.release', r(292, 326, 196, 36), {
         min: 0.05,
         max: 1.5,
         scale: 'log',
         unit: 's',
         value: 0.35,
-        style: knob,
+        style: slider(DUCK),
       }),
-      ...names.map((id, i) => readout(id, 26 + i * 106)),
+      figure('Give way', 'kdepth', 274),
+      // Now: how far the echoes are down at this moment, and what goes out.
+      ...sign('Now', 524, '#111111', '#ffffff', 'echoes down / out'),
+      ...control('grm1', 'ui.meter', 'Down', null, r(560, 168, 72, 220)),
+      wire('gr1.out', 'grm1.in'),
+      ...control('outm1', 'ui.meter', 'Out', null, r(668, 168, 52, 220), {
+        style: { skin: { name: 'bar', params: { fill: '#111111', scale: false } } },
+      }),
+      wire('mixl1.out', 'outm1.in'),
+      el({
+        kind: 'text',
+        name: 'Down label',
+        text: 'down',
+        rect: r(560, 394, 72, 16),
+        textStyle: { size: 11, weight: 700, color: '#111111', align: 'center', case: 'upper', spacing: 0.1 },
+      }),
+      el({
+        kind: 'text',
+        name: 'Out label',
+        text: 'out',
+        rect: r(660, 394, 68, 16),
+        textStyle: { size: 11, weight: 700, color: '#111111', align: 'center', case: 'upper', spacing: 0.1 },
+      }),
     ],
   );
 }

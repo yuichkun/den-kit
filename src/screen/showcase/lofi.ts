@@ -1,10 +1,16 @@
-// Evaluation prompt 7 — Cassette-style lo-fi. Reduce bit depth in codebox and add wow, flutter, and hiss, with a handwritten label.
-// A codebox crushes the sound (holds a sample every `rate` Hz, rounds it to
-// `bits`), a short modulated delay makes it waver like a stretched tape, a
-// lowpass dulls it and hiss is mixed in. The screen is a page of a scrapbook:
-// paper, a cassette photo taped on with a handwritten label, ink faders.
+// Low Res — a lo-fi effect: fewer bits, a slower sample rate, a wobble, some hiss.
+// A codebox crushes the sound (holds a sample `rate` times a second, rounds it
+// to `bits`), a short modulated delay makes it waver like a stretched tape, a
+// lowpass dulls it and hiss is mixed in.
+// The design follows the thinking of the NieR:Automata UI design team's work
+// (CEDEC AWARDS 2018, Visual Arts, top prize): flat design as the base, with
+// motion and a sense of material to make an inorganic world feel present, and
+// detail worked out down to the thin rules and small type. The display is the
+// crusher at work: the output snapped to the grid the codebox rounds and holds
+// to (rows: the levels Bits leaves, columns: the samples Rate keeps), with
+// what the crushing adds filled in.
 import type { Catalog } from '../../work/catalog.ts';
-import { add, asset, control, el, r, wire, work } from './build.ts';
+import { add, control, el, r, wire, work } from './build.ts';
 
 export const CRUSHER = `import { defineSubgraph, f32, select, state, type Node } from '@unworklet/core';
 
@@ -30,32 +36,127 @@ export default defineSubgraph((config: { sampleRate: number }) => {
 });
 `;
 
-const HEART =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 90"><path d="M50 82 C18 60 6 42 10 26 C14 10 34 6 46 20 L50 26 L54 19 C66 5 88 10 90 28 C93 44 80 60 50 82 Z" fill="none" stroke="#c0392b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const SCRIBBLE =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40"><path d="M4 26 C20 6 30 36 46 20 C60 6 70 34 86 18 C100 4 112 32 128 18 C142 6 152 30 168 16 C178 8 188 14 196 12" fill="none" stroke="#23395d" stroke-width="3" stroke-linecap="round"/></svg>';
+/** The crusher at work: the output on the grid of levels (Bits) and held samples (Rate). */
+export const CRUSH_GRID = `// The output wave (256 samples, about 5 ms) on the crusher's grid: rows are the
+// levels Bits (fbits) leaves (drawn when they are far enough apart to see),
+// columns the samples Rate (frate) keeps. The wave is snapped to that grid
+// (held, then rounded, as the codebox does) and what that adds is filled in.
+// Quiet sound is zoomed in (up to 16 times, eased), grid and all, so the steps
+// stay in view. A thin scan line sweeps across, and corner marks frame it.
+const SR = 48000;
+export default {
+  draw(ctx, f) {
+    let top = 0;
+    for (let i = 0; i < f.wave.length; i++) top = Math.max(top, Math.abs(f.wave[i]));
+    const want = Math.min(16, Math.max(1, 0.8 / Math.max(top, 1e-3)));
+    const zoom = (f.state.zoom ?? want) + (want - (f.state.zoom ?? want)) * Math.min(1, f.dt * 3);
+    f.state.zoom = zoom;
+    const w = f.w, h = f.h, mid = h / 2, amp = h * 0.42 * zoom;
+    const fg = f.color('fg'), muted = f.color('muted'), accent = f.color('accent'), track = f.color('track');
+    const bits = Math.max(2, Math.min(16, f.value('fbits')));
+    const rate = Math.max(100, f.value('frate'));
+    const steps = Math.pow(2, bits - 1);
+    const hold = SR / rate, n = f.wave.length, dx = w / (n - 1);
+    ctx.clearRect(0, 0, w, h);
+    // Rows: the levels left, when at least 5 px apart.
+    const rowGap = amp / steps;
+    ctx.strokeStyle = track;
+    ctx.lineWidth = 1;
+    if (rowGap >= 5) {
+      for (let k = -steps; k <= steps; k++) {
+        const y = Math.round(mid - k * rowGap) + 0.5;
+        if (y < 0 || y > h) continue;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+    }
+    // Columns: one per kept sample, when at least 4 px apart.
+    if (hold * dx >= 4) {
+      ctx.globalAlpha = 0.6;
+      for (let x = 0; x < w; x += hold * dx) {
+        ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, h); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = muted;
+    ctx.beginPath(); ctx.moveTo(0, mid + 0.5); ctx.lineTo(w, mid + 0.5); ctx.stroke();
+    // The wave snapped: held for \`hold\` samples, rounded to the levels.
+    const snapped = new Float32Array(n);
+    let held = 0, next = 0;
+    for (let i = 0; i < n; i++) {
+      if (i >= next) { held = Math.round(f.wave[i] * steps) / steps; next += hold; }
+      snapped[i] = held;
+    }
+    // What the crushing adds: between the wave and its snapped copy.
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = 0.22;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) ctx.lineTo(i * dx, mid - f.wave[i] * amp);
+    for (let i = n - 1; i >= 0; i--) ctx.lineTo(i * dx, mid - snapped[i] * amp);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = muted;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) ctx.lineTo(i * dx, mid - f.wave[i] * amp);
+    ctx.stroke();
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'miter';
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = i * dx, y = mid - snapped[i] * amp;
+      if (i === 0) ctx.moveTo(x, y);
+      else { ctx.lineTo(x, mid - snapped[i - 1] * amp); ctx.lineTo(x, y); }
+    }
+    ctx.stroke();
+    // The scan line, and the corner marks.
+    const sx = ((f.t * 0.25) % 1) * w;
+    ctx.fillStyle = fg;
+    ctx.globalAlpha = 0.5;
+    ctx.fillRect(Math.round(sx), 0, 1, h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = 1.5;
+    const c = 12;
+    for (const [x, y, ax, ay] of [[1, 1, 1, 1], [w - 1, 1, -1, 1], [1, h - 1, 1, -1], [w - 1, h - 1, -1, -1]]) {
+      ctx.beginPath(); ctx.moveTo(x, y + ay * c); ctx.lineTo(x, y); ctx.lineTo(x + ax * c, y); ctx.stroke();
+    }
+  },
+};
+`;
+
+/** A field of fine dots behind everything: the material the screen is printed on. */
+export const DOT_FIELD = `// Fine dots in rows, every 6 px; a slow band of slightly larger dots drifts
+// down the screen, so the surface is never quite still.
+export default {
+  draw(ctx, f) {
+    const w = f.w, h = f.h, band = ((f.t * 18) % (h + 120)) - 60;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = f.color('track');
+    for (let y = 3; y < h; y += 6)
+      for (let x = 3; x < w; x += 6) {
+        const near = Math.max(0, 1 - Math.abs(y - band) / 60);
+        const r = 0.6 + near * 0.5;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+  },
+};
+`;
 
 export function lofi(catalog: Catalog) {
-  const fader = {
-    skin: {
-      name: 'fader',
-      params: {
-        cap: 'knob',
-        line: 'pointer',
-        slot: 'track',
-        capSize: 0.16,
-        ticks: 7,
-        label: 'bottom',
-        value: 'bottom',
-      },
-    },
-    textStyle: { font: 'caveat', size: 21, color: 'fg' },
-  };
+  const row = { skin: { name: 'bar', params: { radius: 0, label: 'top' } } };
+  const mono = (size: number, color: string) => ({
+    font: 'jetbrains-mono',
+    size,
+    color,
+    align: 'left' as const,
+  });
   return work(
     'lofi',
-    'Side B',
+    'Low Res',
     catalog,
-    [640, 470],
+    [720, 452],
     [
       // ---- sound ----
       add('in1', 'kit.audioIn'),
@@ -125,175 +226,127 @@ export function lofi(catalog: Catalog) {
       wire('hpr1.highpass', 'mixr1.in2'),
       wire('mixl1.out', 'out1.left'),
       wire('mixr1.out', 'out1.right'),
-      // ---- the plugin: a scrapbook page ----
-      asset('assets/den-kit/paper.jpg'),
-      asset('assets/den-kit/cassette.jpg'),
+      // ---- the plugin: the crusher's grid, and the settings beside it ----
       {
         op: 'setLook',
         look: {
           tokens: {
-            bg: '#f1ead8',
-            fg: '#23395d',
-            accent: '#c0392b',
-            track: '#23395d',
-            knob: '#fffaf0',
-            pointer: '#23395d',
-            muted: '#5b6f8f',
-            glow: '#e8b04a',
-            font: 'caveat',
-            labelFont: 'caveat',
-            valueFont: 'kalam',
+            bg: '#dcddd8',
+            fg: '#272926',
+            accent: '#c4472c',
+            track: '#c3c5bf',
+            knob: '#eeefeb',
+            pointer: '#272926',
+            muted: '#4a4c47',
+            glow: '#c4472c',
+            font: 'jetbrains-mono',
+            labelFont: 'jetbrains-mono',
+            valueFont: 'jetbrains-mono',
           },
-          background: [
-            { kind: 'image', asset: 'assets/den-kit/paper.jpg', fit: 'cover' },
-            { kind: 'color', color: '#f6e7c1', blend: 'multiply', opacity: 0.35 },
-          ],
-          skins: { slider: { name: 'fader' } },
+          background: [{ kind: 'color', color: '#dcddd8' }],
+          skins: { slider: { name: 'bar', params: { radius: 0, label: 'top' } } },
+          css: [
+            'dk-slider { position: relative; }',
+            'dk-slider::part(label) { text-align: left; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dk-muted); }',
+            'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 11px; color: var(--dk-fg); }',
+            'dk-slider::part(track) { max-height: 3px; margin-top: 8px; }',
+          ].join('\n'),
         },
       },
+      el({ kind: 'canvas', name: 'Surface', code: DOT_FIELD, rect: r(0, 0, 720, 452) }),
       el({
         kind: 'text',
         name: 'Title',
-        text: 'side B',
-        rect: r(30, 18, 270, 76),
-        textStyle: { font: 'kalam', size: 60, weight: 700, color: 'fg', align: 'left' },
-        style: { rotate: -4 },
-      }),
-      el({
-        kind: 'svg',
-        name: 'Underline',
-        svg: SCRIBBLE,
-        rect: r(36, 92, 220, 30),
-        style: { rotate: -4, opacity: 0.85 },
+        text: 'LOW / RES',
+        rect: r(24, 20, 300, 28),
+        textStyle: { ...mono(20, 'fg'), weight: 700, spacing: 0.3 },
       }),
       el({
         kind: 'text',
         name: 'Subtitle',
-        text: 'fewer bits, a wobble, some hiss',
-        rect: r(38, 128, 290, 30),
-        textStyle: { font: 'caveat', size: 23, color: 'muted', align: 'left' },
-      }),
-      el({
-        kind: 'image',
-        name: 'Cassette photo',
-        asset: 'assets/den-kit/cassette.jpg',
-        fit: 'cover',
-        rect: r(344, 34, 262, 174),
-        style: {
-          rotate: 3,
-          stroke: { color: '#ffffff', width: 8, style: 'solid' },
-          shadows: [{ x: 2, y: 6, blur: 12, spread: 0, color: '#3a2a1055', inset: false }],
-        },
-      }),
-      el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Tape 1',
-        rect: r(326, 22, 84, 26),
-        locked: true,
-        style: {
-          rotate: -32,
-          fill: [{ kind: 'color', color: '#efe2b8' }],
-          opacity: 0.82,
-          shadows: [{ x: 0, y: 1, blur: 2, spread: 0, color: '#3a2a1033', inset: false }],
-        },
-      }),
-      el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Tape 2',
-        rect: r(548, 196, 84, 26),
-        locked: true,
-        style: {
-          rotate: -28,
-          fill: [{ kind: 'color', color: '#efe2b8' }],
-          opacity: 0.82,
-          shadows: [{ x: 0, y: 1, blur: 2, spread: 0, color: '#3a2a1033', inset: false }],
-        },
-      }),
-      el({
-        kind: 'shape',
-        shape: 'rect',
-        name: 'Label',
-        rect: r(398, 62, 156, 40),
-        locked: true,
-        style: {
-          rotate: 3,
-          radius: 3,
-          fill: [
-            { kind: 'color', color: '#fffbea' },
-            {
-              kind: 'linear',
-              angle: 180,
-              stops: [
-                { color: '#00000000', at: 0.62 },
-                { color: '#9bb6d455', at: 0.64 },
-                { color: '#00000000', at: 0.66 },
-              ],
-            },
-          ],
-          shadows: [{ x: 0, y: 1, blur: 2, spread: 0, color: '#3a2a1044', inset: false }],
-        },
+        text: 'fewer bits, a slower rate, a wobble, some hiss',
+        rect: r(24, 50, 420, 16),
+        textStyle: mono(11, 'muted'),
       }),
       el({
         kind: 'text',
-        name: 'Label text',
-        text: 'summer mix ’98',
-        rect: r(398, 60, 156, 40),
-        textStyle: { font: 'caveat', size: 25, weight: 700, color: '#c0392b' },
-        style: { rotate: 3 },
+        name: 'Unit',
+        text: 'CRUSHER / CODEBOX',
+        rect: r(480, 26, 216, 14),
+        textStyle: { ...mono(10, 'muted'), align: 'right', spacing: 0.2 },
       }),
       el({
-        kind: 'svg',
-        name: 'Heart',
-        svg: HEART,
-        rect: r(560, 300, 42, 38),
-        style: { rotate: 12 },
+        kind: 'shape',
+        shape: 'line',
+        name: 'Rule',
+        rect: r(24, 74, 672, 1),
+        locked: true,
+        style: { stroke: { color: '#272926', width: 1, style: 'solid' } },
       }),
-      ...control('fbits', 'ui.slider', 'bits', 'crush1.bits', r(44, 196, 84, 250), {
+      el({
+        kind: 'shape',
+        shape: 'rect',
+        name: 'Display',
+        rect: r(24, 92, 432, 300),
+        locked: true,
+        style: { fill: [{ kind: 'color', color: '#e7e8e4' }] },
+      }),
+      el({ kind: 'canvas', name: 'The grid', code: CRUSH_GRID, rect: r(24, 92, 432, 300) }),
+      el({
+        kind: 'text',
+        name: 'Display caption',
+        text: 'OUT, ZOOMED TO FIT, ON THE GRID  /  5 MS',
+        rect: r(24, 400, 432, 14),
+        textStyle: { ...mono(10, 'muted'), spacing: 0.12 },
+      }),
+      el({
+        kind: 'text',
+        name: 'Settings caption',
+        text: '01  CRUSH',
+        rect: r(480, 92, 216, 14),
+        textStyle: { ...mono(10, 'fg'), weight: 700, spacing: 0.2 },
+      }),
+      ...control('fbits', 'ui.slider', 'bits', 'crush1.bits', r(480, 116, 216, 34), {
         min: 2,
         max: 16,
         value: 8,
-        style: fader,
+        style: row,
       }),
-      ...control('frate', 'ui.slider', 'rate', 'crush1.rate', r(140, 196, 84, 250), {
+      ...control('frate', 'ui.slider', 'rate', 'crush1.rate', r(480, 160, 216, 34), {
         min: 1500,
         max: 48000,
         scale: 'log',
         unit: 'Hz',
         value: 11025,
-        style: fader,
+        style: row,
       }),
-      ...control('fwob', 'ui.slider', 'wobble', 'wobble1.depthSeconds', r(236, 196, 84, 250), {
+      el({
+        kind: 'text',
+        name: 'Tape caption',
+        text: '02  TAPE',
+        rect: r(480, 222, 216, 14),
+        textStyle: { ...mono(10, 'fg'), weight: 700, spacing: 0.2 },
+      }),
+      ...control('fwob', 'ui.slider', 'wobble', 'wobble1.depthSeconds', r(480, 246, 216, 34), {
         min: 0,
         max: 0.005,
         unit: 's',
         value: 0.0015,
-        style: fader,
+        style: row,
       }),
-      ...control(
-        'fhiss',
-        'ui.slider',
-        'hiss',
-        ['mixl1.level2', 'mixr1.level2'],
-        r(332, 226, 84, 220),
-        { min: 0, max: 0.06, value: 0.012, style: fader },
-      ),
-      ...control(
-        'ftone',
-        'ui.slider',
-        'tone',
-        ['tonel1.cutoff', 'toner1.cutoff'],
-        r(428, 226, 84, 220),
-        { min: 900, max: 14000, scale: 'log', unit: 'Hz', value: 5200, style: fader },
-      ),
-      el({
-        kind: 'text',
-        name: 'Note',
-        text: '← slide these',
-        rect: r(512, 392, 120, 34),
-        textStyle: { font: 'caveat', size: 22, color: 'muted' },
-        style: { rotate: -6 },
+      ...control('fhiss', 'ui.slider', 'hiss', ['mixl1.level2', 'mixr1.level2'], r(480, 290, 216, 34), {
+        min: 0,
+        max: 0.06,
+        value: 0.012,
+        style: row,
+      }),
+      ...control('ftone', 'ui.slider', 'tone', ['tonel1.cutoff', 'toner1.cutoff'], r(480, 334, 216, 34), {
+        min: 900,
+        max: 14000,
+        scale: 'log',
+        unit: 'Hz',
+        value: 5200,
+        style: row,
       }),
     ],
   );

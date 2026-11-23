@@ -1,40 +1,71 @@
-// Evaluation prompt 4 — A percussion instrument for children to play, with eight large, colorful pads.
-// Pitched toy drums (a sine with a pitch drop plus a little filtered noise),
-// eight big pads on a pentatonic scale, a bright drawn screen. The hand-drawn
-// layout sketch it was built from is kept as the reference picture.
+// Shape Drums — a drum toy for children: eight shapes to tap, and a beat to join.
+// Pitched toy drums (a sine with a pitch drop plus a little filtered noise) on
+// a pentatonic scale, so any two taps sound good together; a soft shaker beat
+// can be switched on to play along with.
+// The design follows the thinking of Rytmos (Apple Design Awards 2024,
+// Interaction): play is clear without being explained, the gestures are simple
+// and fun, and each thing added joins the music. Every pad is a shape in its
+// own colour, nothing needs reading, and the board under the pads answers each
+// hit.
 import type { Catalog } from '../../work/catalog.ts';
-import { add, asset, control, el, r, wire, work } from './build.ts';
+import { add, control, el, r, wire, work } from './build.ts';
 
-const SUN =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><g stroke="#ffb703" stroke-width="7" stroke-linecap="round">' +
-  Array.from({ length: 10 }, (_, i) => {
-    const a = (i / 10) * Math.PI * 2;
-    return `<line x1="${60 + 40 * Math.cos(a)}" y1="${60 + 40 * Math.sin(a)}" x2="${60 + 54 * Math.cos(a)}" y2="${60 + 54 * Math.sin(a)}"/>`;
-  }).join('') +
-  '</g><circle cx="60" cy="60" r="31" fill="#ffd166"/><circle cx="50" cy="55" r="4" fill="#5a3e00"/><circle cx="70" cy="55" r="4" fill="#5a3e00"/><path d="M47 68 Q60 80 73 68" fill="none" stroke="#5a3e00" stroke-width="4" stroke-linecap="round"/></svg>';
-const CLOUD =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><path d="M40 85 Q8 85 12 62 Q16 42 40 46 Q46 18 78 22 Q100 2 128 22 Q160 14 166 44 Q194 46 190 68 Q186 88 160 85 Z" fill="#ffffff" stroke="#bfe3ff" stroke-width="4"/></svg>';
-const STAR = (c: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 6 L62 38 L96 38 L68 58 L79 92 L50 72 L21 92 L32 58 L4 38 L38 38 Z" fill="${c}" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/></svg>`;
+/** The board under the pads: a field of dots that jump with every hit. */
+export const BOARD = `// A field of dots under the pads. A hit is a jump in the output level: the
+// dots swell from the middle outwards and settle again. With the beat on
+// (tbeat), the row of dots along the bottom ticks along with it.
+export default {
+  setup(ctx, f) {
+    Object.assign(f.state, { prev: 0, hits: [] });
+  },
+  draw(ctx, f) {
+    const s = f.state, w = f.w, h = f.h, step = 28;
+    if (f.level > s.prev * 1.35 + 0.004) s.hits.push(f.t);
+    s.prev = s.prev * 0.8 + f.level * 0.2;
+    s.hits = s.hits.filter(t => f.t - t < 1.2).slice(-6);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = f.color('track');
+    const cx = w / 2, cy = h * 0.45;
+    for (let y = step / 2; y < h; y += step)
+      for (let x = step / 2; x < w; x += step) {
+        const d = Math.hypot(x - cx, y - cy);
+        let swell = 0;
+        for (const t of s.hits) {
+          const front = (f.t - t) * 700, k = Math.max(0, 1 - Math.abs(d - front) / 60);
+          swell += k * (1 - (f.t - t) / 1.2);
+        }
+        ctx.beginPath(); ctx.arc(x, y, 2.2 + Math.min(4, swell * 4), 0, Math.PI * 2); ctx.fill();
+      }
+  },
+};
+`;
+
+/** The shapes on the pads, one per sound (drawn in a 100×100 box, filled with `c`). */
+const SHAPES: Array<(c: string) => string> = [
+  c => `<circle cx="50" cy="50" r="42" fill="${c}"/>`,
+  c => `<rect x="12" y="12" width="76" height="76" rx="12" fill="${c}"/>`,
+  c => `<path d="M50 8 L94 88 L6 88 Z" fill="${c}" stroke="${c}" stroke-width="6" stroke-linejoin="round"/>`,
+  c => `<path d="M50 4 L96 50 L50 96 L4 50 Z" fill="${c}"/>`,
+  c => `<path d="M50 6 L88 28 L88 72 L50 94 L12 72 L12 28 Z" fill="${c}"/>`,
+  c =>
+    `<path d="M50 6 L61 38 L95 38 L68 58 L78 92 L50 72 L22 92 L32 58 L5 38 L39 38 Z" fill="${c}" stroke="${c}" stroke-width="4" stroke-linejoin="round"/>`,
+  c => `<path d="M6 70 A44 44 0 0 1 94 70 Z" fill="${c}"/>`,
+  c => `<circle cx="50" cy="50" r="34" fill="none" stroke="${c}" stroke-width="16"/>`,
+];
+/** A pad's shape colour: the pad's own hue, deeper (the pads are hsl(hue 70% 80%)). */
+const shapeColor = (i: number) => `hsl(${Math.round((360 * i) / 8)} 52% 44%)`;
 
 export function toy(catalog: Catalog) {
   const knob = (accent: string) => ({
-    skin: { name: 'dot', params: { cap: '#ffffff', dot: accent, soft: 0.8, ring: true } },
-    tokens: { accent, track: '#ffd9e6' },
-    textStyle: {
-      font: 'fredoka',
-      size: 15,
-      weight: 600,
-      color: 'fg',
-      case: 'upper' as const,
-      spacing: 0.08,
-    },
+    skin: { name: 'ring', params: { thickness: 10, round: true, value: 'none' } },
+    tokens: { accent },
+    textStyle: { font: 'fredoka', size: 15, weight: 600, color: 'fg' },
   });
   return work(
     'toy',
-    'Bop Box',
+    'Shape Drums',
     catalog,
-    [640, 470],
+    [720, 540],
     [
       // ---- sound ----
       add('voice1', 'kit.voiceIn', { config: { mode: 'poly', capacity: 4, heldCapacity: 16 } }),
@@ -85,100 +116,76 @@ export function toy(catalog: Catalog) {
       wire('vel1.out', 'vmix1.in'),
       wire('aenv1.done', 'vmix1.done'),
       wire('vmix1.out', 'gain1.in'),
-      wire('gain1.out', 'room1.left'),
-      wire('gain1.out', 'room1.right'),
       wire('room1.left', 'out1.left'),
       wire('room1.right', 'out1.right'),
-      // ---- the plugin: big pads, drawn decorations ----
-      asset('assets/den-kit/sketch-pads.svg'),
+      // ---- a beat to play along with: a soft shaker, on when the switch is ----
+      add('beat1', 'den.musicalLfo', {
+        label: 'Beat',
+        config: { mode: 'tempo', waveform: 'square', beatsPerCycle: '1' },
+        values: { rate: 100 },
+      }),
+      add('bgate1', 'kit.compare', { label: 'On the beat', values: { b: 0 } }),
+      add('benv1', 'den.envelope', {
+        label: 'Shake',
+        values: { attack: 0.002, decay: 0.07, sustain: 0, release: 0.05 },
+      }),
+      add('bnoise1', 'den.seededNoise', { label: 'Beads', config: { seed: 3 } }),
+      add('bband1', 'den.stateVariableFilter', { label: 'Shaker', values: { cutoffHz: 6500, q: 1.4 } }),
+      add('bvca1', 'kit.mul', { label: 'Shaker VCA' }),
+      add('bon1', 'kit.mul', { label: 'Beat on' }),
+      add('blevel1', 'kit.gain', { label: 'Beat level', values: { gain: 0.5 } }),
+      add('sum1', 'kit.add', { label: 'Drums + beat' }),
+      wire('beat1.value', 'bgate1.a'),
+      wire('bgate1.out', 'benv1.gate'),
+      wire('bnoise1.out', 'bband1.input'),
+      wire('bband1.bandpass', 'bvca1.a'),
+      wire('benv1.level', 'bvca1.b'),
+      wire('bvca1.out', 'bon1.a'),
+      wire('bon1.out', 'blevel1.in'),
+      wire('gain1.out', 'sum1.a'),
+      wire('blevel1.out', 'sum1.b'),
+      wire('sum1.out', 'room1.left'),
+      wire('sum1.out', 'room1.right'),
+      // ---- the plugin: shapes on a board ----
       {
         op: 'setLook',
         look: {
           tokens: {
-            bg: '#fff3f8',
-            fg: '#4a3a7a',
-            accent: '#f0457a',
-            track: '#ffe1ec',
+            bg: '#fff8ec',
+            fg: '#2d2a5a',
+            accent: '#f2643f',
+            track: '#efe2cb',
             knob: '#ffffff',
-            pointer: '#4a3a7a',
-            muted: '#76669f',
-            glow: '#ff9ec0',
+            pointer: '#2d2a5a',
+            muted: '#6b6797',
+            glow: '#f2643f',
             font: 'fredoka',
             labelFont: 'fredoka',
-            valueFont: 'baloo-2',
+            valueFont: 'fredoka',
           },
-          background: [
-            {
-              kind: 'linear',
-              angle: 160,
-              stops: [
-                { color: '#fff0f6', at: 0 },
-                { color: '#e6f4ff', at: 0.55 },
-                { color: '#fff7d6', at: 1 },
-              ],
-            },
-          ],
-          skins: { knob: { name: 'dot' } },
+          background: [{ kind: 'color', color: '#fff8ec' }],
+          skins: {
+            knob: { name: 'ring', params: { thickness: 10, round: true, value: 'none' } },
+            toggle: { name: 'button', params: { radius: 30 } },
+          },
         },
       },
-      {
-        op: 'setUnderlay',
-        underlay: { asset: 'assets/den-kit/sketch-pads.svg', opacity: 0.35, visible: false },
-      },
-      el({
-        kind: 'shape',
-        shape: 'ellipse',
-        name: 'Blob pink',
-        rect: r(-60, 300, 260, 220),
-        style: { fill: [{ kind: 'color', color: '#ffd1e3' }], opacity: 0.7 },
-        locked: true,
-      }),
-      el({
-        kind: 'shape',
-        shape: 'ellipse',
-        name: 'Blob blue',
-        rect: r(470, -50, 230, 190),
-        style: { fill: [{ kind: 'color', color: '#cfe9ff' }], opacity: 0.8 },
-        locked: true,
-      }),
-      el({ kind: 'svg', name: 'Cloud', svg: CLOUD, rect: r(352, 22, 130, 66) }),
-      el({ kind: 'svg', name: 'Sun', svg: SUN, rect: r(536, 14, 88, 88) }),
-      el({
-        kind: 'svg',
-        name: 'Star',
-        svg: STAR('#ffd166'),
-        rect: r(330, 400, 34, 34),
-        style: { rotate: -12 },
-      }),
-      el({
-        kind: 'svg',
-        name: 'Star 2',
-        svg: STAR('#7bdff2'),
-        rect: r(596, 400, 26, 26),
-        style: { rotate: 18 },
-      }),
+      el({ kind: 'canvas', name: 'Board', code: BOARD, rect: r(0, 0, 720, 540) }),
       el({
         kind: 'text',
         name: 'Title',
-        text: 'Bop Box!',
-        rect: r(28, 18, 330, 76),
-        textStyle: {
-          font: 'baloo-2',
-          size: 62,
-          weight: 700,
-          color: 'accent',
-          align: 'left',
-          shadows: [
-            { x: 3, y: 0, blur: 0, color: '#ffffff' },
-            { x: -3, y: 0, blur: 0, color: '#ffffff' },
-            { x: 0, y: 3, blur: 0, color: '#ffffff' },
-            { x: 0, y: -3, blur: 0, color: '#ffffff' },
-            { x: 0, y: 7, blur: 0, color: '#4a3a7a40' },
-          ],
-        },
-        style: { rotate: -3 },
+        text: 'Shape Drums',
+        rect: r(40, 22, 360, 44),
+        textStyle: { font: 'fredoka', size: 36, weight: 600, color: 'fg', align: 'left' },
       }),
-      ...control('pads1', 'ui.keyboard', 'Pads', null, r(28, 104, 584, 250), {
+      el({
+        kind: 'text',
+        name: 'Hint',
+        text: 'Tap a shape. Turn on the beat and play along.',
+        rect: r(40, 68, 420, 20),
+        textStyle: { font: 'fredoka', size: 15, color: 'muted', align: 'left' },
+      }),
+      ...control('pads1', 'ui.keyboard', 'Pads', null, r(40, 104, 640, 300), {
         style: {
           skin: {
             name: 'pads',
@@ -187,35 +194,52 @@ export function toy(catalog: Catalog) {
               columns: 4,
               start: 48,
               scale: 'pentatonic',
-              colors: 'rainbow',
-              radius: 26,
-              gap: 14,
-              labels: 'BOOM,BOP,PING,TAP,TICK,DING,BONK,POP',
+              colors: 'pastel',
+              radius: 30,
+              gap: 18,
+              labels: Array.from({ length: 8 }, () => '\u200b').join(','),
             },
           },
-          textStyle: { font: 'baloo-2', size: 22, weight: 700 },
         },
       }),
-      ...control('kbounce', 'ui.knob', 'Bounce', 'pdepth1.b', r(40, 368, 96, 96), {
+      ...SHAPES.map((shape, i) => {
+        const col = i % 4,
+          row = Math.floor(i / 4);
+        const pw = (640 - 3 * 18) / 4,
+          ph = (300 - 18) / 2;
+        const x = 40 + col * (pw + 18) + pw / 2,
+          y = 104 + row * (ph + 18) + ph / 2;
+        return el({
+          kind: 'svg',
+          name: `Shape ${i + 1}`,
+          svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${shape(shapeColor(i))}</svg>`,
+          rect: r(Math.round(x - 34), Math.round(y - 38), 68, 68),
+        });
+      }),
+      ...control('tbeat', 'ui.toggle', 'Beat', 'bon1.b', r(40, 436, 168, 60), {
+        value: false,
+        style: { textStyle: { font: 'fredoka', size: 18, weight: 600 } },
+      }),
+      ...control('kbounce', 'ui.knob', 'Bounce', 'pdepth1.b', r(300, 424, 100, 100), {
         min: 0,
         max: 24,
         unit: 'st',
         value: 14,
-        style: knob('#ff8fab'),
+        style: knob('#d9480f'),
       }),
-      ...control('kring', 'ui.knob', 'Ring', 'aenv1.decay', r(150, 368, 96, 96), {
+      ...control('kring', 'ui.knob', 'Ring', 'aenv1.decay', r(430, 424, 100, 100), {
         min: 0.05,
         max: 1.2,
         scale: 'log',
         unit: 's',
         value: 0.3,
-        style: knob('#7bdff2'),
+        style: knob('#1971c2'),
       }),
-      ...control('kfizz', 'ui.knob', 'Fizz', 'mix1.level2', r(260, 368, 96, 96), {
+      ...control('kfizz', 'ui.knob', 'Fizz', 'mix1.level2', r(560, 424, 100, 100), {
         min: 0,
         max: 2,
         value: 0.5,
-        style: knob('#b28dff'),
+        style: knob('#6741d9'),
       }),
     ],
   );

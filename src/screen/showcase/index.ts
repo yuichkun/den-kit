@@ -16,6 +16,7 @@ import { rain } from './rain.ts';
 import { space } from './space.ts';
 import { supersaw } from './supersaw.ts';
 import { tapeecho } from './tapeecho.ts';
+import { tonic } from './tonic.ts';
 import { toy } from './toy.ts';
 
 export interface Work {
@@ -30,6 +31,14 @@ export interface Work {
 }
 
 export const WORKS: readonly Work[] = [
+  {
+    id: 'tonic',
+    title: 'Tonic',
+    kind: 'Instrument',
+    prompt: 'A tanpura drone to sing over: four plucked strings on the tonic, the notes round a circle',
+    reference: 'Apple Design Awards 2021, Innovation winner: NaadSadhana',
+    build: tonic,
+  },
   {
     id: 'acid',
     title: 'Acid Line',
