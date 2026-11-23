@@ -10,9 +10,13 @@
 // tide the high ones; bells under water stay quiet. The sea is noise that swells
 // with the same wave, louder and brighter at high tide.
 // The design follows the thinking of Tide Guide (Apple Design Awards 2026,
-// Visuals and Graphics): one chart that fills the screen and reads at a glance,
-// large plain figures for now, and colours that follow the sky at the hour.
-// Here the chart is the day's tide; drag along it to set the hour.
+// Visuals and Graphics): one full-screen chart that reads at a glance, large
+// plain figures for now, and colours that follow the sky at the hour. The
+// screen is one canvas edge to edge: the day's tide (drag its handle to set the
+// hour), the shore now with the six bells drawn at their heights and the band
+// the waves wash, and the shore's dials as tide-table figures you drag (Waves,
+// Sea, Bells and Bay are kept in the patch). The one control on the plugin is a
+// meter of the bells under their dial.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
@@ -42,17 +46,18 @@ const BELLS = [
 /** How far a wave reaches above and below the tide, in metres. */
 const REACH = 0.45;
 
-/** The day's tide as a chart in the colours of the sky at the hour; it takes the mouse. */
-export const TIDE_CHART = `// The day's tide as a chart, the sky behind it in the colours of the hour.
-// The hour is khour (0 to 24); the tide comes from the same table as the
-// codebox's, so the curve and the dot are what the sound plays. The bells
-// (props.heights in metres and props.notes, low to high, as lists) stand on the
-// now line at their heights; the waves reach props.reach metres above and below
-// the tide.
-// A bell lights when its note jumps in the spectrum (a strike is heard). The
-// water at the now line rises and falls with the waves, read from how loud the
-// sea is (the low end of the spectrum, below the bells). Figures are drawn in
-// the system font, like the plugin's text. Drag along the chart to set the hour.
+/** The day's tide and the shore, in the colours of the sky at the hour; it takes the mouse. */
+export const TIDE_CHART = `// The day's tide (left) and the shore now (right), the sky behind both in the
+// colours of the hour. The hour is khour (0 to 24); the tide comes from the same
+// table as the codebox's, so the curve and the water are what the sound plays.
+// The bells (props.heights in metres and props.notes, low to high, as lists)
+// stand on the shore at their heights; the waves wash props.reach metres above
+// and below the tide (the wet band), so the bells in that band are the ones that
+// ring. A bell swings when its note jumps in the spectrum (a strike is heard).
+// The water on the shore rises and falls with the waves, read from how loud the
+// sea is (the low end of the spectrum, below the bells). Drag the handle along
+// the day to set the hour; drag a figure of the shore's dials (top right) up or
+// down to set it. Figures are drawn in the system font.
 const TAU = Math.PI * 2;
 const tide = h => 1.2 + 0.82 * Math.cos((h - 3.2) * TAU / 12.42) + 0.1 * Math.cos((h - 5) * TAU / 24.84);
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -72,7 +77,9 @@ const rgb = c => { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, 
 const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const css = c => 'rgb(' + c.join(',') + ')';
 const light = c => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function skyAt(h) {
+  h = ((h % 24) + 24) % 24;
   for (let i = 0; i < SKY.length - 1; i++) {
     const [h0, t0, b0] = SKY[i], [h1, t1, b1] = SKY[i + 1];
     if (h >= h0 && h <= h1) {
@@ -83,9 +90,10 @@ function skyAt(h) {
   return [rgb(SKY[0][1]), rgb(SKY[0][2])];
 }
 // How much daylight there is (0 night, 1 day).
-const daylight = h => Math.max(0, Math.min(1, Math.min((h - 5.2) / 2.2, (20 - h) / 2.2)));
+const daylight = h => clamp(Math.min((h - 5.2) / 2.2, (20 - h) / 2.2), 0, 1);
 const two = n => String(n).padStart(2, '0');
 const clock = h => { const m = Math.round((((h % 24) + 24) % 24) * 60) % 1440; return two(Math.floor(m / 60)) + ':' + two(m % 60); };
+const metres = m => m.toFixed(2) + ' m';
 // The highs and lows between two hours (where the slope turns).
 function turns(from, to) {
   const out = [];
@@ -104,69 +112,77 @@ function at(spectrum, b) {
   const i = Math.max(0, Math.min(62, Math.floor(b))), t = b - i;
   return spectrum[i] * (1 - t) + spectrum[i + 1] * t;
 }
+// The shore's dials: control, name, range, how the figure reads.
+const DIALS = [
+  ['kwaves', 'waves / min', 3, 12, v => v.toFixed(1)],
+  ['ksea', 'sea', 0, 1, v => Math.round(v * 100) + '%'],
+  ['kbells', 'bells', 0, 1, v => Math.round(v * 100) + '%'],
+  ['kbay', 'bay', 0, 1, v => Math.round(v * 100) + '%'],
+];
+// Where things are: the day from L to R, the shore from R to the right edge, the dials top right.
+function layout(w, h) {
+  const shore = w - 196, TOP = 168, BOT = h - 34;
+  return {
+    shore, TOP, BOT, L: 18, R: shore - 16,
+    Y: m => BOT - (m / 2.7) * (BOT - TOP),
+    dial: k => ({ x: w - 384 + k * 94, y: 22, w: 90, h: 60 }),
+  };
+}
+// The ground of the shore at x, in metres (it climbs to the right).
+const ground = (x, shore, w) => 0.15 + ((x - shore - 34) / (w - shore - 34)) * 2.55;
+// A bell, its crown at the origin, its lip s * 16 below.
+function bellPath(ctx, s) {
+  ctx.beginPath();
+  ctx.moveTo(-2.2 * s, 0);
+  ctx.lineTo(2.2 * s, 0);
+  ctx.bezierCurveTo(5.4 * s, 0.6 * s, 5 * s, 8 * s, 6 * s, 11.5 * s);
+  ctx.quadraticCurveTo(6.6 * s, 13.6 * s, 8.4 * s, 15 * s);
+  ctx.lineTo(-8.4 * s, 15 * s);
+  ctx.quadraticCurveTo(-6.6 * s, 13.6 * s, -6 * s, 11.5 * s);
+  ctx.bezierCurveTo(-5 * s, 8 * s, -5.4 * s, 0.6 * s, -2.2 * s, 0);
+  ctx.closePath();
+}
 export default {
   setup(ctx, f) {
     const n = bellsOf(f.props).length;
-    Object.assign(f.state, { drag: false, hi: 0, lo: 1, sw: 0, avg: new Array(n).fill(0), last: new Array(n).fill(-10), rings: [], day: turns(0, 24) });
+    Object.assign(f.state, { drag: false, over: '', hi: 0, lo: 1, sw: 0, avg: new Array(n).fill(0), last: new Array(n).fill(-10), day: turns(0, 24) });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h, bells = bellsOf(f.props), reach = f.props.reach || 0.45;
-    const hour = Math.max(0, Math.min(24, f.value('khour')));
+    const { shore, TOP, BOT, L, R, Y, dial } = layout(w, h);
+    const X = hr => L + (hr / 24) * (R - L);
+    const hour = clamp(f.value('khour'), 0, 24);
     const [top, low] = skyAt(hour);
     const ink = light(top) > 0.5 ? '#0f1b2b' : '#f4f7fb';
     const ink2 = light(low) > 0.55 ? '#0f1b2b' : '#f4f7fb';
-    const water = mix([22, 56, 96], [44, 128, 196], daylight(hour));
-    const L = 20, R = w - 20, TOP = 128, BOT = h - 36;
-    const X = hr => L + (hr / 24) * (R - L);
-    const Y = m => BOT - (m / 2.7) * (BOT - TOP);
-    ctx.clearRect(0, 0, w, h);
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(0, 0, w, h, 18); ctx.clip();
-    // The sky.
+    const day = daylight(hour);
+    const water = mix([22, 56, 96], [44, 128, 196], day);
+    const sand = mix([34, 38, 56], [196, 176, 140], day), wet = mix([24, 28, 44], [132, 116, 92], day);
+    // The sky of this hour, edge to edge.
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, css(top)); g.addColorStop(1, css(low));
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    // Night on the chart, before sunrise and after sunset: a shade that fades in an hour.
-    const night = ctx.createLinearGradient(X(0), 0, X(24), 0);
-    const shade = 'rgba(6, 12, 30, 0.14)', clear = 'rgba(6, 12, 30, 0)';
-    night.addColorStop(0, shade); night.addColorStop(5.8 / 24, shade); night.addColorStop(6.8 / 24, clear);
-    night.addColorStop(18.2 / 24, clear); night.addColorStop(19.2 / 24, shade); night.addColorStop(1, shade);
-    ctx.fillStyle = night; ctx.fillRect(0, 0, w, h);
-    // The bells' heights, across the day (their notes at the right).
-    ctx.strokeStyle = ink2; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
-    for (const b of bells) {
-      ctx.globalAlpha = 0.28;
-      ctx.beginPath(); ctx.moveTo(L, Math.round(Y(b.height)) + 0.5); ctx.lineTo(R, Math.round(Y(b.height)) + 0.5); ctx.stroke();
-    }
-    ctx.setLineDash([]);
+    // The day: the tide over 24 hours, the water under it to the bottom edge.
+    ctx.beginPath(); ctx.moveTo(0, h);
+    for (let x = 0; x <= shore; x += 3) ctx.lineTo(x, Y(tide(((x - L) / (R - L)) * 24)));
+    ctx.lineTo(shore, h); ctx.closePath();
+    ctx.fillStyle = css(water); ctx.globalAlpha = 0.62; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.beginPath();
+    for (let x = 0; x <= shore; x += 3) ctx.lineTo(x, Y(tide(((x - L) / (R - L)) * 24)));
+    ctx.strokeStyle = ink2; ctx.lineWidth = 2; ctx.stroke();
+    // The day's sky along the bottom edge: night at both ends; the hours above it.
+    for (let x = 0; x < shore; x += 2) { ctx.fillStyle = css(skyAt(((x - L) / (R - L)) * 24)[0]); ctx.fillRect(x, h - 7, 2, 7); }
+    ctx.fillStyle = '#f4f7fb'; ctx.font = '500 11px ' + FONT; ctx.globalAlpha = 0.9;
+    for (const hr of [0, 6, 12, 18, 24]) { ctx.textAlign = hr === 0 ? 'left' : hr === 24 ? 'right' : 'center'; ctx.fillText(two(hr) + ':00', hr === 0 ? 4 : hr === 24 ? R + 12 : X(hr), h - 15); }
     ctx.globalAlpha = 1;
-    // The tide over the day, the water under it.
-    ctx.beginPath();
-    for (let hr = 0; hr <= 24.001; hr += 0.1) ctx.lineTo(X(hr), Y(tide(hr)));
-    ctx.lineTo(X(24), h); ctx.lineTo(X(0), h); ctx.closePath();
-    ctx.fillStyle = css(water); ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.beginPath();
-    for (let hr = 0; hr <= 24.001; hr += 0.1) ctx.lineTo(X(hr), Y(tide(hr)));
-    ctx.strokeStyle = ink2; ctx.lineWidth = 2; ctx.globalAlpha = 0.9; ctx.stroke(); ctx.globalAlpha = 1;
+    // Highs and lows, all of them, the same way.
     const now = tide(hour), x = X(hour);
-    // Highs and lows, with their times (not where the now line would cross them).
-    ctx.font = '600 11px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = ink2;
+    ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = ink2;
     for (const q of s.day) {
-      const qx = X(q.h), qy = Y(q.m);
-      ctx.globalAlpha = 0.85;
+      const qx = X(q.h), qy = Y(q.m), near = Math.abs(qx - x) < 52;
       ctx.beginPath(); ctx.arc(qx, qy, 2.5, 0, TAU); ctx.fill();
-      if (Math.abs(qx - x) > 44) ctx.fillText(clock(q.h) + '  ' + q.m.toFixed(1) + ' m', qx, q.high ? qy - 10 : qy + 18);
+      ctx.fillText((q.high ? 'High ' : 'Low ') + clock(q.h) + '  ' + metres(q.m), qx, q.high ? qy - (near ? 30 : 12) : qy + (near ? 40 : 21));
     }
-    // The hours along the bottom.
-    ctx.font = '500 10px ' + FONT;
-    for (const hr of [0, 6, 12, 18, 24]) {
-      ctx.globalAlpha = 0.75;
-      ctx.textAlign = hr === 0 ? 'left' : hr === 24 ? 'right' : 'center';
-      ctx.fillText(two(hr) + ':00', X(hr), h - 14);
-    }
-    ctx.globalAlpha = 1;
     // The waves, read from how loud the sea is (below the bells' notes).
     let v = 0;
     for (let i = 1; i <= 6; i++) v += f.spectrum[i] / 6;
@@ -175,79 +191,112 @@ export default {
     const sw = s.hi - s.lo > 0.03 ? ((v - s.lo) / (s.hi - s.lo)) * 2 - 1 : 0;
     s.sw += (sw - s.sw) * Math.min(1, f.dt * 4);
     const live = now + reach * s.sw;
-    // The now line, and the reach of the waves on it.
-    ctx.strokeStyle = ink2; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP - 16); ctx.lineTo(Math.round(x) + 0.5, BOT); ctx.stroke();
-    ctx.fillStyle = ink2; ctx.globalAlpha = 0.14;
-    ctx.beginPath(); ctx.roundRect(x - 7, Y(now + reach), 14, Y(now - reach) - Y(now + reach), 7); ctx.fill();
-    ctx.globalAlpha = 1;
-    // A strike: the bell's note jumps in the spectrum (the loudest of its neighbours).
+    // The shore now: the ground, the band the waves wash, the bells, the water over what it covers.
+    ctx.beginPath(); ctx.moveTo(shore + 34, h);
+    for (let gx = shore + 34; gx <= w; gx += 4) ctx.lineTo(gx, Y(ground(gx, shore, w)));
+    ctx.lineTo(w, h); ctx.closePath();
+    ctx.fillStyle = css(sand); ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = css(wet); ctx.fillRect(shore, Y(now + reach), w - shore, Y(now - reach) - Y(now + reach));
+    ctx.restore();
     const jumps = bells.map((b, k) => { const val = at(f.spectrum, band(b.note)); const j = val - s.avg[k]; s.avg[k] += (val - s.avg[k]) * Math.min(1, f.dt * 2); return j; });
+    let reached = 0;
     bells.forEach((b, k) => {
       const j = jumps[k];
-      if (j > 0.09 && j >= (jumps[k - 1] ?? 0) && j >= (jumps[k + 1] ?? 0) && f.t - s.last[k] > 0.5) {
-        s.last[k] = f.t;
-        s.rings.push({ k, born: f.t });
+      if (j > 0.09 && j >= (jumps[k - 1] ?? 0) && j >= (jumps[k + 1] ?? 0) && f.t - s.last[k] > 0.5) s.last[k] = f.t;
+      const bx = shore + 34 + ((b.height - 0.15) / 2.55) * (w - shore - 34), gy = Y(b.height);
+      const inReach = Math.abs(b.height - now) <= reach, under = b.height < now - reach;
+      if (inReach) reached++;
+      const age = f.t - s.last[k], ring = inReach && age < 1.6 ? 1 - age / 1.6 : 0;
+      ctx.strokeStyle = ink2; ctx.lineWidth = 1.5; ctx.globalAlpha = under ? 0.5 : 1;
+      ctx.beginPath(); ctx.moveTo(bx, gy); ctx.lineTo(bx, gy - 7); ctx.stroke();
+      ctx.save(); ctx.translate(bx, gy - 26); ctx.rotate(Math.sin(age * 16) * 0.35 * ring);
+      bellPath(ctx, 1.15);
+      ctx.fillStyle = inReach ? ink2 : css(sand); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      if (ring > 0) {
+        ctx.globalAlpha = ring; ctx.lineWidth = 1.5;
+        for (const r0 of [13, 19]) { ctx.beginPath(); ctx.arc(bx, gy - 17, r0 + (1 - ring) * 8, -0.7, 0.7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, gy - 17, r0 + (1 - ring) * 8, Math.PI - 0.7, Math.PI + 0.7); ctx.stroke(); }
       }
+      ctx.globalAlpha = 1;
     });
-    s.rings = s.rings.filter(q => f.t - q.born < 1.6);
-    for (const q of s.rings) {
-      const age = (f.t - q.born) / 1.6, y = Y(bells[q.k].height);
-      ctx.strokeStyle = ink2; ctx.globalAlpha = (1 - age) * 0.75; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, 7 + age * 26, 0, TAU); ctx.stroke();
+    // The water on the shore at the tide, fading in from the day; the waves wash up the slope to where they reach now.
+    const fade = ctx.createLinearGradient(shore, 0, shore + 70, 0);
+    fade.addColorStop(0, 'rgba(' + water.join(',') + ',0.4)'); fade.addColorStop(1, 'rgba(' + water.join(',') + ',0.78)');
+    ctx.fillStyle = fade;
+    ctx.beginPath(); ctx.moveTo(shore, h);
+    for (let wx = shore; wx <= w; wx += 3) ctx.lineTo(wx, Y(now) + Math.sin(wx * 0.09 - f.t * 2.2) * 2);
+    ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+    if (live > now) {
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(shore + 34, h);
+      for (let gx = shore + 34; gx <= w; gx += 4) ctx.lineTo(gx, Y(ground(gx, shore, w)));
+      ctx.lineTo(w, h); ctx.closePath(); ctx.clip();
+      ctx.fillStyle = css(water); ctx.globalAlpha = 0.55; ctx.fillRect(shore, Y(live), w - shore, Y(now) - Y(live));
+      ctx.restore(); ctx.globalAlpha = 1;
     }
+    ctx.strokeStyle = ink2; ctx.lineWidth = 1.5;
+    const gxAt = m => shore + 34 + ((m - 0.15) / 2.55) * (w - shore - 34);
+    ctx.beginPath(); ctx.moveTo(shore + 40, Y(now)); ctx.lineTo(gxAt(now), Y(now)); ctx.stroke();
+    ctx.font = '600 12px ' + FONT; ctx.textAlign = 'left'; ctx.fillStyle = ink2;
+    ctx.fillText(reached + ' of ' + bells.length + ' in reach', shore + 8, Y(now + reach) + 4);
+    // The hour: one line and its handle on the curve.
+    const hot = s.drag === 'hour' || s.over === 'hour';
+    ctx.strokeStyle = ink2; ctx.globalAlpha = 0.55; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, Y(now) + 10); ctx.lineTo(Math.round(x) + 0.5, h - 30); ctx.stroke();
     ctx.globalAlpha = 1;
-    // The bells the waves can reach, on the now line; lit as they ring.
-    bells.forEach((b, k) => {
-      if (Math.abs(b.height - now) > reach) return;
-      const y = Y(b.height), lit = Math.max(0, 1 - (f.t - s.last[k]) / 1.2);
-      ctx.fillStyle = lit > 0 ? ink2 : css(water);
-      ctx.strokeStyle = ink2; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, 4.5 + lit * 2.5, 0, TAU); ctx.fill(); ctx.stroke();
-    });
-    // The water now: the surface, riding the waves.
-    ctx.strokeStyle = ink2; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (let dx = -22; dx <= 22; dx += 2) ctx.lineTo(x + dx, Y(live) + Math.sin(dx * 0.28 - f.t * 4) * 2);
-    ctx.stroke();
-    // Now, in large plain figures; the next high and low beside it.
+    ctx.fillStyle = css(top); ctx.strokeStyle = ink2; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, Y(now), hot ? 11 : 9, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = ink2;
+    for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + d * 16, Y(now) - 5); ctx.lineTo(x + d * 22, Y(now)); ctx.lineTo(x + d * 16, Y(now) + 5); ctx.closePath(); ctx.fill(); }
+    // Now, in large plain figures, under the name; it plays by itself.
     const rising = tide(hour + 0.02) > now;
-    const reached = bells.filter(b => Math.abs(b.height - now) <= reach).length;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = ink;
-    ctx.font = '600 46px ' + FONT;
-    ctx.fillText(clock(hour), 22, 60);
-    ctx.font = '500 15px ' + FONT;
-    ctx.globalAlpha = 0.92;
-    ctx.fillText((rising ? 'Rising' : 'Falling') + ',  ' + now.toFixed(2) + ' m', 24, 86);
-    ctx.font = '500 12px ' + FONT;
-    ctx.globalAlpha = 0.82;
-    ctx.fillText(reached + ' of ' + bells.length + ' bells in reach of the waves', 24, 106);
-    ctx.globalAlpha = 1;
-    const ahead = turns(hour, hour + 24);
-    const nextHigh = ahead.find(q => q.high), nextLow = ahead.find(q => !q.high);
-    ctx.textAlign = 'right';
-    ctx.font = '600 13px ' + FONT;
-    if (nextHigh) ctx.fillText('High  ' + clock(nextHigh.h) + '   ' + nextHigh.m.toFixed(2) + ' m', w - 22, 38);
-    if (nextLow) ctx.fillText('Low  ' + clock(nextLow.h) + '   ' + nextLow.m.toFixed(2) + ' m', w - 22, 58);
-    ctx.restore();
+    ctx.textAlign = 'left'; ctx.fillStyle = ink;
+    ctx.font = '700 15px ' + FONT; ctx.fillText('Tide Bells', 22, 34);
+    ctx.font = '500 13px ' + FONT; ctx.globalAlpha = 0.8; ctx.fillText('plays by itself', 112, 34); ctx.globalAlpha = 1;
+    ctx.font = '600 58px ' + FONT; ctx.fillText(clock(hour), 20, 96);
+    ctx.font = '500 17px ' + FONT; ctx.fillText((rising ? 'Rising' : 'Falling') + ', ' + metres(now), 23, 124);
+    // The shore's dials, like a tide table: drag a figure up or down.
+    DIALS.forEach(([id, name, , , show], k) => {
+      const d = dial(k), on = s.over === 'dial' + k || (s.drag === 'dial' && s.k === k);
+      ctx.fillStyle = ink; ctx.textAlign = 'left';
+      ctx.font = '500 12px ' + FONT; ctx.globalAlpha = 0.85; ctx.fillText(name, d.x, d.y + 12); ctx.globalAlpha = 1;
+      ctx.font = '600 26px ' + FONT; ctx.fillText(show(f.value(id)), d.x, d.y + 44);
+      const tw = ctx.measureText(show(f.value(id))).width;
+      ctx.globalAlpha = on ? 1 : 0.55;
+      ctx.beginPath(); ctx.moveTo(d.x + tw + 6, d.y + 29); ctx.lineTo(d.x + tw + 10, d.y + 24); ctx.lineTo(d.x + tw + 14, d.y + 29); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(d.x + tw + 6, d.y + 35); ctx.lineTo(d.x + tw + 10, d.y + 40); ctx.lineTo(d.x + tw + 14, d.y + 35); ctx.closePath(); ctx.fill();
+      if (on) ctx.fillRect(d.x, d.y + 50, tw, 1.5);
+      ctx.globalAlpha = 1;
+    });
   },
   pointer(e, f) {
-    const L = 20, R = f.w - 20, inside = e.y > 96;
-    if (e.type === 'down' && inside) f.state.drag = true;
-    if (e.type === 'up' || e.type === 'leave') f.state.drag = false;
-    if (f.state.drag && (e.type === 'down' || e.type === 'move')) {
-      const hr = Math.max(0, Math.min(24, ((e.x - L) / (R - L)) * 24));
-      f.set('khour', Math.round(hr * 12) / 12);
+    const s = f.state, { shore, R, L, dial } = layout(f.w, f.h);
+    let k = -1;
+    for (let i = 0; i < DIALS.length; i++) { const d = dial(i); if (e.x >= d.x && e.x <= d.x + d.w && e.y >= d.y && e.y <= d.y + d.h) k = i; }
+    const inDay = e.x < shore && e.y > 136;
+    if (e.type === 'down') {
+      if (k >= 0) Object.assign(s, { drag: 'dial', k, y0: e.y, v0: f.value(DIALS[k][0]) });
+      else if (inDay) s.drag = 'hour';
     }
-    if (e.type === 'wheel') f.set('khour', Math.max(0, Math.min(24, f.value('khour') + Math.sign(e.dy) * 0.25)));
-    f.cursor(f.state.drag ? 'grabbing' : inside ? 'ew-resize' : 'default');
+    if (e.type === 'up' || e.type === 'leave') s.drag = false;
+    if (s.drag === 'hour' && (e.type === 'down' || e.type === 'move'))
+      f.set('khour', Math.round(clamp(((e.x - L) / (R - L)) * 24, 0, 24) * 12) / 12);
+    if (s.drag === 'dial' && e.type === 'move') {
+      const [id, , lo, hi] = DIALS[s.k];
+      f.set(id, clamp(s.v0 + ((s.y0 - e.y) / 160) * (hi - lo), lo, hi));
+    }
+    if (e.type === 'wheel') {
+      if (k >= 0) { const [id, , lo, hi] = DIALS[k]; f.set(id, clamp(f.value(id) - Math.sign(e.dy) * (hi - lo) / 40, lo, hi)); }
+      else if (inDay) f.set('khour', clamp(f.value('khour') + Math.sign(e.dy) * 0.25, 0, 24));
+    }
+    if (!s.drag) s.over = k >= 0 ? 'dial' + k : inDay ? 'hour' : '';
+    f.cursor(s.drag === 'hour' ? 'grabbing' : s.drag === 'dial' || k >= 0 ? 'ns-resize' : inDay ? 'ew-resize' : 'default');
   },
 };
 `;
 
 export function tide(catalog: Catalog) {
-  const row = { skin: { name: 'bar', params: { radius: 2, label: 'top' } } };
   const inside = ['wet1', 'env1', 'mtof1', 'modhz1', 'devamt1', 'dev1', 'fm1', 'sq1', 'vca1'];
   return workInSteps(
     'tide',
@@ -420,113 +469,52 @@ export function tide(catalog: Catalog) {
           port: 'note',
           spread: { kind: 'each', values: BELLS.map(b => b.note) },
         },
-        // ---- the plugin: the day's tide, in the colours of the hour ----
+        // ---- the shore's dials, kept in the patch: the picture moves them ----
+        ...patchControl('kwaves', 'Waves a minute', 'rate1.a', [3, 12, 'linear', ''], 6.5),
+        ...patchControl('ksea', 'Sea', ['sealvl1.gain', 'sealvr1.gain'], [0, 1, 'linear', ''], 0.6),
+        ...patchControl('kbells', 'Bells', 'belllvl1.gain', [0, 1, 'linear', ''], 0.5),
+        ...patchControl('kbay', 'Bay', 'bay1.mix', [0, 1, 'linear', ''], 0.35),
+        // ---- the plugin: the day's tide and the shore, edge to edge, in the colours of the hour ----
         {
           op: 'setLook',
           look: {
             tokens: {
-              bg: '#f3f5f7',
-              fg: '#0f1b2b',
-              accent: '#1f6fd1',
-              track: '#dce3ea',
-              knob: '#ffffff',
-              pointer: '#0f1b2b',
-              muted: '#4b5868',
-              glow: '#1f6fd1',
+              bg: '#17203d',
+              fg: '#f4f7fb',
+              accent: '#ee8b5f',
+              track: '#2c3a63',
+              knob: '#394883',
+              pointer: '#f4f7fb',
+              muted: '#a9b4cc',
+              glow: '#ee8b5f',
               font: 'system',
               labelFont: 'system',
               valueFont: 'system',
             },
-            background: [{ kind: 'color', color: '#f3f5f7' }],
-            skins: { slider: { name: 'bar', params: { radius: 2, label: 'top' } } },
-            css: [
-              '/* A lit lamp is a plain dot: no halo. */',
-              ':scope { --led-glow: 0px; }',
-              'dk-slider { position: relative; }',
-              'dk-slider::part(label) { text-align: left; font-size: 11px; font-weight: 600; color: var(--dk-muted); }',
-              'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 12px; font-weight: 600; color: var(--dk-fg); font-variant-numeric: tabular-nums; }',
-              'dk-slider::part(track) { max-height: 4px; margin-top: 8px; }',
-            ].join('\n'),
+            background: [{ kind: 'color', color: '#17203d' }],
           },
         },
         el({
-          kind: 'text',
-          name: 'Title',
-          text: 'Tide Bells',
-          rect: r(24, 18, 300, 30),
-          textStyle: { size: 26, weight: 700, color: 'fg', align: 'left' },
-        }),
-        el({
-          kind: 'text',
-          name: 'Subtitle',
-          text: 'Six bells on a shore. The waves ring the ones the water reaches.',
-          rect: r(24, 50, 480, 16),
-          textStyle: { size: 12, color: 'muted', align: 'left' },
-        }),
-        el({
-          kind: 'text',
-          name: 'Plays itself',
-          text: 'Plays by itself',
-          rect: r(540, 26, 178, 14),
-          textStyle: { size: 11, weight: 600, color: 'accent', align: 'right' },
-        }),
-        el({
-          kind: 'led',
-          name: 'Sounding',
-          bind: '@level',
-          color: 'accent',
-          threshold: 0.004,
-          rect: r(726, 28, 10, 10),
-        }),
-        el({
           kind: 'canvas',
-          name: 'The day’s tide',
+          name: 'The day’s tide and the shore',
           code: TIDE_CHART,
-          rect: r(24, 80, 712, 340),
+          rect: r(0, 0, 760, 548),
           props: {
             heights: BELLS.map(b => b.height).join(' '),
             notes: BELLS.map(b => b.note).join(' '),
             reach: REACH,
           },
         }),
-        ...control('kwaves', 'ui.slider', 'Waves a minute', 'rate1.a', r(24, 446, 158, 38), {
-          min: 3,
-          max: 12,
-          value: 6.5,
-          style: row,
-        }),
-        ...control(
-          'ksea',
-          'ui.slider',
-          'Sea',
-          ['sealvl1.gain', 'sealvr1.gain'],
-          r(208, 446, 158, 38),
-          {
-            min: 0,
-            max: 1,
-            value: 0.6,
-            style: row,
+        // How loud the bells ring now, under their dial.
+        ...control('mbells', 'ui.meter', 'Bells ringing', null, r(564, 78, 64, 3), {
+          style: {
+            skin: {
+              name: 'bar',
+              params: { fill: '#ffffff', surface: 'rgba(255, 255, 255, 0.25)', scale: false },
+            },
           },
-        ),
-        ...control('kbells', 'ui.slider', 'Bells', 'belllvl1.gain', r(392, 446, 158, 38), {
-          min: 0,
-          max: 1,
-          value: 0.5,
-          style: row,
         }),
-        ...control('kbay', 'ui.slider', 'Bay', 'bay1.mix', r(576, 446, 158, 38), {
-          min: 0,
-          max: 1,
-          value: 0.35,
-          style: row,
-        }),
-        el({
-          kind: 'text',
-          name: 'How to',
-          text: 'Drag along the chart to set the hour. Low tide rings the low bells, high tide the high ones; bells under water stay quiet.',
-          rect: r(24, 502, 712, 16),
-          textStyle: { size: 11, color: 'muted', align: 'left' },
-        }),
+        wire('belllvl1.out', 'mbells.in'),
       ],
     ],
   );

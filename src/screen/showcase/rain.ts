@@ -9,26 +9,29 @@
 // the same part used once more, slower and lower. Where a sound sits is another
 // part (Place): Level from how near it is, Pan from which side, and Behind,
 // which dulls a sound behind the listener (most when straight behind); it is
-// used once for each of the four sounds. A small room holds it all. The Drop's
-// face is on the plugin, so its knobs play every copy at once.
+// used once for each of the four sounds. A small room holds it all.
 // The design follows the thinking of Odio (Apple Design Awards 2022,
-// Innovation), an app of sound worlds you mix by placing each sound in the space
-// around you: the mixer is that space, seen from above, with the listener in
-// the middle, and every sound moves with what is heard.
+// Innovation), an app of sound worlds you mix through a circular interface,
+// with animations that move in step with the sound: the plugin is one canvas,
+// the space around you seen from above, edge to edge, with you in the middle and
+// the half behind you drawn duller. Each sound is a source drawn in the field,
+// sized by how near it is and moving with what is heard; you drag it nearer,
+// further, left or right (its Level, Pan and Behind stay in the patch). The Drop
+// part's knobs (Rain, Pitch, Splash: every copy at once), Drops across and Room
+// are figures in the corners you drag, also kept in the patch; the plugin's
+// meters show how much each sound makes.
 import type { Catalog } from '../../work/catalog.ts';
 import type { PartFace } from '../../work/schema.ts';
-import { faceIntents } from '../faces.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The four sounds: their controls (level, pan and behind, kept in the patch), colour, icon and where they start. */
+/** The four sounds: their controls (level, pan and behind, kept in the patch), colour and where they start. */
 const LAYERS = [
   {
     name: 'Drops',
     level: 'kdrops',
     pan: 'kdropspan',
     back: 'kdropsback',
-    color: '#8ec1d6',
-    icon: 'drops',
+    color: '#2430d6',
     at: [0.7, 0],
     behind: false,
   },
@@ -37,8 +40,7 @@ const LAYERS = [
     level: 'kwind',
     pan: 'kwindpan',
     back: 'kwindback',
-    color: '#b6c78f',
-    icon: 'wind',
+    color: '#e23d17',
     at: [0.4, 0.6],
     behind: false,
   },
@@ -47,8 +49,7 @@ const LAYERS = [
     level: 'kthunder',
     pan: 'kthunderpan',
     back: 'kthunderback',
-    color: '#e2b274',
-    icon: 'thunder',
+    color: '#151a0b',
     at: [0.35, -0.7],
     behind: false,
   },
@@ -57,73 +58,118 @@ const LAYERS = [
     level: 'kdrips',
     pan: 'kdripspan',
     back: 'kdripsback',
-    color: '#cba3d8',
-    icon: 'drips',
+    color: '#b8137a',
     at: [0.55, 0.4],
     behind: true,
   },
 ] as const;
 
-/** The field around the listener, seen from above; it takes the mouse. */
-export const FIELD = `// The space around you, seen from above, you in the middle (front is up).
-// Each sound is a dot: how near it is sets its level (1 in the middle, 0 at the
-// edge), the side it is on sets its pan (-1 left, +1 right), and the half it is
-// in sets its Behind switch (heard duller behind you). Drag a dot to move the
-// sound. The dots move with what is heard:
-// drops land as small ripples by the Drops dot (sharp jumps high in the
-// spectrum), a drip makes one wider ripple (a jump around its note,
-// props.dripHz), the wind's arcs follow the low middle of the spectrum, and
-// thunder rolls out of its dot when the lowest bands rise.
+/** The field around the listener, seen from above, edge to edge; it takes the mouse. */
+export const FIELD = `// The space around you, seen from above, you in the middle (front is up); the
+// half behind you is drawn duller, as it is heard. Each sound is a drawn source:
+// how near it is sets its level (1 in the middle, 0 at the ring) and its size,
+// the side it is on sets its pan (-1 left, +1 right), and the half it is in sets
+// its Behind switch. Drag a source to move the sound. The sources move with
+// what is heard: drops land as ripples by the Drops source and light its sixteen
+// dots, one for each copy of the Drop part (sharp jumps high in the spectrum), a
+// drip makes one wider ripple (a jump around its note, props.dripHz), the wind's
+// lines follow the low middle of the spectrum, and thunder rolls out of its
+// source when the lowest bands rise. The figures in the corners are the Drop
+// part's knobs (they set all sixteen copies at once), how wide the drops spread
+// across and the room: drag one up or down. The bars at the bottom right are
+// the plugin's meters of each sound; the names beside them are drawn here.
 const TAU = Math.PI * 2;
 const LAYERS = [
-  { level: 'kdrops', pan: 'kdropspan', back: 'kdropsback', color: '#8ec1d6', icon: 'drops' },
-  { level: 'kwind', pan: 'kwindpan', back: 'kwindback', color: '#b6c78f', icon: 'wind' },
-  { level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback', color: '#e2b274', icon: 'thunder' },
-  { level: 'kdrips', pan: 'kdripspan', back: 'kdripsback', color: '#cba3d8', icon: 'drips' },
+  { name: 'drops', level: 'kdrops', pan: 'kdropspan', back: 'kdropsback', color: '#2430d6' },
+  { name: 'wind', level: 'kwind', pan: 'kwindpan', back: 'kwindback', color: '#e23d17' },
+  { name: 'thunder', level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback', color: '#151a0b' },
+  { name: 'drips', level: 'kdrips', pan: 'kdripspan', back: 'kdripsback', color: '#b8137a' },
 ];
+const FRONT = '#ccf33d', BEHIND = '#93a06b', INK = '#141a0b';
+const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const dull = c => { const a = hex(c), b = hex(BEHIND); return 'rgb(' + a.map((v, i) => Math.round(v * 0.45 + b[i] * 0.55)).join(',') + ')'; };
+// The figures you drag: control, name, range, log or not, how it reads, where (from the corners).
+const DIALS = [
+  { id: 'knob1', name: 'rain', min: 0.5, max: 16, log: true, show: v => v.toFixed(1) + ' /s', at: (w, h) => [18, h - 84] },
+  { id: 'knob2', name: 'pitch', min: 400, max: 8000, log: true, show: v => (v >= 1000 ? (v / 1000).toFixed(2) + ' kHz' : Math.round(v) + ' Hz'), at: (w, h) => [18, h - 56] },
+  { id: 'knob3', name: 'splash', min: 0.005, max: 0.4, log: true, show: v => Math.round(v * 1000) + ' ms', at: (w, h) => [18, h - 28] },
+  { id: 'kwidth', name: 'drops across', min: 0, max: 1, log: false, show: v => Math.round(v * 100) + '%', at: (w, h) => [w - 168, 44] },
+  { id: 'kroom', name: 'room', min: 0, max: 1, log: false, show: v => Math.round(v * 100) + '%', at: (w, h) => [w - 168, 74] },
+];
+const normOf = (d, v) => (d.log ? Math.log(v / d.min) / Math.log(d.max / d.min) : (v - d.min) / (d.max - d.min));
+const valueOf = (d, n) => { n = clamp(n, 0, 1); return d.log ? d.min * Math.pow(d.max / d.min, n) : d.min + n * (d.max - d.min); };
+function dialAt(w, h, x, y) {
+  for (let k = 0; k < DIALS.length; k++) { const [dx, dy] = DIALS[k].at(w, h); if (x >= dx - 6 && x <= dx + 150 && y >= dy - 24 && y <= dy + 7) return k; }
+  return -1;
+}
 function spot(f, k, R) {
   const L = LAYERS[k];
   const r = (1 - clamp(f.value(L.level), 0, 1)) * R, a = Math.asin(clamp(f.value(L.pan), -1, 1));
   return { x: r * Math.sin(a), y: (f.on(L.back) ? 1 : -1) * r * Math.cos(a) };
 }
-function icon(ctx, kind, x, y, color) {
-  ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath();
-  if (kind === 'drops') {
-    for (const [dx, dy] of [[-4, -2], [4, -4], [0, 5]]) { ctx.moveTo(x + dx + 2.6, y + dy); ctx.arc(x + dx, y + dy, 2.6, 0, TAU); }
-    ctx.fill();
-  } else if (kind === 'wind') {
-    ctx.moveTo(x - 8, y - 4); ctx.lineTo(x + 3, y - 4); ctx.arc(x + 3, y - 7, 3, Math.PI / 2, -Math.PI, true);
-    ctx.moveTo(x - 8, y + 1); ctx.lineTo(x + 6, y + 1);
-    ctx.moveTo(x - 8, y + 6); ctx.lineTo(x, y + 6); ctx.arc(x, y + 9, 3, -Math.PI / 2, Math.PI, false);
-    ctx.stroke();
-  } else if (kind === 'thunder') {
-    ctx.moveTo(x + 2, y - 9); ctx.lineTo(x - 5, y + 1); ctx.lineTo(x, y + 1); ctx.lineTo(x - 2, y + 9); ctx.lineTo(x + 5, y - 2); ctx.lineTo(x, y - 2); ctx.closePath();
-    ctx.fill();
+// How big a source is drawn (nearer is louder and bigger), and how near the mouse must be to take it.
+const size = (f, k) => 13 + 13 * clamp(f.value(LAYERS[k].level), 0, 1);
+const grabAt = (f, k) => Math.min(32, size(f, k) + 6);
+function source(ctx, k, x, y, z, color, s, t) {
+  ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (k === 0) {
+    // Drops: sixteen dots, one for each copy of the Drop part, spread as wide as they fall across.
+    const across = 0.35 + 0.65 * s.across;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * TAU, lit = Math.max(0, 1 - (t - (s.lit[i] || -9)) / 0.5);
+      ctx.beginPath(); ctx.arc(x + Math.cos(a) * z * 1.25 * across, y + Math.sin(a) * z * 0.8, 2.2 + z * 0.06 + lit * 3, 0, TAU); ctx.fill();
+    }
+  } else if (k === 1) {
+    // Wind: three lines that run and bend as hard as it blows.
+    ctx.lineWidth = 2.5;
+    for (let j = -1; j <= 1; j++) {
+      ctx.beginPath();
+      for (let u = -1; u <= 1.001; u += 0.1) ctx.lineTo(x + u * z * 1.2, y + j * z * 0.45 + Math.sin(u * 3 + t * (2 + 6 * s.wind) + j) * z * (0.12 + 0.25 * s.wind));
+      ctx.stroke();
+    }
+  } else if (k === 2) {
+    // Thunder: a jagged ring that spikes as it rolls.
+    const roll = Math.max(0, 1 - (t - s.lastThunder) / 3);
+    ctx.beginPath();
+    for (let i = 0; i <= 24; i++) { const a = (i / 24) * TAU, rr = z * (i % 2 ? 0.55 : 0.95 + roll * 0.5); ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fill();
   } else {
-    ctx.moveTo(x, y - 9); ctx.bezierCurveTo(x - 2, y - 5, x - 6, y - 1, x - 6, y + 3); ctx.arc(x, y + 3, 6, Math.PI, 0, true); ctx.bezierCurveTo(x + 6, y - 1, x + 2, y - 5, x, y - 9);
-    ctx.fill();
+    // Drips: a drop falling from a gutter, and the ring where it lands.
+    const fall = clamp((t - s.lastDrip) / 0.35, 0, 1);
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x - z * 0.7, y - z); ctx.lineTo(x + z * 0.7, y - z); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - z + 5 + fall * z * 0.9, 3.5 + z * 0.08, 0, TAU); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(x, y + z * 0.35, z * 0.75, z * 0.3, 0, 0, TAU); ctx.stroke();
   }
 }
 const band = hz => (64 * Math.log(hz / 96)) / Math.log(250);
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, { drag: -1, over: -1, prev: null, ripples: [], lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0 });
+    Object.assign(f.state, { drag: -1, over: -1, dial: -1, hot: -1, prev: null, ripples: [], lit: [], lastDrop: 0, drip: 0, lastDrip: -10, low: 0, lastThunder: -10, windLo: 1, windHi: 0, wind: 0, across: 0.85 });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 22;
-    const fg = f.color('fg'), muted = f.color('muted'), track = f.color('track'), bg = f.color('bg');
     const at = k => { const p = spot(f, k, R); return { x: cx + p.x, y: cy + p.y }; };
-    ctx.clearRect(0, 0, w, h);
-    // The space: a disc, rings for how near, the left-right and front-back lines.
-    ctx.fillStyle = f.color('knob');
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
-    ctx.strokeStyle = track; ctx.lineWidth = 1;
-    for (const q of [1 / 3, 2 / 3, 1]) { ctx.beginPath(); ctx.arc(cx, cy, R * q, 0, TAU); ctx.stroke(); }
-    ctx.setLineDash([2, 5]);
-    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
-    ctx.setLineDash([]);
+    s.across = clamp(f.value('kwidth'), 0, 1);
+    // Ahead of you and behind you: the half behind is duller, as it is heard.
+    ctx.fillStyle = FRONT; ctx.fillRect(0, 0, w, cy);
+    ctx.fillStyle = BEHIND; ctx.fillRect(0, cy, w, h - cy);
+    // How far you hear: rings for how near, the ring at the edge, marks around it.
+    ctx.strokeStyle = INK; ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.22;
+    for (const q of [1 / 3, 2 / 3]) { ctx.beginPath(); ctx.arc(cx, cy, R * q, 0, TAU); ctx.stroke(); }
+    ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 72; i++) { const a = (i / 72) * TAU, l = i % 6 ? 4 : 9; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * (R + 3), cy + Math.sin(a) * (R + 3)); ctx.lineTo(cx + Math.cos(a) * (R + 3 + l), cy + Math.sin(a) * (R + 3 + l)); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = INK; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText('front', cx, cy - R + 20);
+    ctx.fillText('behind: duller', cx, cy + R - 12);
+    ctx.textAlign = 'left'; ctx.fillText('left', cx - R + 10, cy - 8);
+    ctx.textAlign = 'right'; ctx.fillText('right', cx + R - 10, cy - 8);
     // What is heard: spectral jumps for drops and drips, the low end for thunder and wind
     // (the first frame only sets where each starts from).
     const first = !s.prev;
@@ -146,91 +192,99 @@ export default {
     s.windLo = wind < s.windLo ? wind : s.windLo + (wind - s.windLo) * f.dt * 0.1;
     s.wind += ((s.windHi - s.windLo > 0.02 ? (wind - s.windLo) / (s.windHi - s.windLo) : 0) - s.wind) * Math.min(1, f.dt * 3);
     s.prev.set(f.spectrum);
-    const dropsAt = at(0), dripsAt = at(3), thunderAt = at(2), windAt = at(1);
+    const dropsAt = at(0), dripsAt = at(3), thunderAt = at(2);
     if (flux > 0.6 && f.t - s.lastDrop > 0.05 && f.value('kdrops') > 0.02) {
       s.lastDrop = f.t;
-      const a = Math.random() * TAU, d = Math.random() * 34;
-      s.ripples.push({ x: dropsAt.x + Math.cos(a) * d, y: dropsAt.y + Math.sin(a) * d, born: f.t, life: 0.9, size: 14, color: LAYERS[0].color });
+      s.lit[Math.floor(Math.random() * 16)] = f.t;
+      const a = Math.random() * TAU, d = Math.random() * size(f, 0) * (0.6 + s.across);
+      s.ripples.push({ x: dropsAt.x + Math.cos(a) * d, y: dropsAt.y + Math.sin(a) * d * 0.7, born: f.t, life: 0.9, size: 18, k: 0 });
     }
     if (dripJump > 0.08 && f.t - s.lastDrip > 0.35 && f.value('kdrips') > 0.02) {
       s.lastDrip = f.t;
-      s.ripples.push({ x: dripsAt.x, y: dripsAt.y, born: f.t, life: 1.5, size: 46, color: LAYERS[3].color });
+      s.ripples.push({ x: dripsAt.x, y: dripsAt.y, born: f.t, life: 1.5, size: 56, k: 3 });
     }
     if (lowJump > 0.05 && f.t - s.lastThunder > 2 && f.value('kthunder') > 0.02) {
       s.lastThunder = f.t;
-      s.ripples.push({ x: thunderAt.x, y: thunderAt.y, born: f.t, life: 3.2, size: R * 1.2, color: LAYERS[2].color });
+      s.ripples.push({ x: thunderAt.x, y: thunderAt.y, born: f.t, life: 3.2, size: R * 1.3, k: 2 });
     }
     s.ripples = s.ripples.filter(q => f.t - q.born < q.life).slice(-80);
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
     for (const q of s.ripples) {
-      const age = (f.t - q.born) / q.life;
-      ctx.strokeStyle = q.color; ctx.globalAlpha = (1 - age) * 0.8; ctx.lineWidth = 1.5;
+      const age = (f.t - q.born) / q.life, c = LAYERS[q.k].color;
+      ctx.strokeStyle = q.y > cy ? dull(c) : c; ctx.globalAlpha = (1 - age) * (q.k === 2 ? 0.35 : 0.9); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(q.x, q.y, 3 + age * q.size, 0, TAU); ctx.stroke();
-    }
-    // The wind's arcs, facing you, as strong as the wind is heard.
-    const toYou = Math.atan2(cy - windAt.y, cx - windAt.x);
-    ctx.strokeStyle = LAYERS[1].color; ctx.lineWidth = 2; ctx.lineCap = 'round';
-    for (let i = 1; i <= 3; i++) {
-      const rr = 22 + i * 10 + ((f.t * 14) % 10);
-      ctx.globalAlpha = Math.max(0, 0.15 + 0.6 * s.wind - i * 0.12);
-      ctx.beginPath(); ctx.arc(windAt.x, windAt.y, rr, toYou - 0.5, toYou + 0.5); ctx.stroke();
     }
     ctx.restore();
     ctx.globalAlpha = 1;
-    // You: a head, its nose to the front, and its ears.
-    ctx.fillStyle = fg;
-    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(cx - 4, cy - 6); ctx.lineTo(cx, cy - 13); ctx.lineTo(cx + 4, cy - 6); ctx.fill();
-    ctx.fillRect(cx - 11, cy - 3, 3, 6); ctx.fillRect(cx + 8, cy - 3, 3, 6);
-    // The sounds: dots with their icons; thunder swells as it rolls.
-    for (let k = LAYERS.length - 1; k >= 0; k--) {
-      const L = LAYERS[k], p = at(k);
-      const quiet = f.value(L.level) <= 0.02;
-      const swell = k === 2 ? Math.max(0, 1 - (f.t - s.lastThunder) / 3) * 6 : k === 1 ? s.wind * 3 : 0;
-      ctx.globalAlpha = quiet ? 0.45 : 1;
-      if (s.over === k || s.drag === k) {
-        ctx.strokeStyle = L.color; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 25 + swell, 0, TAU); ctx.stroke();
-      }
-      ctx.fillStyle = L.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 18 + swell, 0, TAU); ctx.fill();
-      icon(ctx, L.icon, p.x, p.y, bg);
-    }
+    // You, from above: shoulders, a head, ears and a nose to the front, and the way you face.
+    ctx.fillStyle = INK; ctx.globalAlpha = 0.1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, 74, -Math.PI / 2 - 0.55, -Math.PI / 2 + 0.55); ctx.closePath(); ctx.fill();
     ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.ellipse(cx, cy + 3, 21, 9, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = FRONT; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy - 1, 9.5, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 3.5, cy - 9); ctx.lineTo(cx, cy - 15); ctx.lineTo(cx + 3.5, cy - 9); ctx.closePath(); ctx.fill();
+    ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('you', cx, cy + 28);
+    // The sounds where they are, behind you duller; the one under the mouse ringed.
+    for (let k = LAYERS.length - 1; k >= 0; k--) {
+      const L = LAYERS[k], p = at(k), z = size(f, k), behind = f.on(L.back);
+      const color = behind ? dull(L.color) : L.color;
+      ctx.globalAlpha = f.value(L.level) <= 0.02 ? 0.4 : 1;
+      if (s.over === k || s.drag === k) { ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(p.x, p.y, grabAt(f, k) + 4, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+      source(ctx, k, p.x, p.y, z, color, s, f.t);
+      ctx.fillStyle = behind ? dull(INK) : INK; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(k === 0 ? 'drops ×16' : L.name, p.x, p.y + z + 18);
+      ctx.globalAlpha = 1;
+    }
+    // The name, and the figures you drag: the Drop part's knobs (every copy at once), the spread and the room.
+    ctx.fillStyle = INK; ctx.textAlign = 'left';
+    ctx.font = '800 24px ' + FONT; ctx.fillText('Rain Field', 18, 38);
+    ctx.font = '700 13px ' + FONT; ctx.fillText('one drop ×16', 18, h - 132);
+    ctx.font = '500 12px ' + FONT; ctx.fillText('sets every copy', 18, h - 114);
+    DIALS.forEach((d, k) => {
+      const [x, y] = d.at(w, h), txt = d.show(f.value(d.id)), on = s.hot === k || s.dial === k;
+      ctx.fillStyle = INK; ctx.font = '700 20px ' + FONT; ctx.fillText(txt, x, y);
+      const tw = ctx.measureText(txt).width;
+      ctx.font = '500 12px ' + FONT; ctx.globalAlpha = 0.8; ctx.fillText(d.name, x + tw + 8, y); ctx.globalAlpha = on ? 1 : 0.45;
+      ctx.beginPath(); ctx.moveTo(x - 10, y - 13); ctx.lineTo(x - 7, y - 17); ctx.lineTo(x - 4, y - 13); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x - 10, y - 8); ctx.lineTo(x - 7, y - 4); ctx.lineTo(x - 4, y - 8); ctx.closePath(); ctx.fill();
+      if (on) ctx.fillRect(x, y + 4, tw, 1.5);
+      ctx.globalAlpha = 1;
+    });
+    // The names beside the plugin's meters (bottom right).
+    ctx.font = '600 12px ' + FONT; ctx.textAlign = 'right';
+    LAYERS.forEach((L, k) => { ctx.fillStyle = INK; ctx.fillText(L.name, w - 92, h - 92 + k * 22); });
   },
   pointer(e, f) {
     const s = f.state, cx = f.w / 2, cy = f.h / 2, R = Math.min(f.w, f.h) / 2 - 22;
     const near = () => {
       for (let k = 0; k < LAYERS.length; k++) {
         const p = spot(f, k, R);
-        if (Math.hypot(e.x - cx - p.x, e.y - cy - p.y) < 24) return k;
+        if (Math.hypot(e.x - cx - p.x, e.y - cy - p.y) < grabAt(f, k)) return k;
       }
       return -1;
     };
     s.over = near();
-    if (e.type === 'down') s.drag = s.over;
-    if (e.type === 'up' || e.type === 'leave') s.drag = -1;
+    const hot = s.over >= 0 ? -1 : dialAt(f.w, f.h, e.x, e.y);
+    if (e.type === 'down') {
+      if (s.over >= 0) s.drag = s.over;
+      else if (hot >= 0) Object.assign(s, { dial: hot, y0: e.y, n0: normOf(DIALS[hot], f.value(DIALS[hot].id)) });
+    }
+    if (e.type === 'up' || e.type === 'leave') { s.drag = -1; s.dial = -1; }
     if (s.drag >= 0 && (e.type === 'down' || e.type === 'move')) {
       const dx = e.x - cx, dy = e.y - cy, d = Math.hypot(dx, dy), L = LAYERS[s.drag];
       f.set(L.level, 1 - Math.min(R, d) / R);
       f.set(L.pan, d < 1 ? 0 : clamp(dx / d, -1, 1));
       f.set(L.back, dy > 0);
     }
-    f.cursor(s.drag >= 0 ? 'grabbing' : s.over >= 0 ? 'grab' : 'default');
+    if (s.dial >= 0 && e.type === 'move') { const d = DIALS[s.dial]; f.set(d.id, valueOf(d, s.n0 + (s.y0 - e.y) / 160)); }
+    if (e.type === 'wheel' && hot >= 0) { const d = DIALS[hot]; f.set(d.id, valueOf(d, normOf(d, f.value(d.id)) - Math.sign(e.dy) * 0.025)); }
+    s.hot = s.dial >= 0 ? s.dial : hot;
+    f.cursor(s.drag >= 0 ? 'grabbing' : s.dial >= 0 || hot >= 0 ? 'ns-resize' : s.over >= 0 ? 'grab' : 'default');
   },
 };
 `;
-
-/** The legend's icons, drawn like the field's (24 × 24). */
-const ICONS: Record<(typeof LAYERS)[number]['icon'], (c: string) => string> = {
-  drops: c =>
-    `<circle cx="8" cy="10" r="2.6" fill="${c}"/><circle cx="16" cy="8" r="2.6" fill="${c}"/><circle cx="12" cy="17" r="2.6" fill="${c}"/>`,
-  wind: c =>
-    `<path d="M4 8h11a3 3 0 1 0-3-3M4 13h14M4 18h8a3 3 0 1 1-3 3" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`,
-  thunder: c => `<path d="M14 3 7 13h5l-2 8 7-11h-5l2-7z" fill="${c}"/>`,
-  drips: c => `<path d="M12 3c-2 4-6 8-6 12a6 6 0 0 0 12 0c0-4-4-8-6-12z" fill="${c}"/>`,
-};
 
 /** How the knobs' names read on this plugin (the Drop's face and the others alike). */
 const KNOB_TEXT = {
@@ -342,22 +396,6 @@ export function rain(catalog: Catalog) {
     'lpL1',
     'lpR1',
   ];
-  const field = { x: 24, y: 84, w: 404, h: 392 };
-  const R = Math.min(field.w, field.h) / 2 - 22,
-    cx = field.x + field.w / 2,
-    cy = field.y + field.h / 2;
-  const caption = (
-    text: string,
-    rect: ReturnType<typeof r>,
-    align: 'left' | 'center' | 'right' = 'center',
-  ) =>
-    el({
-      kind: 'text',
-      name: `${text} label`,
-      text,
-      rect,
-      textStyle: { size: 10, weight: 700, color: 'muted', align, spacing: 0.2, case: 'upper' },
-    });
   return workInSteps(
     'rain',
     'Rain Field',
@@ -608,83 +646,34 @@ export function rain(catalog: Catalog) {
             add(l.back, 'ui.toggle', { label: `${l.name}: behind`, values: { value: l.behind } }),
             wire(`${l.back}.out`, `place${i + 1}.behind`),
           ]),
-          // ---- the plugin: the space around you, the sounds in it, the Drop's face ----
+          // ---- the plugin: the space around you, edge to edge ----
           {
             op: 'setLook',
             look: {
               tokens: {
-                bg: '#1c2329',
-                fg: '#e9eef1',
-                accent: '#8ec1d6',
-                track: '#34414a',
-                knob: '#232c33',
-                pointer: '#e9eef1',
-                muted: '#9aa9b3',
-                glow: '#8ec1d6',
-                font: 'lato',
-                labelFont: 'lato',
-                valueFont: 'lato',
+                bg: '#ccf33d',
+                fg: '#141a0b',
+                accent: '#2430d6',
+                track: '#7d8a58',
+                knob: '#ccf33d',
+                pointer: '#141a0b',
+                muted: '#46521f',
+                glow: '#2430d6',
+                font: 'system',
+                labelFont: 'system',
+                valueFont: 'system',
               },
-              background: [{ kind: 'color', color: '#1c2329' }],
-              skins: {
-                knob: { name: 'ring', params: { thickness: 3, ticks: 0, round: true } },
-                slider: { name: 'bar', params: { radius: 2, label: 'top' } },
-              },
-              css: [
-                '/* A lit lamp is a plain dot: no halo. */',
-                ':scope { --led-glow: 0px; }',
-                'dk-slider { position: relative; }',
-                'dk-slider::part(label) { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dk-muted); }',
-                'dk-slider::part(value) { position: absolute; top: 0; right: 0; font-size: 11px; color: var(--dk-fg); }',
-                'dk-slider::part(track) { max-height: 4px; margin-top: 8px; }',
-              ].join('\n'),
+              background: [{ kind: 'color', color: '#ccf33d' }],
             },
           },
-          el({
-            kind: 'text',
-            name: 'Title',
-            text: 'RAIN FIELD',
-            rect: r(24, 20, 400, 28),
-            textStyle: { size: 22, weight: 700, color: 'fg', align: 'left', spacing: 0.24 },
-          }),
-          el({
-            kind: 'text',
-            name: 'Subtitle',
-            text: 'Rain all around you. Drag a sound nearer or further, left or right. Behind you, it sounds duller.',
-            rect: r(24, 52, 560, 16),
-            textStyle: { size: 12, color: 'muted', align: 'left' },
-          }),
           el({
             kind: 'canvas',
             name: 'The space around you',
             code: FIELD,
-            rect: r(field.x, field.y, field.w, field.h),
+            rect: r(0, 0, 760, 500),
             props: { dripHz: 700 },
           }),
-          caption('Front', r(cx - 40, cy - R - 16, 80, 12)),
-          caption('Behind', r(cx - 40, cy + R + 4, 80, 12)),
-          caption('L', r(field.x, cy - 6, 14, 12), 'left'),
-          caption('R', r(field.x + field.w - 14, cy - 6, 14, 12), 'right'),
-          caption('You', r(cx - 30, cy + 14, 60, 12)),
-          caption('Sounds, and how much each makes', r(452, 88, 284, 12), 'left'),
-          ...LAYERS.flatMap((l, i) => {
-            const y = 108 + i * 32;
-            return [
-              el({
-                kind: 'svg',
-                name: `${l.name} icon`,
-                svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${ICONS[l.icon](l.color)}</svg>`,
-                rect: r(452, y, 20, 20),
-              }),
-              el({
-                kind: 'text',
-                name: l.name,
-                text: l.name,
-                rect: r(482, y + 2, 130, 16),
-                textStyle: { size: 12, weight: 700, color: 'fg', align: 'left' },
-              }),
-            ];
-          }),
+          // How much each sound makes: the plugin's meters, bottom right (the field draws their names).
           ...(
             [
               ['mdrops', 'drop1.out'],
@@ -693,30 +682,25 @@ export function rain(catalog: Catalog) {
               ['mdrips', 'drip1.out'],
             ] as const
           ).flatMap(([id, from], i) => [
-            ...control(id, 'ui.meter', LAYERS[i]!.name, null, r(620, 116 + i * 32, 116, 6), {
+            ...control(id, 'ui.meter', LAYERS[i]!.name, null, r(676, 400 + i * 22, 68, 4), {
               style: {
                 skin: {
                   name: 'bar',
-                  params: { fill: LAYERS[i]!.color, surface: '#34414a', scale: false },
+                  params: { fill: LAYERS[i]!.color, surface: '#7d8a58', scale: false },
                 },
               },
             }),
             wire(from, `${id}.in`),
           ]),
-          ...control('kwidth', 'ui.slider', 'Drops across', 'splay1.width', r(452, 248, 134, 36), {
-            min: 0,
-            max: 1,
-            value: 0.85,
-          }),
-          ...control('kroom', 'ui.slider', 'Room', 'room1.mix', r(602, 248, 134, 36), {
-            min: 0,
-            max: 1,
-            value: 0.25,
-          }),
+          // The rest is moved by the field's figures: kept in the patch.
+          ...patchControl('kwidth', 'Drops across', 'splay1.width', [0, 1, 'linear', ''], 0.85),
+          ...patchControl('kroom', 'Room', 'room1.mix', [0, 1, 'linear', ''], 0.25),
+          // The Drop's knobs: they set the part for all 16 copies.
+          ...patchControl('knob1', 'Rain', 'drop1.rain', [0.5, 16, 'log', 'Hz'], 6),
+          ...patchControl('knob2', 'Pitch', 'drop1.pitch', [400, 8000, 'log', 'Hz'], 2400),
+          ...patchControl('knob3', 'Splash', 'drop1.splash', [0.005, 0.4, 'log', 's'], 0.035),
         ];
       },
-      // The Drop's face on the plugin: its knobs set the part for all 16 copies.
-      doc => faceIntents(doc, catalog, 'drop1', { at: { x: 452, y: 300 } }).intents,
     ],
   );
 }
