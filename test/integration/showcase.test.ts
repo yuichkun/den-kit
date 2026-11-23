@@ -671,10 +671,14 @@ describe('each work does what its controls say', () => {
     for (const n of Object.values(doc.nodes))
       if (n.type === 'ui.knob' || n.type === 'ui.toggle')
         values[n.id] = n.values.value as number | boolean;
-    const field = (
-      await import(`data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`)
-    ).default;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`
+    );
+    const field = mod.default;
     const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    /** Where a point on the ground (x right, z ahead, the rim at 1) is on the field. */
+    const ground = (x: number, z: number) =>
+      mod.ground(x, z, el.rect.w, el.rect.h) as { x: number; y: number };
     let cursor = '';
     const start = () => {
       const f = {
@@ -693,30 +697,49 @@ describe('each work does what its controls say', () => {
       field.setup(fakeCanvas(), f);
       return f;
     };
-    const R = Math.min(el.rect.w, el.rect.h) / 2 - 22,
-      cx = el.rect.w / 2,
-      cy = el.rect.h / 2;
     const at = (f: unknown, type: string, x: number, y: number) =>
       field.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
-    // The drops start straight ahead (0.7 near); drag them to the same distance behind you.
+    // The drops start ahead of you, a little to the left; drag their stake to half way behind you.
     expect(values.kdropsback).toBe(false);
+    const r0 = 1 - (values.kdrops as number),
+      pan0 = values.kdropspan as number;
+    const from = ground(r0 * pan0, r0 * Math.sqrt(1 - pan0 * pan0)),
+      behind = ground(0, -0.5),
+      ahead = ground(0, 0.5);
     const f = start();
-    at(f, 'down', cx, cy - 0.3 * R);
-    at(f, 'move', cx, cy + 0.5 * R);
-    at(f, 'up', cx, cy + 0.5 * R);
+    at(f, 'down', from.x, from.y);
+    at(f, 'move', behind.x, behind.y);
+    at(f, 'up', behind.x, behind.y);
     expect(values.kdropsback).toBe(true);
     expect(values.kdrops).toBeCloseTo(0.5, 5);
     expect(values.kdropspan).toBeCloseTo(0, 5);
-    // A field started over (the work opened again) knows only the work: the dot is behind you.
+    // A field started over (the work opened again) knows only the work: the stake is behind you.
     const again = start();
-    at(again, 'move', cx, cy + 0.5 * R);
+    at(again, 'move', behind.x, behind.y);
     expect(cursor).toBe('grab');
-    // Undoing the switch puts it in front again.
+    // Undoing the switch puts it in front again; behind you there is only ground (it sets each drop).
     values.kdropsback = false;
-    at(again, 'move', cx, cy + 0.5 * R);
-    expect(cursor).toBe('default');
-    at(again, 'move', cx, cy - 0.5 * R);
+    at(again, 'move', behind.x, behind.y);
+    expect(cursor).toBe('move');
+    at(again, 'move', ahead.x, ahead.y);
     expect(cursor).toBe('grab');
+    // The rest is set on the ground, each part up and down or across (a drag keeps to the way it starts).
+    const drag = (p: { x: number; y: number }, dx: number, dy: number) => {
+      at(again, 'down', p.x, p.y);
+      at(again, 'move', p.x + dx, p.y + dy);
+      at(again, 'up', p.x + dx, p.y + dy);
+    };
+    const was = { ...values };
+    drag(ground(0.12, 0.5), 0, -40); // the drops' patch, up: more rain
+    drag(ground(0.12, 0.5), -40, 0); // and across: narrower
+    expect([values.knob1! > was.knob1!, values.kwidth! < was.kwidth!]).toEqual([true, true]);
+    drag(ground(-0.5, -0.3), 40, 0); // the ground inside the rim, across: each drop higher
+    drag(ground(-0.5, -0.3), 0, -40); // and up: a longer splash
+    expect([values.knob2! > was.knob2!, values.knob3! > was.knob3!]).toEqual([true, true]);
+    drag(ground(1.1, 0), 0, -40); // outside the rim, up: more room
+    expect(values.kroom! > was.kroom!).toBe(true);
+    // Each drag moved only its own setting.
+    expect(values.kdrops).toBeCloseTo(0.5, 5);
   });
 
   it('Tonic: plays by itself; Sa moves the whole drone, Jawari brightens the buzz', async () => {
