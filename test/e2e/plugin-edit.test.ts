@@ -600,7 +600,7 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
     assert.equal(await kit(page, k => k.doc.value.name), 'Contour (Exhale look)');
-    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ff9f6b');
+    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#d9ccff');
     assert.ok(
       await kit(page, k => Object.keys(k.doc.value.ui.elements).includes('text1')),
       'the layout stays',

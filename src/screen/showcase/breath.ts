@@ -10,110 +10,145 @@
 // a long hall holds everything.
 // The design follows the thinking of Loóna (Apple Design Awards 2021, Visuals
 // and Graphics), calm sessions in which type, colour, motion and 3D are made
-// together for one soothing scene: here the whole plugin is one picture, a
-// slowly turning form of points that swells as the breath comes in and settles
-// as it goes out, in step with what is heard, with a small title and nothing
-// else that asks for attention. The settings are on the picture: drag it up
-// and down for Depth, left and right for Breaths a minute; Warmth and Hall are
-// figures you drag.
+// together for one soothing scene: here the whole plugin is one picture at
+// night, a field of points running to the horizon and flowing slowly toward
+// you, with a soft swell in the middle that rises as the breath comes in and
+// settles as it goes out, in step with what is heard. Deep violet and pale
+// lilac, a quiet title, nothing else that asks for attention. The settings are
+// on the picture: the field for Depth and Breaths a minute, the sky above it
+// for Hall and Warmth. Key is kept in the patch.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The form: points on a turning sphere that swell with the breath; it takes the mouse. */
-export const SCENE = `// A form of points on a slowly turning sphere. How full the breath is comes
-// from the output level, eased and placed between the quietest and loudest of
-// the last few breaths, so the form moves with what is heard: it swells on the
-// way in and settles on the way out, a slow wave running over it as deep as
-// Depth. Drag on it: up and down is Depth (kdepth), left and right Breaths a
-// minute (kbpm). Drag the figures at the bottom right up or down: Warmth
-// (kwarm) and Hall (kspace).
-const TAU = Math.PI * 2, N = 720, GOLD = Math.PI * (3 - Math.sqrt(5));
-const FIGURES = [
-  { id: 'kwarm', label: 'warmth', x: 600, text: v => Math.round(v) + ' Hz', per: v => v * 0.006 },
-  { id: 'kspace', label: 'hall', x: 712, text: v => v.toFixed(2), per: () => 0.005 },
-];
-function figureAt(x, y, w, h) {
-  if (y < h - 76) return null;
-  for (const g of FIGURES) if (Math.abs(x - g.x) < 52) return g;
-  return null;
+/** The field: points running to the horizon, a swell that rises with the breath; it takes the mouse. */
+export const SCENE = `// A room of points at night: a floor and a ceiling running to the horizon,
+// both flowing slowly toward you. How full the breath is comes from the output
+// level, eased and placed between the quietest and loudest of the last few
+// breaths, so the room moves with what is heard: as the breath comes in, the
+// floor swells up in the middle and the ceiling lifts into a vault above it, as
+// far as Depth (kdepth) lets them, and both settle as it goes out; a slow ripple runs out
+// across the floor once a breath (Breaths a minute, kbpm). The ceiling is the
+// hall: the more Hall (kspace), the higher it is. Warmth (kwarm) turns the
+// points from cool to warm lilac. The title sits where the room meets the horizon.
+// Drag the floor up and down for Depth, left and right for Breaths a minute;
+// drag the ceiling up and down for Hall, left and right for Warmth. A drag
+// keeps to the direction it starts in; scrolling moves the up-and-down setting.
+const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+const TAU = Math.PI * 2;
+// Columns across, rows from near (ZN) to far (ZF), the eye CAM above the floor, the swell's middle at ZC.
+const COLS = 96, ROWS = 30, ZN = 1.2, ZF = 10, CAM = 1, XW = 10, ZC = 2.8, COOL = [186, 198, 255], WARM = [252, 196, 232];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const SET = { kdepth: { lo: 0, hi: 1 }, kbpm: { lo: 3, hi: 10 }, kspace: { lo: 0, hi: 1 }, kwarm: { lo: 200, hi: 1600 } };
+const AXES = { floor: { x: 'kbpm', y: 'kdepth' }, ceiling: { x: 'kwarm', y: 'kspace' } };
+// The horizon, the middle across, and the lens: the nearest floor row lands near the bottom edge.
+function layout(w, h) {
+  const HOR = Math.round(h * 0.45);
+  return { HOR, cx: w / 2, F: ((h - 14 - HOR) * ZN) / CAM };
+}
+// How far the ceiling is above the eye.
+const above = hall => 0.55 + 1.5 * hall;
+// A label edged in the night's colour; underlined when its part of the room is under the hand.
+function say(ctx, text, x, y, align, ink, edge, hot) {
+  ctx.font = '600 13px ' + FONT;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = edge;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = ink;
+  ctx.fillText(text, x, y);
+  if (hot) {
+    const tw = ctx.measureText(text).width;
+    ctx.fillRect(align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x, y + 4, tw, 1.5);
+  }
+}
+function move(id, v0, dx, dy, L) {
+  const d = SET[id];
+  let v;
+  if (id === 'kdepth') v = v0 - dy / 240;
+  else if (id === 'kspace') v = v0 - dy / 160;
+  else if (id === 'kbpm') v = v0 + dx / 60;
+  else v = v0 * Math.pow(d.hi / d.lo, dx / 240);
+  return clamp(v, d.lo, d.hi);
 }
 export default {
   setup(ctx, f) {
-    const pts = [];
-    for (let i = 0; i < N; i++) {
-      const y = 1 - ((i + 0.5) / N) * 2, r = Math.sqrt(1 - y * y), a = i * GOLD;
-      pts.push([Math.cos(a) * r, y, Math.sin(a) * r]);
-    }
-    Object.assign(f.state, { pts, lvl: 0, lo: 1, hi: 0, b: 0.5, spin: 0, drag: null });
+    Object.assign(f.state, { lvl: 0, lo: 1, hi: 0, b: 0.5, drag: '', over: '', axis: '' });
   },
   draw(ctx, f) {
-    const s = f.state, w = f.w, h = f.h;
-    const fg = f.color('fg'), accent = f.color('accent'), muted = f.color('muted');
+    const s = f.state, w = f.w, h = f.h, L = layout(w, h), { HOR, cx, F } = L;
+    if (s.b === undefined) Object.assign(s, { lvl: 0, lo: 1, hi: 0, b: 0.5, drag: '', over: '', axis: '' });
+    const fg = f.color('fg'), bg = f.color('bg');
     // How full the breath is.
     s.lvl += (f.level - s.lvl) * Math.min(1, f.dt * 3);
     s.hi = s.lvl > s.hi ? s.lvl : s.hi - (s.hi - s.lvl) * f.dt * 0.05;
     s.lo = s.lvl < s.lo ? s.lvl : s.lo + (s.lvl - s.lo) * f.dt * 0.05;
     const full = s.hi - s.lo > s.hi * 0.15 ? (s.lvl - s.lo) / (s.hi - s.lo) : 0.5;
-    s.b += (Math.max(0, Math.min(1, full)) - s.b) * Math.min(1, f.dt * 2);
-    const b = s.b, depth = f.value('kdepth'), bpm = f.value('kbpm');
-    s.spin += f.dt * (0.05 + bpm * 0.012);
+    s.b += (clamp(full, 0, 1) - s.b) * Math.min(1, f.dt * 2);
+    const b = s.b, depth = f.value('kdepth'), bpm = f.value('kbpm'), hall = f.value('kspace'), warm = f.value('kwarm');
+    const active = id => s.over === id || s.drag === id;
     ctx.clearRect(0, 0, w, h);
-    // The form: swelling with the breath, a wave over it as deep as Depth.
-    const cx = w / 2, cy = h / 2 - 10, base = Math.min(w, h) * 0.3;
-    const rad = base * (0.78 + 0.3 * b * (0.4 + 0.6 * depth));
-    const ca = Math.cos(s.spin), sa = Math.sin(s.spin), tilt = 0.42, ct = Math.cos(tilt), st = Math.sin(tilt);
-    const out = [];
-    for (const [x0, y0, z0] of s.pts) {
-      const wave = 1 + 0.07 * depth * Math.sin(y0 * 5 - f.t * 0.9) * (0.4 + b);
-      const x1 = x0 * ca + z0 * sa, z1 = -x0 * sa + z0 * ca;
-      const y2 = y0 * ct - z1 * st, z2 = y0 * st + z1 * ct;
-      out.push([cx + x1 * rad * wave, cy + y2 * rad * wave, z2]);
+    const t = Math.log(warm / 200) / Math.log(8);
+    const ink = COOL.map((c, i) => Math.round(c + (WARM[i] - c) * t)).join(',');
+    const top = above(hall), flow = f.t * 0.012, phase = f.t * (bpm / 60) * TAU;
+    // Rows spaced evenly in how far they look, flowing toward you; the far ones first.
+    const rows = [];
+    for (let j = 0; j < ROWS; j++) {
+      const u = (((j / ROWS - flow) % 1) + 1) % 1;
+      rows.push({ z: ZN * Math.pow(ZF / ZN, u), u });
     }
-    out.sort((p, q) => p[2] - q[2]);
-    ctx.fillStyle = accent;
-    for (const [x, y, z] of out) {
-      const near = (z + 1) / 2;
-      ctx.globalAlpha = 0.18 + 0.82 * near;
-      const d = 0.8 + 2.2 * near;
-      ctx.fillRect(x - d / 2, y - d / 2, d, d);
-    }
-    ctx.globalAlpha = 1;
-    // Marks on the picture: what dragging it does.
-    const p = f.pointer, on = s.drag === 'form' || (p && p.over && !s.drag && !figureAt(p.x, p.y, w, h));
-    ctx.font = '600 12px system-ui, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = on ? fg : muted;
-    ctx.textAlign = 'center';
-    ctx.fillText('depth ' + depth.toFixed(2) + '  ↕', cx, cy - base * 1.16 - 14);
-    ctx.textAlign = 'left';
-    ctx.fillText('↔  ' + bpm.toFixed(1) + ' breaths a minute', cx + base * 1.16 + 10, cy);
-    // The figures you drag.
-    for (const g of FIGURES) {
-      const hot = s.drag === g || (p && p.over && !s.drag && figureAt(p.x, p.y, w, h) === g);
-      ctx.textAlign = 'center';
-      ctx.fillStyle = hot ? accent : fg;
-      ctx.font = '600 18px system-ui, sans-serif';
-      ctx.fillText(g.text(f.value(g.id)), g.x, h - 46);
-      ctx.fillStyle = muted;
-      ctx.font = '600 12px system-ui, sans-serif';
-      ctx.fillText(g.label + '  ↕', g.x, h - 24);
-    }
+    rows.sort((p, q) => q.z - p.z);
+    const swell = (x, z) => { const rr = Math.hypot(x / 1.9, (z - ZC) / 1.1); return b * depth * Math.exp(-rr * rr); };
+    const ripple = (x, z) => { const rr = Math.hypot(x / 1.9, z - ZC); return depth * 0.09 * Math.sin(rr * 2.6 - phase) * Math.exp(-rr / 2.4); };
+    // One plane: the floor (dir 1, at the eye's height below) or the ceiling (dir -1, at top above).
+    const plane = (dir, height, bend) => {
+      for (const { z, u } of rows) {
+        const near = ZN / z, size = 0.7 + 3.4 * near;
+        const fog = Math.exp(-(z - ZN) * 0.3) * Math.min(1, (1 - u) / 0.1) * Math.min(1, u / 0.04);
+        for (let i = 0; i < COLS; i++) {
+          const x = (i / (COLS - 1) - 0.5) * 2 * XW;
+          const sx = cx + (x / z) * F;
+          if (sx < -4 || sx > w + 4) continue;
+          const lift = bend(x, z), sy = HOR + (dir * (height - lift) / z) * F;
+          if (sy < -4 || sy > h + 4) continue;
+          const a = fog * (0.4 + 0.6 * near) + Math.abs(lift) * 0.55 * fog;
+          if (a < 0.02) continue;
+          ctx.fillStyle = 'rgba(' + ink + ',' + clamp(a, 0, 1) + ')';
+          ctx.beginPath();
+          ctx.arc(sx, sy, size / 2, 0, TAU);
+          ctx.fill();
+        }
+      }
+    };
+    plane(-1, top, (x, z) => -0.7 * swell(x, z));
+    plane(1, CAM, (x, z) => 1.05 * swell(x, z) + ripple(x, z));
+    // The labels, on what they set: the floor's below the horizon, the ceiling's above.
+    const fy = HOR + (CAM / ZC) * F + 22, cy = HOR - (top / ZC) * F - 12;
+    say(ctx, 'depth ' + Math.round(depth * 100) + '% ↕', cx - 200, fy, 'center', fg, bg, active('floor'));
+    say(ctx, bpm.toFixed(1) + ' breaths a minute ↔', cx + 200, fy, 'center', fg, bg, active('floor'));
+    say(ctx, 'hall ' + Math.round(hall * 100) + '% ↕', cx - 200, Math.max(20, cy), 'center', fg, bg, active('ceiling'));
+    say(ctx, 'warmth ' + Math.round(warm) + ' Hz ↔', cx + 200, Math.max(20, cy), 'center', fg, bg, active('ceiling'));
   },
   pointer(e, f) {
-    const s = f.state, g = figureAt(e.x, e.y, f.w, f.h);
+    const s = f.state, L = layout(f.w, f.h), zone = e.y < L.HOR ? 'ceiling' : 'floor';
     if (e.type === 'down') {
-      s.drag = g || 'form';
-      Object.assign(s, { x0: e.x, y0: e.y, d0: f.value('kdepth'), b0: f.value('kbpm'), v0: g ? f.value(g.id) : 0 });
+      Object.assign(s, { drag: zone, axis: '', x0: e.x, y0: e.y, from: {} });
+      for (const id of Object.values(AXES[zone])) s.from[id] = f.value(id);
     }
-    if (e.type === 'up' || e.type === 'leave') s.drag = null;
-    if (e.type === 'move' && s.drag === 'form') {
-      f.set('kdepth', Math.max(0, Math.min(1, s.d0 + (s.y0 - e.y) / 260)));
-      f.set('kbpm', Math.max(3, Math.min(10, s.b0 + (e.x - s.x0) / 70)));
-    } else if (e.type === 'move' && s.drag) {
-      const r = f.range(s.drag.id);
-      f.set(s.drag.id, Math.max(r.min, Math.min(r.max, s.v0 + (s.y0 - e.y) * s.drag.per(s.v0))));
+    if (e.type === 'up' || e.type === 'leave') s.drag = '';
+    if (s.drag && e.type === 'move') {
+      const dx = e.x - s.x0, dy = e.y - s.y0;
+      if (!s.axis && Math.hypot(dx, dy) > 4) s.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      const id = s.axis && AXES[s.drag][s.axis];
+      if (id) f.set(id, move(id, s.from[id], dx, dy, L));
     }
-    f.cursor(s.drag ? (s.drag === 'form' ? 'move' : 'ns-resize') : g ? 'ns-resize' : 'move');
+    if (e.type === 'wheel') {
+      const id = AXES[zone].y, d = SET[id];
+      f.set(id, clamp(f.value(id) - (Math.sign(e.dy) * (d.hi - d.lo)) / 50, d.lo, d.hi));
+    }
+    s.over = e.type === 'leave' ? '' : s.drag || zone;
+    f.cursor(s.drag ? 'grabbing' : 'grab');
   },
 };
 `;
@@ -211,7 +246,7 @@ export function breath(catalog: Catalog) {
         ...patchControl('kdepth', 'Depth', ['deep1.b', 'bamt1.b'], [0, 1, 'linear', ''], 0.8),
         ...patchControl('kwarm', 'Warmth', 'cut1.hz', [200, 1600, 'log', 'Hz'], 520),
         ...patchControl('kspace', 'Hall', 'hall1.mix', [0, 1, 'linear', ''], 0.45),
-        ...control('mlevel', 'ui.meter', 'Level', null, r(36, 470, 64, 4)),
+        ...control('mlevel', 'ui.meter', 'Level', null, r(355, 236, 50, 2)),
         wire('gl1.out', 'mlevel.in'),
         { op: 'makePart', ids: inside, name: 'Tone', id: 'tone', node: 'tone1' },
       ],
@@ -244,39 +279,40 @@ export function breath(catalog: Catalog) {
           op: 'setLook',
           look: {
             tokens: {
-              bg: '#2b1236',
-              fg: '#ffe6d2',
-              accent: '#ff9f6b',
-              track: '#4a2257',
-              knob: '#3a1747',
-              pointer: '#ffe6d2',
-              muted: '#d9a08a',
-              glow: '#ff9f6b',
-              font: 'michroma',
-              labelFont: 'michroma',
-              valueFont: 'michroma',
+              bg: '#1c0e38',
+              fg: '#efe8ff',
+              accent: '#d9ccff',
+              track: '#3a2763',
+              knob: '#2a1650',
+              pointer: '#efe8ff',
+              muted: '#a596d4',
+              glow: '#d9ccff',
+              font: 'lato',
+              labelFont: 'lato',
+              valueFont: 'lato',
             },
             background: [
-              { kind: 'color', color: '#2b1236' },
+              { kind: 'color', color: '#1c0e38' },
               {
                 kind: 'linear',
                 angle: 180,
                 stops: [
-                  { color: '#2b123600', at: 0.4 },
-                  { color: '#1e0b27', at: 1 },
+                  { color: '#2c1755', at: 0 },
+                  { color: '#1c0e3800', at: 0.36 },
+                  { color: '#0e0620', at: 1 },
                 ],
               },
             ],
             skins: { meter: { name: 'bar', params: {} } },
           },
         },
-        el({ kind: 'canvas', name: 'The breathing form', code: SCENE, rect: r(0, 0, 760, 500) }),
+        el({ kind: 'canvas', name: 'The breathing field', code: SCENE, rect: r(0, 0, 760, 500) }),
         el({
           kind: 'text',
           name: 'Title',
-          text: 'Exhale',
-          rect: r(32, 438, 200, 24),
-          textStyle: { font: 'michroma', size: 15, color: 'fg', align: 'left' },
+          text: 'exhale',
+          rect: r(280, 210, 200, 24),
+          textStyle: { font: 'lato', size: 16, color: 'fg', align: 'center', spacing: 0.6 },
         }),
       ],
     ],
