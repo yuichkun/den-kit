@@ -3,7 +3,7 @@
 // takes a picture of it as it is drawn now. The picture becomes one of the work's assets and a
 // picture at the back of the icon, the cover or both, filling each; each is framed on its own
 // afterwards by moving and sizing it. Adding the asset and the pictures is one step to undo.
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useSession } from '../context.ts';
 import { ART_SIZE, ART_SURFACES, nextArtId, type ArtSurfaceName } from '../../work/art.ts';
 import type { Intent } from '../../work/ops.ts';
@@ -19,6 +19,15 @@ const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 const session = useSession();
+// Esc closes it, before the view under it sees the key.
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  emit('close');
+}
+onMounted(() => window.addEventListener('keydown', onKey, true));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 const doc = computed(() => session.doc.value);
 const spec = computed(() => pluginSpec(doc.value, session.catalog, session.generated.value));
 const analyser = (probe: number) =>
@@ -103,7 +112,13 @@ async function take(targets: readonly ArtSurfaceName[]) {
 
 <template>
   <div class="backdrop" @pointerdown.self="emit('close')">
-    <div class="dialog" data-testid="shot-finder">
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Shot of the plugin"
+      data-testid="shot-finder"
+    >
       <h3>Shot of the plugin</h3>
       <p class="hint">
         Play it and set the knobs the way the picture should show them, then take the shot.

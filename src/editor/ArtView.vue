@@ -325,14 +325,6 @@ defineExpose({ fromLook });
       >
         From the look
       </button>
-      <button
-        class="small"
-        data-testid="art-shot"
-        title="Pose the plugin and take a picture of it"
-        @click="shotOpen = true"
-      >
-        Shot of the plugin
-      </button>
       <span class="sep" />
       <span class="label">Add</span>
       <button class="small" data-testid="art-add-text" @click="addText">Text</button>
@@ -363,6 +355,14 @@ defineExpose({ fromLook });
         @click="symbolOpen = true"
       >
         Symbol
+      </button>
+      <button
+        class="small"
+        data-testid="art-shot"
+        title="Pose the plugin and put a picture of it at the back"
+        @click="shotOpen = true"
+      >
+        Shot of the plugin
       </button>
       <span class="spacer" />
       <label class="toggle"

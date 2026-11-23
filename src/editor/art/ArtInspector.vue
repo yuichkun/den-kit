@@ -324,6 +324,10 @@ const ground = (s: SymbolElement) => {
   overflow: auto;
   min-height: 0;
 }
+/* The panel scrolls; its fields keep their height (a textarea would shrink to nothing). */
+.art-inspector > * {
+  flex-shrink: 0;
+}
 .head {
   display: flex;
   align-items: center;

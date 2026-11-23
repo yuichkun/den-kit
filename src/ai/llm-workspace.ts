@@ -1034,5 +1034,13 @@ export function describeOps(ops: Intent[], created: string[]): string {
         return describeUiOp(o) ?? o.op;
     }
   });
-  return parts.join(', ') + (ops.length > 6 ? ` … (+${ops.length - 6})` : '');
+  // Edits on one surface of the art in a row name it once: "cover: place title, place rule".
+  let surface: string | undefined;
+  const said = parts.map(p => {
+    const m = /^(icon|cover): (.*)$/.exec(p);
+    const same = m?.[1] === surface;
+    surface = m?.[1];
+    return same && m ? m[2]! : p;
+  });
+  return said.join(', ') + (ops.length > 6 ? ` … (+${ops.length - 6})` : '');
 }

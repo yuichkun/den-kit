@@ -3,6 +3,7 @@
 // which follows undo, removal and starting over.
 import { describe, expect, it } from 'vite-plus/test';
 import { artHandEdits, describeArt } from '../../../src/ai/art-tools.ts';
+import { describeOps } from '../../../src/ai/llm-workspace.ts';
 import { catalog } from '../../../src/sound/blocks/index.ts';
 import { History, commit, type Author } from '../../../src/work/history.ts';
 import { applyIntents, type Intent } from '../../../src/work/ops.ts';
@@ -133,5 +134,22 @@ describe('kit_get_art', () => {
     expect(text).toContain('The person is not looking at the art now.');
     expect(text.match(/none yet \(the first edit with "on" makes it\)/g)).toHaveLength(2);
     expect(text).toContain('The person has not changed the art by hand.');
+  });
+});
+
+describe("the label of the AI's art edits", () => {
+  it('names the surface once for a run of edits on it', () => {
+    const rect = { x: 216, y: 300, w: 720, h: 280 };
+    expect(
+      describeOps(
+        [
+          { op: 'setRect', on: 'cover', id: 'title', rect },
+          { op: 'setRect', on: 'cover', id: 'rule', rect },
+          { op: 'updateElement', on: 'icon', id: 'symbol1', set: { weight: 8 } },
+          { op: 'setRect', on: 'cover', id: 'symbol1', rect },
+        ],
+        [],
+      ),
+    ).toBe('cover: place title, place rule, icon: symbol1: weight, cover: place symbol1');
   });
 });

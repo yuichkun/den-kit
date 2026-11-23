@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Pick a module of the patch and see its shape as a symbol, in the work's colours, with or
 // without a frame; placing it adds a symbol to the icon or cover (one operation, like any other).
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useSession } from '../context.ts';
 import {
   ART_SIZE,
@@ -21,6 +21,15 @@ const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 const session = useSession();
+// Esc closes it, before the view under it sees the key.
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  emit('close');
+}
+onMounted(() => window.addEventListener('keydown', onKey, true));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 const doc = computed(() => session.doc.value);
 const modules = computed(() =>
   Object.values(doc.value.nodes)
@@ -75,7 +84,13 @@ function place() {
 
 <template>
   <div class="backdrop" @pointerdown.self="emit('close')">
-    <div class="dialog" data-testid="symbol-maker">
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="A symbol from the patch"
+      data-testid="symbol-maker"
+    >
       <h3>A symbol from the patch</h3>
       <p class="hint">
         The shape of a module as it is now. It keeps this shape when knobs move later; Redraw

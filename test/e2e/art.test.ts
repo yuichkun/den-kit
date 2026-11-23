@@ -90,6 +90,11 @@ describe("the work's art", () => {
       assert.equal((await art(page)).cover.elements.title.text, 'NIGHT BASS');
       // A symbol of one of the work's modules on the icon, then a thicker line.
       await page.click('[data-testid=art-icon]');
+      // Esc closes the symbol maker without placing anything.
+      await page.click('[data-testid=art-add-symbol]');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-testid=symbol-maker]', { state: 'detached' });
+      assert.equal((await art(page)).icon, undefined);
       await page.click('[data-testid=art-add-symbol]');
       await page.click('[data-testid=symbol-place]');
       a = await art(page);
