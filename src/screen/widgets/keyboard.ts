@@ -4,7 +4,8 @@
 // focus), and the letters they play are printed here.
 // Skins: piano (black and white keys; `start`, `octaves`, `held`, and `pc` = the
 // note where the computer-keyboard letters are printed), pads (big pads in a grid,
-// one note each, stepping through a scale). The piano's colors can be set with
+// one note each, stepping through a scale; a held pad glows in its colour, or with
+// `press: sink` is pressed in without a halo). The piano's colors can be set with
 // --dk-key-white, --dk-key-black, --dk-key-line, --dk-key-label, --dk-key-down,
 // --dk-key-down-label and --dk-key-down-black: den-kit's keyboard bar sets them from
 // its theme, and a plugin leaves them unset.
@@ -149,14 +150,15 @@ export class DkKeyboard extends DkElement {
             : 'var(--dk-track)';
     const rows = Math.ceil(count / columns),
       gap = this.p(params, 'gap', 10),
-      radius = this.p(params, 'radius', 14);
+      radius = this.p(params, 'radius', 14),
+      sink = this.p(params, 'press', 'glow') === 'sink';
     return `<style>${BASE_CSS}
       .kb{display:grid;width:100%;height:100%;grid-template-columns:repeat(${columns},1fr);grid-template-rows:repeat(${rows},1fr);gap:${gap}px}
       .pad{position:relative;border-radius:${radius}px;background:var(--c);display:flex;align-items:flex-end;justify-content:flex-start;padding:6px 8px;color:color-mix(in srgb, var(--c) 30%, #000);font-weight:700;box-shadow:inset 0 -6px 0 color-mix(in srgb, var(--c) 70%, #000), 0 3px 6px #0005;transition:transform .05s, filter .05s;cursor:pointer;overflow:hidden}
       .pad span{pointer-events:none;font-family:var(--dk-label-font,var(--dk-font));font-size:var(--dk-label-size,13px);text-transform:var(--dk-label-case,none);letter-spacing:var(--dk-label-spacing,0)}
-      .pad.on{transform:translateY(3px) scale(.98);filter:brightness(1.18);box-shadow:inset 0 -2px 0 color-mix(in srgb, var(--c) 70%, #000), 0 0 18px 2px var(--c)}
+      .pad.on{transform:translateY(${sink ? 5 : 3}px) scale(${sink ? 0.96 : 0.98});filter:brightness(${sink ? 0.93 : 1.18});box-shadow:inset 0 -2px 0 color-mix(in srgb, var(--c) 70%, #000)${sink ? '' : ', 0 0 18px 2px var(--c)'}}
       .outline .pad{background:transparent;border:1.5px solid var(--c);color:var(--c);box-shadow:none}
-      .outline .pad.on{background:var(--c);color:var(--dk-bg);box-shadow:0 0 14px 1px var(--c);transform:none;filter:none}
+      .outline .pad.on{background:var(--c);color:var(--dk-bg);box-shadow:${sink ? 'none' : '0 0 14px 1px var(--c)'};transform:none;filter:none}
       </style><div class="kb${palette === 'outline' ? ' outline' : ''}" part="keyboard">${notes.map((n, i) => `<div class="pad" data-note="${n}" style="--c:${color(i)}"><span>${escapeHtml(labels[i] || noteName(n))}</span></div>`).join('')}</div>`;
   }
 

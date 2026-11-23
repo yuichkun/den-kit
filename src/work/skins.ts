@@ -358,6 +358,12 @@ export const SKINS: readonly SkinDef[] = [
         'rainbow',
         'Pad colours (outline: lines in the accent colour, filled while held).',
       ),
+      choice(
+        'press',
+        ['glow', 'sink'],
+        'glow',
+        'How a held pad shows: glow (a halo in its colour) or sink (pressed in, no halo).',
+      ),
       num('radius', 14, 0, 100, 'Corner radius.'),
       num('gap', 10, 0, 60, 'Gap between pads.'),
       text('labels', '', 'Pad labels, comma separated (empty: note names).'),
