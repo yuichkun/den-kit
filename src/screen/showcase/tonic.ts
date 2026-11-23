@@ -73,10 +73,13 @@ export default {
     const reach = 40 * hall;
     ctx.strokeStyle = wine;
     ctx.lineWidth = 1.5;
-    for (let i = 0; i <= Math.round(hall * 4); i++) {
-      ctx.globalAlpha = 0.35 - i * 0.06;
-      ctx.beginPath(); ctx.arc(CX, CY, DISC + 46 + (i / 4) * reach, 0, TAU); ctx.stroke();
+    // Dotted rings, crisp and apart, so the room reads as drawn marks rather than a haze.
+    ctx.setLineDash([2, 6]);
+    for (let i = 1; i <= Math.round(hall * 4); i++) {
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(CX, CY, DISC + 46 + i * 10, 0, TAU); ctx.stroke();
     }
+    ctx.setLineDash([]);
     for (const t0 of s.rings) {
       const age = (f.t - t0) / 3;
       ctx.globalAlpha = (1 - age) * (0.25 + 0.6 * hall);

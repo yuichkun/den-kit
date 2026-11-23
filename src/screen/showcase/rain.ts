@@ -85,7 +85,7 @@ const LAYERS = [
   { name: 'thunder', level: 'kthunder', pan: 'kthunderpan', back: 'kthunderback', color: '#151a0b' },
   { name: 'drips', level: 'kdrips', pan: 'kdripspan', back: 'kdripsback', color: '#b8137a' },
 ];
-const FRONT = '#ccf33d', BEHIND = '#93a06b', INK = '#141a0b';
+const FRONT = '#b9d35a', BEHIND = '#93a06b', INK = '#141a0b';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
@@ -651,11 +651,11 @@ export function rain(catalog: Catalog) {
             op: 'setLook',
             look: {
               tokens: {
-                bg: '#ccf33d',
+                bg: '#b9d35a',
                 fg: '#141a0b',
                 accent: '#2430d6',
                 track: '#7d8a58',
-                knob: '#ccf33d',
+                knob: '#b9d35a',
                 pointer: '#141a0b',
                 muted: '#46521f',
                 glow: '#2430d6',
@@ -663,7 +663,7 @@ export function rain(catalog: Catalog) {
                 labelFont: 'system',
                 valueFont: 'system',
               },
-              background: [{ kind: 'color', color: '#ccf33d' }],
+              background: [{ kind: 'color', color: '#b9d35a' }],
             },
           },
           el({
