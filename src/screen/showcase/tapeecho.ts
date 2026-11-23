@@ -6,209 +6,255 @@
 // beside the echoes.
 // The design follows the thinking of SIG CRUISER (iF DESIGN AWARD 2022), the
 // interface that lets one operator run a whole filling line: the line drawn in
-// order on one screen, each station with its value and its state where it
-// sits, quick to read and to act on. The plugin is that line and its controls:
-// drag a head along the tape for the repeat time, pull the tape for wow, pull
-// the return loop down for intensity, scrub a station's value field, flip the
-// hiss switch; every lamp is lit by the signal passing that station.
+// order on one screen, each station with its state where it sits, quick to
+// read and to act on. The plugin is the echo drawn as a plant's flow diagram:
+// the IN pump, the tape on its rollers with the record head and the two
+// playback heads under it, the return through a valve (Intensity) and a tone
+// filter, the OUT tank filled to the echoes' level, the hiss breaker, and the
+// dry pipe over it all. Pipes carry moving dashes while sound passes. Each
+// setting is the part that does it, dragged where it is, with its value on a
+// plate by the hand; head A sits on the time scale over the tape.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
-/** The line: stations, the tape with its heads, the return loop, the value fields; it takes the mouse. */
-export const ECHO_LINE = `// The line, left to right: IN, RECORD, the tape past head A and head B, OUT, with
-// the dry path over it and the return loop under it. The tape holds 1.3 s from
-// RECORD to its end; head A sits at the repeat time (ktime), head B 1.5 times
-// later, and the tape moves at the speed that brings a point from RECORD to
-// head A in that time. A sound coming in (a jump in the output level) rides the
-// tape as a pulse; a head lights as its echo is heard, and the loop carries the
-// pulse back to RECORD, smaller by Intensity (kfb), as thick as Intensity.
-// Drag a head along the tape: the repeat time. Drag the tape up and down: Wow
-// (kwow), drawn as its waviness. Drag the loop: Intensity. The value fields are
-// dragged up and down (200 px is the whole range, Shift is finer), scrolled, or
-// double-clicked for their first value; the switch turns the hiss (thiss) on.
-const SPAN = 1.3, Y = 196, BUS = 104, WET = 146, LOOP = 300;
-const TAPE = { x0: 262, x1: 622 };
-const ST = { in: 72, rec: 188, out: 708 };
-// IN and OUT are stations and value fields at once; the others sit by their part of the line.
-const FIELDS = [
-  { id: 'kin', station: 'IN', label: 'Drive', x: 30, y: Y - 32, w: 84, h: 64, first: 1.4 },
-  { id: 'kecho', station: 'OUT', label: 'Echoes', x: 666, y: Y - 32, w: 84, h: 64, first: 0.7 },
-  { id: 'kwow', label: 'Wow', x: 538, y: 246, w: 84, h: 44, first: 0.0012 },
-  { id: 'kfb', label: 'Intensity', x: 196, y: 318, w: 104, h: 44, first: 0.55 },
-  { id: 'ktone', label: 'Tone', x: 308, y: 318, w: 104, h: 44, first: 2600 },
-];
-const HISS = { x: 666, y: 246, w: 84, h: 30 };
-const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, monospace';
-const xAt = sec => TAPE.x0 + (sec / SPAN) * (TAPE.x1 - TAPE.x0);
-const secAt = x => ((x - TAPE.x0) / (TAPE.x1 - TAPE.x0)) * SPAN;
-function show(id, v) {
-  if (id === 'ktone') return (v / 1000).toFixed(2) + ' kHz';
-  if (id === 'kwow') return (v * 1000).toFixed(2) + ' ms';
-  if (id === 'kin') return v.toFixed(2) + '×';
-  return Math.round(v * 100) + ' %';
-}
+/** The line: the pump, the tape and its heads, the return through the valve and the tone filter, the output tank; it takes the mouse. */
+export const ECHO_LINE = `// The line as a plant's flow diagram, read left to right like a filling line:
+// the IN pump drives the sound onto the tape at the RECORD head; the tape runs
+// past head A at the repeat time (ktime) and head B 1.5 times later; their
+// echoes are collected into the OUT tank, and go back onto the tape through
+// the TONE filter (ktone) and the valve (Intensity, kfb). The dry pipe runs over
+// it all, straight into the tank. The tape holds 1.3 s from RECORD to its end
+// and moves at the speed that brings a point from RECORD to head A in the
+// repeat time; what was heard is printed on it as it passes RECORD (the output
+// level, as strokes) and rides it past the heads. A sound coming in (a jump in
+// the output level) lights each head as its echo is heard.
+// Pipes show the flow (moving dashes) while sound passes. Every setting is a
+// part of the drawing, and its value shows on a plate by the hand: the pump's
+// arrow for Drive (kin, up and down), a head along the tape against the time
+// scale over it, the tape's waves for Wow (kwow, up and down), the valve's stem
+// (up and down), the filter's knee (across), the tank's level for Echoes
+// (kecho, up and down). Click the breaker for the hiss (thiss). Wheel: finer
+// steps; double click: first value.
+const SPAN = 1.3, DRY = 56, BELT = 136, PIPE = 200, WET = 232, RET = 300;
+const REC = 250, TAPE_END = 612, ROLL = [216, 636];
+const PUMP = { x: 84, y: PIPE, r: 26 };
+const TANK = { x: 686, y: 112, w: 56, h: 140 };
+const VALVE = { x: 380, y: RET }, TONE = { x: 524, y: RET, w: 64, h: 36 };
+const BREAKER = { x: 714, y: 304 };
+const K = 664;
+const FIRST = { kin: 1.4, ktime: 0.32, kwow: 0.0012, kfb: 0.55, ktone: 2600, kecho: 0.7 };
+const MONO = 'ui-monospace, "SF Mono", Menlo, monospace', SANS = 'system-ui, sans-serif';
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const xAt = sec => REC + (sec / SPAN) * (TAPE_END - REC);
+const secAt = x => ((x - REC) / (TAPE_END - REC)) * SPAN;
+const toneX = hz => TONE.x - TONE.w / 2 + 8 + (Math.log(hz / 900) / Math.log(7000 / 900)) * (TONE.w - 22);
+const levelY = v => TANK.y + TANK.h - 8 - (v / 1.2) * (TANK.h - 22);
 function where(x, y, f) {
-  for (const t of FIELDS) if (x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h) return t;
-  if (x >= HISS.x && x <= HISS.x + HISS.w && y >= HISS.y && y <= HISS.y + HISS.h) return { id: 'thiss', hiss: true };
   const time = f.value('ktime');
-  if (Math.abs(y - (Y - 4)) < 18) {
-    if (Math.abs(x - xAt(time)) < 14) return { id: 'ktime', head: 1 };
-    if (Math.abs(x - xAt(time * 1.5)) < 14) return { id: 'ktime', head: 1.5 };
+  if (Math.hypot(x - BREAKER.x, y - BREAKER.y) < 20) return { id: 'thiss', kind: 'breaker' };
+  if (Math.hypot(x - PUMP.x, y - PUMP.y) < PUMP.r + 12) return { id: 'kin', kind: 'pump' };
+  if (y > BELT + 6 && y < BELT + 40) {
+    if (Math.abs(x - xAt(time)) < 15) return { id: 'ktime', kind: 'head', k: 1 };
+    if (Math.abs(x - xAt(time * 1.5)) < 15) return { id: 'ktime', kind: 'head', k: 1.5 };
   }
-  if (x >= TAPE.x0 && x <= TAPE.x1 && Math.abs(y - (Y + 8)) < 16) return { id: 'kwow', tape: true };
-  if (x >= ST.rec - 6 && x <= xAt(time) + 6 && Math.abs(y - LOOP) < 12) return { id: 'kfb', loop: true };
+  if (y > BELT - 34 && y < BELT + 12 && x > ROLL[0] - 24 && x < ROLL[1] + 24) return { id: 'kwow', kind: 'tape' };
+  if (Math.abs(x - VALVE.x) < 30 && Math.abs(y - VALVE.y) < 34) return { id: 'kfb', kind: 'valve' };
+  if (Math.abs(x - TONE.x) < TONE.w / 2 + 10 && Math.abs(y - TONE.y) < 32) return { id: 'ktone', kind: 'tone' };
+  if (x > TANK.x - 70 && x < TANK.x + TANK.w + 10 && y > TANK.y - 4 && y < TANK.y + TANK.h + 4) return { id: 'kecho', kind: 'tank' };
   return null;
 }
-function lamp(ctx, x, y, on, warm, idle) {
-  ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2);
-  ctx.fillStyle = on ? warm : idle; ctx.fill();
+function pipe(ctx, pts, ink, flow, t, speed, width) {
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  ctx.strokeStyle = ink; ctx.lineWidth = width;
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+  if (!flow) return;
+  ctx.strokeStyle = flow; ctx.lineWidth = Math.max(1.5, width - 2.5);
+  ctx.setLineDash([6, 10]); ctx.lineDashOffset = -(t * speed) % 16;
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
 }
-function tapePath(ctx, amp, t, speed) {
-  ctx.beginPath();
-  for (let x = TAPE.x0; x <= TAPE.x1; x += 4) {
-    const y = Y + 8 + amp * Math.sin((x - t * speed) / 26) * Math.sin(t * 1.7);
-    if (x === TAPE.x0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
+function lamp(ctx, x, y, on, lit, off) {
+  ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = on ? lit : off; ctx.fill();
+}
+function name(ctx, text, x, y, align, ink) {
+  ctx.font = '700 11px ' + MONO; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.fillStyle = ink; ctx.fillText(text, x, y);
+}
+// The plate by the hand: what the part sets, and its value.
+function plate(ctx, text, x, y, align, ink, paper) {
+  ctx.font = '700 12px ' + MONO; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width + 14, x0 = align === 'right' ? x - tw : align === 'center' ? x - tw / 2 : x;
+  ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(Math.round(x0), Math.round(y - 11), Math.round(tw), 22, 3); ctx.fill();
+  ctx.fillStyle = paper; ctx.textAlign = 'left'; ctx.fillText(text, Math.round(x0 + 7), Math.round(y) + 0.5);
 }
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, { prev: 0, last: -1, pulses: [], back: -10, drag: null });
+    Object.assign(f.state, { prev: 0, last: -1, pulses: [], hist: [], drag: null });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h;
-    const cream = f.color('fg'), warm = f.color('accent'), muted = f.color('muted'), track = f.color('track'), field = f.color('knob');
-    const time = f.value('ktime'), fb = f.value('kfb'), wow = f.norm('kwow'), hiss = f.on('thiss');
+    const cream = f.color('fg'), lit = f.color('accent'), sage = f.color('muted'), deep = f.color('track'), field = f.color('knob'), bg = f.color('bg');
+    const time = f.value('ktime'), fb = f.value('kfb'), wow = f.norm('kwow'), drive = f.norm('kin'), tone = f.value('ktone'), echo = f.value('kecho'), hiss = f.on('thiss');
     const xa = xAt(time), xb = xAt(time * 1.5);
     const live = f.level > 0.01;
     const p = f.pointer, hot = s.drag ? s.drag : p && p.over ? where(p.x, p.y, f) : null;
-    // A sound coming in starts a pulse at RECORD; each pass at head A feeds one back, smaller.
-    if (f.level > s.prev * 1.5 + 0.01 && f.t - s.last > 0.08) {
-      s.last = f.t;
-      s.pulses.push({ born: f.t, gain: 1, fed: false });
-    }
+    const is = kind => hot && hot.kind === kind;
+    // A sound coming in starts a block at RECORD; each pass under head A sends a smaller one back.
+    if (f.level > s.prev * 1.5 + 0.01 && f.t - s.last > 0.08) { s.last = f.t; s.pulses.push({ born: f.t, gain: 1, fed: false }); }
     s.prev = s.prev * 0.85 + f.level * 0.15;
     for (const q of s.pulses) {
-      if (!q.fed && f.t - q.born >= time) {
-        q.fed = true;
-        if (q.gain * fb > 0.06) { s.pulses.push({ born: q.born + time, gain: q.gain * fb, fed: false }); s.back = f.t; }
-      }
+      if (!q.fed && f.t - q.born >= time) { q.fed = true; if (q.gain * fb > 0.06) s.pulses.push({ born: q.born + time, gain: q.gain * fb, fed: false }); }
     }
     s.pulses = s.pulses.filter(q => f.t - q.born < SPAN).slice(-24);
-    const lit = at => s.pulses.some(q => Math.abs(f.t - q.born - at) < 0.06);
+    const heard = at => s.pulses.some(q => Math.abs(f.t - q.born - at) < 0.07);
+    const speed = (xa - REC) / Math.max(0.02, time);
     ctx.clearRect(0, 0, w, h);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.textBaseline = 'middle';
-    // The dry path over the line, and the wet path from the heads to OUT.
-    ctx.strokeStyle = muted; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(ST.in, Y - 32); ctx.lineTo(ST.in, BUS); ctx.lineTo(ST.out, BUS); ctx.lineTo(ST.out, Y - 32); ctx.stroke();
-    ctx.fillStyle = muted; ctx.font = '700 11px ' + SANS; ctx.textAlign = 'center';
-    ctx.fillText('dry', (ST.in + ST.out) / 2, BUS - 12);
-    ctx.strokeStyle = cream;
-    ctx.beginPath(); ctx.moveTo(xa, Y - 16); ctx.lineTo(xa, WET); ctx.lineTo(ST.out - 20, WET); ctx.lineTo(ST.out - 20, Y - 32); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(xb, Y - 16); ctx.lineTo(xb, WET); ctx.stroke();
-    // IN to RECORD.
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(ST.in + 42, Y); ctx.lineTo(ST.rec - 42, Y); ctx.stroke();
-    // RECORD to the tape, and the tape's end to OUT's wet path.
-    ctx.beginPath(); ctx.moveTo(ST.rec + 42, Y + 8); ctx.lineTo(TAPE.x0, Y + 8); ctx.stroke();
-    // The return loop: from head A under the line back to RECORD, as thick as Intensity.
-    const flash = Math.max(0, 1 - (f.t - s.back) / 0.4);
-    ctx.strokeStyle = flash > 0 ? warm : cream;
-    ctx.lineWidth = 1.5 + fb * 9;
-    ctx.beginPath(); ctx.moveTo(xa, Y + 18); ctx.lineTo(xa, LOOP); ctx.lineTo(ST.rec, LOOP); ctx.lineTo(ST.rec, Y + 32); ctx.stroke();
-    if (hot && hot.loop) {
-      ctx.fillStyle = cream; ctx.font = '700 12px ' + SANS; ctx.textAlign = 'left';
-      ctx.fillText('▾ pull', xa + 12, LOOP);
+    const flow = live ? cream : null;
+    // The pipes: dry over everything, IN to RECORD, the heads' echoes to the tank, the return under the line.
+    pipe(ctx, [[PUMP.x, PUMP.y - PUMP.r], [PUMP.x, DRY], [TANK.x + TANK.w / 2, DRY], [TANK.x + TANK.w / 2, TANK.y]], sage, flow, f.t, 40, 4);
+    pipe(ctx, [[PUMP.x + PUMP.r, PIPE], [REC, PIPE], [REC, BELT + 34]], sage, flow, f.t, 40, 4);
+    pipe(ctx, [[xa, BELT + 32], [xa, WET], [TANK.x, WET]], sage, flow, f.t, 40, 4);
+    pipe(ctx, [[xb, BELT + 32], [xb, WET]], sage, flow, f.t, 40, 4);
+    pipe(ctx, [[K, WET], [K, RET], [REC, RET], [REC, PIPE]], sage, live && fb > 0.02 ? cream : null, f.t, 24 + fb * 30, 2 + fb * 6);
+    // Junctions: where the return joins the input, and where the echoes split to the tank and back.
+    for (const [x, y] of [[REC, PIPE], [K, WET]]) { ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fillStyle = cream; ctx.fill(); }
+    ctx.fillStyle = sage; ctx.font = '600 11px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('dry', (PUMP.x + TANK.x) / 2, DRY - 12);
+    // The IN pump: pushes harder (a bigger arrow) with more Drive.
+    ctx.fillStyle = field; ctx.beginPath(); ctx.arc(PUMP.x, PUMP.y, PUMP.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = cream; ctx.lineWidth = is('pump') ? 3.5 : 2.5; ctx.stroke();
+    const tri = 7 + drive * 13;
+    ctx.fillStyle = cream; ctx.beginPath();
+    ctx.moveTo(PUMP.x + tri, PUMP.y); ctx.lineTo(PUMP.x - tri * 0.6, PUMP.y - tri * 0.8); ctx.lineTo(PUMP.x - tri * 0.6, PUMP.y + tri * 0.8); ctx.closePath(); ctx.fill();
+    name(ctx, 'IN', PUMP.x, PUMP.y + PUMP.r + 16, 'center', cream);
+    // The tape: a belt over two rollers, wavy by Wow; blocks ride on it.
+    const amp = 0.6 + wow * 6, belt = x => BELT + amp * Math.sin((x - f.t * speed) / 24) * Math.sin(f.t * 1.7);
+    for (const rx of ROLL) {
+      ctx.beginPath(); ctx.arc(rx, BELT, 20, 0, Math.PI * 2); ctx.fillStyle = field; ctx.fill();
+      ctx.strokeStyle = cream; ctx.lineWidth = 2.5; ctx.stroke();
+      const a = (f.t * speed) / 20;
+      ctx.beginPath(); ctx.moveTo(rx + Math.cos(a) * 14, BELT + Math.sin(a) * 14); ctx.lineTo(rx - Math.cos(a) * 14, BELT - Math.sin(a) * 14); ctx.stroke();
     }
-    // The tape, wavy by Wow, its marks moving at the tape's speed.
-    const speed = (xa - TAPE.x0) / Math.max(0.02, time), amp = 1 + wow * 7;
-    ctx.lineCap = 'butt';
-    ctx.strokeStyle = cream; ctx.lineWidth = hot && hot.tape ? 16 : 14;
-    tapePath(ctx, amp, f.t, speed); ctx.stroke();
-    ctx.strokeStyle = field; ctx.lineWidth = 2; ctx.setLineDash([3, 9]); ctx.lineDashOffset = -(f.t * speed) % 12;
-    tapePath(ctx, amp, f.t, speed); ctx.stroke();
-    ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.lineCap = 'round';
-    // Pulses riding the tape.
-    for (const q of s.pulses) {
-      const x = xAt(f.t - q.born);
-      ctx.fillStyle = warm; ctx.globalAlpha = 0.35 + 0.65 * q.gain;
-      ctx.beginPath(); ctx.arc(x, Y + 8, 3 + 4 * q.gain, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = cream; ctx.lineWidth = is('tape') ? 3.5 : 2.5; ctx.lineCap = 'butt';
+    for (const off of [-20, 20]) {
+      ctx.beginPath();
+      for (let x = ROLL[0]; x <= ROLL[1]; x += 4) { const y = (off < 0 ? belt(x) : BELT) + off; if (x === ROLL[0]) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      ctx.stroke();
     }
-    ctx.globalAlpha = 1;
-    // The heads, named with their times; lit as their echo is heard.
-    for (const [x, at, name] of [[xa, time, 'A'], [xb, time * 1.5, 'B']]) {
-      const on = lit(at);
-      ctx.fillStyle = on ? warm : cream;
-      ctx.beginPath(); ctx.roundRect(x - 9, Y - 16, 18, 22, 3); ctx.fill();
-      if (hot && hot.head) { ctx.strokeStyle = cream; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(x - 13, Y - 20, 26, 30, 5); ctx.stroke(); }
-      ctx.fillStyle = field; ctx.font = '800 12px ' + SANS; ctx.textAlign = 'center';
-      ctx.fillText(name, x, Y - 5);
-      ctx.fillStyle = cream; ctx.font = '600 12px ' + MONO; ctx.textAlign = name === 'A' ? 'right' : 'left';
-      ctx.fillText(name === 'A' ? Math.round(at * 1000) + ' ms ◂▸' : '◂▸ ' + Math.round(at * 1000) + ' ms', x + (name === 'A' ? -14 : 14), Y - 26);
+    ctx.fillStyle = sage;
+    for (let x = ROLL[0] + 8 - ((f.t * speed) % 16); x < ROLL[1] - 4; x += 16) if (x > ROLL[0] + 4) ctx.fillRect(Math.round(x), Math.round(belt(x) - 20 - 4), 2, 2);
+    // What was heard, printed on the tape at RECORD and riding it past the heads.
+    s.hist.push({ t: f.t, v: Math.min(1, f.level * 5) });
+    s.hist = s.hist.filter(q => (f.t - q.t) * speed < TAPE_END - REC + 8);
+    ctx.fillStyle = cream;
+    for (const q of s.hist) {
+      const x = REC + (f.t - q.t) * speed, hh = Math.round(2 + q.v * 26);
+      ctx.fillRect(Math.round(x), BELT - Math.round(hh / 2), 2, hh);
     }
-    // RECORD: its block, the level going onto tape (the meter over it), its lamp.
-    ctx.fillStyle = field;
-    ctx.beginPath(); ctx.roundRect(ST.rec - 42, Y - 32, 84, 64, 6); ctx.fill();
-    ctx.strokeStyle = cream; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = cream; ctx.font = '800 12px ' + SANS; ctx.textAlign = 'left';
-    ctx.fillText('RECORD', ST.rec - 32, Y - 17);
-    lamp(ctx, ST.rec + 30, Y - 17, live, warm, track);
-    ctx.fillStyle = muted; ctx.font = '700 11px ' + SANS;
-    ctx.fillText('onto tape', ST.rec - 32, Y + 21);
-    // The value fields; IN and OUT are stations too, with a lamp lit while the signal passes.
-    for (const t of FIELDS) {
-      const on = hot && hot.id === t.id && !hot.tape && !hot.loop;
-      const top = t.station ? 17 : 0;
-      ctx.fillStyle = field;
-      ctx.beginPath(); ctx.roundRect(t.x, t.y, t.w, t.h, t.station ? 6 : 4); ctx.fill();
-      ctx.strokeStyle = on ? warm : t.station ? cream : muted; ctx.lineWidth = on || t.station ? 2 : 1.5; ctx.stroke();
-      if (t.station) {
-        ctx.fillStyle = cream; ctx.font = '800 12px ' + SANS; ctx.textAlign = 'left';
-        ctx.fillText(t.station, t.x + 10, t.y + 15);
-        lamp(ctx, t.x + t.w - 12, t.y + 15, live, warm, track);
-      }
-      ctx.fillStyle = muted; ctx.font = '700 11px ' + SANS; ctx.textAlign = 'left';
-      ctx.fillText(t.label, t.x + 9, t.y + top + 13);
-      ctx.fillStyle = cream; ctx.font = '600 14px ' + MONO;
-      ctx.fillText(show(t.id, f.value(t.id)), t.x + 9, t.y + top + 31);
-      ctx.fillStyle = muted;
-      for (let i = 0; i < 3; i++) ctx.fillRect(t.x + t.w - 14, t.y + top + 15 + i * 6, 7, 2);
+    // The time scale over the tape, from RECORD: every 0.1 s, named every 0.5 s.
+    ctx.fillStyle = sage;
+    for (let i = 0; i <= SPAN * 10 + 0.01; i++) {
+      const x = Math.round(xAt(i / 10)), big = i % 5 === 0;
+      ctx.fillRect(x, BELT - 44 - (big ? 6 : 3), 1.5, big ? 6 : 3);
+      if (big && i) name(ctx, (i / 10).toFixed(1) + ' s', x, BELT - 58, 'center', sage);
     }
-    // The hiss switch, its state in words and lamp.
-    ctx.fillStyle = hiss ? cream : field;
-    ctx.beginPath(); ctx.roundRect(HISS.x, HISS.y, HISS.w, HISS.h, 15); ctx.fill();
-    ctx.strokeStyle = cream; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = hiss ? field : cream; ctx.font = '800 12px ' + SANS; ctx.textAlign = 'left';
-    ctx.fillText(hiss ? 'HISS ON' : 'HISS OFF', HISS.x + 12, HISS.y + HISS.h / 2 + 0.5);
-    lamp(ctx, HISS.x + HISS.w - 15, HISS.y + HISS.h / 2, hiss, warm, track);
-    // The line's state, top right.
-    ctx.fillStyle = live ? warm : muted; ctx.font = '800 12px ' + SANS; ctx.textAlign = 'right';
-    ctx.fillText(live ? 'RUNNING' : 'STANDBY', w - 40, 38);
-    lamp(ctx, w - 28, 38, live, warm, track);
+    ctx.fillRect(REC, BELT - 44, TAPE_END - REC, 1);
+    // The heads under the tape: RECORD, then A and B at their times; a head lights as its echo is heard.
+    ctx.fillStyle = cream; ctx.beginPath(); ctx.roundRect(REC - 14, BELT + 22, 28, 12, 3); ctx.fill();
+    name(ctx, 'REC', REC - 10, BELT + 48, 'right', cream);
+    for (const [x, at, label] of [[xa, time, 'A'], [xb, time * 1.5, 'B']]) {
+      const on = heard(at);
+      ctx.fillStyle = on ? lit : field; ctx.beginPath(); ctx.roundRect(x - 12, BELT + 22, 24, 12, 3); ctx.fill();
+      ctx.strokeStyle = cream; ctx.lineWidth = is('head') ? 3 : 2; ctx.stroke();
+      ctx.fillStyle = cream; ctx.fillRect(Math.round(x) - 1, BELT - 44, 2, 22);
+      name(ctx, label, x + 9, BELT + 48, 'left', cream);
+    }
+    // The valve on the return: its stem lifts as it opens (Intensity), the flow thickens.
+    const vx = VALVE.x, vy = VALVE.y;
+    ctx.fillStyle = field; ctx.strokeStyle = cream; ctx.lineWidth = is('valve') ? 3 : 2;
+    ctx.beginPath(); ctx.moveTo(vx - 20, vy - 13); ctx.lineTo(vx + 20, vy + 13); ctx.lineTo(vx + 20, vy - 13); ctx.lineTo(vx - 20, vy + 13); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const stem = 10 + fb * 26;
+    ctx.fillStyle = cream; ctx.fillRect(vx - 1.5, vy - stem, 3, stem); ctx.fillRect(vx - 11, vy - stem - 3, 22, 4);
+    name(ctx, 'RETURN', REC + 40, RET - 14, 'left', sage);
+    // The tone filter on the return: a lowpass that rolls off at Tone.
+    ctx.fillStyle = field; ctx.beginPath(); ctx.roundRect(TONE.x - TONE.w / 2, TONE.y - TONE.h / 2, TONE.w, TONE.h, 4); ctx.fill();
+    ctx.strokeStyle = cream; ctx.lineWidth = is('tone') ? 3 : 2; ctx.stroke();
+    const kx = toneX(tone), ty = TONE.y - 6;
+    ctx.beginPath(); ctx.moveTo(TONE.x - TONE.w / 2 + 8, ty); ctx.lineTo(kx, ty); ctx.quadraticCurveTo(kx + 8, ty, kx + 12, TONE.y + 12); ctx.lineWidth = 2; ctx.stroke();
+
+    // The OUT tank: filled to the echoes' level; its surface is the sound going out.
+    const ly = levelY(echo);
+    ctx.fillStyle = field; ctx.beginPath(); ctx.roundRect(TANK.x, TANK.y, TANK.w, TANK.h, 8); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.roundRect(TANK.x, TANK.y, TANK.w, TANK.h, 8); ctx.clip();
+    ctx.fillStyle = deep; ctx.beginPath(); ctx.moveTo(TANK.x, TANK.y + TANK.h);
+    for (let i = 0; i <= 28; i++) { const x = TANK.x + (i / 28) * TANK.w, k = Math.floor((i / 28) * (f.wave.length - 1)); ctx.lineTo(x, ly + (f.wave[k] || 0) * 10); }
+    ctx.lineTo(TANK.x + TANK.w, TANK.y + TANK.h); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = cream; ctx.lineWidth = is('tank') ? 3.5 : 2.5; ctx.beginPath(); ctx.roundRect(TANK.x, TANK.y, TANK.w, TANK.h, 8); ctx.stroke();
+    ctx.fillStyle = cream; ctx.beginPath(); ctx.moveTo(TANK.x - 4, ly); ctx.lineTo(TANK.x - 13, ly - 6); ctx.lineTo(TANK.x - 13, ly + 6); ctx.closePath(); ctx.fill();
+    name(ctx, 'OUT', TANK.x + TANK.w / 2 + 9, TANK.y - 22, 'left', cream);
+    // The hiss breaker, feeding its noise into the tank when it is on.
+    pipe(ctx, [[BREAKER.x, BREAKER.y - 12], [BREAKER.x, TANK.y + TANK.h]], sage, hiss && live ? cream : null, f.t, 20, 3);
+    ctx.fillStyle = cream;
+    ctx.beginPath(); ctx.arc(BREAKER.x - 12, BREAKER.y + 6, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(BREAKER.x + 12, BREAKER.y + 6, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = cream; ctx.lineWidth = is('breaker') ? 3.5 : 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(BREAKER.x - 12, BREAKER.y + 6);
+    if (hiss) ctx.lineTo(BREAKER.x + 12, BREAKER.y + 4); else ctx.lineTo(BREAKER.x + 8, BREAKER.y - 10);
+    ctx.stroke(); ctx.lineCap = 'butt';
+    name(ctx, 'HISS', BREAKER.x, BREAKER.y + 26, 'center', hiss ? cream : sage);
+    // The line's state, beside the title.
+    name(ctx, live ? 'RUNNING' : 'STANDBY', 244, h - 34, 'left', live ? cream : sage);
+    lamp(ctx, 232, h - 34, live, lit, deep);
+    name(ctx, 'onto tape', 178, PIPE + 18, 'center', sage);
+    // The plate by the hand: the part under it, what it sets and the value.
+    if (hot) {
+      const v = f.value(hot.id);
+      const text = {
+        pump: 'drive ' + v.toFixed(2) + '×',
+        head: 'repeat ' + Math.round(time * 1000) + ' ms · B ' + Math.round(time * 1500) + ' ms',
+        tape: 'wow ' + (v * 1000).toFixed(2) + ' ms',
+        valve: 'intensity ' + Math.round(v * 100) + '%',
+        tone: 'tone ' + (v / 1000).toFixed(2) + ' kHz',
+        tank: 'echoes ' + Math.round((v / 1.2) * 100) + '%',
+        breaker: hiss ? 'hiss on · click: off' : 'hiss off · click: on',
+      }[hot.kind];
+      const at = {
+        pump: [PUMP.x - PUMP.r, PUMP.y - PUMP.r - 22, 'left'],
+        head: [hot.k === 1 ? xa : xb, BELT + 72, 'center'],
+        tape: [ROLL[0] - 16, BELT - 82, 'left'],
+        valve: [VALVE.x, VALVE.y + 32, 'center'],
+        tone: [TONE.x, TONE.y + 34, 'center'],
+        tank: [TANK.x - 18, ly, 'right'],
+        breaker: [BREAKER.x + 30, BREAKER.y + 50, 'right'],
+      }[hot.kind];
+      plate(ctx, text, at[0], at[1], at[2], cream, bg);
+    }
   },
   pointer(e, f) {
     const s = f.state, fine = e.shift ? 0.1 : 1;
     if (e.type === 'down') {
       const t = where(e.x, e.y, f);
-      s.drag = t && !t.hiss ? { ...t, x: e.x, y: e.y, norm: f.norm(t.id) } : null;
-      if (t && t.hiss) f.set('thiss', !f.on('thiss'));
+      s.drag = t && t.kind !== 'breaker' ? { ...t, x: e.x, y: e.y, norm: f.norm(t.id) } : null;
+      if (t && t.kind === 'breaker') f.set('thiss', !f.on('thiss'));
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = null;
     const d = s.drag;
     if (d && (e.type === 'down' || e.type === 'move')) {
-      if (d.head) f.set('ktime', Math.max(0.06, Math.min(0.8, secAt(e.x) / d.head)));
+      if (d.kind === 'head') f.set('ktime', clamp(secAt(e.x) / d.k, 0.06, 0.8));
       else if (e.type === 'move') {
-        const dy = d.loop ? e.y - d.y : d.y - e.y;
-        f.setNorm(d.id, Math.max(0, Math.min(1, d.norm + (dy / 200) * fine)));
+        const along = d.kind === 'tone' ? e.x - d.x : d.y - e.y;
+        f.setNorm(d.id, clamp(d.norm + (along / (d.kind === 'tank' ? 120 : 200)) * fine, 0, 1));
       }
     }
     if (e.type === 'wheel' || e.type === 'double') {
       const t = where(e.x, e.y, f);
-      if (t && !t.hiss && e.type === 'wheel') f.setNorm(t.id, Math.max(0, Math.min(1, f.norm(t.id) - (e.dy / 100) * 0.01 * fine)));
-      if (t && !t.hiss && e.type === 'double') f.set(t.id, t.first ?? (t.head ? 0.32 : t.tape ? 0.0012 : 0.55));
+      if (t && t.kind !== 'breaker' && e.type === 'wheel') f.setNorm(t.id, clamp(f.norm(t.id) - (e.dy / 100) * 0.01 * fine, 0, 1));
+      if (t && t.kind !== 'breaker' && e.type === 'double') f.set(t.id, FIRST[t.id]);
     }
     const at = s.drag ?? where(e.x, e.y, f);
-    f.cursor(!at ? 'default' : at.hiss ? 'pointer' : at.head ? 'ew-resize' : 'ns-resize');
+    f.cursor(!at ? 'default' : s.drag ? 'grabbing' : at.kind === 'breaker' ? 'pointer' : at.kind === 'head' || at.kind === 'tone' ? 'ew-resize' : 'ns-resize');
   },
 };
 `;
@@ -218,7 +264,7 @@ export function tapeecho(catalog: Catalog) {
     'tapeecho',
     'Echo Line',
     catalog,
-    [780, 380],
+    [780, 400],
     [
       // ---- sound ----
       add('in1', 'kit.audioIn'),
@@ -280,19 +326,19 @@ export function tapeecho(catalog: Catalog) {
         op: 'setLook',
         look: {
           tokens: {
-            bg: '#0f2a24',
-            fg: '#efe6cf',
-            accent: '#ff8a3d',
-            track: '#2b4a42',
-            knob: '#0a1f1a',
-            pointer: '#efe6cf',
-            muted: '#8fa89a',
-            glow: '#ff8a3d',
+            bg: '#12281f',
+            fg: '#ece5cf',
+            accent: '#d9eab4',
+            track: '#2a4a3e',
+            knob: '#0b1d16',
+            pointer: '#ece5cf',
+            muted: '#93ad99',
+            glow: '#ece5cf',
             font: 'saira-stencil-one',
             labelFont: 'share-tech-mono',
             valueFont: 'share-tech-mono',
           },
-          background: [{ kind: 'color', color: '#0f2a24' }],
+          background: [{ kind: 'color', color: '#12281f' }],
           skins: { meter: { name: 'bar', params: { scale: false } } },
         },
       },
@@ -321,18 +367,18 @@ export function tapeecho(catalog: Catalog) {
         kind: 'canvas',
         name: 'The line',
         code: ECHO_LINE,
-        rect: r(0, 0, 780, 380),
+        rect: r(0, 0, 780, 400),
       }),
       el({
         kind: 'text',
         name: 'Title',
         text: 'ECHO LINE',
-        rect: r(24, 22, 300, 32),
-        textStyle: { font: 'saira-stencil-one', size: 26, color: 'fg', align: 'left' },
+        rect: r(24, 350, 200, 32),
+        textStyle: { font: 'saira-stencil-one', size: 24, color: 'fg', align: 'left' },
       }),
-      // The level going onto tape, in the RECORD station.
-      ...control('vu1', 'ui.meter', 'Onto tape', null, r(156, 200, 64, 10), {
-        style: { tokens: { track: '#2b4a42', accent: '#ff8a3d' } },
+      // The level going onto tape: a gauge in the pipe from IN to RECORD.
+      ...control('vu1', 'ui.meter', 'Onto tape', null, r(146, 196, 64, 8), {
+        style: { tokens: { track: '#2a4a3e', accent: '#ece5cf' } },
       }),
       wire('trim1.out', 'vu1.in'),
     ],
