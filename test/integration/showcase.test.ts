@@ -23,6 +23,7 @@ import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
 import { TIDE_SHORE } from '../../src/screen/showcase/tide.ts';
+import { TONIC_CIRCLE } from '../../src/screen/showcase/tonic.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -1240,6 +1241,60 @@ describe('each work does what its controls say', () => {
     note(`tonic: centroid jawari0 ${plain} Hz, jawari6 ${buzzing} Hz`);
     expect(buzzing).toBeGreaterThan(1.3 * plain);
   }, 120000);
+
+  it('Tonic: the staff takes the pace, the room’s handle the hall, and the tonic in the corner steps to the ends of its range', async () => {
+    const doc = build('tonic');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(TONIC_CIRCLE).toString('base64')}`
+    );
+    const f = {
+      state: {},
+      value: (id: string) => values[id] as number,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    const { STAFF, TONIC } = mod;
+    // The staff dragged right: the plucks waiting spread out, so fewer a minute; nothing else moves.
+    drag((STAFF.lines + STAFF.x1) / 2, (STAFF.top + STAFF.bot) / 2, 24, 0);
+    expect(values.kbpm).toBeCloseTo(60 / (60 / (was.kbpm as number) + 24 / (2 * STAFF.speed)), 6);
+    expect([values.ksa, values.kspace, values.kjaw]).toEqual([was.ksa, was.kspace, was.kjaw]);
+    // The room's handle dragged 21 px out from the gourd (half the room's reach): half a hall more.
+    const h = mod.hallHandle(was.kspace) as { x: number; y: number };
+    const out = {
+      x: (h.x - 262) / Math.hypot(h.x - 262, h.y - 260),
+      y: (h.y - 260) / Math.hypot(h.x - 262, h.y - 260),
+    };
+    drag(h.x, h.y, out.x * 21, out.y * 21);
+    expect(values.kspace).toBeCloseTo((was.kspace as number) + 0.5, 6);
+    // The tonic, a semitone for every 12 px up or down, as far as its range goes: C4 and A2, which the ring cannot reach.
+    const tx = TONIC.x - 40,
+      ty = TONIC.bot - 60;
+    drag(tx, ty, 0, -36);
+    expect(values.ksa).toBe((was.ksa as number) + 3);
+    drag(tx, ty, 0, -400);
+    expect(values.ksa).toBe(60);
+    drag(tx, ty, 0, 400);
+    expect(values.ksa).toBe(45);
+  });
 
   it('Shape Drums: the beat plays along only while it is on', async () => {
     const level = async (on: boolean) => {

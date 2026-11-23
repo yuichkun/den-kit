@@ -13,13 +13,16 @@
 // is the whole tanpura, lying on its side: the gourd carries the ring, its four
 // strings run along the neck to their pegs and shake in time with the plucks
 // heard, the bridge pales up as the drone gets louder (it is the plugin's meter),
-// and Jawari, the pace and the hall are set on the drawing itself (the thread on
-// the strings, the strings, the room round the gourd), each with a card by the
-// hand.
+// and over the neck a practice staff writes each pluck on its note as it is
+// heard. Jawari, the pace and the hall are set on the drawing itself (the thread
+// on the strings, the staff, the room round the gourd), the setting written by
+// the hand, and the tonic stands in the corner as a singer asks for it.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, onlyParams, patchControl, r, wire, workInSteps } from './build.ts';
 
-/** The tanpura lying across the plugin: the gourd is the ring of notes, the four strings run from its bridge along the neck to the pegs; it takes the mouse. */
+/** The letter names round the gourd, C just right of the top (the ring is turned half a step; see the canvas), written in plain letters so every name is in one font. */
+const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+/** The tanpura lying across the plugin, over its neck the practice staff of the plucks, and in the corner the tonic: the gourd is the ring of notes, the four strings run from its bridge along the neck to the pegs; it takes the mouse. */
 export const TONIC_CIRCLE = `// The tanpura, lying on its side. The gourd, on the left, carries a ring of the
 // twelve notes (their letter names are text on the plugin, round the gourd); Sa
 // sits on the tonic (ksa, a MIDI note) and every other note is named from it, Pa
@@ -29,20 +32,42 @@ export const TONIC_CIRCLE = `// The tanpura, lying on its side. The gourd, on th
 // over the nut, to their pegs. A pluck is heard as a jump in the output level:
 // the next string in turn shakes and dies away; between the bridge and the
 // thread (Jawari, kjaw) it buzzes. The bridge is the drone's meter, laid over
-// the canvas: the louder it sounds, the higher the bone pales up it. Press a
-// note to make it Sa; drag the thread
-// along the strings for Jawari, the strings up or down for the pace (kbpm,
-// plucks a minute), the room round the gourd up or down for the hall (kspace),
-// whose rings it draws; each pluck spreads a ring into the room, as far as the
-// hall reaches. The part under the hand shows its setting on a card by it.
+// the canvas: the louder it sounds, the higher the bone pales up it.
+// Over the neck is the practice staff, a line for each note the strings play
+// (Sa; Pa and Sa below, dotted under): each pluck is written on its note's line
+// as it is heard and drifts left as it rings, thinning as it dies, and the next
+// plucks wait to the right of the now line, as far apart as the pace sets them
+// (kbpm, plucks a minute). Each pluck also spreads a ring into the room round
+// the gourd, as far as the hall reaches (kspace); the room's rings are as many
+// as the hall holds, with a handle on the outermost. In the corner is the tonic
+// as a singer asks for it: its note and octave, and its pitch.
+// Press a note to make it Sa; drag the thread along the strings for Jawari, the
+// staff across for the pace (the plucks waiting spread out or close up with the
+// hand), the room in or out for the hall, and the tonic up or down a semitone at
+// a time (it reaches the ends of its range, which the ring does not). The
+// setting under the hand is written by it.
 const CX = 262, CY = 260, DISC = 148, R = 130, SW = R - 26;
 const BX = CX - 72, NUT = 650, END = 744; // the bridge, the nut, the end of the neck
 const YS = [-15, -5, 5, 15], YN = [-8, -2.7, 2.7, 8]; // the strings at the bridge and at the nut, in the order they are plucked
 const PEGS = [672, 716, 738, 694], PEG_SIDE = [-1, -1, 1, 1]; // each string's peg, and on which side: the outer strings to the nearer pegs, so none cross
 const LOW = [true, false, false, true]; // Pa and the last Sa are an octave down
 const THREAD = 64;
-const SWARA = ['Sa', 're', 'Re', 'ga', 'Ga', 'ma', 'Ma’', 'Pa', 'dha', 'Dha', 'ni', 'Ni'];
+const NAMES = ${JSON.stringify(NOTE_NAMES)};
+const SWARA = ['Sa', 're', 'Re', 'ga', 'Ga', 'ma', "Ma'", 'Pa', 'dha', 'Dha', 'ni', 'Ni'];
 const TAU = Math.PI * 2;
+// The practice staff: its lines (Sa, then Pa and Sa below, 8 px a semitone), the now line, and how fast the
+// plucks drift left (px a second).
+export const STAFF = { x0: 480, x1: 736, lines: 516, now: 660, top: 36, bot: 180, sa: 60, speed: 32 };
+const LINE_OF = [STAFF.sa + 5 * 8, STAFF.sa, STAFF.sa, STAFF.sa + 12 * 8]; // each string's line, in the order they are plucked
+// The room round the gourd: its first ring, and how far its rings reach out at a full hall.
+const ROOM = DISC + 36, REACH = 42;
+const HALL_AT = (150 / 360) * TAU; // where the room's handle sits on its outermost ring
+export const hallHandle = space => {
+  const r = ROOM + Math.max(0, Math.min(1, space)) * REACH;
+  return { x: CX + Math.cos(HALL_AT) * r, y: CY + Math.sin(HALL_AT) * r };
+};
+// The tonic in the corner: its right edge, and the box that takes the mouse.
+export const TONIC = { x: 736, left: 548, top: 352, bot: 500 };
 // A note's place on the ring: half a step round from the top, so none sits where the neck leaves.
 const at = (pc, r) => {
   const a = ((pc + 0.5) / 12) * TAU - Math.PI / 2;
@@ -51,34 +76,36 @@ const at = (pc, r) => {
 const noteAt = (x, y) => ((Math.floor(((Math.atan2(y - CY, x - CX) + Math.PI / 2) / TAU) * 12) % 12) + 12) % 12;
 // The neck's half-width at x: it narrows from the gourd to the nut; the pegbox past the nut.
 const neckHalf = x => (x < NUT ? 26 - (4 * (x - (CX + DISC - 12))) / (NUT - CX - DISC + 12) : 22 - (5 * (x - NUT)) / (END - NUT));
+// Where a string meets its peg: at the pegbox's edge, by the peg's stem.
+const tie = i => CY + PEG_SIDE[i] * (neckHalf(PEGS[i]) - 3);
 // A string's height at x (before it shakes): straight from the bridge to the nut, then to its peg.
 function stringY(i, x) {
   if (x <= NUT) return CY + YS[i] + ((YN[i] - YS[i]) * (x - BX)) / (NUT - BX);
-  return CY + YN[i] + ((PEG_SIDE[i] * 12 - YN[i]) * Math.min(1, (x - NUT) / (PEGS[i] - NUT)));
+  return CY + YN[i] + (tie(i) - CY - YN[i]) * Math.min(1, (x - NUT) / (PEGS[i] - NUT));
 }
 const threadX = jaw => BX + 10 + (Math.max(0, Math.min(6, jaw)) / 6) * THREAD;
-// The parts you take hold of: the thread, the strings, the ring of notes, the room round the gourd.
-function zone(x, y, jaw) {
+// The parts you take hold of: the thread, the staff, the tonic, the ring of notes, the room round the gourd.
+export function zone(x, y, jaw) {
   const d = Math.hypot(x - CX, y - CY);
-  if (x > BX - 12 && x < NUT && Math.abs(y - CY) < 26) return Math.abs(x - threadX(jaw)) < 12 ? 'jaw' : 'pace';
-  if (x > CX + DISC - 20 && Math.abs(y - CY) < neckHalf(x) + 6) return 'pace';
+  if (x > BX - 12 && x < NUT && Math.abs(y - CY) < 26 && Math.abs(x - threadX(jaw)) < 12) return 'jaw';
+  if (x >= STAFF.x0 - 8 && x <= STAFF.x1 + 8 && y >= STAFF.top && y <= STAFF.bot) return 'pace';
+  if (x >= TONIC.left && x <= TONIC.x + 8 && y >= TONIC.top && y <= TONIC.bot) return 'tonic';
   if (d > R - 20 && d < R + 22) return 'ring';
-  if (d >= DISC + 18 && !(x > CX && Math.abs(y - CY) < 40)) return 'hall';
+  if (d >= DISC + 18 && d <= ROOM + REACH + 24 && !(x > CX && Math.abs(y - CY) < 40) && !(x >= STAFF.x0 - 8 && y <= STAFF.bot)) return 'hall';
   return null;
 }
-const CURSOR = { pace: 'ns-resize', hall: 'ns-resize', ring: 'pointer', jaw: 'ew-resize' };
-// A card by the hand: bone-white, the gourd's red ink, kept on the plugin.
-function card(ctx, text, x, y, w, h, wine, bone) {
-  ctx.font = '700 13px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  const m = ctx.measureText(text), tw = (typeof m.width === 'number' ? m.width : text.length * 7.4) + 22;
-  const x0 = Math.round(Math.max(6, Math.min(w - tw - 6, x - tw / 2))), y0 = Math.round(Math.max(6, Math.min(h - 32, y - 13)));
-  ctx.fillStyle = bone; ctx.fillRect(x0, y0, Math.round(tw), 26);
-  ctx.strokeStyle = wine; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.75, y0 + 0.75, Math.round(tw) - 1.5, 24.5);
-  ctx.fillStyle = wine; ctx.fillText(text, x0 + 11, y0 + 13.5);
+const CURSOR = { pace: 'ew-resize', hall: 'move', ring: 'pointer', jaw: 'ew-resize', tonic: 'ns-resize' };
+// The setting under the hand, written by it in one colour, cut out of what is behind it (the other).
+function say(ctx, text, x, y, w, ink, behind) {
+  ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  const m = ctx.measureText(text), tw = typeof m.width === 'number' ? m.width : text.length * 7.8;
+  const x0 = Math.round(Math.max(8, Math.min(w - tw - 8, x - tw / 2)));
+  ctx.strokeStyle = behind; ctx.lineWidth = 5; ctx.strokeText(text, x0, Math.round(y) + 0.5);
+  ctx.fillStyle = ink; ctx.fillText(text, x0, Math.round(y) + 0.5);
 }
 export default {
   setup(ctx, f) {
-    Object.assign(f.state, { prev: 0, last: -10, string: 3, amp: [0, 0, 0, 0], rings: [], drag: null });
+    Object.assign(f.state, { prev: 0, last: -10, string: 3, amp: [0, 0, 0, 0], rings: [], plucks: [], drag: null });
   },
   draw(ctx, f) {
     const s = f.state, w = f.w, h = f.h;
@@ -87,31 +114,70 @@ export default {
     const jaw = f.value('kjaw'), hall = f.value('kspace'), bpm = f.value('kbpm');
     ctx.clearRect(0, 0, w, h);
     // A pluck: the output jumps up; the next string in turn shakes.
-    const gap = (60 / Math.max(20, bpm)) * 0.55;
-    if (f.level > s.prev * 1.12 + 0.002 && f.t - s.last > gap) {
+    const gap = 60 / Math.max(20, bpm);
+    if (f.level > s.prev * 1.12 + 0.002 && f.t - s.last > gap * 0.55) {
       s.last = f.t;
       s.string = (s.string + 1) % 4;
       s.amp[s.string] = 1;
       s.rings.push(f.t);
+      s.plucks.push({ t: f.t, i: s.string });
     }
     s.prev = s.prev * 0.9 + f.level * 0.1;
     for (let i = 0; i < 4; i++) s.amp[i] *= Math.exp(-f.dt / 1.4);
     s.rings = s.rings.filter(t0 => f.t - t0 < 3);
+    s.plucks = s.plucks.filter(q => f.t - q.t < (STAFF.now - STAFF.lines + 20) / STAFF.speed);
     const p = f.pointer, under = s.drag || (p && p.over ? zone(p.x, p.y, jaw) : null);
     // The room round the gourd: its rings, thin and apart, more of them the more the hall holds; each pluck sends one out.
+    const reach = ROOM + hall * REACH;
     ctx.strokeStyle = wine;
     ctx.lineWidth = under === 'hall' ? 2 : 1.25;
-    for (let i = 1; i <= Math.round(hall * 6); i++) {
+    const rings = Math.max(1, Math.round(hall * 6));
+    for (let i = 1; i <= rings; i++) {
       ctx.globalAlpha = 0.75 * (1 - i / 8);
-      ctx.beginPath(); ctx.arc(CX, CY, DISC + 36 + i * 7, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, ROOM + ((reach - ROOM) * i) / rings, 0, TAU); ctx.stroke();
     }
     for (const t0 of s.rings) {
       const age = (f.t - t0) / 3;
       ctx.globalAlpha = (1 - age) * (0.25 + 0.6 * hall);
       ctx.lineWidth = 2.5 * (1 - age) + 0.5;
-      ctx.beginPath(); ctx.arc(CX, CY, DISC + 36 + age * 42 * hall, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, ROOM + age * REACH * hall, 0, TAU); ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    // The room's handle, on its outermost ring.
+    const { x: hx, y: hy } = hallHandle(hall);
+    ctx.beginPath(); ctx.arc(hx, hy, under === 'hall' ? 7 : 5.5, 0, TAU);
+    ctx.fillStyle = bone; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = wine; ctx.stroke();
+    // The practice staff: a line for each note the strings play, the plucks written on them as they are heard,
+    // drifting left as they ring; the next ones waiting right of the now line.
+    ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    [[STAFF.sa, 'Sa', false], [LINE_OF[0], 'Pa', true], [LINE_OF[3], 'Sa', true]].forEach(([y, name, low]) => {
+      ctx.fillStyle = wine; ctx.fillText(name, STAFF.x0, y + 1);
+      if (low) { ctx.beginPath(); ctx.arc(STAFF.x0 + 9, y + 13, 2, 0, TAU); ctx.fill(); }
+      ctx.globalAlpha = under === 'pace' ? 0.7 : 0.4; ctx.fillRect(STAFF.lines, Math.round(y) - 0.75, STAFF.x1 - STAFF.lines, 1.5); ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = wine;
+    ctx.fillRect(STAFF.now - 1, STAFF.top + 4, 2, STAFF.bot - STAFF.top - 8);
+    const xAt = t => STAFF.now + (t - f.t) * STAFF.speed;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(STAFF.lines, STAFF.top, STAFF.x1 - STAFF.lines, STAFF.bot - STAFF.top); ctx.clip();
+    for (const q of s.plucks) {
+      const x = xAt(q.t), y = LINE_OF[q.i], age = f.t - q.t, th = (k => 7 * Math.exp(-k / 1.4));
+      // Its ring, from the pluck to now, thinning as it dies.
+      ctx.beginPath();
+      ctx.moveTo(x, y - th(0) / 2);
+      for (let k = 0; k <= 8; k++) { const u = (k / 8) * age; ctx.lineTo(xAt(q.t + u), y - th(u) / 2); }
+      for (let k = 8; k >= 0; k--) { const u = (k / 8) * age; ctx.lineTo(xAt(q.t + u), y + th(u) / 2); }
+      ctx.closePath(); ctx.fillStyle = wine; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.roundRect(x - 7, y - 5, 14, 10, 5); ctx.fillStyle = wine; ctx.fill();
+    }
+    // The next plucks, as the pace sets them.
+    for (let k = 1; k <= 3; k++) {
+      const t = Math.max(s.last, f.t - gap) + k * gap, i = (s.string + k) % 4, x = xAt(t), y = LINE_OF[i];
+      if (x < STAFF.now + 4) continue;
+      ctx.beginPath(); ctx.roundRect(x - 7, y - 5, 14, 10, 5);
+      ctx.lineWidth = under === 'pace' && k === 1 ? 2.5 : 1.5; ctx.strokeStyle = wine; ctx.stroke();
+    }
+    ctx.restore();
     // The neck, behind the gourd: dark wood with a bone inlay along each side; past the nut, the pegbox and its pegs.
     const neck = () => {
       ctx.beginPath();
@@ -195,34 +261,45 @@ export default {
         if (x < tx) dy += a * (0.4 + jaw * 0.4) * (((x / 3) | 0) % 2 ? 1 : -1);
         ctx.lineTo(x, stringY(i, x) + dy);
       }
-      ctx.lineTo(PEGS[i], stringY(i, PEGS[i]));
+      ctx.lineTo(PEGS[i], tie(i));
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
     // The thread: drag it along the strings, away from the bridge, for more buzz.
-    const hot = under === 'jaw', reach = 15 - (7 * (tx - BX)) / (NUT - BX) + 7;
+    const hot = under === 'jaw', treach = 15 - (7 * (tx - BX)) / (NUT - BX) + 7;
     ctx.strokeStyle = field;
     ctx.lineWidth = hot ? 3 : 2;
-    ctx.beginPath(); ctx.moveTo(tx, CY - reach); ctx.lineTo(tx, CY + reach); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx, CY - treach); ctx.lineTo(tx, CY + treach); ctx.stroke();
     ctx.fillStyle = field;
-    for (const ey of [CY - reach, CY + reach]) { ctx.beginPath(); ctx.arc(tx, ey, hot ? 5.5 : 4.5, 0, TAU); ctx.fill(); }
-    // The setting of the part under the hand, on a card by it, clear of the letter names laid over the canvas.
-    if (under === 'jaw') card(ctx, 'jawari ' + jaw.toFixed(1), tx, CY - 62, w, h, wine, bone);
-    else if (under === 'pace' && p) card(ctx, 'plucks ' + Math.round(bpm) + ' a minute', p.x, CY - 62, w, h, wine, bone);
-    else if (under === 'hall' && p) card(ctx, 'hall ' + Math.round(hall * 100) + '%', p.x, p.y - 30, w, h, wine, bone);
-    else if (hover >= 0 && hover !== sa) {
-      const [hx, hy] = at(hover, R - 44);
-      card(ctx, 'make this Sa', hx, hy, w, h, wine, bone);
+    for (const ey of [CY - treach, CY + treach]) { ctx.beginPath(); ctx.arc(tx, ey, hot ? 5.5 : 4.5, 0, TAU); ctx.fill(); }
+    // The tonic, as a singer asks for it: the note and its octave, and its pitch.
+    const midi = Math.round(f.value('ksa')), hz = 440 * Math.pow(2, (midi - 69) / 12);
+    ctx.fillStyle = wine; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    const note = NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+    ctx.font = '800 76px system-ui, sans-serif';
+    ctx.fillText(note, TONIC.x, TONIC.bot - 36);
+    const nm = ctx.measureText(note), nw = typeof nm.width === 'number' ? nm.width : note.length * 46;
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillText('Sa  ' + hz.toFixed(1) + ' Hz', TONIC.x, TONIC.bot - 12);
+    if (under === 'tonic') {
+      // Up or down a semitone: a wedge each way, by the note.
+      const wx = TONIC.x - nw - 18, wy = TONIC.bot - 64;
+      ctx.beginPath(); ctx.moveTo(wx - 7, wy - 10); ctx.lineTo(wx + 7, wy - 10); ctx.lineTo(wx, wy - 20); ctx.closePath();
+      ctx.moveTo(wx - 7, wy + 4); ctx.lineTo(wx + 7, wy + 4); ctx.lineTo(wx, wy + 14); ctx.closePath(); ctx.fill();
     }
+    // The setting under the hand, written by it.
+    if (under === 'jaw') say(ctx, 'Jawari ' + jaw.toFixed(1), tx, CY - 48, w, field, wine);
+    else if (under === 'pace') say(ctx, Math.round(bpm) + ' plucks a minute', (STAFF.lines + STAFF.x1) / 2, STAFF.top - 12, w, wine, field);
+    else if (under === 'hall') say(ctx, 'Hall ' + Math.round(hall * 100) + '%', hx - 34, hy + 22, w, wine, field);
   },
   pointer(e, f) {
     const s = f.state, z = zone(e.x, e.y, f.value('kjaw'));
     if (e.type === 'down') {
       s.drag = z;
-      s.y0 = e.y;
-      s.v0 = z === 'pace' ? f.value('kbpm') : z === 'hall' ? f.value('kspace') : 0;
+      Object.assign(s, { x0: e.x, y0: e.y, d0: Math.hypot(e.x - CX, e.y - CY), v0: z === 'pace' ? 60 / f.value('kbpm') : z === 'hall' ? f.value('kspace') : z === 'tonic' ? Math.round(f.value('ksa')) : 0 });
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = null;
+    if (e.type === 'wheel' && z === 'tonic') f.set('ksa', Math.max(45, Math.min(60, Math.round(f.value('ksa')) - Math.sign(e.dy))));
     if (e.type === 'wheel' && (z === 'pace' || z === 'hall' || z === 'jaw')) {
       const id = z === 'pace' ? 'kbpm' : z === 'hall' ? 'kspace' : 'kjaw', span = z === 'pace' ? 60 : z === 'hall' ? 1 : 6;
       const lo = z === 'pace' ? 30 : 0;
@@ -233,10 +310,17 @@ export default {
         f.set('ksa', 48 + noteAt(e.x, e.y));
       } else if (s.drag === 'jaw') {
         f.set('kjaw', Math.max(0, Math.min(6, ((e.x - BX - 10) / THREAD) * 6)));
-      } else if (s.drag === 'pace') {
-        f.set('kbpm', Math.max(30, Math.min(90, s.v0 + (s.y0 - e.y) * 0.25)));
-      } else if (s.drag === 'hall') {
-        f.set('kspace', Math.max(0, Math.min(1, s.v0 + (s.y0 - e.y) / 200)));
+      } else if (s.drag === 'pace' && e.type === 'move') {
+        // The plucks waiting spread out with the hand, the second of them under it: half the hand's travel, at the
+        // staff's speed, is added to the time between plucks.
+        const gap = s.v0 + (e.x - s.x0) / (2 * STAFF.speed);
+        f.set('kbpm', Math.max(30, Math.min(90, 60 / Math.max(0.1, gap))));
+      } else if (s.drag === 'tonic' && e.type === 'move') {
+        // Up or down, a semitone for every 12 px the hand travels.
+        f.set('ksa', Math.max(45, Math.min(60, Math.round(s.v0 + (s.y0 - e.y) / 12))));
+      } else if (s.drag === 'hall' && e.type === 'move') {
+        // In or out from the gourd: the outermost ring follows the hand.
+        f.set('kspace', Math.max(0, Math.min(1, s.v0 + (Math.hypot(e.x - CX, e.y - CY) - s.d0) / REACH)));
       }
     }
     f.cursor(s.drag ? CURSOR[s.drag] : z ? CURSOR[z] : 'default');
@@ -244,8 +328,6 @@ export default {
 };
 `;
 
-/** The letter names round the gourd, C just right of the top (the ring is turned half a step; see the canvas), written in plain letters so every name is in one font. */
-const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 /** Where the canvas draws the ring (its CX, CY), and how far out the names stand. */
 const CENTRE = { x: 262, y: 260 };
 /** The bridge's top-left corner on the plugin (the canvas's BX − 7, CY − 26). */
@@ -415,8 +497,8 @@ export function tonic(catalog: Catalog) {
           kind: 'text',
           name: 'Title',
           text: 'Tonic',
-          rect: r(22, 10, 150, 66),
-          textStyle: { font: 'kalam', size: 54, weight: 700, color: 'fg', align: 'left' },
+          rect: r(24, 16, 120, 44),
+          textStyle: { font: 'kalam', size: 34, weight: 700, color: 'fg', align: 'left' },
         }),
         ...NOTE_NAMES.map((name, pc) => {
           const a = ((pc + 0.5) / 12) * Math.PI * 2 - Math.PI / 2;
