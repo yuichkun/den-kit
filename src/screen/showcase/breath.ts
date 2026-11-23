@@ -66,29 +66,29 @@ function lit(phi, t) {
 function layout(w, h, hall) { const FL = Math.round(h * 0.58 - 36 * hall); return { cx: w / 2, FL, BY: FL + 104, EYE: FL - 30 }; }
 /** How wide and tall the form is, for how full the breath is (b) and how deep (d). */
 function sizeOf(b, d) { const k = (b - 0.5) * 2 * d; return { k, W: 424 - 44 * k, H: 228 + 88 * k }; }
+/** How wide the form is (1 at the floor) z up its height (0 the floor, 1 its crown): walls that rise steeply, and a round crown. */
+const across = z => Math.sqrt(Math.max(0, 1 - z * z * z));
 /** The form's outline: a soft dome over its base, the front edge bulging toward you. */
-function outline(ctx, cx, by, W, H, sc, ox, oy) {
+function outline(ctx, cx, by, W, H) {
   ctx.beginPath();
-  for (let i = 0; i <= 56; i++) {
-    const t = Math.PI - (i / 56) * Math.PI, c = Math.cos(t), s = Math.sin(t);
-    const x = cx + ox + (W / 2) * sc * Math.sign(c) * Math.pow(Math.abs(c), 0.75), y = by + oy - H * sc * Math.pow(s, 0.8);
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  for (let i = -28; i <= 28; i++) {
+    const t = Math.abs(i) / 28, z = 1 - t * t;
+    const x = cx + Math.sign(i) * (W / 2) * across(z), y = by - H * z;
+    if (i > -28) ctx.lineTo(x, y); else ctx.moveTo(x, y);
   }
-  ctx.quadraticCurveTo(cx + ox, by + oy + 24 * sc, cx + ox - (W / 2) * sc, by + oy);
+  ctx.quadraticCurveTo(cx, by + 24, cx - W / 2, by);
   ctx.closePath();
 }
 /** Whether a point is on the form. */
 function onForm(x, y, cx, by, W, H) {
   const u = (x - cx) / (W / 2);
   if (Math.abs(u) > 1) return false;
-  const c = Math.pow(Math.abs(u), 1 / 0.75), top = by - H * Math.pow(Math.sqrt(Math.max(0, 1 - c * c)), 0.8);
-  return y >= top && y <= by + 24 * (1 - u * u) * 0.5;
+  return y >= by - H * Math.cbrt(1 - u * u) && y <= by + 12 * (1 - u * u);
 }
-/** A point on a seam: u across the form (−1 its left side, 1 its right), t from its top (0) to the floor (1). */
+/** A point on a seam: u across the form (−1 its left side, 1 its right), t from the crown (0), where the seams meet, to the floor (1). */
 function seamAt(cx, by, W, H, u, t) {
-  const a = 1 - t, x0 = cx + u * W * 0.1, y0 = by - H * 0.99, x1 = cx + u * W * 0.48, y1 = by - H * 0.78;
-  const x2 = cx + u * W * 0.5, y2 = by + 22 * (1 - Math.min(1, u * u));
-  return [a * a * x0 + 2 * a * t * x1 + t * t * x2, a * a * y0 + 2 * a * t * y1 + t * t * y2];
+  const z = 1 - t * t;
+  return [cx + u * (W / 2) * across(z), by - H * z + 12 * (1 - Math.min(1, u * u)) * t * t];
 }
 const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const rgb = c => 'rgb(' + c.map(Math.round).join(',') + ')';
@@ -182,7 +182,7 @@ export default {
     // more as it goes taut, and pinched at its seams); then down the form, shade where it meets the floor, and its
     // crown, where the panels meet, all in one light.
     ctx.save();
-    outline(ctx, cx, BY, W, H, 1, 0, 0); ctx.fillStyle = rgb(tone(0.3)); ctx.fill(); ctx.clip();
+    outline(ctx, cx, BY, W, H); ctx.fillStyle = rgb(tone(0.3)); ctx.fill(); ctx.clip();
     const puff = 0.3 + 0.25 * clamp(k, 0, 1);
     for (let j = 0; j < SEAMS.length - 1; j++) {
       const ua = SEAMS[j], ub = SEAMS[j + 1];
