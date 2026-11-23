@@ -35,7 +35,7 @@ export const MAT = {
   groove: '#d77ba4',
   light: '#ffc8de',
 };
-/** The floor beside the mat: painted boards running up the screen, their joints a shade darker, the ends of their lengths on the lines of the mat's seams. */
+/** The floor beside the mat: painted boards running the whole height of the screen, the joints between them a shade darker. */
 const FLOOR = { x: 3 * MAT.tile, color: '#c42f6c', joint: '#ad2860' };
 /** The middle of the middle tile, where the Beat sits. */
 const MID = { x: 1.5 * MAT.tile, y: 1.5 * MAT.tile };
@@ -615,13 +615,10 @@ function matSvg(): string {
     X1 = 3 * T,
     board = (W - FLOOR.x) / 3;
   const out: string[] = [];
-  // The floor: three boards running up beside the mat, the ends of their lengths staggered on the lines of the mat's seams.
-  for (let k = 0; k < 3; k++) {
-    const x = (FLOOR.x + k * board).toFixed(1),
-      x1 = (FLOOR.x + (k + 1) * board).toFixed(1),
-      y = ((k % 2 ? 1 : 2) * T).toFixed(1);
-    if (k) out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
-    out.push(`<path d="M${x} ${y} H${x1}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
+  // The floor: three long boards running up beside the mat, a joint between each two.
+  for (let k = 1; k < 3; k++) {
+    const x = (FLOOR.x + k * board).toFixed(1);
+    out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
   }
   // The mat, its tiles running off the top, left and bottom, its straight right edge lying on the boards.
   out.push(`<rect x="0" y="0" width="${FLOOR.x}" height="${H}" fill="${MAT.color}"/>`);
