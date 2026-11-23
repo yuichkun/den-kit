@@ -53,7 +53,7 @@ const SANS = 'system-ui, sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, mo
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lanesBottom = () => L.top + N * L.lane;
 const placeOf = k => (k / (N - 1)) * 2 - 1;
-const fx = hz => SPEC.x0 + (Math.log(clamp(hz, FMIN, FMAX) / FMIN) / Math.log(FMAX / FMIN)) * (SPEC.x1 - SPEC.x0);
+export const fx = hz => SPEC.x0 + (Math.log(clamp(hz, FMIN, FMAX) / FMIN) / Math.log(FMAX / FMIN)) * (SPEC.x1 - SPEC.x0);
 const xf = x => FMIN * Math.pow(FMAX / FMIN, clamp((x - SPEC.x0) / (SPEC.x1 - SPEC.x0), 0, 1));
 // Where Release lets go of the note, and where the sound has gone (log time: 20 ms to 4 s).
 const relX = rel => L.x0 + AMP.off + 10 + (Math.log(rel / 0.02) / Math.log(200)) * AMP.rel;
@@ -74,13 +74,14 @@ function where(x, y) {
   if (y >= SPEC.top - 6 && x >= SPEC.x0 - 12 && x < SPEC.x1 + 12) return { id: 'kcut', kind: 'filter' };
   return null;
 }
-// In the amp lane, the release mark (across) or the hall's tail (up and down); in the filter band, the nearer cursor.
+// In the amp lane, the release mark (across) or the hall's tail (up and down); in the filter band, the nearer
+// cursor (b is never left of a, so where they meet, the right of the line is b's).
 function pick(t, x, f) {
   if (!t) return null;
   if (t.kind === 'amp') return x < relX(f.value('krel')) + 24 ? { ...t, id: 'krel' } : { ...t, id: 'kspace' };
   if (t.kind === 'filter') {
     const a = fx(f.value('kcut')), b = fx(f.value('kcut') * Math.pow(2, f.value('kenv')));
-    return Math.abs(x - b) < Math.abs(x - a) && b - a > 3 ? { ...t, id: 'kenv' } : { ...t, id: 'kcut' };
+    return x > (a + b) / 2 ? { ...t, id: 'kenv' } : { ...t, id: 'kcut' };
   }
   return t;
 }

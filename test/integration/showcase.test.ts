@@ -20,6 +20,7 @@ import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
 import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
 import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
 import { FIELD } from '../../src/screen/showcase/rain.ts';
+import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -185,6 +186,66 @@ describe('showcase works', () => {
           f.t += 1 / 60;
           part.draw(ctx, f);
         }
+      }
+    });
+
+    it(`${w.id}: canvases draw and follow the hand anywhere on them, with the work's own values`, async () => {
+      const doc = w.build(catalog);
+      const values: Record<string, unknown> = {};
+      for (const n of Object.values(doc.nodes))
+        if (n.values && 'value' in n.values) values[n.id] = n.values.value;
+      for (const el of Object.values(doc.ui.elements)) {
+        if (el.kind !== 'canvas') continue;
+        const mod = await import(
+          `data:text/javascript;base64,${Buffer.from(el.code).toString('base64')}`
+        );
+        const part = typeof mod.default === 'function' ? { draw: mod.default } : mod.default;
+        const ctx = fakeCanvas();
+        const pointer = {
+          x: 0,
+          y: 0,
+          over: true,
+          down: false,
+          shift: false,
+          alt: false,
+          meta: false,
+        };
+        // The controls read the way the canvas worker gives them: f.value is a number (a switch 1 or 0).
+        const f = {
+          t: 1,
+          dt: 1 / 60,
+          w: el.rect.w,
+          h: el.rect.h,
+          level: 0.2,
+          peak: 0.4,
+          wave: new Float32Array(256).map((_, i) => 0.5 * Math.sin(i / 10)),
+          spectrum: new Float32Array(64).fill(0.5),
+          props: el.props,
+          state: {},
+          pointer,
+          value: (id: string) => {
+            const v = values[id];
+            return typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : 0;
+          },
+          norm: () => 0.5,
+          xy: () => ({ x: 0.3, y: 0.6 }),
+          on: (id: string) => values[id] === true || (values[id] as number) >= 0.5,
+          color: () => '#ff00ff',
+          range: () => ({ min: 0, max: 1, log: false, unit: '' }),
+          set: () => {},
+          setNorm: () => {},
+          cursor: () => {},
+        };
+        part.setup?.(ctx, f);
+        for (let y = 0; y < el.rect.h; y += 12)
+          for (let x = 0; x < el.rect.w; x += 12) {
+            Object.assign(pointer, { x, y });
+            part.pointer?.(
+              { type: 'move', x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+              f,
+            );
+            part.draw(ctx, f);
+          }
       }
     });
   }
@@ -600,6 +661,41 @@ describe('each work does what its controls say', () => {
     );
     expect(shown).toHaveLength(7);
     shown.forEach((v, k) => expect(v, `copy ${k + 1}`).toBeCloseTo(played[k]!, 2));
+  });
+
+  it("Septet: with Env at 0 its cursor b still takes a drag, from the right of Cutoff's line", async () => {
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = { kcut: 900, kenv: 0, krel: 0.5, kspace: 0.22 };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    /** A drag across the filter band from x. */
+    const drag = (x: number, dx: number) => {
+      for (const [type, at] of [
+        ['down', x],
+        ['move', x + dx],
+        ['up', x + dx],
+      ] as const)
+        lanes.default.pointer(
+          { type, x: at, y: 480, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const a = lanes.fx(900) as number;
+    drag(a + 2, 40);
+    expect(values.kenv).toBeGreaterThan(0.25);
+    expect(values.kcut).toBe(900);
+    drag(a - 2, 40); // left of the line: Cutoff
+    expect(values.kcut).toBeGreaterThan(900);
   });
 
   it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {

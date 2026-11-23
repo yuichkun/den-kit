@@ -1,9 +1,9 @@
 // The showcase works with parts through the real UI: Rain Field, opened from the
-// start screen, rains by itself (one Drop part ×16); dragging the Drop's Rain
-// figure on the field plays all sixteen copies without recompiling, each still
-// moved by its own spread. Septet plays a held note through seven saws per
-// voice; dragging across its lanes moves the Saw part's Detune, live too. Both
-// pass the plugin check in the browser.
+// start screen, rains by itself (one Drop part ×16); dragging up on the drops'
+// patch on the field moves the Drop's Rain for all sixteen copies without
+// recompiling, each still moved by its own spread. Septet plays a held note
+// through seven saws per voice; dragging across its lanes moves the Saw part's
+// Detune, live too. Both pass the plugin check in the browser.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
@@ -62,7 +62,7 @@ describe('the showcase works with parts', () => {
       rain,
     );
     const started = await compiles(page);
-    await dragOnPlugin(page, 50, 408, 0, -40); // the Rain figure, bottom left of the field
+    await dragOnPlugin(page, 390, 232, 0, -40); // the drops' patch, right of their stake
     const after = await page.evaluate(
       id => (window as any).__kit.doc.value.nodes[id].values.value,
       rain,
