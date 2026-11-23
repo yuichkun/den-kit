@@ -487,13 +487,14 @@ export default {
     // nearest the thing that keeps off the other things and the name (failing that, off the name only).
     if (!hot || !p) return;
     const v = id => SET[id].show(f.value(id));
-    let lines, ax = p.x, above = p.y - 40, below = p.y + 30, side = { x0: p.x - 14, x1: p.x + 14, y: p.y }, skip = -1;
+    let lines, ax = p.x, above = p.y - 40, below = p.y + 30, side = { x0: p.x - 14, x1: p.x + 14, y: p.y }, skip = -1, own = null;
     if (hot.kind === 'source') {
       const k = hot.k, b = boxOf(L, f, k), near = Math.round(clamp(f.value(LAYERS[k].level), 0, 1) * 100);
       lines = [LAYERS[k].name, near + '% near, ' + (f.on(LAYERS[k].back) ? 'behind you' : 'in front')];
       const y0 = k === 0 ? Math.min(b.y0, at[0].y - PY * 1.1) : b.y0, y1 = k === 0 ? Math.max(b.y1, at[0].y + PY * 1.1) : b.y1;
       const x0 = k === 0 ? Math.min(b.x0, at[0].x - PX * 1.1) : b.x0, x1 = k === 0 ? Math.max(b.x1, at[0].x + PX * 1.1) : b.x1;
       ax = (b.x0 + b.x1) / 2; above = y0 - 26; below = y1 + 18; side = { x0, x1, y: (y0 + y1) / 2 }; skip = k;
+      own = { x0, y0, x1, y1, thing: b };
     } else if (hot.kind === 'room') {
       const g = toGround(L, p.x, p.y), d = Math.hypot(g.x, g.z) || 1, q = toScreen(L, (g.x / d) * 0.8, (g.z / d) * 0.8);
       lines = ['The wood’s echo', v('kroom') + ' ↕'];
@@ -522,6 +523,20 @@ export default {
     for (const dy of [0, 34, 68, 102]) for (const dx of [0, -80, 80, -160, 160]) tries.push([ax + dx, above - dy], [ax + dx, below + dy]);
     tries.sort((a, b) => Math.hypot(a[0] - ax, a[1] - side.y) - Math.hypot(b[0] - ax, b[1] - side.y));
     const [wx, wy] = tries.find(([x, y]) => fits(x, y, true)) || tries.find(([x, y]) => fits(x, y, false)) || [ax, above];
+    // Where the words could only sit nearer another thing than the one they name, a thin line edged in the grass's
+    // green runs from them to it, ending on it in a dot.
+    if (own) {
+      const b = { x0: wx - wide / 2 - 6, x1: wx + wide / 2 + 6, y0: wy - 15, y1: wy + tall - 10 };
+      const gap = o => Math.hypot(Math.max(0, o.x0 - b.x1, b.x0 - o.x1), Math.max(0, o.y0 - b.y1, b.y0 - o.y1));
+      if (keep.slice(0, -1).some(o => gap(o) < gap(own))) {
+        const t = own.thing, sx = clamp((t.x0 + t.x1) / 2, b.x0 + 16, b.x1 - 16), sy = clamp((t.y0 + t.y1) / 2, b.y0, b.y1);
+        const ex = clamp(sx, t.x0 + 4, t.x1 - 4), ey = clamp(sy, t.y0 + 4, t.y1 - 4);
+        ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey);
+        ctx.strokeStyle = GROUND; ctx.lineWidth = 4.5; ctx.stroke();
+        ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineCap = 'butt';
+        ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(ex, ey, 2.5, 0, TAU); ctx.fill();
+      }
+    }
     words(ctx, lines, wx, wy, w);
   },
   pointer(e, f) {
