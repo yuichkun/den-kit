@@ -24,21 +24,21 @@ describe('kit_get_plugin', () => {
     const doc = findWork('breath')!.build(catalog);
     const text = describePlugin(doc, catalog);
     expect(text).toContain('760×500 px');
-    expect(text).toMatch(/Look tokens: bg #e9e3f7, fg #231a4f, accent #231a4f/);
-    expect(text).toMatch(/Look background \(bottom first\): colour #e9e3f7 \| linear 180°/);
+    expect(text).toMatch(/Look tokens: bg #1b1534, fg #ece6f8, accent #b7a6ee/);
+    expect(text).toContain('Look background (bottom first): colour #1b1534.');
     expect(text).toContain('Look skins: meter bar (look).');
-    // Back to front: the level meter, the field (a canvas), the title.
-    const order = ['"id":"mlevel"', '"id":"canvas1"', '"text":"exhale"'].map(s => text.indexOf(s));
+    // Back to front: the gallery (a canvas), then the level meter, the slit of light in its wall.
+    const order = ['"id":"canvas1"', '"id":"mlevel"'].map(s => text.indexOf(s));
     expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
     expect(text).toMatch(
-      /"id":"mlevel","control":"meter","label":"Level","panel":\{"x":346,"y":232,"w":68,"h":2\},"skin":"bar \(look\)"/,
+      /"id":"mlevel","control":"meter","label":"Light through the slit","panel":\{"x":92,"y":24,"w":6,"h":214\},"skin":"bar \(own: fill \\"#fbf8ff\\", surface \\"#c7bbef\\", scale false\)"/,
     );
     expect(text).toMatch(
       /"id":"kwarm","control":"knob","label":"Warmth",.*?"value":"520 Hz","range":"200 Hz … 1\.60 kHz \(log\)","drives":\["→ cut1\.hz"\]/,
     );
     expect(text).toContain('whole code: kit_get_plugin {\\"canvas\\":\\"canvas1\\"}');
     expect(text).toContain('Assets in this patch: none.');
-    // A look with a picture and skin settings: the picture is listed under the look and the assets.
+    // A look with layers, a picture on top, and skin settings: the layers bottom first, the picture under the look and the assets.
     const pictured = applyIntents(
       doc,
       [
@@ -46,7 +46,18 @@ describe('kit_get_plugin', () => {
         {
           op: 'setLook',
           look: {
-            background: [{ kind: 'image', asset: 'assets/den-kit/starfield.jpg', fit: 'cover' }],
+            background: [
+              { kind: 'color', color: '#101020' },
+              {
+                kind: 'linear',
+                angle: 180,
+                stops: [
+                  { color: '#000000', at: 0 },
+                  { color: '#00000000', at: 1 },
+                ],
+              },
+              { kind: 'image', asset: 'assets/den-kit/starfield.jpg', fit: 'cover' },
+            ],
             skins: { slider: { name: 'bar', params: { radius: 3, label: 'top' } } },
           },
         },
@@ -55,7 +66,7 @@ describe('kit_get_plugin', () => {
     ).doc;
     const withPicture = describePlugin(pictured, catalog);
     expect(withPicture).toMatch(
-      /Look background \(bottom first\): picture assets\/den-kit\/starfield\.jpg cover/,
+      /Look background \(bottom first\): colour #101020 \| linear 180° .* \| picture assets\/den-kit\/starfield\.jpg cover/,
     );
     expect(withPicture).toContain('slider bar (look: radius 3, label "top")');
     expect(withPicture).toMatch(
@@ -277,7 +288,7 @@ describe('the design brief, hand edits, ready looks, pictures', () => {
     );
     const c = tx(
       { kind: 'ai-llm', take: 't1' },
-      [{ op: 'updateElement', id: 'text1', set: { text: 'Exhale II' } }],
+      [{ op: 'updateElement', id: 'canvas1', set: { name: 'The gallery II' } }],
       b.doc,
     );
     const d = tx(
