@@ -13,10 +13,17 @@ const versions = ctx.spec.versions;
 const index = computed(() => versions.findIndex(v => v.id === ctx.state.version));
 const newest = computed(() => (index.value < versions.length - 1 ? versions.at(-1)! : null));
 const fingerprint = computed(() => ctx.active.value?.fingerprint ?? '…');
-const samples = computed<Array<{ name: string; setting: Setting }>>(() => [
-  ...ctx.state.kept.map(k => ({ name: k.name, setting: k.setting })),
-  ...ctx.spec.points.map(p => ({ name: p.name, setting: p.values })),
-]);
+const samples = computed<Array<{ key: string; name: string; kept: boolean; setting: Setting }>>(
+  () => [
+    ...ctx.state.kept.map(k => ({ key: k.id, name: k.name, kept: true, setting: k.setting })),
+    ...ctx.spec.points.map(p => ({
+      key: `point:${p.name}`,
+      name: p.name,
+      kept: false,
+      setting: p.values,
+    })),
+  ],
+);
 
 async function use(id: string) {
   if (ctx.readonly) return;
@@ -64,8 +71,11 @@ async function listen(setting: Setting, version: string) {
       </ul>
       <h3>The same setting on each version</h3>
       <table>
-        <tr v-for="s in samples" :key="s.name">
-          <th class="as-written">{{ s.name }}</th>
+        <tr v-for="s in samples" :key="s.key">
+          <th>
+            <span class="as-written">{{ s.name }}</span>
+            <span class="kind">{{ s.kept ? 'kept' : "the author's" }}</span>
+          </th>
           <td v-for="v in versions" :key="v.id">
             <button type="button" class="small" @click="listen(s.setting, v.id)">
               {{ v.id }}
@@ -155,6 +165,11 @@ th {
   text-align: left;
   font-weight: 400;
   padding: 2px 8px 2px 0;
+}
+.kind {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 td {
   padding: 2px;

@@ -21,10 +21,15 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 const controls = computed(() => build.value?.controls ?? []);
 const base = computed(() => settingAt(points, controls.value, pos.value.x, pos.value.y));
-const setting = computed(() =>
-  applyCondition(controls.value, base.value, options[gait.value] ?? options[0]!),
+const condition = computed(() => options[gait.value] ?? options[0]!);
+const setting = computed(() => applyCondition(controls.value, base.value, condition.value));
+// The author's range under the gait chosen: their places, moved the way they said the gait moves them.
+const range = computed(() =>
+  pointRange(
+    points.map(p => ({ ...p, values: applyCondition(controls.value, p.values, condition.value) })),
+    controls.value,
+  ),
 );
-const range = computed(() => pointRange(points, controls.value));
 const near = computed(() => nearest(points, pos.value.x, pos.value.y));
 const keptHere = computed(() => ctx.state.kept.filter(k => k.from === 'map' && k.pos));
 
@@ -235,7 +240,7 @@ onBeforeUnmount(() => {
           <span class="value">{{ show(c, setting[c.id]!) }}</span>
         </li>
       </ul>
-      <p class="legend"><span class="swatch" /> the range the author's places give</p>
+      <p class="legend"><span class="swatch" /> the author's range, {{ condition.name }}</p>
       <button
         v-if="!ctx.readonly"
         type="button"
