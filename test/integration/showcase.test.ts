@@ -1121,7 +1121,7 @@ describe('each work does what its controls say', () => {
     expect(high).toBeGreaterThan(1.3 * low);
   }, 120000);
 
-  it('Tide Bells: the hour is dragged along the ribbon on the quay or by the sun, Bells on a bell, Bay on a headland, Sea and Waves on the water', async () => {
+  it('Tide Bells: the hour is dragged along the tide board or by the sun, Bells on a bell, Bay on a headland, Sea and Waves on the water', async () => {
     const doc = build('tide');
     const shore = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
     const code = await import(
@@ -1168,41 +1168,34 @@ describe('each work does what its controls say', () => {
           f,
         );
     };
-    // The ribbon on the quay runs from 0 h at x 236 to 24 h at 24 px from the right edge.
-    const rx = (hour: number) => 236 + (hour / 24) * (shore.rect.w - 24 - 236);
-    drag(rx(12), shore.rect.h - 20, 0, 0);
+    const L = code.layout(f);
+    // Along the tide board's chart of the day: the hour under the hand.
+    drag(L.CX(12), L.C.y0 + 12, 0, 0);
     expect(values.khour).toBeCloseTo(12, 1);
-    // The sun stands over the hour: dragged across, it carries the hour along.
-    drag(rx(12), 222 - 6 - 150, rx(18) - rx(12), 0);
+    // The sun stands at the hour: dragged across, it carries the hour along.
+    const sun = code.skyBody(12, L);
+    drag(sun.x, sun.y, L.SX(18) - L.SX(12), 0);
     expect(values.khour).toBeCloseTo(18, 1);
+    // The rest of the board takes no drag.
+    drag(L.B.x0 + 20, L.B.y0 + 50, 0, -40);
+    expect(values).toMatchObject({ khour: 18, kbells: 0.5 });
     // The third bell's post, up: Bells rises; nothing else moves.
-    drag(140 + 2 * 92 + 24, 400, 0, -40);
+    drag(L.PX(2), L.TOP(2) + 20, 0, -40);
     expect(values.kbells).toBeCloseTo(0.75, 2);
     // The left headland, up: Bay rises (the bay closes in).
     drag(40, 205, 0, -32);
     expect(values.kbay).toBeCloseTo(0.55, 2);
-    // The water between the posts: up for Sea, across for Waves.
-    drag(380, 450, 0, -32);
+    // The open water between the board and the first post: up for Sea, across for Waves.
+    drag(244, 500, 0, -32);
     expect(values.ksea).toBeCloseTo(0.8, 2);
-    drag(380, 450, 64, 0);
+    drag(244, 500, 64, 0);
     expect(values.kwaves).toBeCloseTo(6.5 + 0.4 * 9, 2);
     expect(values.kbells).toBeCloseTo(0.75, 2);
     expect(values.kbay).toBeCloseTo(0.55, 2);
     expect(values.khour).toBeCloseTo(18, 1);
-    // The scope of the bells lies on the horizon, where the canvas leaves it open
-    // (the canvas starts a pixel above and left of the plugin, so its pixels are one more).
-    const [y, x0, x1] = String(shore.props?.horizon).split(' ').map(Number);
+    // The canvas starts a pixel above and left of the plugin, edge to edge, and is the plugin's only part.
     expect(shore.rect).toMatchObject({ x: -1, y: -1 });
-    expect(doc.nodes.horizon1).toMatchObject({
-      type: 'ui.scope',
-      panel: { x: x0! - 1, y: y! - 1 - 14, w: x1! - x0!, h: 28 },
-    });
-    expect(Object.values(doc.edges)).toContainEqual(
-      expect.objectContaining({
-        from: { node: 'belllvl1', port: 'out' },
-        to: { node: 'horizon1', port: 'in' },
-      }),
-    );
+    expect(Object.values(doc.nodes).filter(n => n.panel)).toEqual([]);
   });
 
   it('Exhale: plays by itself and breathes: the level swells and settles with each breath, as deep as Depth says', async () => {
