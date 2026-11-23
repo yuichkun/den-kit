@@ -162,18 +162,18 @@ export default {
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, css(top)); g.addColorStop(1, css(low));
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    // The day: the tide over 24 hours, the water under it to the bottom edge.
-    ctx.beginPath(); ctx.moveTo(0, h);
-    for (let x = 0; x <= shore; x += 3) ctx.lineTo(x, Y(tide(((x - L) / (R - L)) * 24)));
-    ctx.lineTo(shore, h); ctx.closePath();
+    // The day: the tide over 24 hours, the water under it to the bottom edge. It
+    // ends at 24:00, short of the shore, so the two read as two drawings side by side.
+    const day24 = () => { for (let x = 0; x < R; x += 3) ctx.lineTo(x, Y(tide(((x - L) / (R - L)) * 24))); ctx.lineTo(R, Y(tide(24))); };
+    ctx.beginPath(); ctx.moveTo(0, h); day24();
+    ctx.lineTo(R, h); ctx.closePath();
     ctx.fillStyle = css(water); ctx.globalAlpha = 0.62; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= shore; x += 3) ctx.lineTo(x, Y(tide(((x - L) / (R - L)) * 24)));
+    ctx.beginPath(); day24();
     ctx.strokeStyle = ink2; ctx.lineWidth = 2; ctx.stroke();
     // The day's sky along the bottom edge: night at both ends; the hours above it.
-    for (let x = 0; x < shore; x += 2) { ctx.fillStyle = css(skyAt(((x - L) / (R - L)) * 24)[0]); ctx.fillRect(x, h - 7, 2, 7); }
+    for (let x = 0; x < R; x += 2) { ctx.fillStyle = css(skyAt(((x - L) / (R - L)) * 24)[0]); ctx.fillRect(x, h - 7, Math.min(2, R - x), 7); }
     ctx.fillStyle = '#f4f7fb'; ctx.font = '500 11px ' + FONT; ctx.globalAlpha = 0.9;
-    for (const hr of [0, 6, 12, 18, 24]) { ctx.textAlign = hr === 0 ? 'left' : hr === 24 ? 'right' : 'center'; ctx.fillText(two(hr) + ':00', hr === 0 ? 4 : hr === 24 ? R + 12 : X(hr), h - 15); }
+    for (const hr of [0, 6, 12, 18, 24]) { ctx.textAlign = hr === 0 ? 'left' : hr === 24 ? 'right' : 'center'; ctx.fillText(two(hr) + ':00', hr === 0 ? 4 : hr === 24 ? R : X(hr), h - 15); }
     ctx.globalAlpha = 1;
     // Highs and lows, all of them, the same way.
     const now = tide(hour), x = X(hour);
@@ -220,10 +220,8 @@ export default {
       }
       ctx.globalAlpha = 1;
     });
-    // The water on the shore at the tide, fading in from the day; the waves wash up the slope to where they reach now.
-    const fade = ctx.createLinearGradient(shore, 0, shore + 70, 0);
-    fade.addColorStop(0, 'rgba(' + water.join(',') + ',0.4)'); fade.addColorStop(1, 'rgba(' + water.join(',') + ',0.78)');
-    ctx.fillStyle = fade;
+    // The water on the shore at the tide, one even wash; the waves wash up the slope to where they reach now.
+    ctx.fillStyle = 'rgba(' + water.join(',') + ',0.78)';
     ctx.beginPath(); ctx.moveTo(shore, h);
     for (let wx = shore; wx <= w; wx += 3) ctx.lineTo(wx, Y(now) + Math.sin(wx * 0.09 - f.t * 2.2) * 2);
     ctx.lineTo(w, h); ctx.closePath(); ctx.fill();

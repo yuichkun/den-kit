@@ -102,6 +102,8 @@ export const ECHOES_NOW = `// What the echoes are doing now, worked out from the
 // Left: you, live. Then the echoes of the last thing you played, spaced at
 // the repeat time on a 1.6 s road, each Feedback quieter; the amber part of
 // each is how far it is giving way now. The dashed line is When louder than.
+// The scale runs from -60 dB to 10 dB above When louder than, so the bars use
+// the height; anything louder reaches the top.
 const FLOOR = -60, SPAN = 1.6, MAXK = 12;
 const at = (hist, t) => {
   for (let i = hist.length - 1; i >= 0; i--) if (hist[i][0] <= t) return hist[i][1];
@@ -132,7 +134,8 @@ export default {
     while (s.hist.length && s.hist[0][0] < f.t - MAXK * T - 0.5) s.hist.shift();
     s.peak = Math.max(db, s.peak - f.dt * 6);
     const w = f.w, h = f.h, base = h - 14, top = 6;
-    const yOf = v => base - (Math.max(0, Math.min(-FLOOR, v - FLOOR)) / -FLOOR) * (base - top);
+    const ceil = Math.min(0, thresh + 10);
+    const yOf = v => base - (Math.max(0, Math.min(ceil - FLOOR, v - FLOOR)) / (ceil - FLOOR)) * (base - top);
     const fg = f.color('fg'), track = f.color('track');
     ctx.clearRect(0, 0, w, h);
     // The road: the ground line and a tick every half second.
