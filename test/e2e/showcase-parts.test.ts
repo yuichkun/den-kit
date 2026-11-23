@@ -36,10 +36,12 @@ const faceKnob = (page: Page, use: string, param: string): Promise<string> =>
       ).from.node,
     [use, param] as const,
   );
-/** Drags on the playing plugin from (x, y) by (dx, dy), in the panel's own pixels. */
+/** Drags on the playing plugin from (x, y) by (dx, dy), in the panel's own pixels, once its canvas takes the mouse. */
 async function dragOnPlugin(page: Page, x: number, y: number, dx: number, dy: number) {
   const panel = page.locator('[data-testid=plugin-window] [data-testid=panel]');
   await panel.waitFor();
+  // The canvas starts when the plugin view opens and takes the mouse once its worker has loaded the code.
+  await page.waitForSelector('[data-testid=plugin-window] .canvas-box[data-interactive]');
   const b = (await panel.boundingBox())!;
   const k = b.width / (await kit(page, k => k.doc.value.panel.width));
   await page.mouse.move(b.x + x * k, b.y + y * k);
