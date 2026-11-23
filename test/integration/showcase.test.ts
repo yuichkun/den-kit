@@ -949,8 +949,8 @@ describe('each work does what its controls say', () => {
     expect(values).toEqual({ kdrive: 2.2, tsq: false });
     drag(el.rect.w * 0.625, 40, 0, 0);
     expect(values).toEqual({ kdrive: 2.2, tsq: true });
-    // The graph from its top (30) to its foot (8 above the bottom) is all of Drive's travel, 1 to 8.
-    const travel = el.rect.h - 8 - 30;
+    // The graph from its top (30) to its foot (12 above the bottom) is all of Drive's travel, 1 to 8.
+    const travel = el.rect.h - 12 - 30;
     drag(el.rect.w * 0.625, 60, 0, -20);
     expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
     drag(el.rect.w * 0.625, 60, -el.rect.w * 0.5, 0);

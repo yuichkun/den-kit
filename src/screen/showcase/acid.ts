@@ -10,12 +10,22 @@
 // inside the hill are the sound's last moments of spectrum, so what the hill lets
 // through is seen in what plays. Three octaves of bass keys lie along the hill's
 // foot, each under its own pitch on the hill's frequency axis, so a played key is
-// where its note's first ridge rises and the summit shows which notes it passes.
-// The hill's three settings are set in figures under the keys. Beside them,
-// three small graphs drawn in line carry the rest: each note's filter envelope,
-// the glide between notes, and the wave (saw or square) with Drive.
+// where its note's first ridge rises and the summit shows which notes it passes;
+// every C has a tick on the ground, and right of the keys the octaves are named
+// under it, so keys and names read as one axis. The hill's three settings are set
+// in figures under the keys, with the title under them at the foot, like a map's.
+// Beside them, three small graphs drawn in line, sharing their top and their
+// ground, carry the rest: each note's filter envelope, the glide between notes,
+// and the wave (saw or square) with Drive.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
+
+/** The hill's frequency axis, A0 to 12 kHz: it puts the C1 key on the plugin's left margin. */
+const AXIS = { lo: 27.5, hi: 12000 };
+/** The C of each octave, C1 to C9 (Hz): the keys show C1 to C4, the names under the hill the rest. */
+const C = (octave: number) => 32.703 * 2 ** (octave - 1);
+/** The plugin's left margin: the title, the C1 key and the figures start there. */
+const MARGIN = 16;
 
 /** What every Contour graph shares (canvas code): the handle (one kind on every graph), the plate by the hand, a graph's name. */
 const PARTS = `const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -57,11 +67,12 @@ export const FILTER_HILL = `// The filter as a hill: the ladder's response, draw
 // summit comes to the hand. Drag the dot across, or scroll: Sweep. A handle
 // moves as far as the hand does, so pressing one changes nothing, even where it
 // is held at the edge of the graph; where the dot meets the summit, the right
-// of it is the dot's. While the hand is on a handle, small arrows by it show
-// the ways it moves; the values are the figures under the hill. Across, the
-// graph runs from 30 Hz to 12 kHz (LO, HI); the keys under it are laid on that
-// axis.
-export const LO = 30, HI = 12000;
+// of it is the dot's. The dot is named "sweep" beside it. While the hand is on
+// a handle, small arrows by it show the ways it moves; the values are the
+// figures under the hill. Across, the graph runs from A0 to 12 kHz (LO, HI);
+// the keys under it are laid on that axis, and every C stands on the ground
+// as a short tick.
+export const LO = ${AXIS.lo}, HI = ${AXIS.hi};
 const TOP = 30, BOTTOM = -40, PAD = 28, ROWS = 18, GAP = 12;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const xOf = (hz, w) => (Math.log(hz / LO) / Math.log(HI / LO)) * w;
@@ -120,16 +131,24 @@ function zone(x, y, m) {
   if (dOpen < 16 && x > (m.ox + m.px) / 2) return 'open';
   return dPeak < 44 ? 'peak' : '';
 }
-/** Small arrowheads round a handle, r from its middle: left and right, and up and down too; rimmed in paper, so they show on the hill. */
+/** Small arrowheads round a handle, r from its middle: left and right, and up and down too. Each is solid against what is behind it: ink on the paper, paper on the hill (the one pointing down). */
 function arrows(ctx, x, y, r, both, ink, paper) {
-  ctx.fillStyle = ink; ctx.strokeStyle = paper; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  ctx.lineWidth = 3; ctx.lineJoin = 'round';
   for (const [dx, dy] of both ? [[1, 0], [-1, 0], [0, 1], [0, -1]] : [[1, 0], [-1, 0]]) {
-    const tx = x + dx * r, ty = y + dy * r;
+    const tx = x + dx * r, ty = y + dy * r, onHill = dy > 0;
+    ctx.fillStyle = onHill ? paper : ink; ctx.strokeStyle = onHill ? ink : paper;
     ctx.beginPath();
     ctx.moveTo(tx + dx * 5, ty + dy * 5);
     ctx.lineTo(tx - dy * 5, ty + dx * 5);
     ctx.lineTo(tx + dy * 5, ty - dx * 5);
     ctx.closePath(); ctx.stroke(); ctx.fill();
+  }
+}
+/** A short tick on the ground at every C, C1 to C9 (added to the current path). */
+function ticks(ctx, w, h) {
+  for (let n = 1; n <= 9; n++) {
+    const x = Math.round(xOf(32.703 * Math.pow(2, n - 1), w)) + 0.5;
+    ctx.moveTo(x, h); ctx.lineTo(x, h - 7);
   }
 }
 ${PARTS}
@@ -167,6 +186,13 @@ export default {
     ctx.globalAlpha = 1;
     // The hill's edge, drawn over the ends of the lines so the slope stays clean.
     ctx.beginPath(); hill(ctx, w, h, m.fc, m.k); ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+    // The axis: a tick at every C, ink on the paper and paper on the hill.
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ticks(ctx, w, h); ctx.stroke();
+    ctx.save();
+    ctx.beginPath(); hill(ctx, w, h, m.fc, m.k); ctx.clip();
+    ctx.strokeStyle = paper; ctx.beginPath(); ticks(ctx, w, h); ctx.stroke();
+    ctx.restore();
     // Where each note opens it: dashed where it stands above the hill, down to the ground.
     ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = ink;
     let on = false;
@@ -185,6 +211,11 @@ export default {
     ring(ctx, m.ox, m.y, hot === 'open' ? 11 : 8, paper, ink);
     if (hot === 'peak') arrows(ctx, m.px, m.y, 21, true, ink, paper);
     if (hot === 'open') arrows(ctx, m.ox, m.y, 16, false, ink, paper);
+    // The dot's name above it (kept inside the graph), unless the summit's arrows are there.
+    if (hot !== 'peak' || m.ox - m.px > 40) {
+      ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = ink; ctx.fillText('sweep', clamp(m.ox, 22, w - 22), m.y - 16);
+    }
   },
   pointer(e, f) {
     const s = f.state, m = marks(f), at = zone(e.x, e.y, m);
@@ -219,7 +250,7 @@ export const ENVELOPE_GRAPH = `// Each note's filter envelope, drawn in line: it
 const TMAX = 1.2, OMAX = 6, LEFT = 2, RIGHT = 12;
 ${PARTS}
 function frame(f) {
-  const base = f.h - 12, top = 26;
+  const base = f.h - 12, top = 30;
   return {
     base, top,
     xT: t => LEFT + Math.sqrt(Math.max(0, t) / TMAX) * (f.w - LEFT - RIGHT),
@@ -267,8 +298,9 @@ export default {
 
 /** Glide as the pitch's slope from one note to the next, in line; it takes the mouse. */
 export const GLIDE_GRAPH = `// Glide (kglide): how long a note slides to the next, drawn as the pitch's
-// path: a low note, the slide up, the next note. Drag across it: the longer the slope, the
-// slower the slide.
+// path: a low note on the ground, the slide up, the next note at the top (the
+// three small graphs share their top and their ground). Drag across it: the
+// longer the slope, the slower the slide.
 const GMAX = 0.3, X0 = 34, RIGHT = 34;
 ${PARTS}
 export default {
@@ -282,7 +314,7 @@ export default {
     ctx.clearRect(0, 0, w, h);
     name(ctx, 'glide', muted);
     // The pitch's path alone: a line, no fill (the graphs with an area fill it).
-    ctx.fillStyle = track; ctx.fillRect(0, lo + 8, w, 2);
+    ctx.fillStyle = track; ctx.fillRect(0, lo, w, 2);
     ctx.beginPath();
     ctx.moveTo(1, lo); ctx.lineTo(X0, lo); ctx.lineTo(x1, hi); ctx.lineTo(w - 1, hi);
     ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.strokeStyle = ink; ctx.stroke();
@@ -310,7 +342,7 @@ export const WAVE_GRAPH = `// The wave into the filter: two cycles of saw, or of
 const DMAX = 8;
 ${PARTS}
 function frame(f) {
-  const top = 30, base = f.h - 8;
+  const top = 30, base = f.h - 12;
   return { top, base, mid: (top + base) / 2, amp: (base - top) / 2 - 1 };
 }
 export default {
@@ -353,20 +385,21 @@ export default {
 };
 `;
 
-/** The hill across the plugin; its frequency axis runs from 30 Hz to 12 kHz (as LO and HI in its code). */
+/** The hill across the plugin, on the frequency axis AXIS. */
 const HILL = { x: 0, y: 0, w: 760, h: 352 };
 /** Where a frequency stands across the hill. */
-const across = (hz: number) => (Math.log(hz / 30) / Math.log(12000 / 30)) * HILL.w;
+const across = (hz: number) => (Math.log(hz / AXIS.lo) / Math.log(AXIS.hi / AXIS.lo)) * HILL.w;
 /**
  * The keys along the hill's foot, C1 to C4: an octave of seven white keys spans
  * an octave of the axis, and each C stands under its own pitch (a C key's middle
  * at the C's frequency).
  */
 const KEYS = (() => {
-  const octave = across(60) - across(30),
-    key = octave / 7;
-  return { x: across(32.703) - key / 2, w: key * 22, octaves: 3, start: 24 };
+  const key = (across(C(2)) - across(C(1))) / 7;
+  return { x: across(C(1)) - key / 2, w: key * 22, octaves: 3, start: 24 };
 })();
+/** The small graphs under the hill, right of the figures: each note, glide, wave. */
+const GRAPHS = { y: 376, h: 116 };
 
 export function acid(catalog: Catalog) {
   /** One of the hill's settings in figures under the keys: its name, then its value (text bound to it). */
@@ -375,7 +408,7 @@ export function acid(catalog: Catalog) {
       kind: 'text',
       name: `${label} name`,
       text: label,
-      rect: r(x, 412, 96, 14),
+      rect: r(x, 408, 96, 14),
       textStyle: { size: 11, weight: 700, color: 'muted', align: 'left' },
     }),
     el({
@@ -383,10 +416,19 @@ export function acid(catalog: Catalog) {
       name: `${label} value`,
       text: '{value}',
       bind,
-      rect: r(x, 428, 96, 24),
+      rect: r(x, 424, 96, 24),
       textStyle: { size: 19, weight: 700, color: 'fg', align: 'left', spacing: -0.01 },
     }),
   ];
+  /** The name of an octave's C under its tick on the hill's ground, right of the keys (the keys name C1 to C4). */
+  const octaveName = (octave: number) =>
+    el({
+      kind: 'text',
+      name: `C${octave}`,
+      text: `C${octave}`,
+      rect: r(across(C(octave)) - 14, HILL.h + 4, 28, 12),
+      textStyle: { size: 10, weight: 400, color: 'muted', align: 'center' },
+    });
   return work(
     'acid',
     'Contour',
@@ -478,29 +520,41 @@ export function acid(catalog: Catalog) {
         code: FILTER_HILL,
         rect: r(HILL.x, HILL.y, HILL.w, HILL.h),
       }),
-      el({
-        kind: 'text',
-        name: 'Title',
-        text: 'Contour',
-        rect: r(16, 12, 160, 22),
-        textStyle: { size: 17, weight: 700, color: 'accent', align: 'left', spacing: -0.01 },
-      }),
       ...control('keys1', 'ui.keyboard', 'Keys', null, r(KEYS.x, HILL.h, KEYS.w, 46), {
         style: {
           skin: { name: 'piano', params: { octaves: KEYS.octaves, start: KEYS.start } },
         },
       }),
-      ...figure('cutoff', 'kcut', 8),
-      ...figure('resonance', 'kres', 104),
-      ...figure('sweep', 'kenv', 200),
+      ...[5, 6, 7, 8, 9].map(octaveName),
+      ...figure('cutoff', 'kcut', MARGIN),
+      ...figure('resonance', 'kres', MARGIN + 96),
+      ...figure('sweep', 'kenv', MARGIN + 192),
+      // The title at the foot, like a map's: under the figures, on the left margin.
+      el({
+        kind: 'text',
+        name: 'Title',
+        text: 'Contour',
+        rect: r(MARGIN, 462, 160, 22),
+        textStyle: { size: 17, weight: 700, color: 'accent', align: 'left', spacing: -0.01 },
+      }),
       el({
         kind: 'canvas',
         name: 'Each note',
         code: ENVELOPE_GRAPH,
-        rect: r(328, 368, 132, 120),
+        rect: r(328, GRAPHS.y, 132, GRAPHS.h),
       }),
-      el({ kind: 'canvas', name: 'Glide', code: GLIDE_GRAPH, rect: r(476, 368, 132, 120) }),
-      el({ kind: 'canvas', name: 'Wave', code: WAVE_GRAPH, rect: r(624, 368, 128, 120) }),
+      el({
+        kind: 'canvas',
+        name: 'Glide',
+        code: GLIDE_GRAPH,
+        rect: r(476, GRAPHS.y, 132, GRAPHS.h),
+      }),
+      el({
+        kind: 'canvas',
+        name: 'Wave',
+        code: WAVE_GRAPH,
+        rect: r(624, GRAPHS.y, 128, GRAPHS.h),
+      }),
     ],
   );
 }
