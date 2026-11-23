@@ -489,6 +489,21 @@ function boundsOf(shape: Shape) {
     ys = pts.map(p => p[1]);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
+/**
+ * How big a drum looks for each box unit of its side: the mean of the square roots of its face's area and of the
+ * area of the box round it, so a disc counts by its face and a star or a half moon by how far it reaches too.
+ */
+function looks(shape: Shape): number {
+  const pts = outlineOf(shape),
+    b = boundsOf(shape);
+  let twice = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i]!,
+      [x2, y2] = pts[(i + 1) % pts.length]!;
+    twice += x1 * y2 - x2 * y1;
+  }
+  return (Math.sqrt(Math.abs(twice) / 2) + Math.sqrt((b.x1 - b.x0) * (b.y1 - b.y0))) / 2 / 100;
+}
 const channels = (c: string) =>
   [0, 1, 2].map(i => parseInt(c.slice(1 + i * 2, 3 + i * 2), 16) / 255);
 const hex = (rgb: number[]) =>
@@ -640,26 +655,34 @@ function matSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${out.join('')}</svg>`;
 }
 
+/** How big the lowest drum looks (in px, see `looks`), and how much smaller a drum looks for each semitone up. */
+const SIZE = { note: 48, px: 124, perSemitone: 3.125 };
 /**
  * One drum on each outer tile of the mat (column, row), centred on it with its
  * shadow: the lowest notes, biggest, on the bottom row, the highest, smallest,
- * on the top, rising left to right. `s` is the side of the drum's square box.
+ * on the top, rising left to right. `size` is how big the drum looks, the same
+ * step smaller for each semitone up; `s` is the side of its square box.
  */
 export const DRUMS = [
-  { shape: 0, note: 48, color: '#2c45cf', tile: [0, 2], s: 159 },
-  { shape: 1, note: 50, color: '#ff4b2b', tile: [1, 2], s: 148 },
-  { shape: 2, note: 52, color: '#ffc531', tile: [2, 2], s: 140 },
-  { shape: 4, note: 55, color: '#12a594', tile: [0, 1], s: 134 },
-  { shape: 5, note: 57, color: '#fff3df', tile: [2, 1], s: 125 },
-  { shape: 3, note: 60, color: '#3d1446', tile: [0, 0], s: 119 },
-  { shape: 6, note: 62, color: '#ff8a1e', tile: [1, 0], s: 112 },
-  { shape: 7, note: 64, color: '#49b6f4', tile: [2, 0], s: 106 },
+  { shape: 0, note: 48, color: '#2c45cf', tile: [0, 2] },
+  { shape: 1, note: 50, color: '#ff4b2b', tile: [1, 2] },
+  { shape: 2, note: 52, color: '#ffc531', tile: [2, 2] },
+  { shape: 4, note: 55, color: '#12a594', tile: [0, 1] },
+  { shape: 5, note: 57, color: '#fff3df', tile: [2, 1] },
+  { shape: 3, note: 60, color: '#3d1446', tile: [0, 0] },
+  { shape: 6, note: 62, color: '#ff8a1e', tile: [1, 0] },
+  { shape: 7, note: 64, color: '#49b6f4', tile: [2, 0] },
 ].map(d => {
-  const b = boundsOf(SHAPES[d.shape]!),
-    k = d.s / 100,
+  const shape = SHAPES[d.shape]!,
+    size = SIZE.px - SIZE.perSemitone * (d.note - SIZE.note),
+    s = size / looks(shape),
+    b = boundsOf(shape),
+    k = s / 100,
     [col, row] = d.tile as [number, number];
   return {
     ...d,
+    size,
+    s,
     x: (col + 0.5) * MAT.tile - ((b.x0 + b.x1) / 2) * k,
     y: (row + 0.5) * MAT.tile - SHADOW.dy / 2 - ((b.y0 + b.y1) / 2) * k,
   };

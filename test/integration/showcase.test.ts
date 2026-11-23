@@ -1492,8 +1492,8 @@ describe('each work does what its controls say', () => {
       .sort((a, b) => b.tile[1] - a.tile[1] || a.tile[0] - b.tile[0])
       .map(p => p.note);
     expect(read).toEqual([...read].sort((a, b) => a - b));
-    // Size is pitch: the lower the note, the bigger the drum.
-    const sizes = [...TOY_DRUMS].sort((a, b) => a.note - b.note).map(d => d.s);
+    // Size is pitch: the lower the note, the bigger the drum looks.
+    const sizes = [...TOY_DRUMS].sort((a, b) => a.note - b.note).map(d => d.size);
     for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeLessThan(sizes[i - 1]!);
   });
 
