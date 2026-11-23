@@ -1,6 +1,8 @@
-// `vp run dev`: the local AI bridge (127.0.0.1:5181) and the Vite dev server
-// for the editor (127.0.0.1:5180), in one process. The bridge starts first and the
-// page receives its per-launch token through virtual:kit-bridge.
+// `vp run dev`: the local AI bridge (127.0.0.1:5181), the share server for links to
+// works (127.0.0.1:5182, dev/share-server.ts) and the Vite dev server for the editor
+// (127.0.0.1:5180), in one process. The bridge starts first and the page receives its
+// per-launch token through virtual:kit-bridge, and the share server's address through
+// virtual:kit-share.
 import { createServer } from 'vite';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +12,13 @@ import { createBridge } from '../bridge/server.ts';
 import { Telemetry } from '../bridge/telemetry.ts';
 import { CodexClient } from '../bridge/codex/client.ts';
 import { SandboxServer } from '../desktop/sandbox.ts';
+import { ShareServer } from '../dev/share-server.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 loadEnvFile(join(root, '.env'));
 const port = Number(process.env.KIT_PORT ?? 5180);
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
+const sharePort = Number(process.env.KIT_SHARE_PORT ?? 5182);
 
 const telemetry = new Telemetry(join(root, '.logs'));
 /** The development host's sandbox: a browser cannot add the secret header, and its contents stay in the page. */
@@ -62,6 +66,24 @@ try {
 process.env.KIT_BRIDGE_TOKEN = bridge.token;
 process.env.KIT_BRIDGE_PORT = String(bridge.port);
 
+// Links work without it: the editor offers no sharing when the share server cannot start.
+const share = new ShareServer({
+  port: sharePort,
+  editor: `http://127.0.0.1:${port}`,
+  store: join(root, '.share'),
+  log: line => console.log(`  [${line.split(':')[0]}] ${line.slice(line.indexOf(':') + 2)}`),
+});
+try {
+  process.env.KIT_SHARE_URL = await share.start();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    /EADDRINUSE/.test(message)
+      ? `Share port ${sharePort} is busy; sharing is off. Run with KIT_SHARE_PORT=5192 vp run dev to turn it on.`
+      : `Could not start the share server (sharing is off): ${message}`,
+  );
+}
+
 try {
   const server = await createServer({
     root,
@@ -73,6 +95,10 @@ try {
     `\n  den-kit  →  ${server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${port}/`}\n  (Chrome recommended; audio must run at 48 kHz)`,
   );
   console.log(`  AI bridge → 127.0.0.1:${bridge.port}  ·  logs .logs`);
+  if (process.env.KIT_SHARE_URL)
+    console.log(
+      `  Links → ${process.env.KIT_SHARE_URL}  ·  lab ${process.env.KIT_SHARE_URL}/lab  ·  kept in .share`,
+    );
   // The pod boots in the page (BrowserPod runs in the browser tab); its key goes to the page.
   console.log(
     `  Pod → ${process.env.BROWSERPOD_API_KEY ? `BrowserPod, key ${maskSecret(process.env.BROWSERPOD_API_KEY)} (starts in the page when a work needs it)` : 'off (put BROWSERPOD_API_KEY in .env to give the AI a pod: bash, git, Node, npm)'}`,
@@ -101,13 +127,13 @@ try {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    await Promise.allSettled([server.close(), bridge.close()]);
+    await Promise.allSettled([server.close(), bridge.close(), share.close()]);
     process.exit(0);
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 } catch (error) {
-  await bridge.close();
+  await Promise.allSettled([bridge.close(), share.close()]);
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     /EADDRINUSE|already in use/i.test(message)

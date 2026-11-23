@@ -4,6 +4,7 @@
 // messages and the commands that fix the setup.
 import bridgeConfig from 'virtual:kit-bridge';
 import podConfig from 'virtual:kit-pod';
+import shareConfig from 'virtual:kit-share';
 import type { Host, PodFactory } from '../src/host/index.ts';
 import { startEditor } from '../src/editor/start.ts';
 import { BridgeClient } from '../desktop/page/bridge-client.ts';
@@ -11,6 +12,7 @@ import { browserStorage } from '../desktop/page/storage.ts';
 import { developerWording } from './ai-wording.ts';
 import { tabCapture } from './tab-capture.ts';
 import { devSandbox } from './sandbox.ts';
+import { devPublish } from './publish.ts';
 
 // A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
 if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator)
@@ -56,6 +58,8 @@ const host: Host = {
   screenCapture: tabCapture(),
   consent: null,
   lifecycle: null,
+  // Links from the share server that `dev` starts (none without it, as in the e2e harness).
+  publish: shareConfig.url ? devPublish(shareConfig.url) : null,
 };
 const session = await startEditor(host, {
   mount: '#app',

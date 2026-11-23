@@ -21,6 +21,7 @@ import StartScreen from './StartScreen.vue';
 import PluginInspector from './plugin/PluginInspector.vue';
 import CanvasEditor from './plugin/CanvasEditor.vue';
 import Settings from './Settings.vue';
+import ShareDialog from './share/ShareDialog.vue';
 
 const props = defineProps<{
   session: KitSession;
@@ -58,6 +59,9 @@ const starting = ref(!!props.firstRun);
 const account = session.host?.ai?.account ?? null;
 const lifecycle = session.host?.lifecycle ?? null;
 const settingsOpen = ref(false);
+/** Links to the work, where the host can make them. */
+const publish = session.host?.publish ?? null;
+const shareOpen = ref(false);
 const stopHost: Array<() => void> = [];
 const openSettings = () => {
   settingsOpen.value = true;
@@ -391,6 +395,16 @@ async function importPatch(e: Event) {
           <hr />
           <button @click="fileInput?.click()">Import…</button>
           <button @click="exportPatch">Export</button>
+          <button
+            v-if="publish"
+            data-testid="menu-share"
+            @click="
+              menu = false;
+              shareOpen = true;
+            "
+          >
+            Share…
+          </button>
         </div>
         <input
           ref="fileInput"
@@ -546,6 +560,12 @@ async function importPatch(e: Event) {
       :account="account"
       :lifecycle="lifecycle"
       @close="settingsOpen = false"
+    />
+    <ShareDialog
+      v-if="shareOpen && publish"
+      :session="session"
+      :publish="publish"
+      @close="shareOpen = false"
     />
     <CanvasEditor
       v-if="editingCanvas && session.doc.value.ui.elements[editingCanvas]"

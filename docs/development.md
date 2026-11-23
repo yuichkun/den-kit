@@ -55,6 +55,7 @@ Development settings in a local `.env` file:
 | `KIT_CODEX_EFFORT` | Set a reasoning effort supported by the selected model. |
 | `KIT_PORT`         | Editor port; defaults to `5180`.                        |
 | `KIT_BRIDGE_PORT`  | Local AI bridge port; defaults to `5181`.               |
+| `KIT_SHARE_PORT`   | Share server port; defaults to `5182`.                  |
 | `KIT_CODEX`        | `off` runs without the AI.                              |
 | `KIT_CODEX_HOME`   | Use another Codex home, such as `~/.codex`.             |
 | `KIT_CODEX_BIN`    | Run another Codex binary than the pinned one.           |
@@ -72,6 +73,13 @@ access. BrowserPod also supplies the AI's project environment.
 Code parts load from each work's own address on the AI bridge's port
 (`http://<work id>.localhost:5181`), and show only while the project runs; the
 header of `dev/sandbox.ts` says why.
+
+### Links to works
+
+`vp run dev` also starts a share server (`127.0.0.1:5182`, `dev/share-server.ts`): Patch →
+Share… in the editor makes links to the open work, which it keeps in `.share/` (delete the
+folder to start over). Its lab at [http://127.0.0.1:5182/lab](http://127.0.0.1:5182/lab)
+shows the links as chat apps would preview them; real apps cannot reach `127.0.0.1`.
 
 Keep `.env` and credentials out of version control. The development server
 passes the BrowserPod key to the local page; a regular `vp run build` excludes

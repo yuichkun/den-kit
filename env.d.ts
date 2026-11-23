@@ -15,6 +15,10 @@ declare module 'virtual:kit-pod' {
   const pod: { apiKey: string | null; fakeUrl: string | null };
   export default pod;
 }
+declare module 'virtual:kit-share' {
+  const share: { url: string | null };
+  export default share;
+}
 declare module 'virtual:kit-types' {
   const snapshot: import('./src/sound/compile/type-project.ts').TypeFiles;
   export default snapshot;

@@ -22,7 +22,7 @@ const ALLOWED: Record<string, readonly string[]> = {
 };
 const MODULES = Object.keys(ALLOWED);
 /** Packages only a host may use: the desktop app's runtime, and the dev host's configuration. */
-const HOST_ONLY = [/^electron(\/|$)/, /^node:/, /^virtual:kit-(bridge|pod)$/];
+const HOST_ONLY = [/^electron(\/|$)/, /^node:/, /^virtual:kit-(bridge|pod|share)$/];
 
 function files(dir: string): string[] {
   if (!existsSync(dir)) return [];

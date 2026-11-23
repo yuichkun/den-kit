@@ -28,6 +28,8 @@ export interface Host {
   consent: Consent | null;
   /** Updates, quitting and restarting, or null when the host does not manage them. */
   lifecycle: Lifecycle | null;
+  /** Links that open a work's playable build on the web, or null when the host cannot make them. */
+  publish: Publish | null;
 }
 
 /** Text records by key (keys are den-kit's own), and the contents of work files by hash. */
@@ -154,4 +156,80 @@ export interface Lifecycle {
   onShowSettings(listener: () => void): () => void;
   /** Work to finish before the host quits or restarts, such as saving. */
   beforeQuit(task: () => Promise<void>): () => void;
+}
+
+/**
+ * Who a link is for: listed where anyone can find it, only people who have the link, or one
+ * person (a link of its own, stopped on its own).
+ */
+export type Reach = 'public' | 'link' | 'person';
+/**
+ * What a link shows before it is opened, to everyone where it is pasted: the plain page title,
+ * a poster of the work, a wrapping that shows the title (outer) or only who it is from (inner),
+ * or the poster with a clip of the work's sound.
+ */
+export type Outside = 'plain' | 'poster' | 'outer' | 'inner' | 'sound';
+/** What a link says about the work: the outside's words and pictures, and what only the person who opens it sees. */
+export interface LinkFace {
+  outside: Outside;
+  reach: Reach;
+  title: string;
+  /** One line about the work, by the person who shares it. */
+  line: string;
+  /** Who shares it, as they want to be named. */
+  from: string;
+  kind: 'Instrument' | 'Effect';
+  /** The work's accent, for the edge of a preview where an app draws one. */
+  color: string;
+  /** The outside's picture (PNG, 1200 × 630); null for the plain outside. */
+  image: Uint8Array | null;
+  /** A clip of the work's sound with the poster (the sound outside). */
+  clip: { bytes: Uint8Array; type: string; seconds: number } | null;
+  /** Shown only after the link is opened: who it is for (one person) and a note. */
+  to: string;
+  note: string;
+}
+/**
+ * A work as links know it: its id and its name. A window keeps its work's id when the person starts
+ * another work there (New…), so the name tells those works apart.
+ */
+export interface WorkRef {
+  id: string;
+  name: string;
+}
+export interface PublishedLink {
+  id: string;
+  url: string;
+  work: string;
+  name: string;
+  face: Omit<LinkFace, 'image' | 'clip'> & { hasClip: boolean };
+  created: number;
+  stopped: boolean;
+  /** Previews fetched by apps, opens and plays (counts only). */
+  counts: { previews: number; opens: number; plays: number };
+}
+/** A link as an app that unfurls it reads its page: what a preview can show. */
+export interface LinkPreview {
+  url: string;
+  site: string;
+  title: string;
+  description: string;
+  image: string | null;
+  color: string | null;
+  video: { url: string; type: string } | null;
+  card: string | null;
+  /** og:type: an app that plays a link's video in place asks for a video type. */
+  type: string | null;
+  robots: string | null;
+}
+export interface Publish {
+  /** Put the work's playable build behind a new link with this face. */
+  create(work: WorkRef, build: Record<string, Uint8Array>, face: LinkFace): Promise<PublishedLink>;
+  /** How a link with this face would unfurl, without making one. */
+  preview(face: LinkFace): Promise<LinkPreview>;
+  links(work: WorkRef): Promise<PublishedLink[]>;
+  /** Stop a link: it opens nothing any more; previews already pasted stay where they are. */
+  stop(link: string): Promise<void>;
+  /** A page that shows this host's links as chat apps would preview them, or null. */
+  readonly lab: string | null;
 }

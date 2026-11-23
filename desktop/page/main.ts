@@ -95,6 +95,7 @@ const host: Host = {
   screenCapture: windowCapture(rect => shell.capturePage(rect)),
   consent: null,
   lifecycle,
+  publish: null,
 };
 // Checks open the page with ?noStart to begin on the starter instead of the start screen.
 const session = await startEditor(host, {

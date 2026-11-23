@@ -5,7 +5,9 @@
 // player's own state (the sound follows it), never the work's record. The sound
 // starts when the person clicks; the computer keys and MIDI play notes. The code
 // parts come from their own origin, named by ?parts=: never from the player's
-// origin, where they could reach the player.
+// origin, where they could reach the player. Served behind a shared link, the
+// page asks for the link's inside (inside.json next to it) and shows it first
+// (Arrival.vue), and says when the sound started (played), for the link's counts.
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
 import { AudioEngine } from '../sound/audio-engine.ts';
@@ -13,6 +15,7 @@ import { currentAssets, currentValues, generate, type Generated } from '../sound
 import type { Artifact } from '../sound/compile/protocol.ts';
 import type { AssetLoad } from '../sound/assets.ts';
 import PluginWindow from '../screen/PluginWindow.vue';
+import Arrival, { type Inside } from './Arrival.vue';
 import { pluginSpec } from '../screen/build.ts';
 import { POD, type CodePartSource } from '../screen/code-frames.ts';
 import { computerKeys } from '../screen/computer-keys.ts';
@@ -33,6 +36,8 @@ const message = ref('');
 const doc = shallowRef<PatchDocument | null>(null);
 const generated = shallowRef<Generated | null>(null);
 const held = ref<number[]>([]);
+/** The shared link's inside, when the page is opened from one. */
+const inside = shallowRef<Inside | null>(null);
 let artifact: Artifact | null = null;
 const engine = new AudioEngine({
   state: (s, text) => {
@@ -53,6 +58,13 @@ const parts: CodePartSource = {
 };
 provide(POD, parts);
 
+/** The link's inside shows until the sound starts (a plain link shows the page as it is). */
+const arriving = computed(
+  () =>
+    !!inside.value &&
+    inside.value.outside !== 'plain' &&
+    (state.value === 'ready' || state.value === 'starting'),
+);
 const spec = computed(() =>
   doc.value && generated.value ? pluginSpec(doc.value, catalog, generated.value) : null,
 );
@@ -69,6 +81,13 @@ const analyser = (probe: number) =>
   probe >= 0 ? (engine.probeAnalysers[probe] ?? null) : engine.outAnalyser;
 
 onMounted(async () => {
+  const shared = fetch('inside.json', { cache: 'no-store' })
+    .then(r =>
+      r.ok && (r.headers.get('content-type') ?? '').includes('json')
+        ? (r.json() as Promise<Inside>)
+        : null,
+    )
+    .catch(() => null);
   try {
     const manifest = readPlayableManifest(await (await fetch(PLAYABLE_MANIFEST)).json());
     if ('error' in manifest) throw new Error(manifest.error);
@@ -95,6 +114,7 @@ onMounted(async () => {
       partsMessage.value = manifest.parts
         ? `serve the build's ${PARTS_FOLDER} folder from another origin and open this page with ?parts= and its address.`
         : 'this build has no code parts.';
+    inside.value = await shared;
     state.value = 'ready';
   } catch (error) {
     state.value = 'failed';
@@ -161,6 +181,8 @@ async function start() {
       assets: loads(),
     });
     state.value = 'playing';
+    if (inside.value)
+      void fetch('played', { method: 'POST', keepalive: true }).catch(() => undefined);
   } catch (error) {
     state.value = 'failed';
     message.value = error instanceof Error ? error.message : String(error);
@@ -238,8 +260,15 @@ onBeforeUnmount(() => {
       @change="change"
       @note="note"
     />
+    <Arrival
+      v-if="spec && arriving"
+      :inside="inside!"
+      :vars="spec.vars"
+      :starting="state === 'starting'"
+      @play="start"
+    />
     <button
-      v-if="state === 'ready' || state === 'starting'"
+      v-else-if="state === 'ready' || state === 'starting'"
       type="button"
       class="start"
       data-testid="player-start"

@@ -1,0 +1,657 @@
+<!doctype html>
+<!--
+  The share server's lab (/lab, share-server.ts): every link it serves, as four kinds of chat
+  app would show it when pasted. What a preview holds (title, description, picture, color,
+  video) is what the server's unfurler read in the link's page head, as apps read it without
+  running the page; how it is laid out is this page's own drawing of each kind of app.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Link preview lab · den-kit</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #16171a;
+        --panel: #1e2024;
+        --line: #33363c;
+        --text: #e6e6e6;
+        --muted: #9a9ea6;
+        --accent: #7cc4ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+      }
+      header.top {
+        padding: 20px 24px 8px;
+        max-width: 1500px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      h2 {
+        margin: 32px 0 6px;
+        font-size: 17px;
+      }
+      p.lead,
+      .muted {
+        color: var(--muted);
+      }
+      p.lead {
+        margin: 0;
+        max-width: 900px;
+      }
+      main {
+        padding: 0 24px 60px;
+        max-width: 1500px;
+        margin: 0 auto;
+      }
+      .controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 10px 0;
+      }
+      select,
+      button,
+      a.button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 180px repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        align-items: start;
+      }
+      .grid.apps {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .head {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .head small {
+        display: block;
+        font-weight: 400;
+        color: var(--muted);
+      }
+      .rowhead {
+        font-size: 13px;
+        padding-top: 8px;
+      }
+      .rowhead b {
+        display: block;
+      }
+      .rowhead a {
+        color: var(--accent);
+      }
+      .frame {
+        border-radius: 10px;
+        overflow: hidden;
+        min-height: 120px;
+      }
+      .empty {
+        color: var(--muted);
+        padding: 16px 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: middle;
+      }
+      td a {
+        color: var(--accent);
+      }
+      .stopped {
+        opacity: 0.55;
+      }
+      .tag {
+        display: inline-block;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: var(--line);
+        font-size: 12px;
+      }
+
+      /* Team chat (laid out like Slack) */
+      .team {
+        background: #fff;
+        color: #1d1c1d;
+        padding: 12px;
+        font:
+          15px/1.46 system-ui,
+          sans-serif;
+      }
+      .team .msg {
+        display: grid;
+        grid-template-columns: 36px 1fr;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .team .av {
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+        background: #d9d0f0;
+      }
+      .team .who {
+        font-weight: 700;
+      }
+      .team .who span {
+        font-weight: 400;
+        color: #616061;
+        font-size: 12px;
+        margin-left: 6px;
+      }
+      .team a.url {
+        color: #1264a3;
+        word-break: break-all;
+      }
+      .team .unfurl {
+        border-left: 4px solid #dddddd;
+        padding-left: 12px;
+        margin-top: 4px;
+      }
+      .team .site {
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .team .t {
+        font-weight: 700;
+        color: #1264a3;
+      }
+      .team .d {
+        font-size: 15px;
+      }
+      .team img {
+        display: block;
+        max-width: min(360px, 100%);
+        border-radius: 8px;
+        margin-top: 6px;
+      }
+
+      /* Community chat (laid out like Discord) */
+      .community {
+        background: #313338;
+        color: #dbdee1;
+        padding: 12px;
+        font:
+          15px/1.375 system-ui,
+          sans-serif;
+      }
+      .community .msg {
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .community .av {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #5865f2;
+      }
+      .community .who {
+        color: #f2f3f5;
+        font-weight: 600;
+      }
+      .community .who span {
+        color: #949ba4;
+        font-size: 12px;
+        font-weight: 400;
+        margin-left: 6px;
+      }
+      .community a.url {
+        color: #00a8fc;
+        word-break: break-all;
+      }
+      .community .embed {
+        margin-top: 4px;
+        max-width: 432px;
+        background: #2b2d31;
+        border-left: 4px solid #1e1f22;
+        border-radius: 4px;
+        padding: 8px 16px 16px 12px;
+        display: grid;
+        gap: 6px;
+      }
+      .community .site {
+        font-size: 12px;
+        opacity: 0.85;
+      }
+      .community .t {
+        color: #00a8fc;
+        font-weight: 600;
+        font-size: 16px;
+      }
+      .community .d {
+        font-size: 14px;
+      }
+      .community .thumb {
+        float: right;
+        width: 80px;
+        margin: 0 0 0 12px;
+      }
+      .community img,
+      .community video {
+        display: block;
+        max-width: 100%;
+        border-radius: 4px;
+        margin-top: 8px;
+      }
+
+      /* Social post (laid out like X) */
+      .social {
+        background: #000;
+        color: #e7e9ea;
+        padding: 12px;
+        font:
+          15px/1.3 system-ui,
+          sans-serif;
+      }
+      .social .msg {
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .social .av {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #333639;
+      }
+      .social .who {
+        font-weight: 700;
+      }
+      .social .who span {
+        color: #71767b;
+        font-weight: 400;
+        margin-left: 4px;
+      }
+      .social a.url {
+        color: #1d9bf0;
+        word-break: break-all;
+      }
+      .social .card {
+        margin-top: 10px;
+        border: 1px solid #2f3336;
+        border-radius: 16px;
+        overflow: hidden;
+        position: relative;
+      }
+      .social .card img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1.91 / 1;
+        object-fit: cover;
+      }
+      .social .overlay {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        max-width: calc(100% - 24px);
+        background: rgb(0 0 0 / 0.77);
+        color: #fff;
+        font-size: 13px;
+        border-radius: 4px;
+        padding: 0 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .social .from {
+        color: #71767b;
+        font-size: 13px;
+        margin-top: 4px;
+      }
+      .social .small {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+      }
+      .social .small .ph {
+        background: #16181c;
+      }
+      .social .small .w {
+        padding: 10px 12px;
+        font-size: 14px;
+        color: #71767b;
+      }
+      .social .small .w b {
+        color: #e7e9ea;
+        font-weight: 400;
+        display: block;
+      }
+
+      /* Phone messages (laid out like Messages) */
+      .phone {
+        background: #fff;
+        color: #000;
+        padding: 12px;
+        font:
+          15px/1.3 -apple-system,
+          system-ui,
+          sans-serif;
+        display: grid;
+        justify-items: end;
+        gap: 10px;
+      }
+      .phone .bubble {
+        background: #0a84ff;
+        color: #fff;
+        border-radius: 18px;
+        padding: 7px 12px;
+        max-width: 85%;
+        word-break: break-all;
+      }
+      .phone .rich {
+        width: min(270px, 100%);
+        border-radius: 18px;
+        overflow: hidden;
+        background: #e9e9eb;
+      }
+      .phone .rich img {
+        display: block;
+        width: 100%;
+        max-height: 300px;
+        object-fit: cover;
+      }
+      .phone .rich .w {
+        padding: 8px 12px 10px;
+      }
+      .phone .rich b {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .phone .rich span {
+        color: #8e8e93;
+        font-size: 13px;
+      }
+      .phone .rich.noimg {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        align-items: center;
+      }
+      .phone .rich.noimg i {
+        width: 32px;
+        height: 32px;
+        margin-left: 10px;
+        border-radius: 8px;
+        background: #c7c7cc;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Link preview lab</h1>
+      <p class="lead">
+        Every link this den-kit has made, as four kinds of chat app would show it when the link is
+        pasted. What each preview holds is what this server's unfurler read in the link's page, as
+        apps read it, without running the page. How it is laid out is this page's own drawing of
+        each kind of app, not the app: check a real app before deciding on anything that depends on
+        it. Links point to 127.0.0.1, which real apps cannot reach.
+      </p>
+    </header>
+    <main>
+      <div class="controls">
+        <button id="reload" type="button">Read the pages again</button>
+        <span class="muted" id="status"></span>
+      </div>
+
+      <h2>One work, each outside</h2>
+      <p class="muted">
+        The links of one work, one row each, as pasted now. Make more links in den-kit with Patch →
+        Share…
+      </p>
+      <div class="controls">
+        <label
+          >Work
+          <select id="work"></select
+        ></label>
+      </div>
+      <div id="each"></div>
+
+      <h2>Several works in one conversation</h2>
+      <p class="muted">The latest link of each work with this outside, pasted one after another.</p>
+      <div class="controls">
+        <label
+          >Outside
+          <select id="outside">
+            <option value="poster">Poster</option>
+            <option value="sound">Poster with sound</option>
+            <option value="outer">Wrapped, named</option>
+            <option value="inner">Wrapped</option>
+            <option value="plain">Page title only</option>
+          </select></label
+        >
+      </div>
+      <div id="talk"></div>
+
+      <h2>Stopped links</h2>
+      <p class="muted">
+        A stopped link opens nothing, but the preview taken when it was pasted stays with that
+        message. Apps also reuse what they read for a link for a while (Discord says about 30
+        minutes), so pasting it again soon after can still show the old preview; "Read the pages
+        again" reads without that reuse.
+      </p>
+      <div id="stopped"></div>
+
+      <h2>All links</h2>
+      <div id="all"></div>
+    </main>
+
+    <script type="module">
+      const APPS = [
+        { id: 'team', name: 'Team chat', like: 'laid out like Slack' },
+        {
+          id: 'community',
+          name: 'Community chat',
+          like: "laid out like Discord; plays a video page's og:video, as Discord's docs say",
+        },
+        { id: 'social', name: 'Social post', like: 'laid out like X' },
+        { id: 'phone', name: 'Phone messages', like: 'laid out like Messages' },
+      ];
+      const OUTSIDES = {
+        plain: 'Page title only',
+        poster: 'Poster',
+        outer: 'Wrapped, named',
+        inner: 'Wrapped',
+        sound: 'Poster with sound',
+      };
+      const REACHES = { public: 'Anyone', link: 'People with the link', person: 'One person' };
+      const h = value =>
+        String(value ?? '').replace(
+          /[&<>"']/g,
+          c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+        );
+      const host = url => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return url;
+        }
+      };
+      const SENDERS = ['you', 'Sam', 'Kai', 'Noa'];
+
+      /** One message with a pasted link, drawn the way each kind of app lays it out. */
+      function message(app, url, p, i = 0) {
+        const who = SENDERS[i % SENDERS.length];
+        const link = `<a class="url" href="${h(url)}" target="_blank" rel="noopener">${h(url)}</a>`;
+        if (app === 'team') {
+          const card = p
+            ? `<div class="unfurl"><div class="site">${h(p.site)}</div><div class="t">${h(p.title)}</div>${p.description ? `<div class="d">${h(p.description)}</div>` : ''}${p.image ? `<img src="${h(p.image)}" alt="">` : ''}</div>`
+            : '';
+          return `<div class="msg"><i class="av"></i><div><div class="who">${who}<span>10:0${i}</span></div>${link}${card}</div></div>`;
+        }
+        if (app === 'community') {
+          // Discord's docs: a video page (og:type video.*, or twitter:card player) with og:image plays its og:video
+          // in place, with the image as its first frame and no description; summary_large_image puts a large
+          // image below the text; otherwise the image is small beside it.
+          const plays = p?.video && p.image && (/^video/.test(p.type ?? '') || p.card === 'player');
+          const media = plays
+            ? `<video controls preload="metadata" playsinline src="${h(p.video.url)}" poster="${h(p.image)}"></video>`
+            : p?.image && p.card === 'summary_large_image'
+              ? `<img src="${h(p.image)}" alt="">`
+              : '';
+          const thumb =
+            p?.image && !plays && p.card !== 'summary_large_image'
+              ? `<img class="thumb" src="${h(p.image)}" alt="">`
+              : '';
+          const card = p
+            ? `<div class="embed" style="border-left-color:${h(p.color || '#1e1f22')}">${thumb}<div class="site">${h(p.site)}</div><div class="t">${h(p.title)}</div>${p.description && !plays ? `<div class="d">${h(p.description)}</div>` : ''}${media}</div>`
+            : '';
+          return `<div class="msg"><i class="av"></i><div><div class="who">${who}<span>Today at 10:0${i}</span></div>${link}${card}</div></div>`;
+        }
+        if (app === 'social') {
+          let card = '';
+          if (p && p.image && p.card === 'summary_large_image')
+            card = `<div class="card"><img src="${h(p.image)}" alt=""><span class="overlay">${h(p.title)}</span></div><div class="from">From ${h(host(p.url))}</div>`;
+          else if (p && p.card)
+            card = `<div class="card small"><i class="ph"></i><div class="w">${h(host(p.url))}<b>${h(p.title)}</b>${h(p.description)}</div></div>`;
+          return `<div class="msg"><i class="av"></i><div><div class="who">${who}<span>@${who.toLowerCase()} · ${i + 1}m</span></div>${link}${card}</div></div>`;
+        }
+        const rich = p
+          ? p.image
+            ? `<div class="rich"><img src="${h(p.image)}" alt=""><div class="w"><b>${h(p.title)}</b><span>${h(host(p.url))}</span></div></div>`
+            : `<div class="rich noimg"><i></i><div class="w"><b>${h(p.title)}</b><span>${h(host(p.url))}</span></div></div>`
+          : `<div class="bubble">${h(url)}</div>`;
+        return rich;
+      }
+      const frame = (app, inner) => `<div class="frame ${app}">${inner}</div>`;
+      const heads = (first = true) =>
+        (first ? '<div></div>' : '') +
+        APPS.map(a => `<div class="head">${a.name}<small>${h(a.like)}</small></div>`).join('');
+      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+      const counts = l =>
+        `${plural(l.counts.previews, 'preview')} · ${plural(l.counts.opens, 'open')} · ${plural(l.counts.plays, 'play')}`;
+
+      let links = [];
+      const now = new Map();
+      async function load(fresh = false) {
+        const status = document.getElementById('status');
+        status.textContent = 'Reading…';
+        links = await (await fetch('/api/links')).json();
+        await Promise.all(
+          links.map(async l => {
+            const r = await fetch(
+              `/api/unfurl?url=${encodeURIComponent(l.url)}${fresh ? '&fresh=1' : ''}`,
+            );
+            now.set(l.id, (await r.json()).preview);
+          }),
+        );
+        status.textContent = `${links.length} links · read ${new Date().toLocaleTimeString()}`;
+        draw();
+      }
+
+      // A work is its id and name: a window keeps its work's id when another work is started there.
+      const key = l => `${l.work}\n${l.name}`;
+      function draw() {
+        const works = [];
+        for (const l of [...links].reverse())
+          if (!works.some(w => w.work === key(l))) works.push({ work: key(l), title: l.name });
+        const select = document.getElementById('work');
+        const chosen = select.value || works[works.length - 1]?.work;
+        select.innerHTML = works
+          .map(
+            w =>
+              `<option value="${h(w.work)}" ${w.work === chosen ? 'selected' : ''}>${h(w.title)}</option>`,
+          )
+          .join('');
+
+        const mine = links.filter(l => key(l) === chosen && !l.stopped).reverse();
+        document.getElementById('each').innerHTML = mine.length
+          ? `<div class="grid">${heads()}${mine
+              .map(
+                l =>
+                  `<div class="rowhead"><b>${OUTSIDES[l.face.outside]}</b>${REACHES[l.face.reach]}${l.face.to ? `: ${h(l.face.to)}` : ''}<br><span class="muted">${counts(l)}</span><br><a href="${h(l.url)}" target="_blank" rel="noopener">Open</a></div>` +
+                  APPS.map(a => frame(a.id, message(a.id, l.url, now.get(l.id)))).join(''),
+              )
+              .join('')}</div>`
+          : '<p class="empty">No links yet.</p>';
+
+        const outside = document.getElementById('outside').value;
+        const latest = [];
+        for (const l of [...links].reverse())
+          if (!l.stopped && l.face.outside === outside) {
+            const at = latest.findIndex(x => key(x) === key(l));
+            if (at >= 0) latest.splice(at, 1);
+            latest.push(l);
+          }
+        document.getElementById('talk').innerHTML = latest.length
+          ? `<div class="grid apps">${heads(false)}${APPS.map(a =>
+              frame(a.id, latest.map((l, i) => message(a.id, l.url, now.get(l.id), i)).join('')),
+            ).join('')}</div>`
+          : '<p class="empty">No links with this outside yet.</p>';
+
+        const stopped = links.filter(l => l.stopped);
+        document.getElementById('stopped').innerHTML = stopped.length
+          ? `<div class="grid">${heads()}${stopped
+              .map(
+                l =>
+                  `<div class="rowhead"><b>${h(l.face.title)}</b>${OUTSIDES[l.face.outside]} · ${REACHES[l.face.reach]}<br><span class="muted">Pasted before it was stopped</span></div>` +
+                  APPS.map(a => frame(a.id, message(a.id, l.url, l.pasted?.preview ?? null))).join(
+                    '',
+                  ) +
+                  `<div class="rowhead"><span class="muted">Pasted now</span></div>` +
+                  APPS.map(a => frame(a.id, message(a.id, l.url, now.get(l.id), 1))).join(''),
+              )
+              .join('')}</div>`
+          : '<p class="empty">No stopped links. Stop one in den-kit (Patch → Share…) or below.</p>';
+
+        document.getElementById('all').innerHTML = links.length
+          ? `<table><thead><tr><th>Work</th><th>Outside</th><th>Who it's for</th><th>Made</th><th>Counts</th><th></th></tr></thead><tbody>${links
+              .map(
+                l =>
+                  `<tr class="${l.stopped ? 'stopped' : ''}"><td>${h(l.face.title)}</td><td>${OUTSIDES[l.face.outside]}</td><td>${REACHES[l.face.reach]}${l.face.to ? `: ${h(l.face.to)}` : ''}</td><td>${new Date(l.created).toLocaleString()}</td><td>${counts(l)}</td><td>${l.stopped ? '<span class="tag">Stopped</span>' : `<a href="${h(l.url)}" target="_blank" rel="noopener">Open</a> <button type="button" data-stop="${h(l.id)}">Stop</button>`}</td></tr>`,
+              )
+              .join('')}</tbody></table>`
+          : '<p class="empty">No links yet.</p>';
+      }
+
+      document.getElementById('work').addEventListener('change', draw);
+      document.getElementById('outside').addEventListener('change', draw);
+      document.getElementById('reload').addEventListener('click', () => load(true));
+      document.getElementById('all').addEventListener('click', async e => {
+        const id = e.target?.dataset?.stop;
+        if (!id) return;
+        await fetch(`/api/links/${id}/stop`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        });
+        await load();
+      });
+      load();
+    </script>
+  </body>
+</html>

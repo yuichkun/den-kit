@@ -164,6 +164,9 @@ function kitVirtual(): Plugin {
         return `export default ${JSON.stringify({ token: process.env.KIT_BRIDGE_TOKEN ?? null, port: bridgePort })};`;
       // The pod (BrowserPod) boots in the page, so its key goes to the page (.env, read by scripts/dev.ts) — only
       // from the dev server: a build never carries it. KIT_FAKE_POD_URL is set only by the e2e harness (a test stand-in).
+      // The share server that scripts/dev.ts starts (dev/share-server.ts); null in builds and in the e2e harness.
+      if (id === '\0virtual:kit-share')
+        return `export default ${JSON.stringify({ url: serving ? process.env.KIT_SHARE_URL || null : null })};`;
       if (id === '\0virtual:kit-pod')
         return `export default ${JSON.stringify(serving ? { apiKey: process.env.BROWSERPOD_API_KEY || null, fakeUrl: process.env.KIT_FAKE_POD_URL || null } : { apiKey: null, fakeUrl: null })};`;
     },
