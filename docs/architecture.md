@@ -114,8 +114,10 @@ the sound to `screen`.
 ## The work
 
 - The document holds the work's name, the patch (blocks, cables and codebox sources), the
-  parameters the patch exposes, and the plugin screen (its size, look, controls, decorations
-  and where code parts sit).
+  parameters the patch exposes, the plugin screen (its size, look, controls, decorations
+  and where code parts sit), and the work's art: an icon and a cover of fixed sizes, drawn in
+  the work's look with the plugin screen's kinds of decorations and with symbols, which keep
+  the shape of one of the patch's modules as it was when drawn (`src/work/art.ts`).
 - The work's files form one tree shaped as a web project: `package.json` and `src/` hold the
   code parts, and `assets/` holds the assets. The record keeps the contents of text files as they
   are and refers to other contents by a hash of the content. Contents never change; replacing

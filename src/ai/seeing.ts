@@ -1,12 +1,14 @@
 // What the person is looking at: which view, the plugin's mode, the
-// patch view's zoom and the modules in sight, what is selected, the notes held.
+// patch view's zoom and the modules in sight, the surface of the art open, what is
+// selected, the notes held.
 // Every LLM request carries one short line of it, so "this", "here" and "what
 // I see" mean the same to the AI as to the person; with screen sharing on, the
 // AI can also see it as a picture (kit_look as "seen").
+import type { ArtSurfaceName } from '../work/art.ts';
 import type { Catalog } from '../work/catalog.ts';
 import type { PatchDocument } from '../work/schema.ts';
 
-export type SeenView = 'patch' | 'plugin' | 'code' | 'project';
+export type SeenView = 'patch' | 'plugin' | 'code' | 'project' | 'art';
 export interface Seeing {
   view: SeenView;
   /** The plugin is being edited (not played). */
@@ -18,6 +20,8 @@ export interface Seeing {
   inView?: string[];
   /** The plugin's scale on screen (1 = its design size). */
   scale?: number;
+  /** The art view: the surface open (icon or cover) and the element selected on it. */
+  art?: { on: ArtSurfaceName; selected: string | null };
 }
 
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -60,8 +64,12 @@ export function seeingText(
       : '';
     parts.push(`the patch${where}${s.zoom ? ` (zoom ${Math.round(s.zoom * 100)}%${sight})` : ''}`);
   } else if (s.view === 'code') parts.push('the generated code');
+  else if (s.view === 'art')
+    parts.push(
+      `the work's art with the ${s.art?.on ?? 'cover'} open${s.art?.selected ? `, ${s.art.selected} selected on it` : ''} (kit_get_art reads it)`,
+    );
   else parts.push('the screen project (files and terminal)');
-  if (extra.selection.length)
+  if (extra.selection.length && s.view !== 'art')
     parts.push(
       `selected: ${extra.selection
         .slice(0, 8)
