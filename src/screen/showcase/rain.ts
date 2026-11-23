@@ -206,7 +206,7 @@ const THUNDERHEAD = [
   { x: -27, y: 4, r: 15 }, { x: -11, y: -9, r: 19 }, { x: 9, y: -8, r: 17 }, { x: 26, y: 4, r: 14 },
   { x: 1, y: 8, r: 18 }, { x: -17, y: 12, r: 12 }, { x: 17, y: 12, r: 13 },
 ];
-/** Words by the hand: ink straight on the grass, the first line bold. */
+/** Words by the hand: ink on the grass, edged in its green, the first line bold. */
 function words(ctx, lines, x, y, w) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   let width = 0;
@@ -216,9 +216,11 @@ function words(ctx, lines, x, y, w) {
     width = Math.max(width, typeof m.width === 'number' ? m.width : lines[i].length * 7);
   }
   const x0 = clamp(x, width / 2 + 10, w - width / 2 - 10);
-  ctx.fillStyle = INK;
+  // Edged in the grass's green, so a line that passes behind them (rain, a bolt) stops short of the letters.
+  ctx.fillStyle = INK; ctx.strokeStyle = GROUND; ctx.lineWidth = 4; ctx.lineJoin = 'round';
   for (let i = 0; i < lines.length; i++) {
     ctx.font = (i ? '500 12px ' : '700 13px ') + FONT;
+    ctx.strokeText(lines[i], x0, Math.round(y + i * 16));
     ctx.fillText(lines[i], x0, Math.round(y + i * 16));
   }
 }
@@ -498,8 +500,9 @@ export default {
         : hot.kind === 'ground' ? ['Each drop', 'pitch ' + v('knob2') + ' ↔ · splash ' + v('knob3') + ' ↕']
         : ['You, under your umbrella', 'all of it plays round you'];
     }
-    // What the words keep off: the other things, the puddle, you and the name; and they stay over the grass.
-    const keep = [0, 1, 2, 3].filter(k => k !== skip).map(k => boxOf(L, f, k));
+    // What the words keep off: the other things (the storm cloud down to the end of its bolt), the puddle, you and
+    // the name; and they stay over the grass.
+    const keep = [0, 1, 2, 3].filter(k => k !== skip).map(k => { const b = boxOf(L, f, k); return k === 2 ? { ...b, y1: Math.max(b.y1, b.p.y + 68 * SIZE) } : b; });
     if (hot.kind !== 'patch' && skip !== 0) keep.push({ x0: at[0].x - PX, y0: at[0].y - PY, x1: at[0].x + PX, y1: at[0].y + PY });
     if (hot.kind !== 'you') keep.push({ x0: C.x - UMBRELLA, y0: C.y - UMBRELLA, x1: C.x + UMBRELLA, y1: C.y + UMBRELLA });
     keep.push({ x0: L.cx - 72, y0: 80, x1: L.cx + 72, y1: 104 });
