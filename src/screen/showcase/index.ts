@@ -67,8 +67,7 @@ export const WORKS: readonly Work[] = [
     id: 'tapeecho',
     title: 'Echo Line',
     kind: 'Effect',
-    prompt:
-      'A tape echo laid out as one line, from the input to the tape and back, each echo shown as it returns',
+    prompt: 'A tape echo drawn as one line: in, onto the tape, and back as each echo returns',
     reference: 'iF DESIGN AWARD 2022: SIG CRUISER',
     build: tapeecho,
   },
@@ -76,8 +75,7 @@ export const WORKS: readonly Work[] = [
     id: 'duck',
     title: 'Yield',
     kind: 'Effect',
-    prompt:
-      'A delay whose echoes give way while you play, drawn as signs on a road you can read from across the room',
+    prompt: 'A delay that gives way while you play, drawn as road signs you can read from afar',
     reference: 'iF DESIGN AWARD 2025: ABB A400 All-in-One EV Charger',
     build: duck,
   },
@@ -86,7 +84,7 @@ export const WORKS: readonly Work[] = [
     title: 'Low Res',
     kind: 'Effect',
     prompt:
-      'Lo-fi: fewer bits, a slower rate, a wobble and some hiss, with the sound shown on the grid it is snapped to',
+      'Lo-fi: fewer bits, a slower rate, wobble and hiss, the sound drawn on the grid it snaps to',
     reference: 'CEDEC AWARDS 2018, Visual Arts top prize: the NieR:Automata UI design team',
     build: lofi,
   },
@@ -113,7 +111,7 @@ export const WORKS: readonly Work[] = [
     title: 'Exhale',
     kind: 'Installation',
     prompt:
-      'A room that breathes: a soft chord and the sound of air swell in and out at the pace of slow breathing',
+      'A room that breathes: a soft chord and air swell in and out at the pace of slow breath',
     reference: 'Apple Design Awards 2021, Visuals and Graphics winner: Loóna',
     build: breath,
   },
