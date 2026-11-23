@@ -1,0 +1,147 @@
+{
+  "title": "Footsteps",
+  "message": "Six surfaces to start from. Move between them on the map, or let the order sheet fill your list. Send me what you keep.",
+  "versions": [
+    { "id": "v1", "folder": "v1", "notes": "The first delivery." },
+    {
+      "id": "v2",
+      "folder": "v2",
+      "notes": "A short heel click at the start of each step, and finer Grit grains."
+    }
+  ],
+  "delivered": "v1",
+  "notes": [60, 62],
+  "length": 0.8,
+  "axes": { "x": ["hard", "loose"], "y": ["ringing", "dull"] },
+  "points": [
+    {
+      "name": "Metal",
+      "x": 0.12,
+      "y": 0.12,
+      "values": {
+        "kTone": 1900,
+        "kRing": 9,
+        "kDecay": 0.45,
+        "kGrit": 0,
+        "kWeight": 0.25,
+        "kRoll": 0.1,
+        "kToe": 0.3,
+        "kLevel": 1.6
+      }
+    },
+    {
+      "name": "Wood",
+      "x": 0.2,
+      "y": 0.48,
+      "values": {
+        "kTone": 520,
+        "kRing": 4.5,
+        "kDecay": 0.12,
+        "kGrit": 0.05,
+        "kWeight": 0.7,
+        "kRoll": 0.12,
+        "kToe": 0.35,
+        "kLevel": 0.9
+      }
+    },
+    {
+      "name": "Concrete",
+      "x": 0.3,
+      "y": 0.84,
+      "values": {
+        "kTone": 2400,
+        "kRing": 1.2,
+        "kDecay": 0.07,
+        "kGrit": 0.1,
+        "kWeight": 0.6,
+        "kRoll": 0.11,
+        "kToe": 0.3,
+        "kLevel": 0.8
+      }
+    },
+    {
+      "name": "Gravel",
+      "x": 0.74,
+      "y": 0.28,
+      "values": {
+        "kTone": 3200,
+        "kRing": 0.9,
+        "kDecay": 0.22,
+        "kGrit": 0.85,
+        "kWeight": 0.35,
+        "kRoll": 0.1,
+        "kToe": 0.4,
+        "kLevel": 0.9
+      }
+    },
+    {
+      "name": "Grass",
+      "x": 0.6,
+      "y": 0.6,
+      "values": {
+        "kTone": 4800,
+        "kRing": 0.7,
+        "kDecay": 0.25,
+        "kGrit": 0.4,
+        "kWeight": 0.15,
+        "kRoll": 0.12,
+        "kToe": 0.3,
+        "kLevel": 0.7
+      }
+    },
+    {
+      "name": "Snow",
+      "x": 0.86,
+      "y": 0.84,
+      "values": {
+        "kTone": 1100,
+        "kRing": 0.8,
+        "kDecay": 0.3,
+        "kGrit": 0.7,
+        "kWeight": 0.3,
+        "kRoll": 0.13,
+        "kToe": 0.35,
+        "kLevel": 1.1
+      }
+    }
+  ],
+  "spread": {
+    "kTone": 0.04,
+    "kRing": 0.03,
+    "kDecay": 0.05,
+    "kGrit": 0.06,
+    "kWeight": 0.05,
+    "kRoll": 0.05,
+    "kToe": 0.06,
+    "kLevel": 0.03
+  },
+  "condition": {
+    "name": "gait",
+    "options": [
+      { "name": "walk", "every": 0.52, "velocity": 92, "change": {} },
+      {
+        "name": "run",
+        "every": 0.3,
+        "velocity": 120,
+        "change": {
+          "kRoll": { "set": 0.055 },
+          "kWeight": { "add": 0.25 },
+          "kDecay": { "mul": 0.8 },
+          "kToe": { "mul": 0.6 }
+        }
+      },
+      {
+        "name": "sneak",
+        "every": 0.9,
+        "velocity": 48,
+        "change": {
+          "kRoll": { "set": 0.2 },
+          "kLevel": { "mul": 0.6 },
+          "kWeight": { "mul": 0.4 },
+          "kToe": { "add": 0.1 }
+        }
+      }
+    ]
+  },
+  "naming": "footstep_{point}_{condition}_{nn}"
+}

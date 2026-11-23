@@ -298,14 +298,17 @@ export default defineConfig({
     printWidth: 100,
     sortPackageJson: false,
     // The pod's own tooling files: npm writes package.json and package-lock.json there, and ESLint reads eslint.config.js.
+    // The delivery sketch's builds are den-kit's compiled output (scripts/delivery-builds.ts).
     ignorePatterns: [
       'pod-template/package.json',
       'pod-template/package-lock.json',
       'pod-template/eslint.config.js',
+      'public/delivery/*/v*/**',
     ],
   },
   // Types are checked by vue-tsc (the typecheck script): Oxlint's type-aware checks do not read .vue files.
   lint: {
+    ignorePatterns: ['public/delivery/*/v*/**'],
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
     // The pod template runs on its own Vite, not Vite+.

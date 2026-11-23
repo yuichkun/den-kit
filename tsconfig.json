@@ -20,6 +20,8 @@
     "bridge/**/*.ts",
     "desktop/**/*.ts",
     "scripts/**/*.ts",
+    "sketch/**/*.ts",
+    "sketch/**/*.vue",
     "test/**/*.ts",
     "env.d.ts",
     "vite.config.ts",
