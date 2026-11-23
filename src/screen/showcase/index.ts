@@ -78,7 +78,7 @@ export const WORKS: readonly Work[] = [
     title: 'Yield',
     kind: 'Effect',
     prompt:
-      'A delay whose echoes give way while you play, with figures and meters you can read from across the room',
+      'A delay whose echoes give way while you play, drawn as signs on a road you can read from across the room',
     reference: 'iF DESIGN AWARD 2025: ABB A400 All-in-One EV Charger',
     build: duck,
   },
