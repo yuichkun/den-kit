@@ -156,8 +156,9 @@ export default {
     const t0 = BREAKER.y - 12, t1 = BREAKER.y + 12;
     pipe(ctx, [[NOISE.x - NOISE.r, NOISE.y], [FEED, NOISE.y], [FEED, t0]], tube, null, f.t, 20, 5);
     pipe(ctx, [[FEED, t1], [FEED, VESSEL.y + 12]], tube, hiss && live ? white : null, f.t, 20, 5);
-    // Junctions: where the return joins the input, and where the echoes split to the vessel and back.
-    for (const [x, y] of [[REC, LINE_IN], [K, WET]]) {
+    // Junctions: where the return joins the input, where B's echoes join A's, and where the echoes split to the
+    // vessel and back.
+    for (const [x, y] of [[REC, LINE_IN], [xb, WET], [K, WET]]) {
       ctx.fillStyle = tube; ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.fill();
       ctx.fillStyle = white; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, TAU); ctx.fill();
     }
