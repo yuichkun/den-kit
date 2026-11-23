@@ -25,6 +25,7 @@ import { FIELD } from '../../src/screen/showcase/rain.ts';
 import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
 import { TIDE_SHORE } from '../../src/screen/showcase/tide.ts';
 import { TONIC_CIRCLE } from '../../src/screen/showcase/tonic.ts';
+import { DRUMS as TOY_DRUMS, MAT as TOY_MAT } from '../../src/screen/showcase/toy.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -1405,6 +1406,48 @@ describe('each work does what its controls say', () => {
     expect(on).toBeGreaterThan(1e-3);
     expect(off).toBeLessThan(on / 100);
   }, 60000);
+
+  it('Shape Drums: a drum on each outer tile of the mat and the Beat on the middle one; the rows rise from the bottom, left to right, and a lower drum is bigger', () => {
+    const doc = build('toy'),
+      T = TOY_MAT.tile;
+    // The tile a box is on: all of the box is on it, centred (a drum is lifted by half its shadow).
+    const tileOf = (p: { x: number; y: number; w: number; h: number }) => {
+      const col = Math.floor((p.x + p.w / 2) / T),
+        row = Math.floor((p.y + p.h / 2) / T);
+      expect(p.x).toBeGreaterThanOrEqual(col * T);
+      expect(p.x + p.w).toBeLessThanOrEqual((col + 1) * T);
+      expect(p.y).toBeGreaterThanOrEqual(row * T);
+      expect(p.y + p.h).toBeLessThanOrEqual((row + 1) * T);
+      expect(Math.abs(p.x + p.w / 2 - (col + 0.5) * T)).toBeLessThan(2);
+      expect(Math.abs(p.y + p.h / 2 - (row + 0.5) * T)).toBeLessThan(6);
+      return [col, row] as const;
+    };
+    expect(tileOf(doc.nodes.tbeat!.panel!)).toEqual([1, 1]);
+    const pads = Object.values(doc.nodes)
+      .filter(n => n.type === 'ui.keyboard')
+      .map(n => ({
+        note: Number(n.style?.skin?.params?.start),
+        tile: tileOf(n.panel!),
+      }));
+    expect(pads.map(p => p.tile.join()).sort()).toEqual([
+      '0,0',
+      '0,1',
+      '0,2',
+      '1,0',
+      '1,2',
+      '2,0',
+      '2,1',
+      '2,2',
+    ]);
+    // Read from the bottom row up, each row left to right, the notes rise.
+    const read = [...pads]
+      .sort((a, b) => b.tile[1] - a.tile[1] || a.tile[0] - b.tile[0])
+      .map(p => p.note);
+    expect(read).toEqual([...read].sort((a, b) => a - b));
+    // Size is pitch: the lower the note, the bigger the drum.
+    const sizes = [...TOY_DRUMS].sort((a, b) => a.note - b.note).map(d => d.s);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeLessThan(sizes[i - 1]!);
+  });
 
   it('Tide Bells: plays by itself; low tide rings the low bells, high tide the high ones', async () => {
     const doc = build('tide');

@@ -4,19 +4,20 @@
 // can be switched on to play along with.
 // The design follows the thinking of Rytmos (Apple Design Awards 2024,
 // Interaction): play is clear without being explained, the gestures are simple
-// and fun, and each thing added joins the music. The screen is a playroom floor
-// seen from straight above: a foam play mat, and on it eight drums in a ring
-// round the Beat, the low notes big at the bottom and the high ones small at
-// the top, so size is pitch and nothing needs reading. Every drum is drawn by
-// one rule: a flat head in its own colour, a rim round its edge with bolts
-// spaced evenly along it, and the same hard shadow. The drums sit the same
-// distance from their neighbours, and from the Beat. A tapped drum lights in its
-// own shape (the pad is clipped to it), four lights under the Beat count its
-// steps while it plays, and each hit sends a pop of bits out from the middle.
-// How the drums sound is three toys on the floor beside the mat: a ball that
-// bounces higher (Bounce), a top that spins longer (Ring) and a glass of soda
-// that fizzes more (Fizz); the one under the hand lifts, and its name gets a
-// row of dots for how much. The mat's maker's name is pressed into its edge.
+// and fun, and each thing added joins the music. The screen is a playroom seen
+// from straight above: a foam play mat of three tiles by three fills its height,
+// running off the top, the left and the bottom, with one drum on each outer tile
+// and the Beat on the middle one. The low notes are big on the bottom row and
+// the high ones small on the top, rising left to right, so size is pitch and
+// nothing needs reading. Every drum is drawn by one rule: a flat head in its own
+// colour, a rim round its edge with bolts spaced evenly along it, and the same
+// hard shadow. A tapped drum lights in its own shape (the pad is clipped to it),
+// four studs round the Beat count its steps while it plays, and each hit sends
+// a pop of bits out from the middle. How the drums sound is three toys on the
+// floor beside the mat, under the name of the work: a ball that bounces higher
+// (Bounce), a top that spins longer (Ring) and a glass of soda that fizzes more
+// (Fizz); the one under the hand lifts, and its name gets a row of dots for how
+// much.
 import type { Catalog } from '../../work/catalog.ts';
 import { add, control, el, patchControl, r, wire, work } from './build.ts';
 
@@ -24,32 +25,35 @@ import { add, control, el, patchControl, r, wire, work } from './build.ts';
 const INK = '#2c0d31';
 /** The hard shadow every drum and toy casts: straight down, this far, in the ink. */
 const SHADOW = { dy: 7, opacity: 0.3, color: 'rgba(44, 13, 49, 0.3)' };
-/** The floor of the playroom, and the foam mat on it (its border strips this wide). */
-const FLOOR = { color: '#6b2a61', joint: '#5e2456' };
-const MAT = {
-  x: 12,
-  y: 12,
-  w: 576,
-  h: 556,
+/** The plugin's size. */
+const W = 760,
+  H = 580;
+/** The foam mat: three tiles by three, as tall as the plugin (running off its top, left and bottom), and a border strip this wide down its right side. */
+export const MAT = {
+  tile: H / 3,
   border: 24,
   color: '#f7a6c6',
   groove: '#e591b6',
   light: '#ffc8de',
 };
-/** The middle of the drum ring, where the Beat sits. */
-const MID = { x: 294, y: 233 };
-/** The Beat's four lights: a row under it, this far below its middle, this far apart. */
-const LIGHTS = { dy: 82, step: 26.7 };
+/** The floor beside the mat: painted boards running up the screen, their joints a shade darker. */
+const FLOOR = { x: 3 * MAT.tile + MAT.border, color: '#c42f6c', joint: '#ad2860' };
+/** The middle of the middle tile, where the Beat sits. */
+const MID = { x: 1.5 * MAT.tile, y: 1.5 * MAT.tile };
+/** The Beat's four studs, on a ring this far from its middle. */
+const STUDS = { r: 75 };
 
-/** The floor under the drums: four lights under the Beat count the beat's steps, and a pop of bits flies out with every hit. */
-export const BOARD = `// On the mat, under the drums. Under the Beat button is a row of four lights,
-// one for each step of the beat: while the beat is on (tbeat) the step it is on
-// lights. The beat plays at 100 a minute, and each hit heard pulls the steps
-// towards it, so they follow the shaker even though a canvas cannot see the beat
-// itself. A hit is a jump in the output level: a pop of small bits flies out
-// from the middle, between the drums, and fades; the bigger the jump, the more
-// bits (a drum sends a handful, the soft shaker one or two).
-const CX = ${MID.x}, CY = ${MID.y}, R = 74, LY = ${MID.y + LIGHTS.dy}, STEP = ${LIGHTS.step};
+/** The mat under the drums: four studs round the Beat count the beat's steps, and a pop of bits flies out with every hit. */
+export const BOARD = `// On the mat, under the drums. Round the Beat button are four studs on a dotted
+// ring, one for each step of the beat, at twelve, three, six and nine o'clock:
+// while the beat is on (tbeat) the step it is on lights. The beat plays at 100
+// a minute, and each hit heard pulls the steps towards it, so they follow the
+// shaker even though a canvas cannot see the beat itself. A hit is a jump in
+// the output level: a pop of small bits flies out from the middle, between the
+// drums, and fades; the bigger the jump, the more bits (a drum sends a handful,
+// the soft shaker one or two).
+const CX = ${MID.x}, CY = ${MID.y}, R = ${STUDS.r};
+const CREAM = '#fff3df', SHADE = '${SHADOW.color}';
 const BEAT = 60 / 100;
 const BITS = ['#2c45cf', '#ff4b2b', '#ffc531', '#3d1446', '#12a594', '#fff3df', '#ff8a1e', '#49b6f4'];
 export default {
@@ -90,15 +94,20 @@ export default {
       ctx.fill();
       ctx.restore();
     }
-    // The beat's four steps: four lights in a row under the Beat, the one it is on lit.
-    const now = Math.floor((f.t - s.phase) / BEAT), at = ((now % 4) + 4) % 4;
-    for (let i = 0; i < 4; i++) {
-      const lit = on && i === at;
-      ctx.globalAlpha = lit ? 1 : on ? 0.42 : 0.2;
-      ctx.fillStyle = lit ? f.color('accent') : ink;
-      ctx.beginPath(); ctx.arc(CX + (i - 1.5) * STEP, LY, lit ? 7.5 : 6, 0, Math.PI * 2); ctx.fill();
+    // The beat's four steps: a dotted ring printed round the Beat, and on it four
+    // studs with the drums' hard shadow, the one the beat is on lit.
+    ctx.fillStyle = ink; ctx.globalAlpha = 0.24;
+    for (let k = 0; k < 48; k++) {
+      const a = (k / 48) * Math.PI * 2;
+      ctx.beginPath(); ctx.arc(CX + Math.cos(a) * R, CY + Math.sin(a) * R, 1.6, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
+    const now = Math.floor((f.t - s.phase) / BEAT), at = ((now % 4) + 4) % 4;
+    for (let i = 0; i < 4; i++) {
+      const lit = on && i === at, a = (i - 1) * Math.PI / 2, x = CX + Math.cos(a) * R, y = CY + Math.sin(a) * R, rr = lit ? 9 : 7;
+      ctx.fillStyle = SHADE; ctx.beginPath(); ctx.arc(x, y + 3, rr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = lit ? f.color('accent') : CREAM; ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+    }
   },
 };
 `;
@@ -591,70 +600,67 @@ function seam(ax: number, ay: number, bx: number, by: number): string {
   pts.push(at(len, 0));
   return `M${pts.join(' L')}`;
 }
-/** The playroom floor and the foam mat on it, drawn once: an SVG picture under everything. */
-function matSvg(W: number, H: number): string {
-  const { x: X0, y: Y0, w: MW, h: MH, border: B } = MAT,
-    X1 = X0 + MW,
-    Y1 = Y0 + MH;
+/** The floor beside the mat and the foam mat, drawn once: an SVG picture under everything. */
+function matSvg(): string {
+  const T = MAT.tile,
+    X1 = 3 * T,
+    board = (W - FLOOR.x) / 3;
   const out: string[] = [];
-  // The floorboards: a joint between rows, and the ends of the boards, staggered.
-  for (let y = 46, row = 0; y < H; y += 46, row++) {
-    out.push(`<path d="M0 ${y} H${W}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
-    for (let x = 90 + (row % 2) * 160; x < W; x += 320)
-      out.push(`<path d="M${x} ${y - 46} V${y}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
+  // The floor: three boards running up beside the mat, the ends of their lengths staggered.
+  for (let k = 0; k < 3; k++) {
+    const x = (FLOOR.x + k * board).toFixed(1),
+      x1 = (FLOOR.x + (k + 1) * board).toFixed(1);
+    if (k) out.push(`<path d="M${x} 0 V${H}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
+    for (let y = 120 + k * 140; y < H; y += 420)
+      out.push(`<path d="M${x} ${y} H${x1}" stroke="${FLOOR.joint}" stroke-width="2"/>`);
   }
-  // The mat, lying on the boards with the drums' hard shadow.
-  out.push(
-    `<rect x="${X0}" y="${Y0 + 5}" width="${MW}" height="${MH}" rx="3" fill="${INK}" fill-opacity="0.35"/>`,
-    `<rect x="${X0}" y="${Y0}" width="${MW}" height="${MH}" rx="3" fill="${MAT.color}"/>`,
-  );
-  // Its tiles (three by three) and its border strips meet in seams with teeth; the strips meet at the corners on a slant.
-  const ix0 = X0 + B,
-    iy0 = Y0 + B,
-    ix1 = X1 - B,
-    iy1 = Y1 - B;
+  // The mat, its tiles running off the top, left and bottom, its border strip lying on the boards.
+  out.push(`<rect x="0" y="0" width="${FLOOR.x}" height="${H}" fill="${MAT.color}"/>`);
+  // Its tiles and the strip meet in seams with teeth.
   const seams = [
-    seam(ix0, iy0, ix1, iy0),
-    seam(ix0, iy1, ix1, iy1),
-    seam(ix0, iy0, ix0, iy1),
-    seam(ix1, iy0, ix1, iy1),
-    ...[1, 2].map(i => seam(ix0 + ((ix1 - ix0) * i) / 3, iy0, ix0 + ((ix1 - ix0) * i) / 3, iy1)),
-    ...[1, 2].map(i => seam(ix0, iy0 + ((iy1 - iy0) * i) / 3, ix1, iy0 + ((iy1 - iy0) * i) / 3)),
-    `M${X0} ${Y0} L${ix0} ${iy0}`,
-    `M${X1} ${Y0} L${ix1} ${iy0}`,
-    `M${X0} ${Y1} L${ix0} ${iy1}`,
-    `M${X1} ${Y1} L${ix1} ${iy1}`,
+    ...[1, 2].map(i => seam(i * T, 0, i * T, H)),
+    ...[1, 2].map(i => seam(0, i * T, X1, i * T)),
+    seam(X1, 0, X1, H),
   ];
   for (const d of seams)
     out.push(
       `<path d="${d}" fill="none" stroke="${MAT.light}" stroke-width="1.2" stroke-linejoin="round" transform="translate(0.9 0.9)"/>`,
       `<path d="${d}" fill="none" stroke="${MAT.groove}" stroke-width="1.6" stroke-linejoin="round"/>`,
     );
-  // The maker's name, pressed into the bottom strip (below the teeth): a dark edge above, a light one below.
-  const text = (dy: number, fill: string) =>
-    `<text x="${ix0 + 16}" y="${(Y1 - (B - 6) / 2 + 4 + dy).toFixed(1)}" fill="${fill}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="800" letter-spacing="3.5">SHAPE DRUMS</text>`;
-  out.push(text(-0.9, '#d47aa2'), text(0.9, '#ffd6e7'), text(0, '#ee98bd'));
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${out.join('')}</svg>`;
 }
 
-/** The drums round the Beat, the same distance from their neighbours and from the Beat: the lowest note biggest, at the bottom; the highest smallest, at the top (a square box, s across). */
-const DRUMS = [
-  { shape: 0, note: 48, color: '#2c45cf', x: 141, y: 387, s: 159 },
-  { shape: 1, note: 50, color: '#ff4b2b', x: 311, y: 385, s: 148 },
-  { shape: 2, note: 52, color: '#ffc531', x: 48, y: 237, s: 140 },
-  { shape: 3, note: 55, color: '#3d1446', x: 415, y: 261, s: 134 },
-  { shape: 4, note: 57, color: '#12a594', x: 58, y: 85, s: 125 },
-  { shape: 5, note: 60, color: '#fff3df', x: 407, y: 116, s: 119 },
-  { shape: 6, note: 62, color: '#ff8a1e', x: 197, y: 8, s: 112 },
-  { shape: 7, note: 64, color: '#49b6f4', x: 335, y: 32, s: 106 },
-];
+/**
+ * One drum on each outer tile of the mat (column, row), centred on it with its
+ * shadow: the lowest notes, biggest, on the bottom row, the highest, smallest,
+ * on the top, rising left to right. `s` is the side of the drum's square box.
+ */
+export const DRUMS = [
+  { shape: 0, note: 48, color: '#2c45cf', tile: [0, 2], s: 159 },
+  { shape: 1, note: 50, color: '#ff4b2b', tile: [1, 2], s: 148 },
+  { shape: 2, note: 52, color: '#ffc531', tile: [2, 2], s: 140 },
+  { shape: 4, note: 55, color: '#12a594', tile: [0, 1], s: 134 },
+  { shape: 5, note: 57, color: '#fff3df', tile: [2, 1], s: 125 },
+  { shape: 3, note: 60, color: '#3d1446', tile: [0, 0], s: 119 },
+  { shape: 6, note: 62, color: '#ff8a1e', tile: [1, 0], s: 112 },
+  { shape: 7, note: 64, color: '#49b6f4', tile: [2, 0], s: 106 },
+].map(d => {
+  const b = boundsOf(SHAPES[d.shape]!),
+    k = d.s / 100,
+    [col, row] = d.tile as [number, number];
+  return {
+    ...d,
+    x: (col + 0.5) * MAT.tile - ((b.x0 + b.x1) / 2) * k,
+    y: (row + 0.5) * MAT.tile - SHADOW.dy / 2 - ((b.y0 + b.y1) / 2) * k,
+  };
+});
 
 export function toy(catalog: Catalog) {
   return work(
     'toy',
     'Shape Drums',
     catalog,
-    [760, 580],
+    [W, H],
     [
       // ---- sound ----
       add('voice1', 'kit.voiceIn', { config: { mode: 'poly', capacity: 4, heldCapacity: 16 } }),
@@ -738,7 +744,7 @@ export function toy(catalog: Catalog) {
       wire('blevel1.out', 'sum1.b'),
       wire('sum1.out', 'room1.left'),
       wire('sum1.out', 'room1.right'),
-      // ---- the plugin: a play mat on the floor, the drums on it in a ring round the Beat ----
+      // ---- the plugin: a play mat on the floor, a drum on each outer tile and the Beat in the middle ----
       {
         op: 'setLook',
         look: {
@@ -770,8 +776,8 @@ export function toy(catalog: Catalog) {
           ].join('\n'),
         },
       },
-      el({ kind: 'svg', name: 'Play mat', svg: matSvg(760, 580), rect: r(0, 0, 760, 580) }),
-      el({ kind: 'canvas', name: 'Floor', code: BOARD, rect: r(0, 0, 760, 580) }),
+      el({ kind: 'svg', name: 'Play mat', svg: matSvg(), rect: r(0, 0, W, H) }),
+      el({ kind: 'canvas', name: 'Floor', code: BOARD, rect: r(0, 0, W, H) }),
       // Each drum: its picture, and over it a see-through pad that lights in its shape when tapped.
       ...DRUMS.flatMap((d, i) => {
         const shape = SHAPES[d.shape]!;
@@ -815,11 +821,19 @@ export function toy(catalog: Catalog) {
         value: false,
         style: { textStyle: { font: 'fredoka', size: 22, weight: 600 } },
       }),
+      // The name of the work, on the floor above the toys.
+      el({
+        kind: 'text',
+        name: 'Title',
+        text: 'Shape Drums',
+        rect: r(FLOOR.x, 18, W - FLOOR.x, 30),
+        textStyle: { font: 'fredoka', size: 22, weight: 600, color: '#fff3df', align: 'center' },
+      }),
       // How the drums sound: three toys on the floor beside the mat, pulled up and down.
       ...patchControl('kbounce', 'Bounce', 'pdepth1.b', [0, 24, 'linear', 'st'], 14),
       ...patchControl('kring', 'Ring', 'aenv1.decay', [0.05, 1.2, 'log', 's'], 0.3),
       ...patchControl('kfizz', 'Fizz', 'mix1.level2', [0, 2, 'linear', ''], 0.5),
-      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(600, 16, 148, 548) }),
+      el({ kind: 'canvas', name: 'Toys', code: TOYS, rect: r(FLOOR.x + 4, 60, 148, 504) }),
     ],
   );
 }
