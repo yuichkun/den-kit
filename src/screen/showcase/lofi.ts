@@ -69,19 +69,20 @@ export const CRUSH_GRID = `// The sound as a landscape of blocks on a black tabl
 // rows cut through on it (each row's last column, dotted). A
 // ruler along the front has a tick at every column, the rate at its end; one at
 // the left has a tick at every level, the bits under it. The rows sway with the
-// wobble (fwob). In front, on a floor ruled in dots every 40 px, stand three towers
-// here and there, each on a square of the floor, as tall as its value, its name
-// upright in front of it: the wobble (it sways), the hiss (its faces fizz with
-// white dots, the more the louder) and the tone; and the OUT tower, whose face
-// is the meter on the plugin. Every tower has a white top, a dotted front and a
-// black side. Drag the landscape across for Rate and up and down for Bits, or a
-// ruler along itself; pull a tower up and down. Under the hand, the tower's name
-// reads its value, or the ruler's value at its end, black on a white bar. Words
-// are in the screen's own pixel letters, the work's name large on the floor at
-// the front left; no line of the floor runs into a word.
+// wobble (fwob). In front, on a floor ruled in dots every 40 px, stand three
+// towers, evenly apart and staggered front to back, each on a square of the
+// floor, as tall as its value, its name upright in front of it: the wobble (it
+// sways), the hiss (its faces fizz with white dots, the more the louder) and the
+// tone; and the OUT tower, whose face is the meter on the plugin. Every tower has
+// a white top, a dotted front and a black side. Drag the landscape across for
+// Rate and up and down for Bits, or a ruler along itself; pull a tower up and
+// down. Under the hand, the tower's name reads its value, or the ruler's value
+// at its end, black on a white bar. Words are in the screen's own pixel letters,
+// the work's name large on the floor at the front left; no line of the floor
+// runs into a word.
 const SR = 48000, RMIN = 1500, RMAX = 48000, BMIN = 2, BMAX = 16;
 const WOB = [0, 0.005], HISS = [0, 0.06], TONE = [900, 14000];
-const ROWS = 12, LI = 560, LJ = 180, H = 120;
+const ROWS = 8, LI = 560, LJ = 180, H = 120;
 const { OX, OY, AX, AY, BX, BY } = ${JSON.stringify(VIEW)};
 const OUT = ${JSON.stringify(OUT)};
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -94,12 +95,12 @@ export const grid = (rate, bits) => ({
 });
 // From the floor's coordinates (i across, j front to back, in px) and a height, to the screen.
 const P = (i, j, y) => [OX + i * AX + j * BX, OY + i * AY + j * BY - y];
-// The towers in front, here and there on the floor, each on a square of its dots: where each stands (i across, j front to back), what it sets.
+// The towers in front, evenly apart across the floor and staggered front to back, each on a square of its dots: where each stands (i across, j front to back), what it sets.
 const TS = OUT.s, TH = 86;
 const TOWERS = [
   { id: 'fwob', kind: 'wob', name: 'WOBBLE', i: 240, j: 480, range: WOB, log: false },
-  { id: 'fhiss', kind: 'hiss', name: 'HISS', i: 400, j: 560, range: HISS, log: false },
-  { id: 'ftone', kind: 'tone', name: 'TONE', i: 600, j: 480, range: TONE, log: true },
+  { id: 'fhiss', kind: 'hiss', name: 'HISS', i: 440, j: 560, range: HISS, log: false },
+  { id: 'ftone', kind: 'tone', name: 'TONE', i: 560, j: 480, range: TONE, log: true },
 ];
 // The table's floor in front of the landscape, ruled every 40 px: its first and last i and j.
 const FLOOR = { i0: 160, i1: 840, j0: 400, j1: 640 };
