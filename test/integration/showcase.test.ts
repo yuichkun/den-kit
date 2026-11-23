@@ -506,6 +506,10 @@ describe('each work does what its controls say', () => {
     expect(values.thiss).toBe(!hiss);
     drag(at('thiss'), 0, 0);
     expect(values.thiss).toBe(hiss);
+    // The hiss source, which the Hiss name stands under, takes the click as the breaker does.
+    expect(mod.where(mod.NOISE.x, mod.NOISE.y, f)).toMatchObject({ id: 'thiss' });
+    drag(mod.NOISE, 0, 0);
+    expect(values.thiss).toBe(!hiss);
   });
 
   it('Low Res: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
