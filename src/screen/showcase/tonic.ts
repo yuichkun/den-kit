@@ -63,7 +63,7 @@ export const STAFF = { x0: 480, x1: 736, lines: 516, now: 660, top: 36, bot: 180
 const LINE_OF = [STAFF.sa + 5 * 8, STAFF.sa, STAFF.sa, STAFF.sa + 12 * 8]; // each string's line, in the order they are plucked
 // The room round the gourd: its first ring, and how far its rings reach out at a full hall.
 const ROOM = DISC + 36, REACH = 42;
-const EDGE_AT = (150 / 360) * TAU; // where the hall's value is written, by the room's outermost ring
+const EDGE_AT = (150 / 360) * TAU; // where the hall's value is written, by the room's outermost ring, while the hand is off the canvas
 /** A point on the room's outermost ring (lower left), for a hall: the room is dragged in or out anywhere on it. */
 export const roomEdge = space => {
   const r = ROOM + Math.max(0, Math.min(1, space)) * REACH;
@@ -98,13 +98,20 @@ export function zone(x, y, jaw) {
   return null;
 }
 const CURSOR = { pace: 'ew-resize', hall: 'move', ring: 'pointer', jaw: 'ew-resize', tonic: 'ns-resize' };
-// The setting under the hand, written by it in one colour, cut out of what is behind it (the other).
-function say(ctx, text, x, y, w, ink, behind) {
+// How dark the room is tinted under the hand.
+const TINT = 0.14;
+// The setting under the hand, written by it in one colour, cut out of what is behind it (the other; tinted as the
+// room is inside a tinted room of that radius).
+function say(ctx, text, x, y, w, ink, behind, room) {
   ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   const m = ctx.measureText(text), tw = typeof m.width === 'number' ? m.width : text.length * 7.8;
-  const x0 = Math.round(Math.max(8, Math.min(w - tw - 8, x - tw / 2)));
-  ctx.strokeStyle = behind; ctx.lineWidth = 5; ctx.strokeText(text, x0, Math.round(y) + 0.5);
-  ctx.fillStyle = ink; ctx.fillText(text, x0, Math.round(y) + 0.5);
+  const x0 = Math.round(Math.max(8, Math.min(w - tw - 8, x - tw / 2))), y0 = Math.round(y) + 0.5;
+  ctx.strokeStyle = behind; ctx.lineWidth = 5; ctx.strokeText(text, x0, y0);
+  if (room) {
+    ctx.save(); ctx.beginPath(); ctx.arc(CX, CY, room, 0, TAU); ctx.clip();
+    ctx.globalAlpha = TINT; ctx.strokeStyle = ink; ctx.strokeText(text, x0, y0); ctx.restore();
+  }
+  ctx.fillStyle = ink; ctx.fillText(text, x0, y0);
 }
 export default {
   setup(ctx, f) {
@@ -131,8 +138,13 @@ export default {
     s.plucks = s.plucks.filter(q => f.t - q.t < (STAFF.now - STAFF.lines + 20) / STAFF.speed);
     const p = f.pointer, under = s.drag || (p && p.over ? zone(p.x, p.y, jaw) : null);
     // The room round the gourd: its rings, thin and apart, more of them and further out the more the hall holds
-    // (darker and thicker under the hand); each pluck sends one out.
+    // (under the hand, darker and thicker, and the room tinted out to them); each pluck sends one out.
     const reach = ROOM + hall * REACH;
+    if (under === 'hall') {
+      ctx.fillStyle = wine; ctx.globalAlpha = TINT;
+      ctx.beginPath(); ctx.arc(CX, CY, reach + 8, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     ctx.strokeStyle = wine;
     const rings = Math.max(1, Math.round(hall * 6));
     for (let i = 1; i <= rings; i++) {
@@ -171,12 +183,14 @@ export default {
       ctx.closePath(); ctx.fillStyle = wine; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
       ctx.beginPath(); ctx.roundRect(x - 7, y - 5, 14, 10, 5); ctx.fillStyle = wine; ctx.fill();
     }
-    // The next plucks, as the pace sets them.
+    // The next plucks, as the pace sets them, coming in whole from the staff's right end.
     for (let k = 1; k <= 3; k++) {
       const t = Math.max(s.last, f.t - gap) + k * gap, i = (s.string + k) % 4, x = xAt(t), y = LINE_OF[i];
-      if (x < STAFF.now + 4) continue;
+      if (x < STAFF.now + 4 || x > STAFF.x1 - 9) continue;
+      ctx.globalAlpha = Math.min(1, (STAFF.x1 - 9 - x) / 24);
       ctx.beginPath(); ctx.roundRect(x - 7, y - 5, 14, 10, 5);
       ctx.lineWidth = under === 'pace' && k === 1 ? 2.5 : 1.5; ctx.strokeStyle = wine; ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
     // The neck, behind the gourd: dark wood with a bone inlay along each side; past the nut, the pegbox and its pegs.
@@ -294,7 +308,14 @@ export default {
     // The setting under the hand, written by it.
     if (under === 'jaw') say(ctx, 'Jawari ' + jaw.toFixed(1), tx, CY - 48, w, field, wine);
     else if (under === 'pace') say(ctx, Math.round(bpm) + ' plucks a minute', (STAFF.lines + STAFF.x1) / 2, STAFF.top - 12, w, wine, field);
-    else if (under === 'hall') say(ctx, 'Hall ' + Math.round(hall * 100) + '%', hx - 34, hy + 22, w, wine, field);
+    else if (under === 'hall') {
+      // Over the hand (under it at the top, or where over it would be on the neck), or by the room's outermost
+      // ring while the hand is off the canvas.
+      const over = p && p.over, ax = over ? p.x : hx - 34;
+      let ay = over ? p.y - 28 : hy + 22;
+      if (over && (ay < 16 || (ax > CX + DISC - 40 && Math.abs(ay - CY) < 44))) ay = p.y + 30;
+      say(ctx, 'Hall ' + Math.round(hall * 100) + '%', ax, ay, w, wine, field, reach + 8);
+    }
   },
   pointer(e, f) {
     const s = f.state, z = zone(e.x, e.y, f.value('kjaw'));
