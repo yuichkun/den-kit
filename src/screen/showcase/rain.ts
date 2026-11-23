@@ -306,9 +306,10 @@ export default {
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1;
     for (const q of s.rings) { const age = (f.t - q.born) / 0.6; ctx.globalAlpha = 0.8 * (1 - age); ctx.beginPath(); ctx.arc(q.x, q.y, 0.5 + age * q.size, 0, TAU); ctx.stroke(); }
     ctx.globalAlpha = 1;
-    // The name, small, at the top of the clearing.
+    // The name, small, at the top of the clearing (the rain in the air stops short of it).
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = '700 11px ' + FONT;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '5px';
+    const nm = ctx.measureText('RAIN FIELD'), nw = typeof nm.width === 'number' ? nm.width : 120;
     ctx.fillStyle = INK; ctx.fillText('RAIN FIELD', L.cx + 2.5, 96);
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     // Your footprints, in from the wood behind you to where you stand.
@@ -457,14 +458,16 @@ export default {
     // The clouds' shadows on everything below them.
     scaled(at[0], () => { ctx.fillStyle = INK; ctx.globalAlpha = quiet(0) ? 0.06 : 0.13; ctx.beginPath(); lobePath(ctx, at[0].x + 10, at[0].y + 13, SHOWER, 1); ctx.fill(); });
     scaled(at[2], () => { ctx.fillStyle = INK; ctx.globalAlpha = (quiet(2) ? 0.06 : 0.14) + 0.12 * roll; ctx.beginPath(); lobePath(ctx, at[2].x + 16, at[2].y + 22, THUNDERHEAD, 1); ctx.fill(); });
-    // The rain in the air: seen from straight above, each drop falls in toward the point below you, longer further out.
+    // The rain in the air: seen from straight above, each drop falls in toward the point below you, longer further out
+    // (none over the name).
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.rect(L.cx - nw / 2 - 4, 82, nw + 10, 19); ctx.clip('evenodd');
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1.1; ctx.lineCap = 'round'; ctx.globalAlpha = 0.75; ctx.beginPath();
     for (const q of s.rain) {
       const u = (f.t - q.born) / q.life, ox = q.x - C.x, oy = q.y - C.y, k = 0.25 * (1 - u);
       const hx = q.x + ox * k, hy = q.y + oy * k, len = Math.max(2, Math.hypot(ox, oy) * 0.085), n = Math.hypot(ox, oy) || 1;
       ctx.moveTo(hx, hy); ctx.lineTo(hx + (ox / n) * len, hy + (oy / n) * len);
     }
-    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.stroke(); ctx.restore();
     // The drops' cloud, low over its puddle.
     scaled(at[0], () => { ctx.globalAlpha = quiet(0) ? 0.45 : 1; lumps(ctx, at[0].x, at[0].y, SHOWER, '#f2f6e2', 1.4); });
     // The storm cloud, trembling while the thunder rolls, white with a bolt under it when it flashes.
