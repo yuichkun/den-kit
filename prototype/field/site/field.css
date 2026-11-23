@@ -159,8 +159,8 @@ code {
 }
 .sound {
   position: absolute;
+  top: 8px;
   right: 8px;
-  bottom: 8px;
   padding: 4px 9px;
   border: 0;
   border-radius: 999px;

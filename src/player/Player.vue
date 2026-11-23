@@ -6,18 +6,18 @@
 // parts come from their own origin, named by ?parts=: never from the player's
 // origin, where they could reach the player.
 //
-// The page is where a person who does not know den-kit arrives from a link, so it
-// says what the work is (its name, and whether it is an instrument or an effect)
-// and makes the first sound close: the sound starts with a click or a tap, or with
-// the first note played (the computer keys, MIDI, the screen's keyboard, or the big
-// keys an instrument gets on a touch screen), and that note sounds. An effect hears
-// a built-in input or, when the person asks, their own voice (the microphone). On
-// iOS the page asks to play as media, so the silent switch does not mute it. A build
-// can carry a moment (moment.ts): the work starts where it ends. ?embed shows the
-// work's picture (card.png) and one button for a page that embeds the player; the
-// button starts the sound and plays the moment. ?touch shows the page as a touch
-// screen gets it, to look at it on a computer. ?plain shows the page without any of
-// this, to compare the two.
+// The page is where a person who does not know den-kit arrives from a link, so it says
+// what the work is (its name, and whether it is an instrument or an effect) and makes
+// the first sound close: the sound starts with a click or a tap, or with the first
+// note played (the computer keys, MIDI, the screen's keyboard, or the big keys an
+// instrument gets on a touch screen when its own keys are too small for a finger), and
+// that note sounds. An effect hears a built-in input or, when the person asks, their
+// own voice (the microphone). On iOS the page asks to play as media, so the silent
+// switch does not mute it. A build can carry a moment (moment.ts): the work starts
+// where it ends. ?embed shows the work's picture (card.png) and one button for a page
+// that embeds the player; a press on either starts the sound and plays the moment.
+// ?touch shows the page as a touch screen gets it, to look at it on a computer. ?plain
+// shows the page without any of this, to compare the two.
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue';
 import { catalog } from '../sound/blocks/index.ts';
 import { AudioEngine } from '../sound/audio-engine.ts';
@@ -120,7 +120,37 @@ const kind = computed(() =>
         : 'sound',
 );
 const press = touch ? 'Tap' : 'Click';
-const bigKeys = computed(() => !plain && touch && kind.value === 'instrument');
+/** An instrument on a touch screen starts with the first key a finger taps, not with a button. */
+const fingers = computed(() => !plain && touch && kind.value === 'instrument');
+const viewport = ref({ width: innerWidth, height: innerHeight });
+const resized = () => (viewport.value = { width: innerWidth, height: innerHeight });
+addEventListener('resize', resized);
+/** A key narrower or shorter than this, on the screen, is too small for a finger (in CSS pixels). */
+const FINGER = 40;
+/** The work's own keyboards (none: the big keys stand in for one). */
+const keyboards = computed(() =>
+  Object.values(doc.value?.nodes ?? {}).filter(n => n.type === 'ui.keyboard' && n.panel),
+);
+/**
+ * The big keys come when no keyboard of the work fits a finger at the size its screen
+ * is drawn here (scaled to fit under the page's bar: PluginWindow).
+ */
+const bigKeys = computed(() => {
+  if (!fingers.value || !spec.value) return false;
+  const { width, height } = viewport.value;
+  const scale = Math.min(width / spec.value.width, (height - 44) / spec.value.height);
+  return !keyboards.value.some(n => {
+    const p = n.style?.skin?.params ?? {};
+    const across =
+      n.style?.skin?.name === 'pads' ? Number(p.columns) || 4 : 7 * (Number(p.octaves) || 2);
+    return (n.panel!.w * scale) / across >= FINGER && n.panel!.h * scale >= FINGER;
+  });
+});
+const tapHint = computed(() =>
+  !bigKeys.value && keyboards.value.every(n => n.style?.skin?.name === 'pads')
+    ? 'Tap a pad to play'
+    : 'Tap a key to play',
+);
 /** The C at or below where the work's own keyboard starts (middle C when it has none). */
 const keysFrom = computed(() => {
   for (const node of Object.values(doc.value?.nodes ?? {})) {
@@ -491,6 +521,7 @@ function listenToMidi() {
   },
 };
 onBeforeUnmount(() => {
+  removeEventListener('resize', resized);
   removeEventListener('pointerup', startOnRelease, true);
   removeEventListener('touchend', startOnRelease, true);
   demo?.();
@@ -550,7 +581,7 @@ onBeforeUnmount(() => {
       />
       <div v-if="marked" class="finger" :style="marked" data-testid="player-finger" />
     </div>
-    <p v-if="bigKeys && state !== 'playing'" class="hint keys-hint">Tap a key to play</p>
+    <p v-if="bigKeys && state !== 'playing'" class="hint keys-hint">{{ tapHint }}</p>
     <TouchKeys v-if="bigKeys" class="keys" :held="held" :from="keysFrom" @note="note" />
     <div v-if="kind && !(embedded && !pressed)" class="dock">
       <div
@@ -573,7 +604,8 @@ onBeforeUnmount(() => {
       <p v-if="kind === 'effect' && state === 'playing' && source === 'input'" class="hint">
         Use headphones, or the sound may feed back.
       </p>
-      <template v-if="(state === 'ready' || state === 'starting') && !bigKeys">
+      <p v-if="fingers && !bigKeys && state !== 'playing'" class="hint">{{ tapHint }}</p>
+      <template v-if="(state === 'ready' || state === 'starting') && !fingers">
         <div class="starts">
           <button
             type="button"
@@ -601,14 +633,19 @@ onBeforeUnmount(() => {
       </p>
       <p v-if="message" class="message" data-testid="player-message">{{ message }}</p>
     </div>
-    <div v-if="embedded && !pressed" class="poster" data-testid="player-poster">
+    <div
+      v-if="embedded && !pressed"
+      class="poster"
+      data-testid="player-poster"
+      @click="state === 'ready' && play()"
+    >
       <img v-if="poster" :src="poster" alt="" />
       <button
         type="button"
         class="play"
         data-testid="player-start"
         :disabled="state !== 'ready'"
-        @click="play"
+        @click.stop="play"
       >
         <span class="triangle" aria-hidden="true" />
         <span>{{ state === 'failed' ? message : doc ? `Play ${doc.name}` : 'Loading…' }}</span>
@@ -770,6 +807,7 @@ body,
   display: grid;
   place-items: center;
   background: #000;
+  cursor: pointer;
 }
 .poster img {
   position: absolute;

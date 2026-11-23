@@ -75,6 +75,15 @@ function media(id) {
   return found;
 }
 
+// Every page here is cross-origin isolated, so the player's sound talks to its worklet
+// through shared memory instead of slower messages (the player says which it got).
+const ISOLATED = {
+  'cache-control': 'no-store',
+  'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-embedder-policy': 'require-corp',
+  'cross-origin-resource-policy': 'same-origin',
+};
+
 const escape = s =>
   String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -124,9 +133,10 @@ export function handler(works) {
     const url = new URL(req.url ?? '/', 'http://x');
     const path = decodeURIComponent(url.pathname);
     const send = (status, type, body, headers = {}) => {
-      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers });
+      res.writeHead(status, { 'content-type': type, ...ISOLATED, ...headers });
       res.end(req.method === 'HEAD' ? undefined : body);
     };
+    if (path === '/favicon.ico') return send(204, 'image/x-icon', '');
     if (path === '/works.json') {
       const list = [...works.values()].map(({ id, name, kind, moment }) => ({
         id,
@@ -182,7 +192,7 @@ export function handler(works) {
 function sendFile(req, res, data, type) {
   const bytes = Buffer.from(data);
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
-  const headers = { 'content-type': type, 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+  const headers = { 'content-type': type, ...ISOLATED, 'accept-ranges': 'bytes' };
   if (range) {
     const start = range[1] ? Number(range[1]) : bytes.length - Number(range[2]);
     const end =
