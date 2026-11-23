@@ -231,6 +231,28 @@ describe('the page of counts', () => {
     expect(received[1]).toBe('2026-12-09: 0 (0%) · 0 skipped');
   });
 
+  it('counts in Other the installs on the values it does not draw, also when an install updates', async () => {
+    const db = testD1();
+    const [x, y, z, w] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const records = [
+      // On 2026-12-08, X updates from 1.0 to 2.0, Y is on 2.0 and Z on 0.9.
+      event(x, 'app_used', '2026-12-08', { version: '1.0' }),
+      event(x, 'sound_played', '2026-12-08', { version: '2.0' }),
+      event(y, 'app_used', '2026-12-08', { version: '2.0' }),
+      event(z, 'app_used', '2026-12-08', { version: '0.9' }),
+      // On the last day, only 2.0 and 1.0.
+      event(x, 'app_used', '2026-12-09', { version: '2.0' }),
+      event(w, 'app_used', '2026-12-09', { version: '1.0' }),
+    ];
+    await keep(db, { records, skipped: 0 }, new Date('2026-12-10T07:00:00Z'));
+    await count(db, '2026-12-10');
+    const { html } = await open(db, await testAccess(NOW));
+    const versions = figure(html, 'Share of active installs on each version, each day');
+    expect(rows(versions)[0]).toEqual(['Day', '2.0', '1.0', 'Other']);
+    expect(row(versions, '2026-12-08')).toEqual(['67%', '33%', '33%']);
+    expect(row(versions, '2026-12-09')).toEqual(['50%', '50%', '0%']);
+  });
+
   it('escapes the text the records bring', async () => {
     const db = testD1();
     const hostile = '<img src=x onerror=alert(1)>';

@@ -169,8 +169,10 @@ const newest = new Intl.Collator('en', { numeric: true });
 
 /**
  * A line for each of the `most` values with the most installs on the last day that has any, and
- * one for the rest; as shares of all installs when `shares`. Lines take the palette's colors in
- * the order of their values, newest first, so the newest version is always the first color.
+ * one for the rest: the installs on each of the other values the daily run keeps, added up, since
+ * an install that updates counts on each of its values; as shares of all installs when `shares`.
+ * Lines take the palette's colors in the order of their values, newest first, so the newest
+ * version is always the first color.
  */
 function breakdown(
   rows: Active[],
@@ -198,10 +200,15 @@ function breakdown(
     slot: i + 1,
     values: days.map(day => value(day, by.get(day)?.get(name) ?? 0)),
   }));
-  const other = days.map(day => {
-    const named = chosen.reduce((sum, name) => sum + (by.get(day)?.get(name) ?? 0), 0);
-    return value(day, Math.max(0, (all.get(day)?.get('') ?? 0) - named));
-  });
+  const other = days.map(day =>
+    value(
+      day,
+      [...(by.get(day) ?? [])].reduce(
+        (sum, [name, installs]) => (chosen.includes(name) ? sum : sum + installs),
+        0,
+      ),
+    ),
+  );
   if (other.some(v => v)) series.push({ name: 'Other', slot: 0, values: other });
   return series;
 }
