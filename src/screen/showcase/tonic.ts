@@ -131,12 +131,12 @@ export default {
     s.plucks = s.plucks.filter(q => f.t - q.t < (STAFF.now - STAFF.lines + 20) / STAFF.speed);
     const p = f.pointer, under = s.drag || (p && p.over ? zone(p.x, p.y, jaw) : null);
     // The room round the gourd: its rings, thin and apart, more of them and further out the more the hall holds
-    // (darker under the hand); each pluck sends one out.
+    // (darker and thicker under the hand); each pluck sends one out.
     const reach = ROOM + hall * REACH;
     ctx.strokeStyle = wine;
-    ctx.lineWidth = 1.25;
     const rings = Math.max(1, Math.round(hall * 6));
     for (let i = 1; i <= rings; i++) {
+      ctx.lineWidth = under === 'hall' ? 2.5 : 1.25;
       ctx.globalAlpha = (under === 'hall' ? 1 : 0.75) * (1 - i / 8);
       ctx.beginPath(); ctx.arc(CX, CY, ROOM + ((reach - ROOM) * i) / rings, 0, TAU); ctx.stroke();
     }
@@ -259,7 +259,8 @@ export default {
       for (let x = BX + 3; x <= NUT; x += 3) {
         const u = (x - BX) / (NUT - BX);
         let dy = a * 4 * Math.sin(Math.PI * u) * Math.sin(f.t * 47 + i * 1.7);
-        if (x < tx) dy += a * (0.4 + jaw * 0.4) * (((x / 3) | 0) % 2 ? 1 : -1);
+        // The buzz: rough, strongest at the bridge and gone by the thread.
+        if (x < tx) dy += a * (0.6 + jaw * 0.6) * (1 - (x - BX) / Math.max(1, tx - BX)) * Math.sin(x * 2.3 + f.t * 91 + i * 2.1) * Math.sin(x * 0.61 - f.t * 37);
         ctx.lineTo(x, stringY(i, x) + dy);
       }
       ctx.lineTo(PEGS[i], tie(i));
@@ -513,7 +514,7 @@ export function tonic(catalog: Catalog) {
             name: `${name} name`,
             text: name,
             rect: r(Math.round(x - 18), Math.round(y - 11), 36, 22),
-            textStyle: { font: 'system', size: 17, weight: 700, color: 'fg', align: 'center' },
+            textStyle: { font: 'system', size: 17, weight: 700, color: 'accent', align: 'center' },
           });
         }),
       ],
