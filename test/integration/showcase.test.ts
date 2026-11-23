@@ -487,10 +487,19 @@ describe('each work does what its controls say', () => {
       for (const other of Object.keys(was))
         if (other !== id) expect(values[other]).toBe(was[other]);
     }
-    // Head A dragged right to where 0.5 s is on the scale: Repeat is 0.5 s.
-    const head = at('ktime');
+    // Head A taken where it stands and dragged right to where 0.5 s is on the scale: Repeat is 0.5 s.
+    const head = { x: mod.xAt(values.ktime), y: at('ktime').y };
     drag(head, mod.xAt(0.5) - head.x, 0);
     expect(values.ktime).toBeCloseTo(0.5, 6);
+    // At a short Repeat head B stands within A's reach: pressing B takes B and keeps Repeat, and a drag moves B
+    // as far as the hand moves (B at 0.3 s puts A at 0.2 s).
+    values.ktime = 0.06;
+    const b = { x: mod.xAt(0.06 * 1.5), y: head.y };
+    expect(mod.where(b.x, b.y, f)).toMatchObject({ id: 'ktime', k: 1.5 });
+    drag(b, 0, 0);
+    expect(values.ktime).toBe(0.06);
+    drag(b, mod.xAt(0.3) - b.x, 0);
+    expect(values.ktime).toBeCloseTo(0.2, 6);
     // The breaker is pressed, not dragged: a click turns the hiss off and on again.
     const hiss = values.thiss;
     drag(at('thiss'), 0, 0);

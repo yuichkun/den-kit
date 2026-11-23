@@ -42,9 +42,11 @@ export const ECHO_LINE = `// The line as a plant's flow diagram, read left to ri
 // shadow, and turns yellow under the hand; its setting and value show on an
 // instrument bubble beside it, as on a flow diagram: the pump (kin, Drive, up
 // and down; longer vanes, harder drive), a head along the tape against the time
-// scale over it, the tape itself for Wow (kwow, up and down), the valve (up and
-// down; its stem lifts as it opens), the strainer (across; the finer its mesh,
-// the darker each pass), the vessel's level for Echoes (kecho, up and down).
+// scale over it (as far as the hand moves, so a press keeps Repeat; where the
+// heads' reaches overlap, the nearer one), the tape itself for Wow (kwow, up and
+// down), the valve (up and down; its stem lifts as it opens), the strainer
+// (across; the finer its mesh, the darker each pass), the vessel's level for
+// Echoes (kecho, up and down).
 // Click the breaker for the hiss (thiss), which runs down into the vessel from
 // its own source. Each part is named in one weight under it; the heads, whose
 // pipes run down, beside their pipes; the pipes' names are lighter, over them.
@@ -71,8 +73,9 @@ export function where(x, y, f) {
   if (Math.hypot(x - BREAKER.x, y - BREAKER.y) < 22) return { id: 'thiss', kind: 'breaker' };
   if (Math.hypot(x - PUMP.x, y - PUMP.y) < PUMP.r + 10) return { id: 'kin', kind: 'pump' };
   if (y > BELT + 22 && y < BELT + 50) {
-    if (Math.abs(x - xAt(time)) < 15) return { id: 'ktime', kind: 'head', k: 1 };
-    if (Math.abs(x - xAt(time * 1.5)) < 15) return { id: 'ktime', kind: 'head', k: 1.5 };
+    // The nearer head takes the hand where their reaches overlap (at a short repeat, B stands close to A).
+    const dA = Math.abs(x - xAt(time)), dB = Math.abs(x - xAt(time * 1.5));
+    if (Math.min(dA, dB) < 15) return { id: 'ktime', kind: 'head', k: dB < dA ? 1.5 : 1 };
   }
   if (y > BELT - 32 && y < BELT + 22 && x > ROLL[0] - 28 && x < ROLL[1] + 28) return { id: 'kwow', kind: 'tape' };
   if (Math.abs(x - VALVE.x) < 28 && y > VALVE.y - 50 && y < VALVE.y + 20) return { id: 'kfb', kind: 'valve' };
@@ -290,14 +293,16 @@ export default {
     const s = f.state, fine = e.shift ? 0.1 : 1;
     if (e.type === 'down') {
       const t = where(e.x, e.y, f);
-      s.drag = t && t.kind !== 'breaker' ? { ...t, x: e.x, y: e.y, norm: f.norm(t.id) } : null;
+      s.drag = t && t.kind !== 'breaker' ? { ...t, x: e.x, y: e.y, norm: f.norm(t.id), value: f.value(t.id) } : null;
       if (t && t.kind === 'breaker') f.set('thiss', !f.on('thiss'));
     }
     if (e.type === 'up' || e.type === 'leave') s.drag = null;
     const d = s.drag;
-    if (d && (e.type === 'down' || e.type === 'move')) {
-      if (d.kind === 'head') f.set('ktime', clamp(secAt(e.x) / d.k, 0.06, 0.8));
-      else if (e.type === 'move') {
+    // Every part moves as far as the hand does, so a press alone keeps its setting; a head along the scale (B at
+    // 1.5 times A's time).
+    if (d && e.type === 'move') {
+      if (d.kind === 'head') f.set('ktime', clamp(d.value + (secAt(e.x) - secAt(d.x)) / d.k, 0.06, 0.8));
+      else {
         const along = d.kind === 'tone' ? e.x - d.x : d.y - e.y;
         f.setNorm(d.id, clamp(d.norm + (along / (d.kind === 'vessel' ? 120 : 200)) * fine, 0, 1));
       }
