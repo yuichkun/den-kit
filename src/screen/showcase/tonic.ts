@@ -368,11 +368,12 @@ export default {
 };
 `;
 
-/** Where the canvas draws the ring (its CX, CY), and how far out the names stand. */
+/** Where the canvas draws the ring (its CX, CY). */
 const CENTRE = { x: 262, y: 260 };
 /** The bridge's top-left corner on the plugin (the canvas's BX − 7, CY − 26). */
 const BRIDGE = { x: CENTRE.x - 79, y: CENTRE.y - 26 };
-const NAME_R = 172;
+/** How far out the letter names stand: midway between the gourd's edge (148 px) and the room's first ring (184 px), so a two-letter name clears both. */
+const NAME_R = 166;
 
 export function tonic(catalog: Catalog) {
   const inside = [
