@@ -76,7 +76,8 @@ export const TIDE_SHORE = `// The shore at the hour, seen from the quay: the sky
 // below the bells). The sun or the moon crosses the sky with the hour;
 // headlands close the bay in as Bay (kbay) rises; crests on the sea grow with
 // Sea (ksea) and drift at the pace of the waves (kwaves). On the quay stands
-// the harbour's tide board: the work's name, the hour in large plain figures,
+// the harbour's tide board, its enamel face pale by day and dark by night
+// (boardAt): the work's name, the hour in large plain figures,
 // the height of the water and which way it goes, the day's tide in the colours
 // of each hour's sky marked at the hour, and on its last line the setting under
 // the hand (at rest, the bells the waves reach).
@@ -128,6 +129,15 @@ function colours(table, h) {
 }
 // How much daylight there is (0 night, 1 day).
 const daylight = h => clamp(Math.min((h - 5.2) / 2.2, (20 - h) / 2.2), 0, 1);
+// The tide board at an hour: its enamel face, its letters and its last line at rest. The face is pale by day and
+// dark by night and turns, with its letters, when the daylight is half up, so the words keep their contrast at
+// every hour.
+export function boardAt(hour) {
+  const day = daylight(hour), lit = day >= 0.5;
+  const face = lit ? mix([206, 202, 192], [238, 233, 220], day * 2 - 1) : mix([52, 57, 70], [58, 63, 76], day * 2);
+  const letter = lit ? [22, 34, 52] : [232, 228, 218];
+  return { face, letter, rest: mix(face, letter, 0.7) };
+}
 // Flat bands down from y0 to y1: their shares of the height, each coloured at its middle (at(0 to 1)).
 function bandsOf(shares, y0, y1, at) {
   let acc = 0;
@@ -228,7 +238,7 @@ export default {
     const ink = light(top) > 0.45 ? [15, 27, 43] : [244, 247, 251];
     const foam = mix([150, 170, 190], [240, 246, 246], day);
     const stone = mix([43, 47, 59], [190, 184, 170], day);
-    const board = mix([52, 57, 70], [238, 233, 220], day), letter = light(board) > 0.5 ? [22, 34, 52] : [232, 228, 218];
+    const { face: board, letter, rest } = boardAt(hour);
     const wood = mix([42, 44, 54], [143, 136, 124], day), wet = mix(wood, [38, 52, 46], 0.55);
     const iron = mix([24, 26, 32], [52, 50, 54], day);
     const bronze = mix([84, 66, 60], [190, 132, 58], day), shade = mix(bronze, [40, 24, 10], 0.42), shine = mix(bronze, [255, 236, 190], 0.5);
@@ -423,8 +433,8 @@ export default {
       : zone === 'water' ? 'SEA ' + pct(sea) + ' ↕   WAVES ' + waves.toFixed(1) + ' ↔'
       : reached + ' OF ' + n + ' BELLS IN REACH';
     ctx.textAlign = 'left'; ctx.font = '700 10px ' + FONT; ctx.letterSpacing = '0.5px';
-    ctx.globalAlpha = zone ? 1 : 0.7; ctx.fillText(line, B.x0 + 14, B.y1 - 9);
-    ctx.globalAlpha = 1; ctx.letterSpacing = '0px';
+    ctx.fillStyle = css(zone ? letter : rest); ctx.fillText(line, B.x0 + 14, B.y1 - 9);
+    ctx.letterSpacing = '0px';
   },
   pointer(e, f) {
     const s = f.state, L = layout(f);

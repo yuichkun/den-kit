@@ -1601,6 +1601,30 @@ describe('each work does what its controls say', () => {
     expect(Object.values(doc.nodes).filter(n => n.panel)).toEqual([]);
   });
 
+  it('Tide Bells: the tide board’s words, and its last line at rest, keep 4.5:1 against its face at every hour', async () => {
+    const code = await import(
+      `data:text/javascript;base64,${Buffer.from(TIDE_SHORE).toString('base64')}`
+    );
+    // WCAG's contrast ratio of two sRGB colours.
+    const luminance = (c: number[]) => {
+      const [r, g, b] = c.map(v =>
+        v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4,
+      );
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const contrast = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    let worst = Infinity;
+    for (let hour = 0; hour <= 24; hour += 0.05) {
+      const { face, letter, rest } = code.boardAt(hour);
+      worst = Math.min(worst, contrast(letter, face), contrast(rest, face));
+    }
+    note(`tide: the board's lowest contrast over the day ${worst.toFixed(2)}`);
+    expect(worst).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('Exhale: plays by itself and breathes: the level swells and settles with each breath, as deep as Depth says', async () => {
     const swing = async (depth: number) => {
       const out = await render(
