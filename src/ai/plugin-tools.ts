@@ -337,7 +337,7 @@ export function uiReference(
       ].join('\n');
     case 'looks':
       return [
-        'Ready looks from den-kit\'s showcase works. {"op":"wearLook","work":"neon"} puts one on the plugin (its base theme, colour and font tokens, background, default skins and CSS, with the pictures they use); the layout and the decorations stay, and follow the new colours where they use tokens. A good start; adjust from there.',
+        'Ready looks from den-kit\'s showcase works. {"op":"wearLook","work":"lofi"} puts one on the plugin (its base theme, colour and font tokens, background, default skins and CSS, with the pictures they use); the layout and the decorations stay, and follow the new colours where they use tokens. A good start; adjust from there.',
         ...WORKS.map(
           w =>
             `  ${w.id}: ${w.title} — ${w.prompt}.${catalog ? ` ${lookSummary(w.build(catalog).ui.look)}` : ''}`,

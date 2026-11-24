@@ -57,6 +57,32 @@ type Story = StoryObj<Args>;
 export const Piano: Story = {};
 export const Pads: Story = { args: { skin: 'pads' } };
 
+/** A held pad glows in its colour; with `press: sink` it is pressed in, with no halo around it. */
+export const PadsPress: Story = {
+  render: () =>
+    html`<div style="display:flex;gap:16px">
+      <dk-keyboard
+        style="display:block;width:200px;height:120px"
+        data-press="glow"
+        skin="pads"
+        held="48"
+      ></dk-keyboard>
+      <dk-keyboard
+        style="display:block;width:200px;height:120px"
+        data-press="sink"
+        skin="pads"
+        params='{"press":"sink"}'
+        held="48"
+      ></dk-keyboard>
+    </div>`,
+  play: async ({ canvasElement }) => {
+    const heldPad = (press: string) =>
+      partOf(canvasElement.querySelector(`[data-press=${press}]`) as DkKeyboard, '.pad.on');
+    await expect(getComputedStyle(heldPad('glow')).boxShadow).toContain('18px');
+    await expect(getComputedStyle(heldPad('sink')).boxShadow).not.toContain('18px');
+  },
+};
+
 /** Rule 8: a pressed key plays its note until it is let go. */
 export const PlayAKey: Story = {
   play: async ({ canvasElement, args }) => {

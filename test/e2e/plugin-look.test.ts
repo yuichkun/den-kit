@@ -37,29 +37,27 @@ describe('looking the plugin over', () => {
     await waitCompiled(page);
     for (const id of [
       'acid',
-      'pad',
-      'musicbox',
+      'supersaw',
+      'tonic',
       'toy',
       'tapeecho',
-      'fuzz',
-      'lofi',
-      'space',
       'duck',
-      'neon',
+      'lofi',
+      'tide',
       'rain',
-      'supersaw',
+      'breath',
     ]) {
       await page.keyboard.press('Control+Alt+KeyN');
       await page.waitForSelector('[data-testid=start-screen]');
       await page.click(`[data-work=${id}]`);
       await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-      const seen = await look(page, id === 'space' || id === 'fuzz');
+      const seen = await look(page, id === 'breath' || id === 'tide');
       assert.deepEqual(
         seen.issues.filter(i => i.severity === 'error').map(i => i.message),
         [],
         id,
       );
-      if (id === 'space' || id === 'fuzz') {
+      if (id === 'breath' || id === 'tide') {
         const size = await kit(page, k => [k.doc.value.panel.width, k.doc.value.panel.height]);
         assert.deepEqual([seen.width, seen.height], size, `${id} picture size`);
         assert.deepEqual(seen.png.slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10], 'a PNG');

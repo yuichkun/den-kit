@@ -14,9 +14,18 @@ import { applyIntents, type Intent } from '../../src/work/ops.ts';
 import { documentHash, parseDocument, serializeDocument } from '../../src/work/persistence.ts';
 import { emptyDocument, type PatchDocument } from '../../src/work/schema.ts';
 import { validate } from '../../src/work/validate.ts';
+import { flatten } from '../../src/work/parts.ts';
 import { evaluate } from '../../src/sound/compile/evaluate.ts';
 import { WORKS, lookIntents } from '../../src/screen/showcase/index.ts';
-import { CRUSHER } from '../../src/screen/showcase/lofi.ts';
+import { SHOWCASE_ASSETS } from '../../src/screen/showcase/assets.ts';
+import { FILTER_HILL, WAVE_GRAPH } from '../../src/screen/showcase/acid.ts';
+import { CRUSHER, CRUSH_GRID } from '../../src/screen/showcase/lofi.ts';
+import { ECHO_LINE } from '../../src/screen/showcase/tapeecho.ts';
+import { FIELD } from '../../src/screen/showcase/rain.ts';
+import { SAW_LANES } from '../../src/screen/showcase/supersaw.ts';
+import { TIDE_SHORE } from '../../src/screen/showcase/tide.ts';
+import { TONIC_CIRCLE } from '../../src/screen/showcase/tonic.ts';
+import { DRUMS as TOY_DRUMS, MAT as TOY_MAT } from '../../src/screen/showcase/toy.ts';
 import { loadRegistry } from '../helpers/registry.ts';
 
 let registry: Record<string, unknown>;
@@ -46,10 +55,8 @@ function notes(list: Array<[number, number, number]>): MidiEvent[] {
     },
   ]);
 }
-/** A phrase that suits the work: a bass line, a held chord, a tune high up, or hits on the pads. */
+/** A phrase that suits the work: a bass line, hits on the pads, or chord notes. */
 function phrase(id: string): MidiEvent[] {
-  if (id === 'pad') return notes([48, 55, 60, 64].map(n => [n, 0, 1.6]));
-  if (id === 'musicbox') return notes([72, 76, 79, 84, 79, 76].map((n, i) => [n, i * 0.25, 0.12]));
   const list =
     id === 'toy'
       ? [48, 50, 52, 55, 57, 60]
@@ -58,9 +65,8 @@ function phrase(id: string): MidiEvent[] {
         : [48, 55, 60, 64];
   return notes(list.map((n, i) => [n, i * 0.25, 0.18]));
 }
-/** What an effect is heard on: a guitar for the fuzz, drums for the echoes, chords otherwise. */
-const inputFor = (id: string) =>
-  id === 'fuzz' ? 'guitar' : id === 'tapeecho' || id === 'space' ? 'drums' : 'chords';
+/** What an effect is heard on: drums for the tape echo, chords otherwise. */
+const inputFor = (id: string) => (id === 'tapeecho' ? 'drums' : 'chords');
 
 async function render(
   doc: PatchDocument,
@@ -187,6 +193,66 @@ describe('showcase works', () => {
         }
       }
     });
+
+    it(`${w.id}: canvases draw and follow the hand anywhere on them, with the work's own values`, async () => {
+      const doc = w.build(catalog);
+      const values: Record<string, unknown> = {};
+      for (const n of Object.values(doc.nodes))
+        if (n.values && 'value' in n.values) values[n.id] = n.values.value;
+      for (const el of Object.values(doc.ui.elements)) {
+        if (el.kind !== 'canvas') continue;
+        const mod = await import(
+          `data:text/javascript;base64,${Buffer.from(el.code).toString('base64')}`
+        );
+        const part = typeof mod.default === 'function' ? { draw: mod.default } : mod.default;
+        const ctx = fakeCanvas();
+        const pointer = {
+          x: 0,
+          y: 0,
+          over: true,
+          down: false,
+          shift: false,
+          alt: false,
+          meta: false,
+        };
+        // The controls read the way the canvas worker gives them: f.value is a number (a switch 1 or 0).
+        const f = {
+          t: 1,
+          dt: 1 / 60,
+          w: el.rect.w,
+          h: el.rect.h,
+          level: 0.2,
+          peak: 0.4,
+          wave: new Float32Array(256).map((_, i) => 0.5 * Math.sin(i / 10)),
+          spectrum: new Float32Array(64).fill(0.5),
+          props: el.props,
+          state: {},
+          pointer,
+          value: (id: string) => {
+            const v = values[id];
+            return typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : 0;
+          },
+          norm: () => 0.5,
+          xy: () => ({ x: 0.3, y: 0.6 }),
+          on: (id: string) => values[id] === true || (values[id] as number) >= 0.5,
+          color: () => '#ff00ff',
+          range: () => ({ min: 0, max: 1, log: false, unit: '' }),
+          set: () => {},
+          setNorm: () => {},
+          cursor: () => {},
+        };
+        part.setup?.(ctx, f);
+        for (let y = 0; y < el.rect.h; y += 12)
+          for (let x = 0; x < el.rect.w; x += 12) {
+            Object.assign(pointer, { x, y });
+            part.pointer?.(
+              { type: 'move', x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+              f,
+            );
+            part.draw(ctx, f);
+          }
+      }
+    });
   }
 
   it('the look of one work goes onto another (what to make × how it looks)', () => {
@@ -201,9 +267,21 @@ describe('showcase works', () => {
 
   it('a look that uses pictures brings them along', () => {
     const acid = WORKS.find(w => w.id === 'acid')!.build(catalog);
-    const pad = WORKS.find(w => w.id === 'pad')!.build(catalog);
-    const r = applyIntents(acid, lookIntents(acid, pad), catalog);
-    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/sunset-sky.jpg');
+    const pictured = applyIntents(
+      WORKS.find(w => w.id === 'breath')!.build(catalog),
+      [
+        { op: 'addAsset', asset: SHOWCASE_ASSETS['assets/den-kit/paper.jpg']! },
+        {
+          op: 'setLook',
+          look: {
+            background: [{ kind: 'image', asset: 'assets/den-kit/paper.jpg', fit: 'cover' }],
+          },
+        },
+      ],
+      catalog,
+    ).doc;
+    const r = applyIntents(acid, lookIntents(acid, pictured), catalog);
+    expect(Object.keys(assetsOf(r.doc.files))).toContain('assets/den-kit/paper.jpg');
   });
 });
 
@@ -246,7 +324,19 @@ describe('every work is a finished first version', () => {
     it(`${w.id}: every control on the screen reaches the sound, and the look is its own`, () => {
       const doc = w.build(catalog);
       const placed = Object.values(doc.nodes).filter(n => n.panel && n.type.startsWith('ui.'));
-      expect(placed.length).toBeGreaterThan(0);
+      // A control kept in the patch is on the screen too when a canvas names it (f.value, f.set): it must reach the sound as well.
+      const codes = Object.values(doc.ui.elements).flatMap(e =>
+        e.kind === 'canvas' ? [e.code] : [],
+      );
+      const drawn = Object.values(doc.nodes).filter(
+        n => !n.panel && n.type.startsWith('ui.') && codes.some(c => c.includes(`'${n.id}'`)),
+      );
+      expect(placed.length + drawn.length, 'something on the screen to play').toBeGreaterThan(0);
+      for (const n of drawn)
+        expect(
+          Object.values(doc.edges).some(e => e.from.node === n.id),
+          `${n.id} (${n.label}), on a canvas, is wired to something`,
+        ).toBe(true);
       for (const n of placed) {
         if (n.type === 'ui.keyboard') {
           expect(
@@ -307,63 +397,7 @@ describe('every work is a finished first version', () => {
 describe('each work does what its controls say', () => {
   const build = (id: string) => WORKS.find(w => w.id === id)!.build(catalog);
 
-  it('Afterglow: across the XY pad is brightness, up is sway', async () => {
-    const chord = notes([48, 55, 60, 64].map(n => [n, 0, 3.8]));
-    const centroid = async (x: number, y: number) =>
-      analyse(
-        await render(
-          turned(build('pad'), [
-            ['xy1', 'x', x],
-            ['xy1', 'y', y],
-          ]),
-          { seconds: 4, events: chord },
-        ),
-        SR,
-      ).centroidHz;
-    const dark = await centroid(0.15, 0),
-      bright = await centroid(0.9, 0);
-    note(`pad: centroid x0.15 ${dark.mean} Hz, x0.9 ${bright.mean} Hz`);
-    expect(bright.mean).toBeGreaterThan(dark.mean * 1.8);
-    const still = await centroid(0.5, 0),
-      swaying = await centroid(0.5, 1);
-    note(
-      `pad: centroid range y0 ${still.min}–${still.max} Hz, y1 ${swaying.min}–${swaying.max} Hz`,
-    );
-    expect(swaying.max / swaying.min).toBeGreaterThan(1.5 * (still.max / still.min));
-  }, 60000);
-
-  it('Lullaby Box: Ring lets a tapped note ring on; Shine brightens the strike', async () => {
-    const tap = notes([[76, 0, 0.08]]);
-    const tail = async (ring: number) => {
-      const out = await render(turned(build('musicbox'), [['kring', 'value', ring]]), {
-        seconds: 2,
-        events: tap,
-      });
-      return rms(out[0]!, 1.2, 1.8);
-    };
-    const short = await tail(0.3),
-      long = await tail(4);
-    note(`musicbox: tail rms ring0.3 ${short.toExponential(2)}, ring4 ${long.toExponential(2)}`);
-    expect(long).toBeGreaterThan(8 * short);
-    const strike = async (shine: number) =>
-      analyse(
-        slice(
-          await render(turned(build('musicbox'), [['kshine', 'value', shine]]), {
-            seconds: 0.5,
-            events: tap,
-          }),
-          0,
-          0.3,
-        ),
-        SR,
-      ).centroidHz.mean;
-    const plain = await strike(0),
-      shiny = await strike(10);
-    note(`musicbox: strike centroid shine0 ${plain} Hz, shine10 ${shiny} Hz`);
-    expect(shiny).toBeGreaterThan(2 * plain);
-  }, 60000);
-
-  it('Reel Echo: echoes come back at the repeat rate, the second head 1.5× later', async () => {
+  it('Echo Line: echoes come back at the repeat rate, the second head 1.5× later', async () => {
     const doc = turned(build('tapeecho'), [
       ['thiss', 'value', false],
       ['ktime', 'value', 0.25],
@@ -378,7 +412,107 @@ describe('each work does what its controls say', () => {
     expect(rms(r!, 0.415, 0.455)).toBeGreaterThan(5 * rms(r!, 0.29, 0.33)); // not at the left head's time
   }, 60000);
 
-  it('Side B: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
+  it('Echo Line: every setting is a part of the line to take hold of, and each part sets its own', async () => {
+    const doc = build('tapeecho');
+    const ranges: Record<string, [number, number, boolean]> = {};
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes)) {
+      if (n.type === 'ui.toggle') values[n.id] = n.values.value as boolean;
+      if (n.type === 'ui.knob') {
+        values[n.id] = n.values.value as number;
+        const c = n.config as { min: number; max: number; scale?: string };
+        ranges[n.id] = [c.min, c.max, c.scale === 'log'];
+      }
+    }
+    const norm = (id: string) => {
+      const [lo, hi, log] = ranges[id]!;
+      const v = values[id] as number;
+      return log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo);
+    };
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(ECHO_LINE).toString('base64')}`
+    );
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => Number(values[id]),
+      on: (id: string) => values[id] === true,
+      norm,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      setNorm: (id: string, u: number) => {
+        const [lo, hi, log] = ranges[id]!;
+        values[id] = log ? lo * (hi / lo) ** u : lo + (hi - lo) * u;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const seen = new Set<string>();
+    for (let x = 0; x < el.rect.w; x += 4)
+      for (let y = 0; y < el.rect.h; y += 4) {
+        const t = mod.where(x, y, f) as { id: string } | null;
+        if (t) seen.add(t.id);
+      }
+    expect([...seen].sort()).toEqual(['kecho', 'kfb', 'kin', 'ktime', 'ktone', 'kwow', 'thiss']);
+    const at = (id: string) => {
+      for (let x = 0; x < el.rect.w; x += 2)
+        for (let y = 0; y < el.rect.h; y += 2) if (mod.where(x, y, f)?.id === id) return { x, y };
+      throw new Error(id);
+    };
+    const drag = (p: { x: number; y: number }, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', p.x, p.y],
+        ['move', p.x + dx, p.y + dy],
+        ['up', p.x + dx, p.y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // Each part, dragged its own way, moves its own setting and nothing else.
+    for (const [id, dx, dy] of [
+      ['kin', 0, -40],
+      ['kwow', 0, -40],
+      ['kfb', 0, -40],
+      ['ktone', 40, 0],
+      ['kecho', 0, -30],
+    ] as const) {
+      const was = { ...values };
+      drag(at(id), dx, dy);
+      expect(values[id]).toBeGreaterThan(was[id] as number);
+      for (const other of Object.keys(was))
+        if (other !== id) expect(values[other]).toBe(was[other]);
+    }
+    // Head A taken where it stands and dragged right to where 0.5 s is on the scale: Repeat is 0.5 s.
+    const head = { x: mod.xAt(values.ktime), y: at('ktime').y };
+    drag(head, mod.xAt(0.5) - head.x, 0);
+    expect(values.ktime).toBeCloseTo(0.5, 6);
+    // At a short Repeat head B stands within A's reach: pressing B takes B and keeps Repeat, and a drag moves B
+    // as far as the hand moves (B at 0.3 s puts A at 0.2 s).
+    values.ktime = 0.06;
+    const b = { x: mod.xAt(0.06 * 1.5), y: head.y };
+    expect(mod.where(b.x, b.y, f)).toMatchObject({ id: 'ktime', k: 1.5 });
+    drag(b, 0, 0);
+    expect(values.ktime).toBe(0.06);
+    drag(b, mod.xAt(0.3) - b.x, 0);
+    expect(values.ktime).toBeCloseTo(0.2, 6);
+    // The breaker is pressed, not dragged: a click turns the hiss off and on again.
+    const hiss = values.thiss;
+    drag(at('thiss'), 0, 0);
+    expect(values.thiss).toBe(!hiss);
+    drag(at('thiss'), 0, 0);
+    expect(values.thiss).toBe(hiss);
+    // The hiss source, which the Hiss name stands under, takes the click as the breaker does.
+    expect(mod.where(mod.NOISE.x, mod.NOISE.y, f)).toMatchObject({ id: 'thiss' });
+    drag(mod.NOISE, 0, 0);
+    expect(values.thiss).toBe(!hiss);
+  });
+
+  it('Low Res: the crusher codebox holds a sample at the rate and rounds it to the bits', async () => {
     const box = {
       id: 'crush1',
       type: 'kit.codebox',
@@ -431,6 +565,55 @@ describe('each work does what its controls say', () => {
     expect(changes).toBeLessThanOrEqual(Math.ceil(l!.length / 8) + 1); // 6000 Hz: a new sample every 8
   }, 60000);
 
+  it('Low Res: the landscape has more columns the higher Rate is and more levels the more Bits, a block for each', async () => {
+    const scene = await import(
+      `data:text/javascript;base64,${Buffer.from(CRUSH_GRID).toString('base64')}`
+    );
+    expect(scene.grid(1500, 8).columns).toBe(6);
+    expect(scene.grid(11025, 8).columns).toBeGreaterThan(6);
+    expect(scene.grid(11025, 8).columns).toBeLessThan(40);
+    expect(scene.grid(48000, 8).columns).toBe(40);
+    // Levels a side: 2^(bits-1), at most 16 drawn.
+    expect(scene.grid(11025, 2).levels).toBe(2);
+    expect(scene.grid(11025, 4).levels).toBe(8);
+    expect(scene.grid(11025, 8).levels).toBe(16);
+    /** The shapes filled in the first frame: the first row of blocks, the landscape's black side at its right end and the rows cut through on it, and the four towers in front, three faces each. */
+    const fills = (rate: number) => {
+      let n = 0;
+      const ctx = new Proxy(
+        {},
+        {
+          get: (_t, k) =>
+            k === 'fill' ? () => n++ : k === 'measureText' ? () => ({ width: 40 }) : () => {},
+          set: () => true,
+        },
+      );
+      const values: Record<string, number> = {
+        frate: rate,
+        fbits: 8,
+        fwob: 0.0015,
+        fhiss: 0.012,
+        ftone: 5200,
+      };
+      const f = {
+        t: 0,
+        dt: 1 / 60,
+        w: 720,
+        h: 452,
+        wave: new Float32Array(256).map((_, i) => 0.5 * Math.sin(i / 10)),
+        state: {},
+        pointer: { x: 0, y: 0, over: false },
+        color: () => '#808080',
+        value: (id: string) => values[id],
+      };
+      scene.default.setup(ctx, f);
+      scene.default.draw(ctx, f);
+      return n;
+    };
+    expect(fills(1500)).toBe(3 * 6 + 2 + 4 * 3);
+    expect(fills(48000)).toBe(3 * 40 + 2 + 4 * 3);
+  });
+
   /** Correlation of the two sides (1: the same on both). */
   const correlation = ([l, r]: Float32Array[]) => {
     let lr = 0,
@@ -447,7 +630,12 @@ describe('each work does what its controls say', () => {
   const faceKnob = (doc: PatchDocument, use: string, param: string) =>
     Object.values(doc.edges).find(e => e.to.node === use && e.to.port === param)!.from.node;
 
-  it('Rainfall: one Drop part ×16 — Rain makes more drops, Pitch moves them, Width spreads them, Wind brings the far rain', async () => {
+  /** Rain Field with only the drops (and, where asked, the wind): thunder and drips quiet. */
+  const onlyDrops: Array<[string, string, number]> = [
+    ['kthunder', 'value', 0],
+    ['kdrips', 'value', 0],
+  ];
+  it('Rain Field: one Drop part ×16 — Rain makes more drops, Pitch moves them, Width spreads them, Wind brings the far rain', async () => {
     const doc = build('rain');
     expect(doc.nodes.drop1).toMatchObject({ type: 'kit.part', part: 'drop', count: 16 });
     expect(doc.parts.drop!.params.map(p => p.id)).toEqual(['rain', 'pitch', 'splash']);
@@ -456,6 +644,7 @@ describe('each work does what its controls say', () => {
       'not heavy',
     ).toEqual([]);
     const dry: Array<[string, string, number]> = [
+      ...onlyDrops,
       ['kwind', 'value', 0],
       ['kroom', 'value', 0],
     ];
@@ -478,10 +667,7 @@ describe('each work does what its controls say', () => {
     expect(narrow).toBeGreaterThan(0.98);
     expect(wide).toBeLessThan(0.8);
     const calm = await play(dry),
-      windy = await play([
-        ['kroom', 'value', 0],
-        ['kwind', 'value', 1],
-      ]);
+      windy = await play([...onlyDrops, ['kroom', 'value', 0], ['kwind', 'value', 1]]);
     note(
       `rain: wind0 ${both(calm).toFixed(4)} (centroid ${analyse(calm, SR).centroidHz.mean}), wind1 ${both(windy).toFixed(4)} (centroid ${analyse(windy, SR).centroidHz.mean})`,
     );
@@ -491,11 +677,8 @@ describe('each work does what its controls say', () => {
     ); // the far rain is low
   }, 120000);
 
-  it('Rainfall: every copy falls on its own (its own random numbers): sixteen copies are smoother than one, and their two sides differ', async () => {
-    const doc = turned(build('rain'), [
-      ['kwind', 'value', 0],
-      ['kroom', 'value', 0],
-    ]);
+  it('Rain Field: every copy falls on its own (its own random numbers): sixteen copies are smoother than one, and their two sides differ', async () => {
+    const doc = turned(build('rain'), [...onlyDrops, ['kwind', 'value', 0], ['kroom', 'value', 0]]);
     const crest = (out: Float32Array[]) => {
       let peak = 0;
       for (const s of out[0]!) peak = Math.max(peak, Math.abs(s));
@@ -513,7 +696,7 @@ describe('each work does what its controls say', () => {
     expect(correlation(many)).toBeLessThan(0.9);
   }, 120000);
 
-  it('Supersaw: one Saw part ×7 per voice — Detune makes the saws beat, Width spreads them, Cutoff darkens', async () => {
+  it('Septet: one Saw part ×7 per voice — Detune makes the saws beat, Width spreads them, Cutoff darkens', async () => {
     const doc = build('supersaw');
     expect(doc.nodes.saw1).toMatchObject({ type: 'kit.part', part: 'saw', count: 7 });
     expect(doc.parts.saw!.params.map(p => [p.id, p.range])).toEqual([
@@ -582,24 +765,885 @@ describe('each work does what its controls say', () => {
     expect(bright).toBeGreaterThan(3 * dark);
   }, 120000);
 
-  it('Nebula: the sky rings on long after the sound stops, and Sky and Echoes set how much', async () => {
-    const input = testSignal('drums', 4, SR).map(c => {
-      c.fill(0, SR);
-      return c;
-    }); // one second of drums, then silence
-    const tailOf = async (doc: PatchDocument) => {
-      const out = await render(doc, { seconds: 4, input });
-      return Math.max(rms(out[0]!, 2.5, 3.5), rms(out[1]!, 2.5, 3.5));
+  it('Septet: each lane drifts by the number its copy plays with', () => {
+    const doc = build('supersaw');
+    const lanes = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const shown = String(lanes.props?.drift).split(' ').map(Number);
+    // What the sound uses: each copy's own Which saw number, through Drift way.
+    const flat = flatten(doc, catalog).doc;
+    const way = doc.nodes.driftdir1!.values as { scale: number; offset: number };
+    const played = Array.from(
+      { length: 7 },
+      (_, k) => Number(flat.nodes[`saw1_${k}_copy1`]!.config.random) * way.scale + way.offset,
+    );
+    expect(shown).toHaveLength(7);
+    shown.forEach((v, k) => expect(v, `copy ${k + 1}`).toBeCloseTo(played[k]!, 2));
+  });
+
+  it("Septet: with Env at 0 its cursor still takes a drag, from the right of Cutoff's line", async () => {
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = { kcut: 900, kenv: 0, krel: 0.5, kspace: 0.22 };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
     };
-    const full = await tailOf(build('space')),
-      dry = await tailOf(
-        turned(build('space'), [
-          ['ksky', 'value', 0],
-          ['kecho', 'value', 0],
-        ]),
+    lanes.default.setup(fakeCanvas(), f);
+    /** A drag across the filter band from x. */
+    const drag = (x: number, dx: number) => {
+      for (const [type, at] of [
+        ['down', x],
+        ['move', x + dx],
+        ['up', x + dx],
+      ] as const)
+        lanes.default.pointer(
+          { type, x: at, y: 480, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const a = lanes.fx(900) as number;
+    drag(a + 2, 40);
+    expect(values.kenv).toBeGreaterThan(0.25);
+    expect(values.kcut).toBe(900);
+    drag(a - 2, 40); // left of the line: Cutoff
+    expect(values.kcut).toBeGreaterThan(900);
+  });
+
+  it("Septet: Env's cursor moves as far as the hand does, so pressing it where it is held at the band's end keeps Env", async () => {
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    // Cutoff 8 kHz opened 2.5 octaves is past the band's 20 kHz end, so the cursor stands at the end.
+    const values: Record<string, number> = { kcut: 8000, kenv: 2.5, krel: 0.5, kspace: 0.22 };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    const end = lanes.fx(20000) as number;
+    expect(lanes.fx(8000 * 2 ** 2.5)).toBe(end);
+    const at = (type: string, x: number) =>
+      lanes.default.pointer(
+        { type, x, y: 480, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+        f,
       );
-    note(`space: tail rms full ${full.toExponential(2)}, dry ${dry.toExponential(2)}`);
-    expect(20 * Math.log10(full)).toBeGreaterThan(-50);
-    expect(full).toBeGreaterThan(10 * dry);
+    at('down', end - 1);
+    at('up', end - 1);
+    expect(values.kenv).toBe(2.5);
+    // Dragged left, it comes down from 2.5 by as many octaves as the hand moves across the band.
+    at('down', end - 1);
+    at('move', end - 41);
+    at('up', end - 41);
+    expect(values.kenv).toBeCloseTo(
+      2.5 - (40 / (end - (lanes.fx(60) as number))) * Math.log2(20000 / 60),
+      6,
+    );
+    expect(values.kcut).toBe(8000);
+  });
+
+  it('Contour: a handle moves as far as the hand does (a press keeps it, even held at the edge), the dot is taken from the right where it meets the summit, and a press elsewhere brings the summit to the hand', async () => {
+    const doc = build('acid');
+    const el = Object.values(doc.ui.elements).find(e => e.name === 'The filter’s hill')!;
+    const hill = await import(
+      `data:text/javascript;base64,${Buffer.from(FILTER_HILL).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => values[id]!,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    hill.default.setup(fakeCanvas(), f);
+    const marks = () => hill.marks(f) as { px: number; ox: number; y: number };
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        hill.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // Cutoff 4 kHz opened 5 or 6 octaves: either way the dot is held at the graph's right end.
+    Object.assign(values, { kcut: 4000, kres: 0.72, kenv: 5 });
+    const held = marks().ox;
+    Object.assign(values, { kcut: 4000, kres: 0.72, kenv: 6 });
+    let m = marks();
+    expect(m.ox).toBe(held);
+    expect(m.ox).toBeGreaterThan(el.rect.w - 20);
+    drag(m.ox, m.y, 0, 0);
+    expect(values).toEqual({ kcut: 4000, kres: 0.72, kenv: 6 });
+    drag(m.ox, m.y, -20, 0);
+    expect(values.kenv).toBeCloseTo(6 - (Math.log2(hill.HI / hill.LO) * 20) / el.rect.w, 6);
+    expect([values.kcut, values.kres]).toEqual([4000, 0.72]);
+    // Resonance 0.98 peaks above the graph's top: pressing the summit keeps it, and a little up does not lower it.
+    Object.assign(values, { kcut: 900, kres: 0.98, kenv: 2 });
+    m = marks();
+    drag(m.px, m.y, 0, 0);
+    expect(values).toEqual({ kcut: 900, kres: 0.98, kenv: 2 });
+    drag(m.px, m.y, 0, -2);
+    expect(values.kres).toBeGreaterThanOrEqual(0.98);
+    // At its maximum the peak is far above the top: the summit dragged down from where it is drawn still brings it down.
+    Object.assign(values, { kcut: 900, kres: 1, kenv: 2 });
+    m = marks();
+    drag(m.px, m.y, 0, 0);
+    expect(values.kres).toBe(1);
+    drag(m.px, m.y, 0, 80);
+    expect(values.kres).toBeLessThan(0.9);
+    expect(marks().y).toBeCloseTo(m.y + 80, 0);
+    // With Sweep at 0 the dot sits on the summit: just right of it takes the dot, just left the summit.
+    Object.assign(values, { kcut: 900, kres: 0.7, kenv: 0 });
+    m = marks();
+    expect(m.ox).toBe(m.px);
+    drag(m.px + 3, m.y, 30, 0);
+    expect(values.kenv).toBeCloseTo((Math.log2(hill.HI / hill.LO) * 30) / el.rect.w, 6);
+    expect(values.kcut).toBe(900);
+    values.kenv = 0;
+    drag(m.px - 3, m.y, 30, 0);
+    expect(values.kcut).toBeGreaterThan(1000);
+    expect(values.kenv).toBe(0);
+    // A press away from both handles brings the summit to the hand.
+    drag(200, 123, 0, 0);
+    m = marks();
+    expect(m.px).toBeCloseTo(200, 0);
+    expect(m.y).toBeCloseTo(123, 0);
+  });
+
+  it('Contour: pressing the wave keeps Drive, a drag up raises it by as much as the hand moves, and the half the hand is in picks the wave', async () => {
+    const doc = build('acid');
+    const el = Object.values(doc.ui.elements).find(e => e.name === 'Wave')!;
+    const wave = await import(
+      `data:text/javascript;base64,${Buffer.from(WAVE_GRAPH).toString('base64')}`
+    );
+    const values: Record<string, number | boolean> = { kdrive: 2.2, tsq: false };
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => Number(values[id]),
+      on: (id: string) => values[id] === true,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    wave.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        wave.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    // The saw's handle is in the left half; pressing it (and the square's, in the right half) keeps Drive.
+    drag(el.rect.w * 0.125, 60, 0, 0);
+    expect(values).toEqual({ kdrive: 2.2, tsq: false });
+    drag(el.rect.w * 0.625, 40, 0, 0);
+    expect(values).toEqual({ kdrive: 2.2, tsq: true });
+    // The graph from its top (30) to its foot (12 above the bottom) is all of Drive's travel, 1 to 8.
+    const travel = el.rect.h - 12 - 30;
+    drag(el.rect.w * 0.625, 60, 0, -20);
+    expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
+    drag(el.rect.w * 0.625, 60, -el.rect.w * 0.5, 0);
+    expect(values.tsq).toBe(false);
+    expect(values.kdrive).toBeCloseTo(2.2 + (20 / travel) * 7, 6);
+  });
+
+  it('Yield: every setting keeps a part of the road to drag, even with the first echo close to you', async () => {
+    const doc = build('duck');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const road = await import(
+      `data:text/javascript;base64,${Buffer.from(el.code).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {} as Record<string, unknown>,
+      value: (id: string) => values[id]!,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    road.default.setup(fakeCanvas(), f);
+    const at = (type: string, x: number, y: number) =>
+      road.default.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
+    /** Which shape takes the hand at each point 4 px apart, and the first point for each. */
+    const zones = () => {
+      const first: Record<string, [number, number]> = {};
+      for (let y = 0; y < el.rect.h; y += 4)
+        for (let x = 0; x < el.rect.w; x += 4) {
+          at('move', x, y);
+          const z = f.state.over as string;
+          if (z && !first[z]) first[z] = [x, y];
+        }
+      return first;
+    };
+    expect(Object.keys(zones()).sort()).toEqual(['first', 'later', 'rule', 'you']);
+    // Repeat 50 ms and Echo level 50%: the first echo stands close to you and keeps the half nearer to it.
+    Object.assign(values, { ktime: 0.05, kmix: 0.5 });
+    const close = zones();
+    expect(Object.keys(close).sort()).toEqual(['first', 'later', 'rule', 'you']);
+    const [x, y] = close.first!,
+      was = { ...values };
+    at('down', x, y);
+    at('move', x, y - 20);
+    at('up', x, y - 20);
+    expect(values.kmix).toBeGreaterThan(was.kmix!);
+    expect([values.ktime, values.kthresh]).toEqual([was.ktime, was.kthresh]);
+  });
+
+  it("Septet: Attack, Filter decay and Resonance are in the patch as before and dragged on the display: their triangles on the time ruler, Cutoff's line up and down", async () => {
+    const doc = build('supersaw');
+    const wired = (id: string) =>
+      Object.values(doc.edges)
+        .filter(e => e.from.node === id)
+        .map(e => `${e.to.node}.${e.to.port}`)
+        .sort();
+    expect(wired('katt')).toEqual(['aenv1.attack']);
+    expect(wired('kdec')).toEqual(['fenv1.decay']);
+    expect(wired('kres')).toEqual(['lpl1.resonance', 'lpr1.resonance']);
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const ranges: Record<string, [number, number]> = { kres: [0.5, 6] };
+    const f = {
+      state: {},
+      value: (id: string) => values[id]!,
+      norm: (id: string) => {
+        const [lo, hi] = ranges[id] ?? [0, 1];
+        return (values[id]! - lo) / (hi - lo);
+      },
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      setNorm: (id: string, n: number) => {
+        const [lo, hi] = ranges[id] ?? [0, 1];
+        values[id] = lo + n * (hi - lo);
+      },
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        lanes.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    drag(lanes.attX(was.katt!), lanes.TIME.y + 6, 30, 0); // Attack's triangle, across
+    expect(values.katt!).toBeGreaterThan(was.katt!);
+    drag(lanes.decX(was.kdec!), lanes.TIME.y + 18, -30, 0); // Filter decay's, on the row under it
+    expect(values.kdec!).toBeLessThan(was.kdec!);
+    drag(lanes.fx(was.kcut!) - 2, 480, 0, -40); // Cutoff's line, up
+    expect(values.kres!).toBeGreaterThan(was.kres!);
+    expect([values.kcut, values.krel, values.kspace]).toEqual([was.kcut, was.krel, was.kspace]);
+  });
+
+  it('Septet: every setting keeps a place on the display to drag, even where two time lines meet', async () => {
+    const doc = build('supersaw');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const lanes = await import(
+      `data:text/javascript;base64,${Buffer.from(SAW_LANES).toString('base64')}`
+    );
+    const values: Record<string, number> = {};
+    for (const n of Object.values(doc.nodes))
+      if (typeof n.values?.value === 'number') values[n.id] = n.values.value;
+    const f = {
+      state: {} as Record<string, unknown>,
+      value: (id: string) => values[id]!,
+      norm: () => 0.5,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      setNorm: () => {},
+      cursor: () => {},
+    };
+    lanes.default.setup(fakeCanvas(), f);
+    /** The settings the hand can take, at points 4 px apart over the whole display. */
+    const taken = () => {
+      const ids = new Set<string>();
+      for (let y = 0; y < el.rect.h; y += 4)
+        for (let x = 0; x < el.rect.w; x += 4) {
+          const t = lanes.where(x, y, f);
+          if (t) ids.add(t.id);
+        }
+      return [...ids].sort();
+    };
+    // Resonance is Cutoff's line dragged up and down.
+    const all = ['katt', 'kcut', 'kdec', 'kdetune', 'kdrift', 'kenv', 'krel', 'kspace', 'kwidth'];
+    expect(taken()).toEqual(all);
+    // Attack's line on Filter decay's, the longest Release: each is still there to take.
+    let lo = 0.001,
+      hi = 2;
+    for (let i = 0; i < 60; i++) {
+      const mid = Math.sqrt(lo * hi);
+      if (lanes.attX(mid) < lanes.decX(0.1)) lo = mid;
+      else hi = mid;
+    }
+    Object.assign(values, { katt: lo, kdec: 0.1, krel: 4 });
+    const x = lanes.attX(lo) as number;
+    expect(Math.abs(x - lanes.decX(0.1))).toBeLessThan(0.01);
+    expect(taken()).toEqual(all);
+    expect(lanes.where(x, 200, f).id).toBe('katt');
+    const at = (type: string, px: number, py: number) =>
+      lanes.default.pointer(
+        { type, x: px, y: py, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+        f,
+      );
+    const was = { ...values };
+    at('down', x, lanes.TIME.y + 18);
+    at('move', x - 20, lanes.TIME.y + 18);
+    at('up', x - 20, lanes.TIME.y + 18);
+    expect(values.kdec).toBeLessThan(was.kdec!);
+    expect(values.katt).toBe(was.katt);
+    // The hall's handle follows the hand: 20 px up raises it 20 px on its square-root scale.
+    const half = (lanes.L.lane * 7) / 2,
+      space = values.kspace!;
+    const hx = lanes.relX(values.krel) + 8,
+      hy = lanes.L.top + half - Math.sqrt(space) * half;
+    at('down', hx, hy);
+    at('move', hx, hy - 20);
+    at('up', hx, hy - 20);
+    expect(Math.sqrt(values.kspace!) * half).toBeCloseTo(Math.sqrt(space) * half + 20, 6);
+  });
+
+  it('Rain Field: each sound sits where it is placed: to one side it is louder on that side, and nearer is louder', async () => {
+    const doc = turned(build('rain'), [
+      ['kdrops', 'value', 0],
+      ...onlyDrops,
+      ['kroom', 'value', 0],
+      ['kwind', 'value', 1],
+    ]);
+    expect(
+      Object.values(doc.nodes).filter(n => n.type === 'kit.part' && n.part === 'place'),
+    ).toHaveLength(4);
+    const sides = async (pan: number) => {
+      const [l, r] = await render(turned(doc, [['kwindpan', 'value', pan]]), { seconds: 1.5 });
+      return rms(l!, 0.2, 1.5) / rms(r!, 0.2, 1.5);
+    };
+    const left = await sides(-0.8),
+      middle = await sides(0),
+      right = await sides(0.8);
+    note(
+      `rain: wind L/R pan-0.8 ${left.toFixed(2)}, pan0 ${middle.toFixed(2)}, pan0.8 ${right.toFixed(2)}`,
+    );
+    expect(left).toBeGreaterThan(3);
+    expect(middle).toBeCloseTo(1, 1);
+    expect(right).toBeLessThan(1 / 3);
+    const level = async (near: number) => {
+      const out = await render(turned(doc, [['kwind', 'value', near]]), { seconds: 1.5 });
+      return Math.hypot(rms(out[0]!, 0.2, 1.5), rms(out[1]!, 0.2, 1.5));
+    };
+    const far = await level(0.25),
+      close = await level(0.9);
+    note(`rain: wind level near0.25 ${far.toFixed(4)}, near0.9 ${close.toFixed(4)}`);
+    expect(close).toBeGreaterThan(3 * far);
+  }, 120000);
+
+  it('Rain Field: a sound behind you is duller, most when straight behind, and the same at the sides', async () => {
+    const doc = turned(build('rain'), [
+      ['kdrops', 'value', 0.9],
+      ['kwind', 'value', 0],
+      ...onlyDrops,
+      ['kroom', 'value', 0],
+    ]);
+    expect(doc.parts.place!.params.map(p => p.id)).toEqual(['level', 'pan', 'behind']);
+    const centroid = async (pan: number, behind: boolean) =>
+      analyse(
+        await render(
+          turned(doc, [
+            ['kdropspan', 'value', pan],
+            ['kdropsback', 'value', behind],
+          ]),
+          { seconds: 2 },
+        ),
+        SR,
+      ).centroidHz.mean;
+    const ahead = await centroid(0, false),
+      behind = await centroid(0, true),
+      sideAhead = await centroid(1, false),
+      sideBehind = await centroid(1, true);
+    note(
+      `rain: drops centroid ahead ${ahead} Hz, behind ${behind} Hz; at the side ${sideAhead} / ${sideBehind} Hz`,
+    );
+    expect(behind).toBeLessThan(0.75 * ahead);
+    expect(sideBehind).toBeCloseTo(sideAhead, 0);
+  }, 120000);
+
+  it('Rain Field: where a sound sits is all in the work: dragged behind you its Behind switch turns on, and a field started over finds it there', async () => {
+    const doc = build('rain');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`
+    );
+    const field = mod.default;
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    /** Where a point on the ground (x right, z ahead, the edge of hearing at 1) is on the field. */
+    const ground = (x: number, z: number) =>
+      mod.ground(x, z, el.rect.w, el.rect.h) as { x: number; y: number };
+    let cursor = '';
+    const start = () => {
+      const f = {
+        w: el.rect.w,
+        h: el.rect.h,
+        state: {},
+        value: (id: string) => values[id] as number,
+        on: (id: string) => values[id] === true,
+        set: (id: string, v: number | boolean) => {
+          values[id] = v;
+        },
+        cursor: (c: string) => {
+          cursor = c;
+        },
+      };
+      field.setup(fakeCanvas(), f);
+      return f;
+    };
+    const at = (f: unknown, type: string, x: number, y: number) =>
+      field.pointer({ type, x, y, dx: 0, dy: 0, shift: false, alt: false, meta: false }, f);
+    // The drops start ahead of you, a little to the left; drag their cloud to half way behind you.
+    expect(values.kdropsback).toBe(false);
+    const r0 = 1 - (values.kdrops as number),
+      pan0 = values.kdropspan as number;
+    const from = ground(r0 * pan0, r0 * Math.sqrt(1 - pan0 * pan0)),
+      behind = ground(0, -0.5),
+      ahead = ground(0, 0.5);
+    const f = start();
+    at(f, 'down', from.x, from.y);
+    at(f, 'move', behind.x, behind.y);
+    at(f, 'up', behind.x, behind.y);
+    expect(values.kdropsback).toBe(true);
+    expect(values.kdrops).toBeCloseTo(0.5, 5);
+    expect(values.kdropspan).toBeCloseTo(0, 5);
+    // A field started over (the work opened again) knows only the work: the cloud is behind you.
+    const again = start();
+    at(again, 'move', behind.x, behind.y);
+    expect(cursor).toBe('grab');
+    // Undoing the switch puts it in front again; behind you there is only ground (it sets each drop).
+    values.kdropsback = false;
+    at(again, 'move', behind.x, behind.y);
+    expect(cursor).toBe('move');
+    at(again, 'move', ahead.x, ahead.y);
+    expect(cursor).toBe('grab');
+    // The rest is set by dragging the puddle, the open ground and the trees, each up and down or across
+    // (a drag keeps to the way it starts).
+    const drag = (p: { x: number; y: number }, dx: number, dy: number) => {
+      at(again, 'down', p.x, p.y);
+      at(again, 'move', p.x + dx, p.y + dy);
+      at(again, 'up', p.x + dx, p.y + dy);
+    };
+    const was = { ...values };
+    drag(ground(0.12, 0.5), 0, -40); // the drops' puddle, up: more rain
+    drag(ground(0.12, 0.5), -40, 0); // and across: narrower
+    expect([values.knob1! > was.knob1!, values.kwidth! < was.kwidth!]).toEqual([true, true]);
+    drag(ground(-0.5, -0.3), 40, 0); // the open ground, across: each drop higher
+    drag(ground(-0.5, -0.3), 0, -40); // and up: a longer splash
+    expect([values.knob2! > was.knob2!, values.knob3! > was.knob3!]).toEqual([true, true]);
+    drag(ground(1.1, 0), 0, -40); // a tree at the edge, up: more room
+    expect(values.kroom! > was.kroom!).toBe(true);
+    // Each drag moved only its own setting.
+    expect(values.kdrops).toBeCloseTo(0.5, 5);
+  });
+
+  it('Rain Field: at its narrowest the drops’ puddle still reaches past its cloud and takes a drag, and its cloud the rest', async () => {
+    const doc = build('rain');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    values.kwidth = 0;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(FIELD).toString('base64')}`
+    );
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const f = {
+      w: el.rect.w,
+      h: el.rect.h,
+      state: {},
+      value: (id: string) => values[id] as number,
+      on: (id: string) => values[id] === true,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const r = 1 - (values.kdrops as number),
+      pan = values.kdropspan as number;
+    const p = mod.ground(r * pan, r * Math.sqrt(1 - pan * pan), el.rect.w, el.rect.h) as {
+      x: number;
+      y: number;
+    };
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    // Its cloud covers 25 px each side of the spot: 32 px out on either side is the puddle.
+    drag(p.x + 32, p.y, 0, -40);
+    drag(p.x - 32, p.y, 40, 0);
+    expect([values.knob1! > was.knob1!, values.kwidth! > 0]).toEqual([true, true]);
+    expect([values.kdrops, values.kdropspan]).toEqual([was.kdrops, was.kdropspan]);
+    // The cloud itself still moves the sound.
+    drag(p.x, p.y, 0, 30);
+    expect(values.kdrops).not.toBe(was.kdrops);
+  });
+
+  it('Tonic: plays by itself; Sa moves the whole drone, Jawari brightens the buzz', async () => {
+    const doc = build('tonic');
+    expect(doc.nodes.string1).toMatchObject({ type: 'kit.part', part: 'string', count: 4 });
+    const centroid = async (values: Array<[string, string, number]>) =>
+      analyse(await render(turned(doc, values), { seconds: 3 }), SR).centroidHz.mean;
+    const low = await centroid([
+        ['ksa', 'value', 48],
+        ['kjaw', 'value', 0],
+      ]),
+      high = await centroid([
+        ['ksa', 'value', 55],
+        ['kjaw', 'value', 0],
+      ]);
+    note(`tonic: centroid Sa48 ${low} Hz, Sa55 ${high} Hz`);
+    expect(high).toBeGreaterThan(1.25 * low);
+    const plain = await centroid([['kjaw', 'value', 0]]),
+      buzzing = await centroid([['kjaw', 'value', 6]]);
+    note(`tonic: centroid jawari0 ${plain} Hz, jawari6 ${buzzing} Hz`);
+    expect(buzzing).toBeGreaterThan(1.3 * plain);
+  }, 120000);
+
+  it('Tonic: the staff takes the pace, the room’s rings the hall, and the tonic in the corner steps to the ends of its range', async () => {
+    const doc = build('tonic');
+    const values: Record<string, number | boolean> = {};
+    for (const n of Object.values(doc.nodes))
+      if (n.type === 'ui.knob' || n.type === 'ui.toggle')
+        values[n.id] = n.values.value as number | boolean;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(TONIC_CIRCLE).toString('base64')}`
+    );
+    const f = {
+      state: {},
+      value: (id: string) => values[id] as number,
+      set: (id: string, v: number | boolean) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    mod.default.setup(fakeCanvas(), f);
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, mx, my] of [
+        ['down', x, y],
+        ['move', x + dx, y + dy],
+        ['up', x + dx, y + dy],
+      ] as const)
+        mod.default.pointer(
+          { type, x: mx, y: my, dx: 0, dy: 0, shift: false, alt: false, meta: false },
+          f,
+        );
+    };
+    const was = { ...values };
+    const { STAFF, TONIC } = mod;
+    // The staff dragged right: the plucks waiting spread out, so fewer a minute; nothing else moves.
+    drag((STAFF.lines + STAFF.x1) / 2, (STAFF.top + STAFF.bot) / 2, 24, 0);
+    expect(values.kbpm).toBeCloseTo(60 / (60 / (was.kbpm as number) + 24 / (2 * STAFF.speed)), 6);
+    expect([values.ksa, values.kspace, values.kjaw]).toEqual([was.ksa, was.kspace, was.kjaw]);
+    // The room's outermost ring dragged 21 px out from the gourd (half the room's reach): half a hall more.
+    const h = mod.roomEdge(was.kspace) as { x: number; y: number };
+    const out = {
+      x: (h.x - 262) / Math.hypot(h.x - 262, h.y - 260),
+      y: (h.y - 260) / Math.hypot(h.x - 262, h.y - 260),
+    };
+    drag(h.x, h.y, out.x * 21, out.y * 21);
+    expect(values.kspace).toBeCloseTo((was.kspace as number) + 0.5, 6);
+    // The tonic, a semitone for every 12 px up or down, as far as its range goes: C4 and A2, which the ring cannot reach.
+    const tx = TONIC.x - 40,
+      ty = TONIC.bot - 60;
+    drag(tx, ty, 0, -36);
+    expect(values.ksa).toBe((was.ksa as number) + 3);
+    drag(tx, ty, 0, -400);
+    expect(values.ksa).toBe(60);
+    drag(tx, ty, 0, 400);
+    expect(values.ksa).toBe(45);
+  });
+
+  it('Tonic: the hall is written on the bare ground just outside the room, off the neck, the staff and the tonic, wherever the hand is on the room', async () => {
+    const doc = build('tonic');
+    const el = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const { w, h } = el.rect;
+    const mod = await import(
+      `data:text/javascript;base64,${Buffer.from(TONIC_CIRCLE).toString('base64')}`
+    );
+    const { STAFF, TONIC } = mod;
+    let seen = 0;
+    for (const hall of [0, 0.3, 1])
+      for (const tw of [52, 76]) {
+        // The room's tint: its rings reach 184 px from the gourd's middle, 42 px more at a full hall, and 8 px past.
+        const edge = 184 + hall * 42 + 8;
+        for (let x = 0; x < w; x += 8)
+          for (let y = 0; y < h; y += 8) {
+            if (mod.zone(x, y, 1.5) !== 'hall') continue;
+            seen++;
+            const at = mod.hallAt(edge, tw, w, h, { x, y }) as { x: number; y: number };
+            const b = { x0: at.x - tw / 2, x1: at.x + tw / 2, y0: at.y - 9, y1: at.y + 9 };
+            // Outside the tint and by it: the box's nearest point to the gourd's middle.
+            const nx = Math.max(b.x0, Math.min(b.x1, 262)),
+              ny = Math.max(b.y0, Math.min(b.y1, 260));
+            const d = Math.hypot(nx - 262, ny - 260);
+            expect(d).toBeGreaterThanOrEqual(edge);
+            expect(d).toBeLessThan(edge + 30);
+            // On the canvas, off the neck and its pegs, the staff and the tonic.
+            expect(b.x0 >= 8 && b.x1 <= w - 8 && b.y0 >= 8 && b.y1 <= h - 8).toBe(true);
+            expect(b.x1 > 380 && b.y1 > 212 && b.y0 < 308).toBe(false);
+            expect(b.x1 > STAFF.x0 - 12 && b.y0 < STAFF.bot + 8).toBe(false);
+            expect(b.x1 > TONIC.left - 8 && b.y1 > TONIC.top - 8).toBe(false);
+          }
+      }
+    expect(seen).toBeGreaterThan(1000);
+  });
+
+  it('Shape Drums: the beat plays along only while it is on', async () => {
+    const level = async (on: boolean) => {
+      const out = await render(turned(build('toy'), [['tbeat', 'value', on]]), { seconds: 2 });
+      return Math.hypot(rms(out[0]!, 0, 2), rms(out[1]!, 0, 2));
+    };
+    const off = await level(false),
+      on = await level(true);
+    note(`toy: no keys, beat off ${off.toExponential(2)}, beat on ${on.toExponential(2)}`);
+    expect(on).toBeGreaterThan(1e-3);
+    expect(off).toBeLessThan(on / 100);
   }, 60000);
+
+  it('Shape Drums: a drum on each outer tile of the mat and the Beat on the middle one; the rows rise from the bottom, left to right, and a lower drum is bigger', () => {
+    const doc = build('toy'),
+      T = TOY_MAT.tile;
+    // The tile a box is on: all of the box is on it, centred (a drum is lifted by half its shadow).
+    const tileOf = (p: { x: number; y: number; w: number; h: number }) => {
+      const col = Math.floor((p.x + p.w / 2) / T),
+        row = Math.floor((p.y + p.h / 2) / T);
+      expect(p.x).toBeGreaterThanOrEqual(col * T);
+      expect(p.x + p.w).toBeLessThanOrEqual((col + 1) * T);
+      expect(p.y).toBeGreaterThanOrEqual(row * T);
+      expect(p.y + p.h).toBeLessThanOrEqual((row + 1) * T);
+      expect(Math.abs(p.x + p.w / 2 - (col + 0.5) * T)).toBeLessThan(2);
+      expect(Math.abs(p.y + p.h / 2 - (row + 0.5) * T)).toBeLessThan(6);
+      return [col, row] as const;
+    };
+    expect(tileOf(doc.nodes.tbeat!.panel!)).toEqual([1, 1]);
+    const pads = Object.values(doc.nodes)
+      .filter(n => n.type === 'ui.keyboard')
+      .map(n => ({
+        note: Number(n.style?.skin?.params?.start),
+        tile: tileOf(n.panel!),
+      }));
+    expect(pads.map(p => p.tile.join()).sort()).toEqual([
+      '0,0',
+      '0,1',
+      '0,2',
+      '1,0',
+      '1,2',
+      '2,0',
+      '2,1',
+      '2,2',
+    ]);
+    // Read from the bottom row up, each row left to right, the notes rise.
+    const read = [...pads]
+      .sort((a, b) => b.tile[1] - a.tile[1] || a.tile[0] - b.tile[0])
+      .map(p => p.note);
+    expect(read).toEqual([...read].sort((a, b) => a - b));
+    // Size is pitch: the lower the note, the bigger the drum looks.
+    const sizes = [...TOY_DRUMS].sort((a, b) => a.note - b.note).map(d => d.size);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeLessThan(sizes[i - 1]!);
+  });
+
+  it('Tide Bells: plays by itself; low tide rings the low bells, high tide the high ones', async () => {
+    const doc = build('tide');
+    expect(doc.nodes.bell1).toMatchObject({ type: 'kit.part', part: 'bell', count: 6 });
+    // Only the bells, a wave every 5 s, after the sea has come in (8 s).
+    const bells = async (hour: number) =>
+      analyse(
+        slice(
+          await render(
+            turned(doc, [
+              ['khour', 'value', hour],
+              ['ksea', 'value', 0],
+              ['kbay', 'value', 0],
+              ['kwaves', 'value', 12],
+            ]),
+            { seconds: 14 },
+          ),
+          9,
+          14,
+        ),
+        SR,
+      ).centroidHz.mean;
+    const low = await bells(9.5),
+      high = await bells(15.5);
+    note(`tide: bells centroid low tide ${low} Hz, high tide ${high} Hz`);
+    expect(high).toBeGreaterThan(1.3 * low);
+  }, 120000);
+
+  it('Tide Bells: the hour is dragged along the tide board or by the sun, Bells on a bell, Bay on a headland, Sea and Waves on the water', async () => {
+    const doc = build('tide');
+    const shore = Object.values(doc.ui.elements).find(e => e.kind === 'canvas')!;
+    const code = await import(
+      `data:text/javascript;base64,${Buffer.from(TIDE_SHORE).toString('base64')}`
+    );
+    const values: Record<string, number> = {
+      khour: 14.5,
+      kbells: 0.5,
+      kbay: 0.35,
+      ksea: 0.6,
+      kwaves: 6.5,
+    };
+    const f = {
+      w: shore.rect.w,
+      h: shore.rect.h,
+      props: shore.props,
+      state: {},
+      value: (id: string) => values[id]!,
+      set: (id: string, v: number) => {
+        values[id] = v;
+      },
+      cursor: () => {},
+    };
+    code.default.setup(fakeCanvas(), f);
+    /** A drag from (x, y) by (dx, dy). */
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      for (const [type, k] of [
+        ['down', 0],
+        ['move', 0.5],
+        ['move', 1],
+        ['up', 1],
+      ] as const)
+        code.default.pointer(
+          {
+            type,
+            x: x + dx * k,
+            y: y + dy * k,
+            dx: 0,
+            dy: 0,
+            shift: false,
+            alt: false,
+            meta: false,
+          },
+          f,
+        );
+    };
+    const L = code.layout(f);
+    // Along the tide board's chart of the day: the hour under the hand.
+    drag(L.CX(12), L.C.y0 + 12, 0, 0);
+    expect(values.khour).toBeCloseTo(12, 1);
+    // The sun stands at the hour: dragged across, it carries the hour along.
+    const sun = code.skyBody(12, L);
+    drag(sun.x, sun.y, L.SX(18) - L.SX(12), 0);
+    expect(values.khour).toBeCloseTo(18, 1);
+    // The rest of the board takes no drag.
+    drag(L.B.x0 + 20, L.B.y0 + 50, 0, -40);
+    expect(values).toMatchObject({ khour: 18, kbells: 0.5 });
+    // The third bell's post, up: Bells rises; nothing else moves.
+    drag(L.PX(2), L.TOP(2) + 20, 0, -40);
+    expect(values.kbells).toBeCloseTo(0.75, 2);
+    // The left headland, up: Bay rises (the bay closes in).
+    drag(40, L.YH - 17, 0, -32);
+    expect(values.kbay).toBeCloseTo(0.55, 2);
+    // The open water between the board and the first post: up for Sea, across for Waves.
+    drag(244, 500, 0, -32);
+    expect(values.ksea).toBeCloseTo(0.8, 2);
+    drag(244, 500, 64, 0);
+    expect(values.kwaves).toBeCloseTo(6.5 + 0.4 * 9, 2);
+    expect(values.kbells).toBeCloseTo(0.75, 2);
+    expect(values.kbay).toBeCloseTo(0.55, 2);
+    expect(values.khour).toBeCloseTo(18, 1);
+    // The canvas starts a pixel above and left of the plugin, edge to edge, and is the plugin's only part.
+    expect(shore.rect).toMatchObject({ x: -1, y: -1 });
+    expect(Object.values(doc.nodes).filter(n => n.panel)).toEqual([]);
+  });
+
+  it('Tide Bells: the tide board’s words, and its last line at rest, keep 4.5:1 against its face at every hour', async () => {
+    const code = await import(
+      `data:text/javascript;base64,${Buffer.from(TIDE_SHORE).toString('base64')}`
+    );
+    // WCAG's contrast ratio of two sRGB colours.
+    const luminance = (c: number[]) => {
+      const [r, g, b] = c.map(v =>
+        v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4,
+      );
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const contrast = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    let worst = Infinity;
+    for (let hour = 0; hour <= 24; hour += 0.05) {
+      const { face, letter, rest } = code.boardAt(hour);
+      worst = Math.min(worst, contrast(letter, face), contrast(rest, face));
+    }
+    note(`tide: the board's lowest contrast over the day ${worst.toFixed(2)}`);
+    expect(worst).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('Exhale: plays by itself and breathes: the level swells and settles with each breath, as deep as Depth says', async () => {
+    const swing = async (depth: number) => {
+      const out = await render(
+        turned(build('breath'), [
+          ['kbpm', 'value', 10],
+          ['kdepth', 'value', depth],
+          ['kspace', 'value', 0],
+        ]),
+        { seconds: 12 },
+      );
+      const levels: number[] = [];
+      for (let t = 2; t + 0.5 <= 12; t += 0.5) levels.push(rms(out[0]!, t, t + 0.5));
+      return Math.max(...levels) / Math.min(...levels);
+    };
+    const deep = await swing(1),
+      still = await swing(0);
+    note(`breath: level max/min depth1 ${deep.toFixed(2)}, depth0 ${still.toFixed(2)}`);
+    expect(deep).toBeGreaterThan(4);
+    // At Depth 0 only the slight beating of the detuned copies is left.
+    expect(still).toBeLessThan(2);
+  }, 120000);
 });

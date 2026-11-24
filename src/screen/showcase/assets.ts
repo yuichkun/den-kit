@@ -64,7 +64,7 @@ export const SHOWCASE_ASSETS: Record<string, AssetMeta> = {
     width: 380,
     height: 470,
     url: '/showcase/sketch-pedal.svg',
-    source: own('Layout sketch for the fuzz pedal'),
+    source: own('Layout sketch of a guitar pedal'),
   },
   // Photos and textures (see public/showcase/SOURCES.md).
   'assets/den-kit/sunset-sky.jpg': photo(

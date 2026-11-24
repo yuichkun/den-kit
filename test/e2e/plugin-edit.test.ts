@@ -534,7 +534,7 @@ describe('building the plugin screen by hand', () => {
     await page.close();
   });
 
-  it('a work opens with every control showing its value (faders, switches, knobs)', async () => {
+  it('a work opens with every value showing (text bound to its controls)', async () => {
     const { page, errors } = await openKit(h);
     await waitCompiled(page);
     const open = async (id: string) => {
@@ -546,21 +546,13 @@ describe('building the plugin screen by hand', () => {
         await page.keyboard.press('Control+Alt+KeyE');
       await page.waitForSelector('[data-testid=plugin-view]');
     };
-    await open('lofi');
-    assert.equal(await page.locator('[data-widget=fbits] dk-slider').getAttribute('value'), '8');
-    assert.match(
-      await page.locator('[data-widget=frate] dk-slider .value').innerText(),
-      /^11\.0 kHz$/,
-    );
-    await open('fuzz');
-    assert.equal(await page.locator('[data-widget=fs1] dk-toggle').getAttribute('value'), 'true');
-    await page.waitForSelector('[data-widget=fs1] dk-toggle .fs.on');
-    await open('tapeecho');
-    await page.waitForSelector('[data-widget=thiss] dk-toggle .sw.on');
-    assert.match(
-      (await page.locator('[data-widget=ktime] dk-knob').getAttribute('value')) ?? '',
-      /^0\.32$/,
-    );
+    const shows = (text: string) =>
+      page.locator('[data-testid=plugin-view]').getByText(text, { exact: true }).first().waitFor();
+    await open('lofi'); // another work first, so the figures below come with the work, not from the one before
+    await open('acid'); // the figures under its keys are text bound to Cutoff, Resonance and Sweep
+    await shows('340 Hz');
+    await shows('0.720');
+    await shows('3.40 oct');
     assert.deepEqual(errors, []);
     await page.close();
   });
@@ -603,16 +595,11 @@ describe('building the plugin screen by hand', () => {
     await page.waitForSelector('[data-testid=start-screen]');
     await page.keyboard.press('ArrowDown'); // to the works (the first is picked)
     await page.keyboard.press('Tab'); // to the looks
-    await page.keyboard.press('ArrowRight'); // Acid Line's look
-    await page.keyboard.press('ArrowRight'); // Afterglow's look (a sunset photo)
+    await page.keyboard.press('ArrowLeft'); // round to the last work's look: Exhale
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-testid=start-screen]', { state: 'detached' });
-    assert.equal(await kit(page, k => k.doc.value.name), 'Acid Line (Afterglow look)');
-    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#ffb36b');
-    assert.ok(
-      await kit(page, k => !!k.doc.value.files['assets/den-kit/sunset-sky.jpg']),
-      'the look brings its picture',
-    );
+    assert.equal(await kit(page, k => k.doc.value.name), 'Contour (Exhale look)');
+    assert.equal(await kit(page, k => k.doc.value.ui.look.tokens.accent), '#b7a6ee');
     assert.ok(
       await kit(page, k => Object.keys(k.doc.value.ui.elements).includes('text1')),
       'the layout stays',
@@ -620,7 +607,7 @@ describe('building the plugin screen by hand', () => {
     await page.keyboard.press('Control+KeyZ');
     assert.notEqual(
       await kit(page, k => k.doc.value.name),
-      'Acid Line (Afterglow look)',
+      'Contour (Exhale look)',
       'starting is one undo step',
     );
     assert.deepEqual(errors, []);
