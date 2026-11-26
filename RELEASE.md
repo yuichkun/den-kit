@@ -88,6 +88,15 @@ None of this is needed to open or test pull requests.
    To notarize with an Apple ID instead of an API key, set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
    and `APPLE_TEAM_ID`, and leave the three `APPLE_API_*` secrets empty.
 
+   For [usage data](docs/usage.md#help-improve-den-kit), add these variables (not secrets:
+   the app shows and sends them) to the same environment. Without them, the app neither asks about
+   usage data nor sends any.
+
+   | Variable               | Value                                                                |
+   | ---------------------- | -------------------------------------------------------------------- |
+   | `DEN_KIT_USAGE_URL`    | The `https` address that receives usage events                       |
+   | `DEN_KIT_DATA_CONTACT` | The email address where people ask to see or delete their usage data |
+
 5. **Repository settings.** Enable immutable releases, and allow only collaborators to create pull
    requests (Settings → General → Features). Protect `main` with pull requests and the `verify` and
    `desktop-package` checks, and make sure tag rules allow the workflow to create `v*` tags. A

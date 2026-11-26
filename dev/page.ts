@@ -54,7 +54,7 @@ const host: Host = {
   sandbox: bridgeConfig.token ? devSandbox(bridgeConfig.token, bridgeConfig.port) : null,
   fetch: null,
   screenCapture: tabCapture(),
-  consent: null,
+  analytics: null,
   lifecycle: null,
 };
 const session = await startEditor(host, {

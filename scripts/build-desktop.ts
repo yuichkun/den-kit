@@ -6,6 +6,7 @@ import { loadEnvFile } from '../bridge/env.ts';
 import { isProblem, resolveCodex } from '../bridge/codex/process.ts';
 import { MAC_ARCHES, stageMacCodex } from './codex-native.ts';
 import { BUNDLED_PACKAGES, desktopLicenses } from './licenses.ts';
+import { usageConfig } from '../desktop/analytics.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const staging = join(root, '.desktop-build');
@@ -19,6 +20,15 @@ loadEnvFile(join(root, '.env'), env);
 if (!env.BROWSERPOD_API_KEY?.trim())
   throw new Error(
     'BrowserPod is required. The operator must set BROWSERPOD_API_KEY before building a desktop app; users must not supply their own key.',
+  );
+// Usage data goes only to the operator's receiver, so only a build given its address can send any (desktop/analytics.ts).
+const usage =
+  env.DEN_KIT_USAGE_URL || env.DEN_KIT_DATA_CONTACT
+    ? usageConfig(env.DEN_KIT_USAGE_URL, env.DEN_KIT_DATA_CONTACT)
+    : null;
+if ((env.DEN_KIT_USAGE_URL || env.DEN_KIT_DATA_CONTACT) && !usage)
+  throw new Error(
+    'Usage data needs both DEN_KIT_USAGE_URL (an https address) and DEN_KIT_DATA_CONTACT (an email address for requests about the data).',
   );
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(app, { recursive: true });
@@ -72,11 +82,15 @@ writeFileSync(
 // Prevent the packager from walking up to the repository's development node_modules.
 mkdirSync(join(app, 'node_modules'));
 
-// Only operator-controlled service credentials. No ChatGPT login, local config or logs are ever packaged.
+// Only operator-controlled service settings. No ChatGPT login, local config or logs are ever packaged.
 // Shipping the BrowserPod key breaks principle 1 in docs/principles.md.
 writeFileSync(
   join(resources, 'operator.json'),
-  JSON.stringify({ browserPodKey: env.BROWSERPOD_API_KEY || undefined }),
+  JSON.stringify({
+    browserPodKey: env.BROWSERPOD_API_KEY || undefined,
+    usageUrl: usage?.usageUrl,
+    dataContact: usage?.contact,
+  }),
   { mode: 0o600 },
 );
 let codexVersion: string | null = null;
@@ -112,5 +126,5 @@ writeFileSync(
   }),
 );
 console.log(
-  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; BrowserPod configured.`,
+  `Desktop built for ${process.platform === 'darwin' ? `macOS ${MAC_ARCHES.join(' and ')}` : `${process.platform}/${process.arch}`}; Codex ${codexVersion ?? 'version unknown'} bundled; BrowserPod configured; ${usage ? `usage data goes to ${new URL(usage.usageUrl).host}` : 'no usage data'}.`,
 );

@@ -93,6 +93,7 @@ import { ScreenShare } from './screen-share.ts';
 import { WorkLock } from './work-lock.ts';
 import type { PodSession } from '../workspace/pod-session.ts';
 import type { CodeParts } from './code-parts.ts';
+import type { Usage } from './usage.ts';
 
 export type CompileStatus = 'idle' | 'waiting' | 'compiling' | 'ok' | 'error' | 'empty';
 export interface Toast {
@@ -189,6 +190,8 @@ export class KitSession {
   pod: PodSession | null = null;
   /** Where the code parts run and what the person allowed them; null when not wired (unit tests). */
   codeParts: CodeParts | null = null;
+  /** What den-kit counts of its own use for the host (src/editor/usage.ts); null when the host sends nothing. */
+  usage: Usage | null = null;
   /** What the person is looking at: the view and the plugin's mode (the editor keeps it up to date). */
   readonly seeing = shallowRef<Seeing>({ view: 'patch', edit: false, full: false });
   /** The view on screen adds what only it knows (the patch view's zoom and the modules in sight; the plugin's scale). */
