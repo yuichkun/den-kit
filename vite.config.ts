@@ -11,6 +11,8 @@ import {
   WORKER_SCRIPTS,
 } from './src/sound/compile/worker-policy.ts';
 import { bundledPackages } from './scripts/licenses.ts';
+import { sourceMapUpload } from './scripts/sentry-sourcemaps.ts';
+import { loadEnvFile } from './bridge/env.ts';
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -20,6 +22,15 @@ import { fileURLToPath } from 'node:url';
 const kit = dirname(fileURLToPath(import.meta.url));
 const den = dirname(dirname(fileURLToPath(import.meta.resolve('@denaudio/den'))));
 const bridgePort = Number(process.env.KIT_BRIDGE_PORT ?? 5181);
+// Set for a release, as scripts/build-desktop.ts reads its settings: the page's source maps go to Sentry.
+const buildEnv: NodeJS.ProcessEnv = { ...process.env };
+loadEnvFile(join(kit, '.env'), buildEnv);
+const upload = sourceMapUpload(
+  buildEnv,
+  JSON.parse(readFileSync(join(kit, 'package.json'), 'utf8')).version,
+);
+// Only then: Sentry's plugin takes a while to load.
+const sentry = upload ? await import('@sentry/vite-plugin') : null;
 
 /** Every public den entry, read from the root package exports (same source of truth as the playground). */
 export function denModules(): string[] {
@@ -195,6 +206,7 @@ export default defineConfig({
     compileWorkerHeaders(),
     vue({ template: { compilerOptions: { isCustomElement: tag => tag.startsWith('dk-') } } }),
     packages.plugin(),
+    ...(upload && sentry ? sentry.sentryVitePlugin(upload) : []),
   ]),
   resolve: { alias, dedupe: ['@unworklet/core'] },
   worker: { format: 'es', plugins: () => [kitVirtual(), packages.worker()] },
@@ -224,6 +236,8 @@ export default defineConfig({
       '@unworklet/offline',
       'typescript',
       '@leaningtech/browserpod',
+      // Loaded only once the person allows crash reports in the desktop app (desktop/page/crash-reports.ts).
+      '@sentry/electron/renderer',
       ...denModules(),
     ],
     rolldownOptions: { transform: { target: 'es2022' } },
@@ -233,6 +247,9 @@ export default defineConfig({
     target: 'es2022',
     chunkSizeWarningLimit: 20000,
     reportCompressedSize: false,
+    // Only for the upload: hidden, so that no file of the page points to one (the app holds none,
+    // electron-builder.yml).
+    sourcemap: upload ? 'hidden' : false,
     // The desktop app's page; index.html is the development host, served by `vp run dev` only.
     rolldownOptions: { input: { desktop: join(kit, 'desktop.html') } },
   },

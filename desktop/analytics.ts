@@ -2,8 +2,9 @@
 // person's answers, the install's random ID and the usage events waiting to be
 // sent are kept in the app's data folder (analytics.json, written whole to a
 // temporary file and renamed). Usage data is offered only when the build names
-// where events go and where a person asks about their data (resources/operator.json,
-// set for releases); a build from source offers nothing.
+// where events go and where a person asks about their data, and crash reports only
+// when it names a Sentry project (desktop/crash-reports.ts), both in
+// resources/operator.json, set for releases; a build from source offers nothing.
 //
 // An event goes out a few seconds after it happens, together with any others
 // waiting, as one POST of {"records": [...]} with no cookies and no redirects.
@@ -16,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { crashDsn } from './crash-reports.ts';
 import {
   DATA_KINDS,
   USAGE_EVENTS,
@@ -65,6 +67,8 @@ export interface DesktopAnalyticsOptions {
   usageUrl: string | null;
   /** The email address where a person asks to see or delete their usage data; usage data needs one. */
   contact: string | null;
+  /** The Sentry DSN crash reports go to; null when this build sends none. */
+  crashDsn?: string | null;
   /** The app's version, the OS (macOS 26.2) and the CPU type (arm64), sent with each event. */
   version: string;
   os: string;
@@ -142,6 +146,8 @@ export class DesktopAnalytics {
   /** The kinds this build can send, in the order den-kit asks about them. */
   readonly kinds: DataKind[];
   readonly contact: string | null;
+  /** Where crash reports go, when this build sends them. */
+  readonly crashDsn: string | null;
   private readonly options: DesktopAnalyticsOptions;
   private readonly usageUrl: string | null;
   private readonly file: string;
@@ -159,7 +165,8 @@ export class DesktopAnalytics {
     const usage = usageConfig(options.usageUrl, options.contact);
     this.usageUrl = usage?.usageUrl ?? null;
     this.contact = usage?.contact ?? null;
-    this.kinds = DATA_KINDS.filter(kind => kind === 'usage' && !!usage);
+    this.crashDsn = crashDsn(options.crashDsn);
+    this.kinds = DATA_KINDS.filter(kind => (kind === 'usage' ? !!usage : !!this.crashDsn));
     this.file = join(options.directory, 'analytics.json');
     this.post = options.post ?? postJson;
     this.now = options.now ?? (() => new Date());
@@ -171,9 +178,16 @@ export class DesktopAnalytics {
     return !!this.usageUrl && this.kept.choice.usage === true && !!this.kept.installId;
   }
 
-  /** What the page reads at start: the kinds and the contact; null when this build sends nothing. */
-  runtime(): { kinds: DataKind[]; contact: string | null } | null {
-    return this.kinds.length ? { kinds: [...this.kinds], contact: this.contact } : null;
+  /** Whether crash reports go out now: this build sends them and the person allows them. */
+  get crashReports(): boolean {
+    return !!this.crashDsn && this.kept.choice.crashes === true;
+  }
+
+  /** What the page reads at start: the kinds, the contact and whether crash reports go out; null when this build sends nothing. */
+  runtime(): { kinds: DataKind[]; contact: string | null; crashReports: boolean } | null {
+    return this.kinds.length
+      ? { kinds: [...this.kinds], contact: this.contact, crashReports: this.crashReports }
+      : null;
   }
 
   choice(): DataChoice {

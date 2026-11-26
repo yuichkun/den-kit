@@ -1,7 +1,8 @@
 // The desktop app's Analytics in the main process (desktop/analytics.ts): usage data
-// only with the build's receiver and contact and the person's yes, the answers and the
-// install's ID kept in the app's data folder, and the waiting events sent in batches,
-// tried again after a failure and dropped when the person turns usage data off.
+// only with the build's receiver and contact and the person's yes, crash reports only
+// with the build's Sentry project and the person's yes, the answers and the install's
+// ID kept in the app's data folder, and the waiting events sent in batches, tried
+// again after a failure and dropped when the person turns usage data off.
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,7 +79,41 @@ describe('desktop analytics', () => {
     const none = setup({ usageUrl: null }).analytics;
     expect(none.kinds).toEqual([]);
     expect(none.runtime()).toBeNull();
-    expect(setup().analytics.runtime()).toEqual({ kinds: ['usage'], contact: CONTACT });
+    expect(setup().analytics.runtime()).toEqual({
+      kinds: ['usage'],
+      contact: CONTACT,
+      crashReports: false,
+    });
+  });
+
+  it('offers crash reports only with a Sentry DSN, and sends them only after a yes', () => {
+    const dsn = 'https://0123456789abcdef@o1.ingest.us.sentry.io/4507';
+    const both = setup({ crashDsn: dsn });
+    expect(both.analytics.kinds).toEqual(['usage', 'crashes']);
+    expect(both.analytics.crashDsn).toBe(dsn);
+    expect(both.analytics.crashReports).toBe(false);
+    both.analytics.choose({ usage: false, crashes: true });
+    expect(both.analytics.crashReports).toBe(true);
+    expect(both.analytics.runtime()).toEqual({
+      kinds: ['usage', 'crashes'],
+      contact: CONTACT,
+      crashReports: true,
+    });
+    // The answer about crash reports gives no install ID, and leaves usage data off.
+    expect(both.analytics.installId()).toBeNull();
+    expect(setup({ crashDsn: dsn }, both.directory).analytics.crashReports).toBe(true);
+    both.analytics.choose({ crashes: false });
+    expect(both.analytics.crashReports).toBe(false);
+
+    const crashesOnly = setup({ usageUrl: null, crashDsn: dsn }).analytics;
+    expect(crashesOnly.runtime()).toEqual({
+      kinds: ['crashes'],
+      contact: null,
+      crashReports: false,
+    });
+    expect(() => crashesOnly.choose({ usage: true })).toThrow('Invalid choice.');
+    for (const invalid of ['http://key@o1.ingest.us.sentry.io/4507', 'not a dsn', null])
+      expect(setup({ crashDsn: invalid }).analytics.kinds, String(invalid)).toEqual(['usage']);
   });
 
   it('keeps the answers and makes the install ID on the first yes, and keeps both across launches', () => {

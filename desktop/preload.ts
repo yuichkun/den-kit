@@ -1,6 +1,9 @@
 // The bridge between den-kit's page and the main process: only the app's
 // top-level page receives the API; code-part iframes receive no Node/IPC powers.
+// When the build offers crash reports, the page also gets the channel Sentry's
+// renderer SDK hands its reports over (desktop/crash-reports.ts).
 import { contextBridge, ipcRenderer } from 'electron';
+import { hookupIpc } from '@sentry/electron/preload-namespaced';
 import type { DesktopAPI, DesktopRuntime } from './page/api.ts';
 
 const originArgument = process.argv
@@ -35,6 +38,7 @@ if (process.isMainFrame && location.origin === expectedOrigin) {
     },
   };
   contextBridge.exposeInMainWorld('denKitShell', api);
+  if (api.runtime?.analytics?.kinds.includes('crashes')) hookupIpc();
   ipcRenderer.on('den-kit:open-settings', () =>
     window.dispatchEvent(new Event('den-kit:show-settings')),
   );

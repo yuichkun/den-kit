@@ -52,6 +52,17 @@ folder and go later; turning usage data off deletes them. The install's ID is ma
 first allow usage data. Settings shows it, and the email address to write to with the ID to
 see or delete the usage data sent with it.
 
+**Crash reports** go to [Sentry](https://sentry.io) when den-kit crashes or an error in it
+goes unhandled. A report holds the error and where in den-kit's code it happened; the
+versions of den-kit, Electron and the OS; the CPU, the graphics chip and the memory; and,
+when one of the app's processes crashes, its crash dump, which can hold parts of what was in
+that process's memory. Your home folder and the app's keys are taken out of a report's
+text, but not out of a crash dump. Reports never include what you did before, screenshots,
+your computer's name or the install's ID, and den-kit asks Sentry not to record the IP
+address they come from. Reports that could not be sent wait in the app's data folder;
+turning crash reports off stops all sending at once, and the next launch deletes what is
+waiting and any crash dumps.
+
 ## Basic workflow
 
 1. Choose an example on the start screen, or open a new work.

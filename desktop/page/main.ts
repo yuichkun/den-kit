@@ -2,8 +2,8 @@
 // (desktop/preload.ts) gives the page the local AI bridge's token, the BrowserPod
 // key of this build and the app's own services (ChatGPT sign-in, updates,
 // pictures of the window, storage in the app's data folder, the works' sandbox
-// origins, files from URLs, usage data); this file turns them into the Host
-// (src/host) and starts the editor.
+// origins, files from URLs, usage data and crash reports); this file turns them
+// into the Host (src/host) and starts the editor.
 import type { Host, Lifecycle, PodFactory } from '../../src/host/index.ts';
 import type { AIAccount, AIAccountInfo } from '../../src/host/ai.ts';
 import { startEditor } from '../../src/editor/start.ts';
@@ -14,6 +14,7 @@ import { desktopWording } from './ai-wording.ts';
 import { windowCapture } from './window-capture.ts';
 import { desktopProjectError } from './project-errors.ts';
 import { desktopAnalytics } from './analytics.ts';
+import { startCrashReports } from './crash-reports.ts';
 import type { DesktopInfo } from './api.ts';
 
 // A service worker another app left on this address would keep the page from being cross-origin isolated (see browserpod.ts).
@@ -21,6 +22,8 @@ if (!globalThis.crossOriginIsolated && 'serviceWorker' in navigator)
   void import('./browserpod.ts').then(m => m.clearForeignServiceWorkers());
 
 const shell = window.denKitShell!;
+// First, so that crash reports take what goes wrong while den-kit starts.
+if (shell.runtime.analytics?.crashReports) void startCrashReports();
 const listen = (event: string, listener: () => void) => {
   window.addEventListener(event, listener);
   return () => window.removeEventListener(event, listener);

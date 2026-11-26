@@ -27,11 +27,18 @@ const info = (overrides: Partial<DesktopInfo> = {}): DesktopInfo => ({
 });
 
 /** The data a build may send (desktop/analytics.ts), or null for a build that sends none. */
-type AnalyticsConfig = { kinds: string[]; contact: string } | null;
+type AnalyticsConfig = { kinds: string[]; contact: string; crashReports?: boolean } | null;
 
 function nativeAPI(token: string, initial: DesktopInfo, analytics: AnalyticsConfig = null): string {
   return `(() => {
-    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [], captures: [], holdCapture: false, finishCapture: null, captureResult: null, choice: {}, installId: null, chosen: [], events: [] };
+    const fixture = window.__desktopTest = { info: ${JSON.stringify(initial)}, saved: [], calls: [], captures: [], holdCapture: false, finishCapture: null, captureResult: null, choice: {}, installId: null, chosen: [], events: [], envelopes: [] };
+    // The channel den-kit's preload gives Sentry's renderer SDK when the build sends crash reports (desktop/preload.ts).
+    if (${JSON.stringify(analytics?.kinds.includes('crashes') ?? false)})
+      window.__SENTRY_IPC__ = { 'sentry-ipc': {
+        sendRendererStart: () => {}, sendScope: () => {}, sendStatus: () => {}, sendStructuredLog: () => {}, sendMetric: () => {},
+        sendEnvelope: body => fixture.envelopes.push(typeof body === 'string' ? body : new TextDecoder().decode(body)),
+        sendFeedback: async () => ({}),
+      } };
     window.denKitShell = {
       runtime: { token: ${JSON.stringify(token)}, apiKey: null, analytics: ${JSON.stringify(analytics)} },
       // The main process's answers, install ID and events (desktop/analytics.ts), kept in the page here.
@@ -185,6 +192,68 @@ describe('desktop interface', () => {
       ]);
       assert.deepEqual((await test()).events, ['app_used', 'work_edited']);
       assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('asks about crash reports too when the build sends them, and starts them in the page only with a yes', async () => {
+    const { page, errors } = await openKit(h, {
+      path: 'desktop.html',
+      start: false,
+      initScript: nativeAPI(h.bridge!.token, info(), {
+        kinds: ['usage', 'crashes'],
+        contact: 'privacy@example.com',
+        crashReports: false,
+      }),
+    });
+    const test = () => page.evaluate(() => (window as any).__desktopTest);
+    const started = () => page.evaluate(() => (window as any).__SENTRY__RENDERER_INIT__ === true);
+    try {
+      const consent = page.locator('[data-testid=data-consent]');
+      await consent.waitFor();
+      assert.equal(
+        await consent.innerText(),
+        [
+          'Help improve den-kit',
+          'Choose what den-kit may send to Escentier.',
+          [
+            'Usage data — Which features you use and how far you get, with a random ID for this install. Never your works, code, sounds, images, AI conversations, files or sign-in details.',
+            'Crash reports — What went wrong when den-kit crashes or hits an unexpected error. Sent to Sentry.',
+          ].join('\n'),
+          'You can change this, see your ID, and ask us to delete your data anytime in Settings.',
+          'Continue',
+        ].join('\n\n'),
+      );
+      assert.equal(await page.locator('[data-testid=data-consent-crashes]').isChecked(), false);
+      assert.equal(await started(), false, 'nothing of Sentry runs before a yes');
+
+      await page.check('[data-testid=data-consent-crashes]');
+      await page.click('[data-testid=data-consent-continue]');
+      await consent.waitFor({ state: 'detached' });
+      assert.deepEqual((await test()).chosen, [{ usage: false, crashes: true }]);
+      await page.waitForFunction(() => (window as any).__SENTRY__RENDERER_INIT__ === true);
+      // An error nobody caught goes to the main process through the preload's channel, and nothing else does.
+      await page.evaluate(() => {
+        setTimeout(() => {
+          throw new Error('A test error nobody caught');
+        });
+      });
+      await page.waitForFunction(() =>
+        (window as any).__desktopTest.envelopes.some((e: string) =>
+          e.includes('A test error nobody caught'),
+        ),
+      );
+      const envelopes: string[] = (await test()).envelopes;
+      assert.equal(envelopes.length, 1, envelopes.join('\n'));
+      const event = JSON.parse(envelopes[0]!.split('\n')[2]!);
+      assert.deepEqual(event.breadcrumbs ?? [], []);
+      assert.equal(event.request, undefined, 'no page address or headers');
+      assert.equal(event.user, undefined);
+      assert.deepEqual(
+        errors.filter(e => !e.includes('A test error nobody caught')),
+        [],
+      );
     } finally {
       await page.close();
     }

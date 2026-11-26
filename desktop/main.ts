@@ -1,9 +1,9 @@
 // The desktop app's main process: one window on the app's local server, which
 // serves den-kit's page, runs the AI bridge (with Codex) and the works' sandbox;
 // the host interfaces the page asks for over IPC (storage, fetch, the sandbox,
-// settings, updates, usage data); the window's rules; the app menu, whose Help →
-// Licenses opens windows of their own (desktop/licenses.ts); and saving before the
-// app quits.
+// settings, updates, usage data); crash reports (desktop/crash-reports.ts); the
+// window's rules; the app menu, whose Help → Licenses opens windows of their own
+// (desktop/licenses.ts); and saving before the app quits.
 import {
   app,
   autoUpdater as squirrel,
@@ -18,7 +18,8 @@ import {
   type IpcMainEvent,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CodexClient } from '../bridge/codex/client.ts';
 import { CODEX_VERSION } from '../bridge/codex/protocol.ts';
@@ -36,6 +37,7 @@ import { openChatGPTSignIn } from './sign-in.ts';
 import { DesktopUpdates } from './updates.ts';
 import { NoticesWindows } from './licenses.ts';
 import { DesktopAnalytics, osName } from './analytics.ts';
+import { CrashReports, crashRelease, type Redaction } from './crash-reports.ts';
 import { signInPending } from '../src/editor/settings-presentation.ts';
 
 interface OperatorConfig {
@@ -43,6 +45,8 @@ interface OperatorConfig {
   /** Where usage events go, and where a person asks to see or delete their usage data (desktop/analytics.ts). */
   usageUrl?: string;
   dataContact?: string;
+  /** The Sentry project crash reports go to (desktop/crash-reports.ts). */
+  sentryDsn?: string;
 }
 let window: BrowserWindow | null = null;
 let bridge: Bridge | null = null;
@@ -52,6 +56,7 @@ let codex: CodexClient;
 let settings: DesktopSettings;
 let operator: OperatorConfig = {};
 let analytics: DesktopAnalytics | null = null;
+let crashReports: CrashReports | null = null;
 let updates = new DesktopUpdates({ updater: null, native: null });
 let quitting = false;
 let shutdownComplete = false;
@@ -71,6 +76,7 @@ else {
     window?.show();
     window?.focus();
   });
+  prepare();
   void app
     .whenReady()
     .then(start)
@@ -83,6 +89,53 @@ else {
       );
       app.quit();
     });
+}
+
+/** The app's resources: operator.json, the icon, the license notices and the Codex CLI. */
+function resourcesPath() {
+  return app.isPackaged ? process.resourcesPath : resolve(app.getAppPath(), '../resources');
+}
+
+/**
+ * Before the app is ready: the operator's configuration, the person's answers about the data
+ * den-kit may send, and crash reports when the person allowed them, so that the crash reporter
+ * watches every process the app starts.
+ */
+function prepare() {
+  try {
+    operator = JSON.parse(readFileSync(join(resourcesPath(), 'operator.json'), 'utf8'));
+  } catch {
+    /* build reports missing operator configuration */
+  }
+  const data = app.getPath('userData');
+  analytics = new DesktopAnalytics({
+    directory: data,
+    usageUrl: operator.usageUrl ?? null,
+    contact: operator.dataContact ?? null,
+    crashDsn: operator.sentryDsn ?? null,
+    version: app.getVersion(),
+    os: osName(process.platform, process.getSystemVersion()),
+    arch: process.arch,
+  });
+  if (!analytics.crashDsn) return;
+  crashReports = new CrashReports({
+    dsn: analytics.crashDsn,
+    release: crashRelease(app.getVersion()),
+    allowed: () => analytics!.crashReports,
+    redactions: (): Redaction[] => [
+      [homedir(), '~'],
+      ...[operator.browserPodKey, bridge?.token].flatMap(key =>
+        key ? [[key, '[key]'] as const] : [],
+      ),
+    ],
+    sentry: () => import('@sentry/electron/main'),
+    clear: () => {
+      for (const dir of [app.getPath('crashDumps'), join(data, 'sentry')])
+        rmSync(dir, { recursive: true, force: true });
+    },
+  });
+  // Before 'ready': loading Sentry and starting it take only promises that settle before then.
+  void crashReports.launch();
 }
 
 function trusted(event: IpcMainInvokeEvent | IpcMainEvent) {
@@ -200,7 +253,7 @@ async function installUpdate() {
 
 async function start() {
   const root = app.getAppPath();
-  const resources = app.isPackaged ? process.resourcesPath : resolve(root, '../resources');
+  const resources = resourcesPath();
   const icon = nativeImage.createFromPath(join(resources, 'icon.png'));
   app.dock?.setIcon(icon);
   app.setAboutPanelOptions({
@@ -213,19 +266,6 @@ async function start() {
   const data = app.getPath('userData');
   mkdirSync(data, { recursive: true, mode: 0o700 });
   settings = readSettings(data);
-  try {
-    operator = JSON.parse(readFileSync(join(resources, 'operator.json'), 'utf8'));
-  } catch {
-    /* build reports missing operator configuration */
-  }
-  analytics = new DesktopAnalytics({
-    directory: data,
-    usageUrl: operator.usageUrl ?? null,
-    contact: operator.dataContact ?? null,
-    version: app.getVersion(),
-    os: osName(process.platform, process.getSystemVersion()),
-    arch: process.arch,
-  });
   const home = join(data, 'codex');
   const cwd = join(data, 'codex-work');
   mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -290,7 +330,8 @@ async function start() {
       case 'choice':
         return analytics!.choice();
       case 'choose':
-        return analytics!.choose(r.choice);
+        analytics!.choose(r.choice);
+        return crashReports?.follow();
       case 'installId':
         return analytics!.installId();
       case 'record':
@@ -529,7 +570,7 @@ async function start() {
   await window.loadURL(APP_ORIGIN);
   void codex.start();
   updates.start();
-  analytics.start();
+  analytics!.start();
 }
 
 app.on('window-all-closed', () => app.quit());

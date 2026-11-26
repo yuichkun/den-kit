@@ -27,8 +27,8 @@ export interface DesktopInfo {
 export interface DesktopRuntime {
   token: string;
   apiKey: string | null;
-  /** The data this build may send and where a person asks about it; null when it sends nothing (desktop/analytics.ts). */
-  analytics: { kinds: DataKind[]; contact: string | null } | null;
+  /** The data this build may send, where a person asks about it and whether crash reports go out; null when it sends nothing (desktop/analytics.ts). */
+  analytics: { kinds: DataKind[]; contact: string | null; crashReports: boolean } | null;
 }
 export interface DesktopAPI {
   runtime: DesktopRuntime;
