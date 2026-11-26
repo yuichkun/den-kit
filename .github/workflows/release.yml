@@ -90,6 +90,8 @@ jobs:
       - name: Build, sign and notarize for Apple silicon and Intel
         env:
           BROWSERPOD_API_KEY: ${{ secrets.BROWSERPOD_API_KEY }}
+          DEN_KIT_USAGE_URL: ${{ vars.DEN_KIT_USAGE_URL }}
+          DEN_KIT_DATA_CONTACT: ${{ vars.DEN_KIT_DATA_CONTACT }}          
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
