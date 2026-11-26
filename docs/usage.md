@@ -47,10 +47,12 @@ install, den-kit's version, the OS, the CPU type and the time.
 | `work_exported`   | Each time you export a work                                                                                                                  |
 
 Usage data never includes your works, code, sounds, images, AI conversations, the names or
-places of files, or sign-in details. Events that could not be sent wait in the app's data
-folder and go later; turning usage data off deletes them. The install's ID is made when you
-first allow usage data. Settings shows it, and the email address to write to with the ID to
-see or delete the usage data sent with it.
+places of files, or sign-in details. Escentier keeps each event for 45 days after the day it
+happened and, after that, only counts that hold no ID. It never keeps the address your computer
+sends from. Events that could not be sent wait in the app's data folder and go later; turning
+usage data off deletes them. The install's ID is made when you first allow usage data. Settings
+shows it, and the email address to write to with the ID to see or delete the usage data sent
+with it.
 
 ## Basic workflow
 

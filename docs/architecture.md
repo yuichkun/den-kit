@@ -64,7 +64,9 @@ work imports none of these modules: a code part imports the kit, which includes 
 and any npm package; a codebox uses the unworklet core API and the asset API; a canvas's
 drawing code gets only the frame its worker passes in (`src/screen/canvas.worker.ts`). The desktop app (`desktop/`) and the development
 host that `vp run dev` serves (`dev/`) implement `host`; both run the local AI bridge in
-`bridge/`, which connects den-kit's tools to the agent runtime.
+`bridge/`, which connects den-kit's tools to the agent runtime. The usage receiver in `receiver/`
+runs on Cloudflare, apart from den-kit, and takes the usage events the desktop app sends
+([usage-receiver.md](usage-receiver.md)).
 
 ## How a change moves
 
